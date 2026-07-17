@@ -1,0 +1,15 @@
+[package]
+name = "adhammer-smb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-ntlm = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "time"] }
+tracing = { workspace = true }
+hmac = { workspace = true }
+sha2 = "0.10"
+rand = "0.8"

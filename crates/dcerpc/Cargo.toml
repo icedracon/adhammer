@@ -1,0 +1,13 @@
+[package]
+name = "adhammer-dcerpc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+adhammer-smb = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "time"] }
+tracing = { workspace = true }

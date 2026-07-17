@@ -1,0 +1,12 @@
+[package]
+name = "adhammer-collector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+ldap3 = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

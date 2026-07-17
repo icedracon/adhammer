@@ -1,0 +1,11 @@
+[package]
+name = "adhammer-checks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+adhammer-sddl = { workspace = true }
+adhammer-graph = { workspace = true }
+

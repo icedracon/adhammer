@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/sddl",
+    "crates/collector",
+    "crates/checks",
+    "crates/graph",
+    "crates/kerberos",
+    "crates/report",
+    "crates/sysvol",
+    "crates/dcerpc",
+    "crates/ntlm",
+    "crates/smb",
+    "cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["zevs"]
+rust-version = "1.80"
+
+[workspace.dependencies]
+# internal
+adhammer-core      = { path = "crates/core" }
+adhammer-sddl      = { path = "crates/sddl" }
+adhammer-collector = { path = "crates/collector" }
+adhammer-checks    = { path = "crates/checks" }
+adhammer-graph     = { path = "crates/graph" }
+adhammer-kerberos  = { path = "crates/kerberos" }
+adhammer-report    = { path = "crates/report" }
+adhammer-sysvol    = { path = "crates/sysvol" }
+adhammer-dcerpc    = { path = "crates/dcerpc" }
+adhammer-ntlm      = { path = "crates/ntlm" }
+adhammer-smb       = { path = "crates/smb" }
+
+# external
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+anyhow      = "1"
+thiserror   = "2"
+bitflags    = { version = "2", features = ["serde"] }
+tokio       = { version = "1", features = ["rt-multi-thread", "macros"] }
+ldap3       = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+petgraph    = "0.6"
+clap        = { version = "4", features = ["derive"] }
+tracing     = "0.1"
+tracing-subscriber = "0.3"
+
+# crypto / kerberos (roasting layer)
+picky-krb   = "0.9"
+picky-asn1  = "0.10"
+md-5        = "0.10"
+md4         = "0.10"
+hmac        = "0.12"
+rc4         = "0.1"
+aes         = "0.8"
+cbc         = "0.1"
+hex         = "0.4"
+base64      = "0.22"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

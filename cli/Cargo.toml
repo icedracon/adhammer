@@ -1,0 +1,23 @@
+[package]
+name = "adhammer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "adhammer"
+path = "src/main.rs"
+
+[dependencies]
+adhammer-core = { workspace = true }
+adhammer-collector = { workspace = true }
+adhammer-checks = { workspace = true }
+adhammer-graph = { workspace = true }
+adhammer-report = { workspace = true }
+adhammer-kerberos = { workspace = true }
+adhammer-sysvol = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

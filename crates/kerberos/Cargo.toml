@@ -1,0 +1,18 @@
+[package]
+name = "adhammer-kerberos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+anyhow = { workspace = true }
+hex = { workspace = true }
+
+# Kerberos roasting is built on picky-krb (Devolutions pure-Rust ASN.1 + KRB message
+# types) — no ASN.1 from scratch.
+picky-krb = { workspace = true }
+picky-asn1 = { workspace = true }
+picky-asn1-der = "0.5"
+rand = "0.8"
+tokio = { workspace = true, features = ["net", "io-util", "time"] }

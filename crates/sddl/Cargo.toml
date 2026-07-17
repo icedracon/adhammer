@@ -1,0 +1,10 @@
+[package]
+name = "adhammer-sddl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+bitflags = { workspace = true }
+thiserror = { workspace = true }
