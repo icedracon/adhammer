@@ -132,6 +132,12 @@ pub(crate) fn now_kerberos_time() -> KerberosTime {
     )
 }
 
+/// A far-future Kerberos ticket expiry (`till`). Must be after the start time or the KDC
+/// rejects the request with KDC_ERR_NEVER_VALID.
+pub(crate) fn far_future_time() -> KerberosTime {
+    KerberosTime::from(Date::new(2037, 9, 13, 2, 48, 5).unwrap())
+}
+
 /// days since 1970-01-01 → (year, month, day). Howard Hinnant's civil_from_days.
 fn civil_from_days(z: i64) -> (u16, u8, u8) {
     let z = z + 719_468;
