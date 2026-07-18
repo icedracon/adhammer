@@ -8,6 +8,7 @@
 
 pub mod header;
 pub mod msg;
+pub mod spnego;
 pub mod transport;
 pub mod client;
 

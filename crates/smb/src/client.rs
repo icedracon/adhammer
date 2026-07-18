@@ -55,26 +55,32 @@ impl SmbClient {
         let resp = self.call(cmd::NEGOTIATE, &msg::negotiate(&guid)).await?;
         Self::ok(&resp, cmd::NEGOTIATE)?;
 
-        // SESSION_SETUP #1: send NTLM NEGOTIATE, expect MORE_PROCESSING_REQUIRED + CHALLENGE.
+        // SESSION_SETUP #1: NTLM NEGOTIATE wrapped in SPNEGO negTokenInit.
         let ntlm = Ntlm::new();
-        let resp = self.call(cmd::SESSION_SETUP, &msg::session_setup(ntlm.negotiate())).await?;
+        let init = crate::spnego::negotiate_init(ntlm.negotiate());
+        let resp = self.call(cmd::SESSION_SETUP, &msg::session_setup(&init)).await?;
         let p = header::parse(&resp)?;
         if p.status != crate::status::MORE_PROCESSING_REQUIRED {
             return Err(SmbError::Status(p.status, cmd::SESSION_SETUP));
         }
         self.session_id = p.session_id;
-        let challenge = msg::session_setup_token(&resp)?;
+
+        // The server CHALLENGE (Type 2) is embedded in a SPNEGO negTokenResp.
+        let blob = msg::session_setup_token(&resp)?;
+        let challenge = crate::spnego::find_ntlm(&blob).ok_or(SmbError::BadToken)?;
 
         // Build AUTHENTICATE; the exported session key becomes our signing key.
         let (type3, session_key) = ntlm
-            .authenticate(&challenge, domain, user, password, host)
+            .authenticate(challenge, domain, user, password, host)
             .map_err(|e| SmbError::Ntlm(e.to_string()))?;
 
-        // SESSION_SETUP #2: send NTLM AUTHENTICATE (this request is itself signed once we
-        // have the key, matching Windows behaviour).
-        self.sign_key = Some(session_key);
-        let resp = self.call(cmd::SESSION_SETUP, &msg::session_setup(&type3)).await?;
+        // SESSION_SETUP #2: AUTHENTICATE (Type 3) in a SPNEGO negTokenResp; signed once we
+        // have the session key, matching Windows behaviour.
+        let token = crate::spnego::negotiate_resp(&type3);
+        let resp = self.call(cmd::SESSION_SETUP, &msg::session_setup(&token)).await?;
         Self::ok(&resp, cmd::SESSION_SETUP)?;
+        // Session established — sign every subsequent request with the session key.
+        self.sign_key = Some(session_key);
         Ok(())
     }
 

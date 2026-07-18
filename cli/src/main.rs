@@ -20,6 +20,24 @@ enum Command {
     Scan(ScanArgs),
     /// List Kerberos roasting candidates from a live collection (no cracking).
     Roast(ScanArgs),
+    /// Enumerate domain users over SAMR (SMB named-pipe RPC) — exercises the full stack.
+    Samr(SamrArgs),
+}
+
+#[derive(Parser)]
+struct SamrArgs {
+    /// DC host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. TESTLAB
+    #[arg(long)]
+    domain: String,
+    /// Username (sAMAccountName)
+    #[arg(long)]
+    user: String,
+    /// Password
+    #[arg(long)]
+    password: String,
 }
 
 #[derive(Parser)]
@@ -58,7 +76,30 @@ async fn main() -> Result<()> {
     match cli.cmd {
         Command::Scan(a) => scan(a).await,
         Command::Roast(a) => roast(a).await,
+        Command::Samr(a) => samr(a).await,
     }
+}
+
+/// Full impacket-style path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
+/// DCE/RPC bind → SamrConnect → enumerate domain users.
+async fn samr(a: SamrArgs) -> Result<()> {
+    use adhammer_dcerpc::samr::SamrClient;
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    tracing::info!("SMB session established");
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("samr").await?;
+    tracing::info!("\\samr pipe open");
+
+    let mut client = SamrClient::bind(&mut smb, pipe).await?;
+    let users = client.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
+    println!("== SAMR users ({}) ==", users.len());
+    for (rid, name) in users {
+        println!("  {rid}\t{name}");
+    }
+    Ok(())
 }
 
 fn config(a: &ScanArgs) -> LdapConfig {

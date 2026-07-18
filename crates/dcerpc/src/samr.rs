@@ -154,7 +154,7 @@ pub fn encode_open_domain(server: &SamrHandle, desired_access: u32, sid: &Sid) -
     let mut e = NdrEncoder::new();
     server.encode(&mut e);
     e.u32(desired_access);
-    e.referent(); // DomainId pointer
+    // DomainId is a top-level [ref] pointer → NDR emits the pointee directly, no referent id.
     encode_sid(&mut e, sid);
     e.into_bytes()
 }

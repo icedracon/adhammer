@@ -53,14 +53,6 @@ fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
     o
 }
 
-fn rc4(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
-    use rc4::{consts::U16, KeyInit, StreamCipher};
-    let mut cipher = rc4::Rc4::<U16>::new(key.into());
-    let mut buf = data.to_vec();
-    cipher.apply_keystream(&mut buf);
-    buf
-}
-
 /// NTOWFv2 = HMAC-MD5(NT-hash, UTF-16LE(UPPER(user) + domain)).
 pub fn nt_owf_v2(password: &str, user: &str, domain: &str) -> [u8; 16] {
     let nt = nt_hash(password);
@@ -209,19 +201,16 @@ impl Ntlm {
         let (nt_response, session_base_key, lm_response) =
             ntlmv2_response(&resp_key, &ch.server_challenge, &client_challenge, timestamp, &ch.target_info);
 
-        // Key exchange: random ExportedSessionKey, RC4-wrapped with the KeyExchangeKey
-        // (= SessionBaseKey for NTLMv2 extended security).
-        let mut exported = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut exported);
-        let enc_session_key = rc4(&session_base_key, &exported);
-
+        // No key exchange: the exported session key IS the SessionBaseKey. Simpler and it
+        // makes the SMB/RPC signing key unambiguous (no RC4-wrapped random key to agree on).
+        let exported = session_base_key;
         let type3 = build_type3(
             &lm_response,
             &nt_response,
             domain,
             user,
             workstation,
-            &enc_session_key,
+            &[], // no EncryptedRandomSessionKey without key exchange
             &self.type1,
             challenge,
             &exported,
@@ -254,8 +243,7 @@ fn build_type3(
         | flags::NEGOTIATE_EXTENDED_SESSIONSECURITY
         | flags::NEGOTIATE_TARGET_INFO
         | flags::NEGOTIATE_VERSION
-        | flags::NEGOTIATE_128
-        | flags::NEGOTIATE_KEY_EXCH;
+        | flags::NEGOTIATE_128;
 
     // Header is 88 bytes: sig(8)+type(4)+6 fields(48)+flags(4)+version(8)+MIC(16).
     const HEADER: u32 = 88;
