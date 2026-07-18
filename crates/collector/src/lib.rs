@@ -8,8 +8,20 @@ use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::{DomainInfo, Snapshot};
 use anyhow::{Context, Result};
 use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
+use ldap3::controls::RawControl;
 use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use std::collections::HashMap;
+
+/// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of
+/// nTSecurityDescriptor (0x7), omitting the SACL. Without this, a non-admin bind gets an
+/// empty security descriptor, so DACL-based checks (ESC, control paths) see nothing.
+fn sd_flags_control() -> RawControl {
+    RawControl {
+        ctype: "1.2.840.113556.1.4.801".into(),
+        crit: false,
+        val: Some(vec![0x30, 0x03, 0x02, 0x01, 0x07]), // SEQUENCE { INTEGER 7 }
+    }
+}
 
 /// Attributes we always want. `nTSecurityDescriptor` comes back with owner/group/dacl
 /// even without SeSecurityPrivilege. AD CS template attrs are harmless on other objects.
@@ -119,6 +131,7 @@ impl Collector {
 
     /// Base-scope read of a single object (e.g. the Directory Service heuristics object).
     async fn search_base_into(&mut self, base: &str, out: &mut Vec<AdObject>) -> Result<()> {
+        self.ldap.with_controls(sd_flags_control());
         let (rs, _) = self
             .ldap
             .search(base, Scope::Base, "(objectClass=*)", ATTRS.to_vec())
@@ -133,6 +146,7 @@ impl Collector {
     async fn search_into(&mut self, base: &str, filter: &str, out: &mut Vec<AdObject>) -> Result<()> {
         let adapters: Vec<Box<dyn Adapter<_, _>>> =
             vec![Box::new(EntriesOnly::new()), Box::new(PagedResults::new(1000))];
+        self.ldap.with_controls(sd_flags_control());
         let mut stream = self
             .ldap
             .streaming_search_with(adapters, base, Scope::Subtree, filter, ATTRS.to_vec())
