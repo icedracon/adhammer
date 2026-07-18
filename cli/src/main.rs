@@ -45,6 +45,9 @@ struct ScanArgs {
     /// SYSVOL path for `scan` to hunt GPP cpasswords, e.g. \\corp.local\SYSVOL
     #[arg(long)]
     sysvol: Option<String>,
+    /// Skip TLS certificate verification (LDAPS against a self-signed / lab DC)
+    #[arg(long)]
+    insecure: bool,
 }
 
 #[tokio::main]
@@ -64,6 +67,7 @@ fn config(a: &ScanArgs) -> LdapConfig {
         bind_dn: a.user.clone(),
         password: a.password.clone(),
         base_dn: a.base_dn.clone(),
+        insecure: a.insecure,
     }
 }
 

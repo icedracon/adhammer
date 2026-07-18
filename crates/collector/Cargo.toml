@@ -10,3 +10,4 @@ ldap3 = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+rustls = "0.21"

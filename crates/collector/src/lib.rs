@@ -43,6 +43,31 @@ pub struct LdapConfig {
     pub bind_dn: String,  // CORP\\user  or user@corp.local  or full DN
     pub password: String,
     pub base_dn: Option<String>, // default: RootDSE defaultNamingContext
+    pub insecure: bool,   // skip TLS cert verification (labs / self-signed DC certs)
+}
+
+/// Accept any server certificate — lab use only, for self-signed DC certs over LDAPS.
+struct NoCertVerify;
+impl rustls::client::ServerCertVerifier for NoCertVerify {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
+    }
+}
+
+fn insecure_tls() -> std::sync::Arc<rustls::ClientConfig> {
+    let cfg = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(std::sync::Arc::new(NoCertVerify))
+        .with_no_client_auth();
+    std::sync::Arc::new(cfg)
 }
 
 pub struct Collector {
@@ -53,7 +78,12 @@ pub struct Collector {
 
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
-        let (conn, mut ldap) = LdapConnAsync::new(&cfg.url).await.context("ldap connect")?;
+        let (conn, mut ldap) = if cfg.insecure {
+            let settings = ldap3::LdapConnSettings::new().set_config(insecure_tls());
+            LdapConnAsync::with_settings(settings, &cfg.url).await.context("ldap connect")?
+        } else {
+            LdapConnAsync::new(&cfg.url).await.context("ldap connect")?
+        };
         ldap3::drive!(conn);
         ldap.simple_bind(&cfg.bind_dn, &cfg.password)
             .await?

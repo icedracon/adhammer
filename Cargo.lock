@@ -36,6 +36,7 @@ dependencies = [
  "adhammer-core",
  "anyhow",
  "ldap3",
+ "rustls",
  "tokio",
  "tracing",
 ]
