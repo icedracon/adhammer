@@ -13,6 +13,7 @@ dependencies = [
  "adhammer-graph",
  "adhammer-kerberos",
  "adhammer-report",
+ "adhammer-sddl",
  "adhammer-smb",
  "adhammer-sysvol",
  "anyhow",

