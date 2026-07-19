@@ -208,8 +208,8 @@ pub fn format_asrep(user: &str, realm: &str, enc_part: &[u8]) -> String {
     )
 }
 
-/// hashcat `-m 13100` line for a TGS-REP (Kerberoast, etype 23):
-/// `$krb5tgs$23$*user$REALM$spn*$<checksum16>$<edata>`
+/// hashcat `-m 13100` line for an RC4 TGS-REP (etype 23):
+/// `$krb5tgs$23$*user$REALM$spn*$<checksum16>$<edata>` (RC4 puts the 16-byte checksum first).
 pub fn format_tgs(user: &str, realm: &str, spn: &str, enc_part: &[u8]) -> String {
     let cut = 16.min(enc_part.len());
     format!(
@@ -219,6 +219,22 @@ pub fn format_tgs(user: &str, realm: &str, spn: &str, enc_part: &[u8]) -> String
         spn,
         hex::encode(&enc_part[..cut]),
         hex::encode(&enc_part[cut..])
+    )
+}
+
+/// hashcat `-m 19600` (AES128, etype 17) / `-m 19700` (AES256, etype 18) TGS line:
+/// `$krb5tgs$<etype>$*user$REALM$spn*$<checksum12>$<edata>` (AES puts the 12-byte HMAC last).
+pub fn format_tgs_aes(user: &str, realm: &str, spn: &str, etype: u8, enc_part: &[u8]) -> String {
+    let split = enc_part.len().saturating_sub(12);
+    let (edata, checksum) = enc_part.split_at(split);
+    format!(
+        "$krb5tgs${}$*{}${}${}*${}${}",
+        etype,
+        user,
+        realm,
+        spn,
+        hex::encode(checksum),
+        hex::encode(edata)
     )
 }
 

