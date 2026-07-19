@@ -83,6 +83,9 @@ struct ScanArgs {
     /// Skip TLS certificate verification (LDAPS against a self-signed / lab DC)
     #[arg(long)]
     insecure: bool,
+    /// SASL GSSAPI bind (signed LDAP over 389 via ambient Kerberos; needs `--features gssapi`)
+    #[arg(long)]
+    gssapi: bool,
 }
 
 #[tokio::main]
@@ -146,6 +149,7 @@ fn config(a: &ScanArgs) -> LdapConfig {
         password: a.password.clone(),
         base_dn: a.base_dn.clone(),
         insecure: a.insecure,
+        gssapi: a.gssapi,
     }
 }
 

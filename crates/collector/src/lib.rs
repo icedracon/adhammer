@@ -56,6 +56,12 @@ pub struct LdapConfig {
     pub password: String,
     pub base_dn: Option<String>, // default: RootDSE defaultNamingContext
     pub insecure: bool,   // skip TLS cert verification (labs / self-signed DC certs)
+    pub gssapi: bool,     // SASL GSSAPI bind (signed LDAP over 389, ambient Kerberos)
+}
+
+/// The server FQDN from an LDAP URL, for the GSSAPI service principal (ldap/<fqdn>).
+fn url_host(url: &str) -> String {
+    url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("").split(':').next().unwrap_or("").to_string()
 }
 
 /// Accept any server certificate — lab use only, for self-signed DC certs over LDAPS.
@@ -97,14 +103,26 @@ impl Collector {
             LdapConnAsync::new(&cfg.url).await.context("ldap connect")?
         };
         ldap3::drive!(conn);
-        ldap.simple_bind(&cfg.bind_dn, &cfg.password)
-            .await?
-            .success()
-            .context("bind failed")?;
+        Self::bind(&mut ldap, cfg).await?;
 
         let (default_nc, config_nc) = root_ncs(&mut ldap).await?;
         let base_dn = cfg.base_dn.clone().unwrap_or(default_nc);
         Ok(Collector { ldap, base_dn, config_dn: config_nc })
+    }
+
+    async fn bind(ldap: &mut ldap3::Ldap, cfg: &LdapConfig) -> Result<()> {
+        if cfg.gssapi {
+            #[cfg(feature = "gssapi")]
+            {
+                let fqdn = url_host(&cfg.url);
+                ldap.sasl_gssapi_bind(&fqdn).await?.success().context("GSSAPI bind failed")?;
+                return Ok(());
+            }
+            #[cfg(not(feature = "gssapi"))]
+            anyhow::bail!("--gssapi requires a build with `--features gssapi`");
+        }
+        ldap.simple_bind(&cfg.bind_dn, &cfg.password).await?.success().context("bind failed")?;
+        Ok(())
     }
 
     /// Paged subtree search over the domain NC, then over the AD CS container.

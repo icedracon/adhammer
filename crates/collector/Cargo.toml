@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Optional SASL GSSAPI (Kerberos) bind — signed LDAP over 389 without LDAPS/--insecure,
+# via ambient Kerberos (ccache on Unix, SSPI on Windows). Pulls a C dep (breaks static
+# musl), so it is off by default.
+gssapi = ["ldap3/gssapi"]
+
 [dependencies]
 adhammer-core = { workspace = true }
 ldap3 = { workspace = true }
