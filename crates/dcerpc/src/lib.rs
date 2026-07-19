@@ -16,6 +16,7 @@ pub mod transport;
 pub mod epm;
 pub mod samr;
 pub mod lsat;
+pub mod efsr;
 
 use adhammer_core::sid::Guid;
 

