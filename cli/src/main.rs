@@ -22,6 +22,23 @@ enum Command {
     Roast(ScanArgs),
     /// Enumerate domain users over SAMR (SMB named-pipe RPC) — exercises the full stack.
     Samr(SamrArgs),
+    /// Resolve a name to its SID over LSAT (\lsarpc).
+    Lsa(LsaArgs),
+}
+
+#[derive(Parser)]
+struct LsaArgs {
+    #[arg(long)]
+    host: String,
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// Name to resolve to a SID, e.g. Administrator
+    #[arg(long)]
+    name: String,
 }
 
 #[derive(Parser)]
@@ -77,7 +94,27 @@ async fn main() -> Result<()> {
         Command::Scan(a) => scan(a).await,
         Command::Roast(a) => roast(a).await,
         Command::Samr(a) => samr(a).await,
+        Command::Lsa(a) => lsa(a).await,
     }
+}
+
+/// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).
+async fn lsa(a: LsaArgs) -> Result<()> {
+    use adhammer_dcerpc::lsat::LsatClient;
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("lsarpc").await?;
+
+    let mut client = LsatClient::bind(&mut smb, pipe).await?;
+    let policy = client.open_policy().await?;
+    match client.lookup_name(&policy, &a.name).await? {
+        Some(sid) => println!("{} => {sid}", a.name),
+        None => println!("{} => (not mapped)", a.name),
+    }
+    Ok(())
 }
 
 /// Full impacket-style path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
