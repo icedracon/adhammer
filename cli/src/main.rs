@@ -252,7 +252,9 @@ async fn dcsync(a: DcsyncArgs) -> Result<()> {
     match a.target {
         None => println!("    (no --target: bind-only check)"),
         Some(t) => {
-            let _ = sess.get_nc_changes(&t, &adhammer_core::sid::Sid::parse("S-1-0-0").unwrap()).await?;
+            let guid = sess.crack_name_to_guid(&a.domain, &t).await?;
+            let g: String = guid.iter().map(|b| format!("{b:02x}")).collect();
+            println!("[+] DRSCrackNames: {}\\{} → objectGUID {g}", a.domain, t);
         }
     }
     Ok(())

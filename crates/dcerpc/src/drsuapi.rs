@@ -25,7 +25,12 @@ const NTDSAPI_CLIENT_GUID: &str = "e24d201a-4fd6-11d1-a3da-0000f875ae0d";
 pub mod opnum {
     pub const DRS_BIND: u16 = 0;
     pub const DRS_GET_NC_CHANGES: u16 = 3;
+    pub const DRS_CRACK_NAMES: u16 = 12;
 }
+
+// DS_NAME_FORMAT (MS-DRSR 4.1.4.1.3).
+const DS_NT4_ACCOUNT_NAME: u32 = 2;
+const DS_UNIQUE_ID_NAME: u32 = 6; // "{objectGUID}"
 
 // DRS_EXTENSIONS_INT dwFlags bits we advertise — enough for a V8 request / V6 reply with
 // strong (session-key) encryption of the returned secrets.
@@ -33,6 +38,12 @@ const DRS_EXT_BASE: u32 = 0x0000_0001;
 const DRS_EXT_STRONG_ENCRYPTION: u32 = 0x0000_8000;
 const DRS_EXT_GETCHGREQ_V8: u32 = 0x0100_0000;
 const DRS_EXT_GETCHGREPLY_V6: u32 = 0x0400_0000;
+
+/// Parse a "{guid}" (or bare guid) string into the 16-byte DCE wire layout.
+fn parse_guid_braced(s: &str) -> Result<[u8; 16]> {
+    let t = s.trim().trim_start_matches('{').trim_end_matches('}');
+    Guid::parse(t).map(|g| g.0).ok_or_else(|| RpcError::Protocol(format!("bad GUID '{s}'")))
+}
 
 /// Build the DRS_EXTENSIONS_INT rgb payload (the bytes that follow `cb`).
 fn drs_extensions_rgb() -> Vec<u8> {
@@ -101,6 +112,56 @@ impl DrsSession {
 
     pub fn handle(&self) -> &[u8; 20] {
         &self.handle
+    }
+
+    /// DRSCrackNames: resolve `DOMAIN\name` (NT4 format) to the target's objectGUID.
+    /// Uses the V1 request/reply. Returns the 16-byte GUID (DCE wire layout).
+    pub async fn crack_name_to_guid(&mut self, netbios_domain: &str, name: &str) -> Result<[u8; 16]> {
+        let offered = format!("{netbios_domain}\\{name}");
+        let mut e = NdrEncoder::new();
+        e.bytes(&self.handle); // hDrs context handle (20 bytes, [ref])
+        e.u32(1); // dwInVersion = 1
+        // pmsgIn [ref, switch_is(1)] → non-encapsulated union: switch value then the V1 arm.
+        e.u32(1); // union discriminant = 1
+        e.u32(0); // CodePage
+        e.u32(0); // LocaleId
+        e.u32(0); // dwFlags
+        e.u32(DS_NT4_ACCOUNT_NAME); // formatOffered
+        e.u32(DS_UNIQUE_ID_NAME); // formatDesired
+        e.u32(1); // cNames
+        e.referent(); // rpNames (embedded pointer to the array)
+        e.u32(1); // conformant max_count of the pointer array
+        e.referent(); // rpNames[0] (pointer to the string)
+        e.conformant_varying_wstr(&offered);
+        let resp = self.rpc.call_sealed(opnum::DRS_CRACK_NAMES, &e.into_bytes()).await?;
+
+        // Reply: pdwOutVersion (u32), then DRS_MSG_CRACKREPLY union (switch=1) → DS_NAME_RESULTW*
+        //   { cItems, [ref] rItems* → [ cItems × { status u32, pDomain wstr*, pName wstr* } ] }
+        let mut d = NdrDecoder::new(&resp);
+        let _out_version = d.u32()?;
+        let _union_switch = d.u32()?;
+        let _presult_ref = d.u32()?; // pResult [ref] referent
+        let c_items = d.u32()?;
+        let _ritems_ref = d.u32()?; // rItems [ref] referent
+        let _max = d.u32()?; // conformant max_count of the item array
+        if c_items == 0 {
+            return Err(RpcError::Protocol("CrackNames returned no items".into()));
+        }
+        // Item array: fixed fields first (status + two string referents), then the strings.
+        let status = d.u32()?;
+        let dom_ref = d.u32()?;
+        let name_ref = d.u32()?;
+        if status != 0 {
+            return Err(RpcError::Protocol(format!("CrackNames status {status} (name not found?)")));
+        }
+        if dom_ref != 0 {
+            let _dom = d.conformant_varying_wstr()?;
+        }
+        if name_ref == 0 {
+            return Err(RpcError::Protocol("CrackNames: no cracked name returned".into()));
+        }
+        let cracked = d.conformant_varying_wstr()?; // "{guid}"
+        parse_guid_braced(&cracked)
     }
 
     /// Placeholder for the DRSGetNCChanges call (next step).
