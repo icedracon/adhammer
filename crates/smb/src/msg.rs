@@ -119,7 +119,7 @@ pub fn ioctl_transceive(file_id: &[u8; 16], input: &[u8]) -> Vec<u8> {
     b.extend_from_slice(&0u32.to_le_bytes()); // MaxInputResponse
     b.extend_from_slice(&input_off.to_le_bytes()); // OutputOffset
     b.extend_from_slice(&0u32.to_le_bytes()); // OutputCount
-    b.extend_from_slice(&1024u32.to_le_bytes()); // MaxOutputResponse
+    b.extend_from_slice(&0x0001_0000u32.to_le_bytes()); // MaxOutputResponse (64 KiB — SMB2.1 max transact)
     b.extend_from_slice(&0x0000_0001u32.to_le_bytes()); // Flags = IS_FSCTL
     b.extend_from_slice(&0u32.to_le_bytes()); // Reserved2
     b.extend_from_slice(input);

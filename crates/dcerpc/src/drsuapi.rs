@@ -206,8 +206,8 @@ impl DrsSession {
 
         let resp = self.rpc.call_sealed(opnum::DRS_GET_NC_CHANGES, &e.into_bytes()).await?;
         if std::env::var("ADH_DEBUG").is_ok() {
-            eprintln!("[dbg] DRSGetNCChanges reply {} bytes, head: {}", resp.len(),
-                resp.iter().take(96).map(|b| format!("{b:02x}")).collect::<String>());
+            std::fs::write("getncchanges.bin", &resp).ok();
+            eprintln!("[dbg] DRSGetNCChanges reply {} bytes → getncchanges.bin", resp.len());
         }
         Ok(resp)
     }
