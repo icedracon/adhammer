@@ -3,6 +3,8 @@ name = "adhammer-sddl"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer SDDL — self-rolled SECURITY_DESCRIPTOR/DACL/ACE parser (MS-DTYP) + RBCD SD builder."
+repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }

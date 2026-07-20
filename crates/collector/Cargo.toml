@@ -3,6 +3,8 @@ name = "adhammer-collector"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer LDAP collector — domain + Configuration NC collection over ldap3/rustls."
+repository.workspace = true
 
 [features]
 # Optional SASL GSSAPI (Kerberos) bind — signed LDAP over 389 without LDAPS/--insecure,

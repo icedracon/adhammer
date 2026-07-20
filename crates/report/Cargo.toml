@@ -3,6 +3,8 @@ name = "adhammer-report"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer reporting — configurable risk scoring to JSON/HTML."
+repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }

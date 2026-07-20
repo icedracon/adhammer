@@ -16,25 +16,27 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
 rust-version = "1.80"
+description = "ADhammer — Active Directory security assessment and offensive tradecraft in Rust, with a from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack."
+repository = "https://github.com/icedracon/adhammer"
 
 [workspace.dependencies]
-# internal
-adhammer-core      = { path = "crates/core" }
-adhammer-sddl      = { path = "crates/sddl" }
-adhammer-collector = { path = "crates/collector" }
-adhammer-checks    = { path = "crates/checks" }
-adhammer-graph     = { path = "crates/graph" }
-adhammer-kerberos  = { path = "crates/kerberos" }
-adhammer-report    = { path = "crates/report" }
-adhammer-sysvol    = { path = "crates/sysvol" }
-adhammer-dcerpc    = { path = "crates/dcerpc" }
-adhammer-ntlm      = { path = "crates/ntlm" }
-adhammer-smb       = { path = "crates/smb" }
+# internal (version required so crates.io can strip the path on publish)
+adhammer-core      = { path = "crates/core",      version = "0.0.1" }
+adhammer-sddl      = { path = "crates/sddl",      version = "0.0.1" }
+adhammer-collector = { path = "crates/collector", version = "0.0.1" }
+adhammer-checks    = { path = "crates/checks",    version = "0.0.1" }
+adhammer-graph     = { path = "crates/graph",     version = "0.0.1" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "0.0.1" }
+adhammer-report    = { path = "crates/report",    version = "0.0.1" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "0.0.1" }
+adhammer-dcerpc    = { path = "crates/dcerpc",    version = "0.0.1" }
+adhammer-ntlm      = { path = "crates/ntlm",      version = "0.0.1" }
+adhammer-smb       = { path = "crates/smb",       version = "0.0.1" }
 
 # external
 serde       = { version = "1", features = ["derive"] }

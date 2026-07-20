@@ -3,6 +3,8 @@ name = "adhammer-dcerpc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer DCE/RPC — from-scratch NDR, PDUs, NTLMSSP sign+seal, EPM, SAMR/LSAT/DRSUAPI."
+repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }

@@ -3,6 +3,8 @@ name = "adhammer-kerberos"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer Kerberos — AS-REP/Kerberoast, S4U/RBCD, Shadow Credentials PKINIT (picky-krb)."
+repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }

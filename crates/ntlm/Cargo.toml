@@ -3,6 +3,8 @@ name = "adhammer-ntlm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer NTLM — NTLMSSP (NTLMv2, MIC) + RC4 sign+seal for RPC packet privacy."
+repository.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }

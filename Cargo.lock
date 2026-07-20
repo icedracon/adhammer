@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adhammer"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-checks",
  "adhammer-collector",
@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-dcerpc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "adhammer-ntlm",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "adhammer-sddl",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ntlm"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "hmac",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sddl"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "bitflags",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-smb"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-ntlm",
  "anyhow",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "adhammer-core",
  "aes",

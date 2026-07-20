@@ -3,6 +3,8 @@ name = "adhammer-smb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer SMB2 — minimal client (negotiate, NTLMv2 SPNEGO, named-pipe RPC transport)."
+repository.workspace = true
 
 [dependencies]
 adhammer-ntlm = { workspace = true }

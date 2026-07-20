@@ -3,6 +3,8 @@ name = "adhammer-sysvol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer SYSVOL — GPP cpassword (MS14-025) and GptTmpl.inf policy analysis."
+repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }

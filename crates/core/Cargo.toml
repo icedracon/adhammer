@@ -3,6 +3,8 @@ name = "adhammer-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "ADhammer core model — SID/GUID, AD object snapshot, findings, MITRE mapping."
+repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }
