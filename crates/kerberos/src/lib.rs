@@ -26,7 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 mod tgs;
-pub use tgs::{check_credential, get_tgt, roast_spn, CredResult, Tgt};
+pub use tgs::{check_credential, get_tgt, rbcd_impersonate, roast_spn, CredResult, Tgt};
 
 /// Kerberos encryption type numbers (RFC 3961/4120).
 pub const ETYPE_RC4_HMAC: u8 = 23;

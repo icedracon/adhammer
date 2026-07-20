@@ -85,6 +85,7 @@ dependencies = [
  "picky-asn1-der",
  "picky-krb",
  "rand",
+ "serde",
  "tokio",
 ]
 

