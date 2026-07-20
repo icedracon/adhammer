@@ -16,21 +16,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Collect from LDAP and produce a scored report.
+    /// Passive audit: LDAP collection → control-path graph → 33 checks → scored report.
     Scan(ScanArgs),
-    /// List Kerberos roasting candidates from a live collection (no cracking).
-    Roast(ScanArgs),
-    /// Enumerate domain users over SAMR (SMB named-pipe RPC) — exercises the full stack.
+    /// Read-only enumeration over RPC (SAMR users, LSAT name↔SID).
+    #[command(subcommand)]
+    Enum(EnumCmd),
+    /// Active attacks: roasting, spraying, LDAP abuse, coercion, RBCD.
+    #[command(subcommand)]
+    Attack(AttackCmd),
+}
+
+#[derive(Subcommand)]
+enum EnumCmd {
+    /// Enumerate domain users over SAMR (SMB named pipe).
     Samr(SamrArgs),
     /// Resolve a name to its SID over LSAT (\lsarpc).
     Lsa(LsaArgs),
-    /// Kerberos password spray / user enumeration (no LDAP needed).
+}
+
+#[derive(Subcommand)]
+enum AttackCmd {
+    /// Kerberos AS-REP roast + Kerberoast (RC4/AES hashcat output).
+    Roast(ScanArgs),
+    /// Kerberos password spray / user enumeration.
     Spray(SprayArgs),
-    /// Active LDAP abuse: add-spn (targeted Kerberoast) / add-member / set-password.
+    /// LDAP abuse: add-spn / add-member / set-password / write-rbcd.
     Abuse(AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
     Coerce(CoerceArgs),
-    /// RBCD / constrained-delegation abuse: S4U2Self + S4U2Proxy to impersonate a user.
+    /// RBCD: S4U2Self + S4U2Proxy to impersonate a user to a target service.
     Rbcd(RbcdArgs),
 }
 
@@ -178,13 +192,13 @@ async fn main() -> Result<()> {
 
     match cli.cmd {
         Command::Scan(a) => scan(a).await,
-        Command::Roast(a) => roast(a).await,
-        Command::Samr(a) => samr(a).await,
-        Command::Lsa(a) => lsa(a).await,
-        Command::Spray(a) => spray(a).await,
-        Command::Abuse(a) => abuse(a).await,
-        Command::Coerce(a) => coerce(a).await,
-        Command::Rbcd(a) => rbcd(a).await,
+        Command::Enum(EnumCmd::Samr(a)) => samr(a).await,
+        Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
+        Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
+        Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
+        Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
+        Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
+        Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
     }
 }
 

@@ -10,7 +10,12 @@ DCE/RPC · NTLM · SMB2 · SAMR stack for enumeration LDAP cannot reproduce.
 
 ```
 adhammer scan  --url ldaps://dc.corp.local:636 --user CORP\\svc --password ... [--sysvol \\corp.local\SYSVOL]
-adhammer roast --url ldap://dc.corp.local:389  --user CORP\\svc --password ... [--kdc dc.corp.local]
+adhammer attack roast --url ldaps://dc.corp.local:636 --user CORP\\svc --password ... --insecure --kdc dc.corp.local
+
+# Three commands cover everything:
+#   scan                  passive audit (checks + control-path graph + SYSVOL)
+#   enum   {samr,lsa}     read-only RPC enumeration
+#   attack {roast,spray,abuse,coerce,rbcd}   active exploitation
 ```
 
 ## Architecture

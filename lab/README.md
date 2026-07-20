@@ -46,7 +46,7 @@ for trust checks, `dMSA` on Server 2025 for badSuccessor.
 ```powershell
 $dc = '192.168.10.1'
 .\target\release\adhammer.exe scan  --url "ldap://$dc:389" --user 'TESTLAB\Administrator' --password 'Zikurat2003$' --sysvol "\\testlab.local\SYSVOL"
-.\target\release\adhammer.exe roast --url "ldap://$dc:389" --user 'TESTLAB\Administrator' --password 'Zikurat2003$' --kdc $dc
+.\target\release\adhammer.exe attack roast --url "ldaps://$dc:636" --user 'TESTLAB\Administrator' --password 'Zikurat2003$' --insecure --kdc $dc
 ```
 
 Expected first breakages to debug (my predictions): simple bind may be refused if the DC
