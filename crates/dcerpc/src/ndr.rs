@@ -18,7 +18,9 @@ impl NdrEncoder {
         NdrEncoder { buf: Vec::new(), next_referent: 0x0002_0000 }
     }
 
-    fn align(&mut self, a: usize) {
+    /// Pad with zero bytes up to an `a`-byte boundary. Public so callers can align a union
+    /// arm or struct to its natural alignment (NDR aligns an aggregate to its largest member).
+    pub fn align(&mut self, a: usize) {
         while self.buf.len() % a != 0 {
             self.buf.push(0);
         }

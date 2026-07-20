@@ -255,6 +255,8 @@ async fn dcsync(a: DcsyncArgs) -> Result<()> {
             let guid = sess.crack_name_to_guid(&a.domain, &t).await?;
             let g: String = guid.iter().map(|b| format!("{b:02x}")).collect();
             println!("[+] DRSCrackNames: {}\\{} → objectGUID {g}", a.domain, t);
+            let reply = sess.get_nc_changes(&guid).await?;
+            println!("[+] DRSGetNCChanges returned {} bytes of replication data", reply.len());
         }
     }
     Ok(())
