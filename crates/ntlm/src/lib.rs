@@ -14,6 +14,7 @@ pub mod flags {
     pub const NEGOTIATE_UNICODE: u32 = 0x0000_0001;
     pub const REQUEST_TARGET: u32 = 0x0000_0004;
     pub const NEGOTIATE_SIGN: u32 = 0x0000_0010;
+    pub const NEGOTIATE_SEAL: u32 = 0x0000_0020;
     pub const NEGOTIATE_NTLM: u32 = 0x0000_0200;
     pub const NEGOTIATE_ALWAYS_SIGN: u32 = 0x0000_8000;
     pub const NEGOTIATE_EXTENDED_SESSIONSECURITY: u32 = 0x0008_0000;
@@ -21,6 +22,112 @@ pub mod flags {
     pub const NEGOTIATE_VERSION: u32 = 0x0200_0000;
     pub const NEGOTIATE_128: u32 = 0x2000_0000;
     pub const NEGOTIATE_KEY_EXCH: u32 = 0x4000_0000;
+}
+
+// ---- RPC sign+seal (MS-NLMP §3.4) -----------------------------------------
+
+/// RC4 stream cipher (ARCFOUR) — used for NTLM sealing.
+pub struct Rc4 {
+    s: [u8; 256],
+    i: u8,
+    j: u8,
+}
+
+impl Rc4 {
+    pub fn new(key: &[u8]) -> Self {
+        let mut s = [0u8; 256];
+        for (i, b) in s.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+        let mut j = 0u8;
+        for i in 0..256 {
+            j = j.wrapping_add(s[i]).wrapping_add(key[i % key.len()]);
+            s.swap(i, j as usize);
+        }
+        Rc4 { s, i: 0, j: 0 }
+    }
+
+    pub fn apply(&mut self, data: &[u8]) -> Vec<u8> {
+        data.iter()
+            .map(|&b| {
+                self.i = self.i.wrapping_add(1);
+                self.j = self.j.wrapping_add(self.s[self.i as usize]);
+                self.s.swap(self.i as usize, self.j as usize);
+                let k = self.s[(self.s[self.i as usize].wrapping_add(self.s[self.j as usize])) as usize];
+                b ^ k
+            })
+            .collect()
+    }
+}
+
+const CLIENT_SIGN_MAGIC: &[u8] = b"session key to client-to-server signing key magic constant\0";
+const SERVER_SIGN_MAGIC: &[u8] = b"session key to server-to-client signing key magic constant\0";
+const CLIENT_SEAL_MAGIC: &[u8] = b"session key to client-to-server sealing key magic constant\0";
+const SERVER_SEAL_MAGIC: &[u8] = b"session key to server-to-client sealing key magic constant\0";
+
+fn derive_key(exported: &[u8; 16], magic: &[u8]) -> [u8; 16] {
+    let mut m = exported.to_vec();
+    m.extend_from_slice(magic);
+    let d = Md5::digest(&m);
+    let mut o = [0u8; 16];
+    o.copy_from_slice(&d);
+    o
+}
+
+/// NTLM message-confidentiality state for connection-oriented DCE/RPC (auth_level
+/// PKT_PRIVACY). Derives the four directional keys from the exported session key
+/// (Extended Session Security, no key exchange) and applies RC4 seal + HMAC-MD5 sign with
+/// independent per-direction sequence numbers, per MS-NLMP §3.4.3/§3.4.4.
+pub struct SealState {
+    client_rc4: Rc4,
+    server_rc4: Rc4,
+    client_sign: [u8; 16],
+    server_sign: [u8; 16],
+    client_seq: u32,
+    server_seq: u32,
+}
+
+impl SealState {
+    pub fn new(exported: &[u8; 16]) -> Self {
+        SealState {
+            client_rc4: Rc4::new(&derive_key(exported, CLIENT_SEAL_MAGIC)),
+            server_rc4: Rc4::new(&derive_key(exported, SERVER_SEAL_MAGIC)),
+            client_sign: derive_key(exported, CLIENT_SIGN_MAGIC),
+            server_sign: derive_key(exported, SERVER_SIGN_MAGIC),
+            client_seq: 0,
+            server_seq: 0,
+        }
+    }
+
+    /// Seal an outgoing (client→server) stub; returns (sealed, 16-byte signature).
+    /// Without NEGOTIATE_KEY_EXCH the checksum is the plain HMAC-MD5 truncation.
+    pub fn seal(&mut self, plaintext: &[u8]) -> (Vec<u8>, [u8; 16]) {
+        let seq = self.client_seq;
+        let mut sig_input = seq.to_le_bytes().to_vec();
+        sig_input.extend_from_slice(plaintext);
+        let hmac = hmac_md5(&self.client_sign, &sig_input);
+        let sealed = self.client_rc4.apply(plaintext);
+        let mut sig = [0u8; 16];
+        sig[0..4].copy_from_slice(&1u32.to_le_bytes()); // version
+        sig[4..12].copy_from_slice(&hmac[0..8]); // checksum
+        sig[12..16].copy_from_slice(&seq.to_le_bytes());
+        self.client_seq = self.client_seq.wrapping_add(1);
+        (sealed, sig)
+    }
+
+    /// Unseal an incoming (server→client) stub and verify its signature checksum.
+    pub fn unseal(&mut self, sealed: &[u8], signature: &[u8]) -> Result<Vec<u8>> {
+        let plaintext = self.server_rc4.apply(sealed);
+        let seq = self.server_seq;
+        let mut sig_input = seq.to_le_bytes().to_vec();
+        sig_input.extend_from_slice(&plaintext);
+        let hmac = hmac_md5(&self.server_sign, &sig_input);
+        if signature.len() < 12 || signature[4..12] != hmac[0..8] {
+            return Err(NtlmError::BadMessage("RPC seal signature"));
+        }
+        self.server_seq = self.server_seq.wrapping_add(1);
+        Ok(plaintext)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -153,6 +260,7 @@ const VERSION: [u8; 8] = [6, 1, 0, 0, 0, 0, 0, 15]; // Windows 7, NTLMSSP rev 15
 /// NTLM client: holds the NEGOTIATE message so the MIC can bind all three messages.
 pub struct Ntlm {
     type1: Vec<u8>,
+    seal: bool,
 }
 
 impl Default for Ntlm {
@@ -163,18 +271,31 @@ impl Default for Ntlm {
 
 impl Ntlm {
     pub fn new() -> Self {
-        let f = flags::NEGOTIATE_UNICODE
+        Self::build(false)
+    }
+
+    /// Like `new`, but negotiates SIGN|SEAL for connection-oriented RPC confidentiality
+    /// (auth_level PKT_PRIVACY). Pair with [`SealState`] on the exported session key.
+    pub fn new_sealed() -> Self {
+        Self::build(true)
+    }
+
+    fn build(seal: bool) -> Self {
+        let mut f = flags::NEGOTIATE_UNICODE
             | flags::REQUEST_TARGET
             | flags::NEGOTIATE_NTLM
             | flags::NEGOTIATE_ALWAYS_SIGN
             | flags::NEGOTIATE_EXTENDED_SESSIONSECURITY;
+        if seal {
+            f |= flags::NEGOTIATE_SIGN | flags::NEGOTIATE_SEAL;
+        }
         let mut m = Vec::new();
         m.extend_from_slice(b"NTLMSSP\0");
         m.extend_from_slice(&1u32.to_le_bytes());
         m.extend_from_slice(&f.to_le_bytes());
         m.extend_from_slice(&[0u8; 8]); // DomainName fields (empty)
         m.extend_from_slice(&[0u8; 8]); // Workstation fields (empty)
-        Ntlm { type1: m }
+        Ntlm { type1: m, seal }
     }
 
     pub fn negotiate(&self) -> &[u8] {
@@ -214,6 +335,7 @@ impl Ntlm {
             &self.type1,
             challenge,
             &exported,
+            self.seal,
         );
         Ok((type3, exported))
     }
@@ -230,12 +352,13 @@ fn build_type3(
     type1: &[u8],
     type2: &[u8],
     exported: &[u8; 16],
+    seal: bool,
 ) -> Vec<u8> {
     let du = utf16le(domain);
     let uu = utf16le(user);
     let wu = utf16le(workstation);
 
-    let f = flags::NEGOTIATE_UNICODE
+    let mut f = flags::NEGOTIATE_UNICODE
         | flags::REQUEST_TARGET
         | flags::NEGOTIATE_SIGN
         | flags::NEGOTIATE_NTLM
@@ -244,6 +367,9 @@ fn build_type3(
         | flags::NEGOTIATE_TARGET_INFO
         | flags::NEGOTIATE_VERSION
         | flags::NEGOTIATE_128;
+    if seal {
+        f |= flags::NEGOTIATE_SEAL;
+    }
 
     // Header is 88 bytes: sig(8)+type(4)+6 fields(48)+flags(4)+version(8)+MIC(16).
     const HEADER: u32 = 88;
@@ -341,5 +467,59 @@ mod tests {
 
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    // RC4 known-answer (RFC 6229 / classic "Key"/"Plaintext" test vector).
+    #[test]
+    fn rc4_known_answer() {
+        let mut r = Rc4::new(b"Key");
+        assert_eq!(hex(&r.apply(b"Plaintext")), "bbf316e8d940af0ad3");
+    }
+
+    // Client seals (client→server); the server receives that traffic on the *client*-
+    // direction keys. Simulate the server here to prove the client's seal is decryptable
+    // and its signature verifies, with the sequence number advancing per PDU.
+    #[test]
+    fn seal_roundtrip_against_server_direction() {
+        let exported = [0x55u8; 16];
+        let mut client = SealState::new(&exported);
+        let mut srv_rc4 = Rc4::new(&derive_key(&exported, CLIENT_SEAL_MAGIC));
+        let srv_sign = derive_key(&exported, CLIENT_SIGN_MAGIC);
+        for (seq, msg) in [&b"first stub"[..], b"second stub", b"third"].into_iter().enumerate() {
+            let (sealed, sig) = client.seal(msg);
+            assert_ne!(sealed, msg); // actually encrypted
+            let plain = srv_rc4.apply(&sealed);
+            assert_eq!(plain, msg);
+            let mut si = (seq as u32).to_le_bytes().to_vec();
+            si.extend_from_slice(&plain);
+            let expect = hmac_md5(&srv_sign, &si);
+            assert_eq!(&sig[4..12], &expect[0..8]); // checksum
+            assert_eq!(&sig[12..16], &(seq as u32).to_le_bytes()); // seq num
+        }
+    }
+
+    // The client's own unseal (server→client direction) is the inverse of a server sealing
+    // on the server-direction keys — a tampered signature must be rejected.
+    #[test]
+    fn unseal_rejects_tampered_signature() {
+        let exported = [0x77u8; 16];
+        let mut client = SealState::new(&exported);
+        let mut srv_rc4 = Rc4::new(&derive_key(&exported, SERVER_SEAL_MAGIC));
+        let srv_sign = derive_key(&exported, SERVER_SIGN_MAGIC);
+        let msg = b"reply from KDC";
+        let sealed = srv_rc4.apply(msg);
+        let mut si = 0u32.to_le_bytes().to_vec();
+        si.extend_from_slice(msg);
+        let hmac = hmac_md5(&srv_sign, &si);
+        let mut sig = [0u8; 16];
+        sig[0..4].copy_from_slice(&1u32.to_le_bytes());
+        sig[4..12].copy_from_slice(&hmac[0..8]);
+        assert_eq!(client.unseal(&sealed, &sig).unwrap(), msg);
+        // tamper
+        let sealed2 = {
+            let mut r = Rc4::new(&derive_key(&exported, SERVER_SEAL_MAGIC));
+            r.apply(b"x")
+        };
+        assert!(SealState::new(&exported).unseal(&sealed2, &[0u8; 16]).is_err());
     }
 }

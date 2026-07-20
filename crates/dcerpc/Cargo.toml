@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }
+adhammer-ntlm = { workspace = true }
 adhammer-smb = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

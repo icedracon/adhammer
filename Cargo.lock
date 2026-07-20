@@ -57,6 +57,7 @@ name = "adhammer-dcerpc"
 version = "0.1.0"
 dependencies = [
  "adhammer-core",
+ "adhammer-ntlm",
  "adhammer-smb",
  "anyhow",
  "thiserror 2.0.18",

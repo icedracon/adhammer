@@ -2,18 +2,20 @@
 //! bind once, then issue requests and read the (single-fragment) responses.
 
 use crate::{pdu, Result, RpcError, Syntax};
+use adhammer_ntlm::{Ntlm, SealState};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub struct RpcTcp {
     stream: TcpStream,
     call_id: u32,
+    seal: Option<SealState>,
 }
 
 impl RpcTcp {
     pub async fn connect(addr: &str) -> Result<Self> {
         let stream = TcpStream::connect(addr).await?;
-        Ok(RpcTcp { stream, call_id: 1 })
+        Ok(RpcTcp { stream, call_id: 1, seal: None })
     }
 
     async fn send(&mut self, buf: &[u8]) -> Result<()> {
@@ -52,6 +54,57 @@ impl RpcTcp {
         self.send(&req).await?;
         let resp = self.recv().await?;
         pdu::parse_response(&resp)
+    }
+
+    /// Authenticated bind with NTLMSSP sign+seal (auth_level PKT_PRIVACY). Runs the three-leg
+    /// handshake (BIND → BIND_ACK/CHALLENGE → AUTH3) and arms the [`SealState`] so subsequent
+    /// [`call_sealed`](Self::call_sealed) requests are encrypted. Required for DRSUAPI, which a
+    /// DC refuses to answer on an unsealed channel.
+    pub async fn bind_sealed(
+        &mut self,
+        syntax: Syntax,
+        domain: &str,
+        user: &str,
+        password: &str,
+        workstation: &str,
+    ) -> Result<()> {
+        let ntlm = Ntlm::new_sealed();
+        let bind = pdu::build_bind_auth(self.call_id, syntax, ntlm.negotiate());
+        self.call_id += 1;
+        self.send(&bind).await?;
+        let ack = self.recv().await?;
+        pdu::expect_bind_ack(&ack)?;
+        let challenge = pdu::extract_auth_value(&ack)?;
+        let (type3, exported) = ntlm
+            .authenticate(&challenge, domain, user, password, workstation)
+            .map_err(|e| RpcError::Protocol(format!("ntlm authenticate: {e}")))?;
+        let auth3 = pdu::build_auth3(self.call_id, &type3);
+        self.call_id += 1;
+        self.send(&auth3).await?; // AUTH3 is unacknowledged
+        self.seal = Some(SealState::new(&exported));
+        Ok(())
+    }
+
+    /// Issue a sign+sealed request over an authenticated ([`bind_sealed`](Self::bind_sealed))
+    /// session; the stub is RC4-sealed and the response is verified and decrypted.
+    pub async fn call_sealed(&mut self, opnum: u16, stub: &[u8]) -> Result<Vec<u8>> {
+        let seal = self.seal.as_mut().ok_or_else(|| RpcError::Protocol("session not sealed".into()))?;
+        // Pad the stub so the sec_trailer is 4-byte aligned (MS-RPCE §2.2.2.11).
+        let pad_len = ((4 - (stub.len() % 4)) % 4) as u8;
+        let mut plain = stub.to_vec();
+        plain.extend(std::iter::repeat(0u8).take(pad_len as usize));
+        let (sealed, signature) = seal.seal(&plain);
+        let req = pdu::build_request_sealed(self.call_id, 0, opnum, &sealed, pad_len, &signature, stub.len() as u32);
+        self.call_id += 1;
+        self.send(&req).await?;
+        let resp = self.recv().await?;
+        let (sealed_resp, signature, resp_pad) = pdu::split_sealed_response(&resp)?;
+        let seal = self.seal.as_mut().unwrap();
+        let mut plain = seal
+            .unseal(&sealed_resp, &signature)
+            .map_err(|e| RpcError::Protocol(format!("unseal response: {e}")))?;
+        plain.truncate(plain.len().saturating_sub(resp_pad as usize));
+        Ok(plain)
     }
 }
 
