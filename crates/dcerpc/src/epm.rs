@@ -111,15 +111,16 @@ pub fn decode_map_response(stub: &[u8]) -> Result<u16> {
     if num_towers == 0 {
         return Err(RpcError::Protocol("EPM returned no towers".into()));
     }
-    let _itowers_ref = d.u32()?; // array pointer referent
+    // ITowers conformant-varying array of tower pointers: max_count, offset, actual_count,
+    // then one referent id per tower (the array data begins directly, with no wrapping ptr).
     let _max = d.u32()?;
     let _offset = d.u32()?;
     let actual = d.u32()?;
     for _ in 0..actual {
         let _ref = d.u32()?; // per-tower referent id
     }
-    // First tower.
-    let _mc = d.u32()?; // conformant max_count
+    // First tower (twr_t): conformant max_count, then tower_length, then the octet string.
+    let _mc = d.u32()?;
     let tower_len = d.u32()? as usize;
     let tower = d.read_bytes(tower_len)?;
     parse_tower_port(tower).ok_or(RpcError::Protocol("no TCP floor in tower".into()))
@@ -160,8 +161,7 @@ mod tests {
         let mut s = Vec::new();
         s.extend_from_slice(&[0u8; 20]); // entry_handle
         s.extend_from_slice(&1u32.to_le_bytes()); // num_towers
-        s.extend_from_slice(&0x0002_0000u32.to_le_bytes()); // ITowers referent
-        s.extend_from_slice(&1u32.to_le_bytes()); // max_count
+        s.extend_from_slice(&1u32.to_le_bytes()); // ITowers max_count (array data, no wrapping ptr)
         s.extend_from_slice(&0u32.to_le_bytes()); // offset
         s.extend_from_slice(&1u32.to_le_bytes()); // actual_count
         s.extend_from_slice(&0x0002_0004u32.to_le_bytes()); // tower referent

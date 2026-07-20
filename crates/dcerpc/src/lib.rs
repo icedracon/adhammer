@@ -17,6 +17,7 @@ pub mod epm;
 pub mod samr;
 pub mod lsat;
 pub mod efsr;
+pub mod drsuapi;
 
 use adhammer_core::sid::Guid;
 

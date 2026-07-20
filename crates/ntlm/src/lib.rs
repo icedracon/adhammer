@@ -22,6 +22,7 @@ pub mod flags {
     pub const NEGOTIATE_VERSION: u32 = 0x0200_0000;
     pub const NEGOTIATE_128: u32 = 0x2000_0000;
     pub const NEGOTIATE_KEY_EXCH: u32 = 0x4000_0000;
+    pub const NEGOTIATE_56: u32 = 0x8000_0000;
 }
 
 // ---- RPC sign+seal (MS-NLMP §3.4) -----------------------------------------
@@ -99,28 +100,35 @@ impl SealState {
         }
     }
 
-    /// Seal an outgoing (client→server) stub; returns (sealed, 16-byte signature).
-    /// Without NEGOTIATE_KEY_EXCH the checksum is the plain HMAC-MD5 truncation.
-    pub fn seal(&mut self, plaintext: &[u8]) -> (Vec<u8>, [u8; 16]) {
+    /// Seal an outgoing (client→server) DCE/RPC PDU. Per MS-RPCE, the MAC covers the whole PDU
+    /// except the trailing 16-byte auth_value (`sign_over`, with a plaintext stub), while only
+    /// the stub is encrypted (`stub`). Returns (sealed stub, 16-byte signature).
+    pub fn seal_pdu(&mut self, sign_over: &[u8], stub: &[u8]) -> (Vec<u8>, [u8; 16]) {
         let seq = self.client_seq;
         let mut sig_input = seq.to_le_bytes().to_vec();
-        sig_input.extend_from_slice(plaintext);
+        sig_input.extend_from_slice(sign_over);
         let hmac = hmac_md5(&self.client_sign, &sig_input);
-        let sealed = self.client_rc4.apply(plaintext);
+        let sealed = self.client_rc4.apply(stub);
         let mut sig = [0u8; 16];
         sig[0..4].copy_from_slice(&1u32.to_le_bytes()); // version
-        sig[4..12].copy_from_slice(&hmac[0..8]); // checksum
+        sig[4..12].copy_from_slice(&hmac[0..8]); // checksum (no key-exch → plain)
         sig[12..16].copy_from_slice(&seq.to_le_bytes());
         self.client_seq = self.client_seq.wrapping_add(1);
         (sealed, sig)
     }
 
-    /// Unseal an incoming (server→client) stub and verify its signature checksum.
-    pub fn unseal(&mut self, sealed: &[u8], signature: &[u8]) -> Result<Vec<u8>> {
+    /// Unseal an incoming (server→client) PDU. `pdu_no_sig` is the response with the sealed
+    /// stub still in place and the trailing signature removed; the sealed stub occupies
+    /// `stub_off .. stub_off+stub_len`. Decrypts it, verifies the MAC over the reconstructed
+    /// (plaintext) PDU, and returns the decrypted stub.
+    pub fn unseal_pdu(&mut self, pdu_no_sig: &[u8], stub_off: usize, stub_len: usize, signature: &[u8]) -> Result<Vec<u8>> {
+        let sealed = pdu_no_sig.get(stub_off..stub_off + stub_len).ok_or(NtlmError::Truncated)?;
         let plaintext = self.server_rc4.apply(sealed);
+        let mut msg = pdu_no_sig.to_vec();
+        msg[stub_off..stub_off + stub_len].copy_from_slice(&plaintext);
         let seq = self.server_seq;
         let mut sig_input = seq.to_le_bytes().to_vec();
-        sig_input.extend_from_slice(&plaintext);
+        sig_input.extend_from_slice(&msg);
         let hmac = hmac_md5(&self.server_sign, &sig_input);
         if signature.len() < 12 || signature[4..12] != hmac[0..8] {
             return Err(NtlmError::BadMessage("RPC seal signature"));
@@ -287,7 +295,9 @@ impl Ntlm {
             | flags::NEGOTIATE_ALWAYS_SIGN
             | flags::NEGOTIATE_EXTENDED_SESSIONSECURITY;
         if seal {
-            f |= flags::NEGOTIATE_SIGN | flags::NEGOTIATE_SEAL;
+            // Match a real Windows RPC client so a hardened DC accepts the sealed bind.
+            f |= flags::NEGOTIATE_SIGN | flags::NEGOTIATE_SEAL | flags::NEGOTIATE_128
+                | flags::NEGOTIATE_56 | flags::NEGOTIATE_VERSION;
         }
         let mut m = Vec::new();
         m.extend_from_slice(b"NTLMSSP\0");
@@ -295,6 +305,9 @@ impl Ntlm {
         m.extend_from_slice(&f.to_le_bytes());
         m.extend_from_slice(&[0u8; 8]); // DomainName fields (empty)
         m.extend_from_slice(&[0u8; 8]); // Workstation fields (empty)
+        if seal {
+            m.extend_from_slice(&VERSION); // NEGOTIATE_VERSION structure
+        }
         Ntlm { type1: m, seal }
     }
 
@@ -322,16 +335,19 @@ impl Ntlm {
         let (nt_response, session_base_key, lm_response) =
             ntlmv2_response(&resp_key, &ch.server_challenge, &client_challenge, timestamp, &ch.target_info);
 
-        // No key exchange: the exported session key IS the SessionBaseKey. Simpler and it
-        // makes the SMB/RPC signing key unambiguous (no RC4-wrapped random key to agree on).
+        // SMB path: no key exchange, so the exported key IS the SessionBaseKey. Sealed RPC
+        // path: negotiate KEY_EXCH like a real client — generate a random ExportedSessionKey
+        // and send it RC4-wrapped under the KXKEY (= SessionBaseKey for NTLMv2 ExtSessSec).
+        // No key exchange: the exported key is the SessionBaseKey (both SMB and sealed RPC).
         let exported = session_base_key;
+        let enc_session_key: Vec<u8> = Vec::new();
         let type3 = build_type3(
             &lm_response,
             &nt_response,
             domain,
             user,
             workstation,
-            &[], // no EncryptedRandomSessionKey without key exchange
+            &enc_session_key,
             &self.type1,
             challenge,
             &exported,
@@ -368,7 +384,7 @@ fn build_type3(
         | flags::NEGOTIATE_VERSION
         | flags::NEGOTIATE_128;
     if seal {
-        f |= flags::NEGOTIATE_SEAL;
+        f |= flags::NEGOTIATE_SEAL | flags::NEGOTIATE_56;
     }
 
     // Header is 88 bytes: sig(8)+type(4)+6 fields(48)+flags(4)+version(8)+MIC(16).
@@ -476,50 +492,55 @@ mod tests {
         assert_eq!(hex(&r.apply(b"Plaintext")), "bbf316e8d940af0ad3");
     }
 
-    // Client seals (client→server); the server receives that traffic on the *client*-
-    // direction keys. Simulate the server here to prove the client's seal is decryptable
-    // and its signature verifies, with the sequence number advancing per PDU.
+    // seal_pdu MACs the whole PDU-minus-signature and encrypts only the stub. Simulate the
+    // server's receive path (client-direction keys) to prove both, per PDU.
     #[test]
-    fn seal_roundtrip_against_server_direction() {
+    fn seal_pdu_roundtrip_against_server_direction() {
         let exported = [0x55u8; 16];
         let mut client = SealState::new(&exported);
         let mut srv_rc4 = Rc4::new(&derive_key(&exported, CLIENT_SEAL_MAGIC));
         let srv_sign = derive_key(&exported, CLIENT_SIGN_MAGIC);
-        for (seq, msg) in [&b"first stub"[..], b"second stub", b"third"].into_iter().enumerate() {
-            let (sealed, sig) = client.seal(msg);
-            assert_ne!(sealed, msg); // actually encrypted
+        for (seq, stub) in [&b"aaaabbbb"[..], b"ccccdddd", b"eeee"].into_iter().enumerate() {
+            // Model a PDU: 24-byte prefix + stub + 8-byte sec_trailer (signed, not encrypted).
+            let mut pdu = vec![0x30u8; 24];
+            pdu.extend_from_slice(stub);
+            pdu.extend_from_slice(&[0x0a, 0x06, 0, 0, 0, 0, 0, 0]);
+            let (sealed, sig) = client.seal_pdu(&pdu, stub);
+            assert_ne!(&sealed[..], stub); // stub encrypted
             let plain = srv_rc4.apply(&sealed);
-            assert_eq!(plain, msg);
+            assert_eq!(&plain[..], stub);
+            let mut signed = pdu.clone();
+            signed[24..24 + stub.len()].copy_from_slice(&plain);
             let mut si = (seq as u32).to_le_bytes().to_vec();
-            si.extend_from_slice(&plain);
-            let expect = hmac_md5(&srv_sign, &si);
-            assert_eq!(&sig[4..12], &expect[0..8]); // checksum
-            assert_eq!(&sig[12..16], &(seq as u32).to_le_bytes()); // seq num
+            si.extend_from_slice(&signed);
+            let hmac = hmac_md5(&srv_sign, &si);
+            assert_eq!(&sig[4..12], &hmac[0..8]);
+            assert_eq!(&sig[12..16], &(seq as u32).to_le_bytes());
         }
     }
 
-    // The client's own unseal (server→client direction) is the inverse of a server sealing
-    // on the server-direction keys — a tampered signature must be rejected.
+    // The client's unseal_pdu decrypts a server→client PDU and rejects a bad signature.
     #[test]
-    fn unseal_rejects_tampered_signature() {
+    fn unseal_pdu_verifies_and_rejects_tampering() {
         let exported = [0x77u8; 16];
-        let mut client = SealState::new(&exported);
         let mut srv_rc4 = Rc4::new(&derive_key(&exported, SERVER_SEAL_MAGIC));
         let srv_sign = derive_key(&exported, SERVER_SIGN_MAGIC);
-        let msg = b"reply from KDC";
-        let sealed = srv_rc4.apply(msg);
+        let stub = b"secret reply";
+        let mut pdu = vec![0x20u8; 24];
+        pdu.extend_from_slice(&srv_rc4.apply(stub)); // sealed stub in place
+        pdu.extend_from_slice(&[0x0a, 0x06, 0, 0, 0, 0, 0, 0]);
+        // signature over the reconstructed (plaintext) PDU
+        let mut signed = pdu.clone();
+        signed[24..24 + stub.len()].copy_from_slice(stub);
         let mut si = 0u32.to_le_bytes().to_vec();
-        si.extend_from_slice(msg);
+        si.extend_from_slice(&signed);
         let hmac = hmac_md5(&srv_sign, &si);
         let mut sig = [0u8; 16];
         sig[0..4].copy_from_slice(&1u32.to_le_bytes());
         sig[4..12].copy_from_slice(&hmac[0..8]);
-        assert_eq!(client.unseal(&sealed, &sig).unwrap(), msg);
-        // tamper
-        let sealed2 = {
-            let mut r = Rc4::new(&derive_key(&exported, SERVER_SEAL_MAGIC));
-            r.apply(b"x")
-        };
-        assert!(SealState::new(&exported).unseal(&sealed2, &[0u8; 16]).is_err());
+
+        let out = SealState::new(&exported).unseal_pdu(&pdu, 24, stub.len(), &sig).unwrap();
+        assert_eq!(&out[..], stub);
+        assert!(SealState::new(&exported).unseal_pdu(&pdu, 24, stub.len(), &[0u8; 16]).is_err());
     }
 }

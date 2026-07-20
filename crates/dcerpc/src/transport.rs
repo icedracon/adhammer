@@ -69,8 +69,10 @@ impl RpcTcp {
         workstation: &str,
     ) -> Result<()> {
         let ntlm = Ntlm::new_sealed();
-        let bind = pdu::build_bind_auth(self.call_id, syntax, ntlm.negotiate());
+        // The BIND and its AUTH3 completion share one call_id (they are one negotiation).
+        let bind_call_id = self.call_id;
         self.call_id += 1;
+        let bind = pdu::build_bind_auth(bind_call_id, syntax, ntlm.negotiate());
         self.send(&bind).await?;
         let ack = self.recv().await?;
         pdu::expect_bind_ack(&ack)?;
@@ -78,32 +80,53 @@ impl RpcTcp {
         let (type3, exported) = ntlm
             .authenticate(&challenge, domain, user, password, workstation)
             .map_err(|e| RpcError::Protocol(format!("ntlm authenticate: {e}")))?;
-        let auth3 = pdu::build_auth3(self.call_id, &type3);
-        self.call_id += 1;
+        let auth3 = pdu::build_auth3(bind_call_id, &type3);
         self.send(&auth3).await?; // AUTH3 is unacknowledged
         self.seal = Some(SealState::new(&exported));
         Ok(())
     }
 
     /// Issue a sign+sealed request over an authenticated ([`bind_sealed`](Self::bind_sealed))
-    /// session; the stub is RC4-sealed and the response is verified and decrypted.
+    /// session. The MAC covers the whole PDU minus the trailing 16-byte signature (over the
+    /// plaintext stub); only the stub is encrypted. The response is verified and decrypted.
     pub async fn call_sealed(&mut self, opnum: u16, stub: &[u8]) -> Result<Vec<u8>> {
-        let seal = self.seal.as_mut().ok_or_else(|| RpcError::Protocol("session not sealed".into()))?;
-        // Pad the stub so the sec_trailer is 4-byte aligned (MS-RPCE §2.2.2.11).
+        const STUB_OFF: usize = 24; // header(16) + alloc_hint(4) + cont_id(2) + opnum(2)
         let pad_len = ((4 - (stub.len() % 4)) % 4) as u8;
-        let mut plain = stub.to_vec();
-        plain.extend(std::iter::repeat(0u8).take(pad_len as usize));
-        let (sealed, signature) = seal.seal(&plain);
-        let req = pdu::build_request_sealed(self.call_id, 0, opnum, &sealed, pad_len, &signature, stub.len() as u32);
+        let mut stub_padded = stub.to_vec();
+        stub_padded.extend(std::iter::repeat(0u8).take(pad_len as usize));
+
+        // Assemble the PDU with a plaintext stub and a zeroed signature, then MAC the whole
+        // thing (minus the signature) and encrypt the stub in place.
+        let mut req = pdu::build_request_sealed(self.call_id, 0, opnum, &stub_padded, pad_len, &[0u8; 16], stub.len() as u32);
         self.call_id += 1;
+        let n = req.len();
+        let sign_over = req[..n - 16].to_vec();
+        let seal = self.seal.as_mut().ok_or_else(|| RpcError::Protocol("session not sealed".into()))?;
+        let (sealed, signature) = seal.seal_pdu(&sign_over, &stub_padded);
+        req[STUB_OFF..STUB_OFF + stub_padded.len()].copy_from_slice(&sealed);
+        req[n - 16..].copy_from_slice(&signature);
         self.send(&req).await?;
+
         let resp = self.recv().await?;
-        let (sealed_resp, signature, resp_pad) = pdu::split_sealed_response(&resp)?;
+        let h = pdu::parse_header(&resp)?;
+        if h.ptype == pdu::ptype::FAULT {
+            let status = resp.get(24..28).map(|b| u32::from_le_bytes(b.try_into().unwrap())).unwrap_or(0);
+            return Err(RpcError::Fault(status));
+        }
+        if h.ptype != pdu::ptype::RESPONSE {
+            return Err(RpcError::UnexpectedPdu(h.ptype));
+        }
+        let auth_length = u16::from_le_bytes([resp[10], resp[11]]) as usize;
+        let frag = (h.frag_length as usize).min(resp.len());
+        let sec_trailer_start = frag - 8 - auth_length;
+        let resp_pad = resp[sec_trailer_start + 2] as usize;
+        let sig = resp[frag - auth_length..frag].to_vec();
+        let pdu_no_sig = &resp[..frag - auth_length];
         let seal = self.seal.as_mut().unwrap();
         let mut plain = seal
-            .unseal(&sealed_resp, &signature)
+            .unseal_pdu(pdu_no_sig, STUB_OFF, sec_trailer_start - STUB_OFF, &sig)
             .map_err(|e| RpcError::Protocol(format!("unseal response: {e}")))?;
-        plain.truncate(plain.len().saturating_sub(resp_pad as usize));
+        plain.truncate(plain.len().saturating_sub(resp_pad));
         Ok(plain)
     }
 }

