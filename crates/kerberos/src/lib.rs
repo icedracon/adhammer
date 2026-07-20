@@ -26,6 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 mod tgs;
+pub mod shadowcred;
 pub use tgs::{check_credential, get_tgt, rbcd_impersonate, roast_spn, CredResult, Tgt};
 
 /// Kerberos encryption type numbers (RFC 3961/4120).

@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 *.pdb
+
+# private keys from shadow-cred generation
+*.key.pem
