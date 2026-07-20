@@ -36,7 +36,15 @@ impl SmbClient {
         }
         self.message_id += 1;
         self.transport.send(&m).await?;
-        self.transport.recv().await
+        let mut resp = self.transport.recv().await?;
+        // A server may answer asynchronously: an interim STATUS_PENDING response, then the
+        // real one on the same message id. Keep reading until the completion arrives.
+        while header::parse(&resp).map(|p| p.status).unwrap_or(crate::status::SUCCESS)
+            == crate::status::PENDING
+        {
+            resp = self.transport.recv().await?;
+        }
+        Ok(resp)
     }
 
     fn ok(resp: &[u8], expect: u16) -> Result<header::Parsed> {

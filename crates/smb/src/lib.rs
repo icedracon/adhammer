@@ -35,5 +35,6 @@ pub type Result<T> = std::result::Result<T, SmbError>;
 /// SMB2 status codes we branch on.
 pub mod status {
     pub const SUCCESS: u32 = 0x0000_0000;
+    pub const PENDING: u32 = 0x0000_0103; // interim async response; the real one follows
     pub const MORE_PROCESSING_REQUIRED: u32 = 0xC000_0016;
 }
