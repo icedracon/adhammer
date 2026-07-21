@@ -46,6 +46,18 @@ pub fn negotiate_resp(ntlm_type3: &[u8]) -> Vec<u8> {
     tlv(0xa1, &tlv(0x30, &response_token)) // [1] NegTokenResp SEQUENCE
 }
 
+/// Server side: wrap an NTLM CHALLENGE (Type 2) in a SPNEGO `negTokenResp` with
+/// negState=accept-incomplete and supportedMech=NTLMSSP (the reply to the client's Type 1).
+pub fn challenge_resp(ntlm_type2: &[u8]) -> Vec<u8> {
+    let neg_state = tlv(0xa0, &tlv(0x0a, &[0x01])); // [0] ENUMERATED accept-incomplete
+    let supported_mech = tlv(0xa1, &tlv(0x06, &OID_NTLMSSP)); // [1] MechType
+    let response_token = tlv(0xa2, &tlv(0x04, ntlm_type2)); // [2] responseToken
+    let mut inner = neg_state;
+    inner.extend(supported_mech);
+    inner.extend(response_token);
+    tlv(0xa1, &tlv(0x30, &inner)) // [1] NegTokenResp SEQUENCE
+}
+
 /// Locate the embedded NTLM message inside a SPNEGO/GSS blob by its "NTLMSSP\0" signature.
 pub fn find_ntlm(buf: &[u8]) -> Option<&[u8]> {
     buf.windows(8).position(|w| w == b"NTLMSSP\0").map(|i| &buf[i..])

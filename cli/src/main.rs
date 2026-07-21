@@ -60,6 +60,15 @@ enum AttackCmd {
     Rbcd(RbcdArgs),
     /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
     Dcsync(DcsyncArgs),
+    /// Capture NetNTLMv2 from coerced/poisoned victims (SMB listener → hashcat -m 5600).
+    Capture(CaptureArgs),
+}
+
+#[derive(Parser)]
+struct CaptureArgs {
+    /// Address to listen on, e.g. 0.0.0.0:445 (needs privilege for 445)
+    #[arg(long, default_value = "0.0.0.0:445")]
+    listen: String,
 }
 
 #[derive(Parser)]
@@ -245,6 +254,7 @@ async fn main() -> Result<()> {
         Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
         Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
+        Command::Attack(AttackCmd::Capture(a)) => adhammer_smb::server::capture(&a.listen).await.map_err(Into::into),
     }
 }
 

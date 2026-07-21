@@ -11,6 +11,7 @@ pub mod msg;
 pub mod spnego;
 pub mod transport;
 pub mod client;
+pub mod server;
 
 pub use client::SmbClient;
 
