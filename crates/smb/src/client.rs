@@ -14,6 +14,7 @@ pub struct SmbClient {
     session_id: u64,
     tree_id: u32,
     sign_key: Option<[u8; 16]>,
+    dialect: u16,
 }
 
 impl SmbClient {
@@ -24,6 +25,7 @@ impl SmbClient {
             session_id: 0,
             tree_id: 0,
             sign_key: None,
+            dialect: 0,
         })
     }
 
@@ -32,7 +34,11 @@ impl SmbClient {
         let mut m = header::build(command, self.message_id, self.session_id, self.tree_id, self.sign_key.is_some());
         m.extend_from_slice(body);
         if let Some(key) = &self.sign_key {
-            header::sign(&mut m, key);
+            if self.dialect >= 0x0300 {
+                header::sign_v3(&mut m, key); // 3.0.x → AES-CMAC
+            } else {
+                header::sign(&mut m, key); // 2.x → HMAC-SHA256
+            }
         }
         self.message_id += 1;
         self.transport.send(&m).await?;
@@ -75,6 +81,8 @@ impl SmbClient {
         rand::thread_rng().fill_bytes(&mut guid);
         let resp = self.call(cmd::NEGOTIATE, &msg::negotiate(&guid)).await?;
         Self::ok(&resp, cmd::NEGOTIATE)?;
+        // DialectRevision is at response body offset 4 → absolute 68; it selects the signing algo.
+        self.dialect = u16::from_le_bytes([resp[68], resp[69]]);
 
         // SESSION_SETUP #1: NTLM NEGOTIATE wrapped in SPNEGO negTokenInit.
         let ntlm = Ntlm::new();
@@ -95,13 +103,22 @@ impl SmbClient {
             .authenticate(challenge, domain, user, password, host)
             .map_err(|e| SmbError::Ntlm(e.to_string()))?;
 
-        // SESSION_SETUP #2: AUTHENTICATE (Type 3) in a SPNEGO negTokenResp; signed once we
-        // have the session key, matching Windows behaviour.
+        // Derive the signing key: 2.x uses the session key directly, 3.0.x derives an
+        // AES-CMAC key from it (SP800-108 KDF).
+        let key = if self.dialect >= 0x0300 {
+            header::kdf_signing_key(&session_key)
+        } else {
+            session_key
+        };
+        // SESSION_SETUP #2: AUTHENTICATE (Type 3). SMB 3.x requires the final session setup to
+        // be signed with the new key; 2.x leaves it unsigned (matching Windows).
+        if self.dialect >= 0x0300 {
+            self.sign_key = Some(key);
+        }
         let token = crate::spnego::negotiate_resp(&type3);
         let resp = self.call(cmd::SESSION_SETUP, &msg::session_setup(&token)).await?;
         Self::ok(&resp, cmd::SESSION_SETUP)?;
-        // Session established — sign every subsequent request with the session key.
-        self.sign_key = Some(session_key);
+        self.sign_key = Some(key); // sign everything from here on
         Ok(())
     }
 

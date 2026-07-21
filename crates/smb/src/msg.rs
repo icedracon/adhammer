@@ -17,8 +17,13 @@ fn u32(b: &[u8], o: usize) -> u32 {
 
 /// Offer dialect 2.1.0 with a random client GUID.
 pub fn negotiate(client_guid: &[u8; 16]) -> Vec<u8> {
-    // Offer SMB 2.0.2 (Server 2008/2008R2) and 2.1.0 (2012+); the server selects the highest
-    // it supports. Both sign with HMAC-SHA256, so the rest of the client is dialect-agnostic.
+    // Offer SMB 2.0.2 (Server 2008/R2) and 2.1.0. The server picks the highest it supports and
+    // negotiates *down*, so this reaches 2008 through 2025 (2012/2016/2019/2022/2025 all accept
+    // 2.1.0 — validated live against Server 2025). Both sign with HMAC-SHA256.
+    //
+    // SMB 3.0.x (AES-CMAC) support exists in header.rs (sign_v3 / kdf_signing_key) and the
+    // client branches on the negotiated dialect, but 3.x is not offered yet — it's only needed
+    // for servers hardened to refuse SMB2 entirely, and the CMAC path isn't validated.
     let dialects: [u16; 2] = [0x0202, 0x0210];
     let mut b = Vec::new();
     b.extend_from_slice(&36u16.to_le_bytes()); // StructureSize

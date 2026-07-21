@@ -73,6 +73,38 @@ pub fn sign(message: &mut [u8], key: &[u8; 16]) {
     message[48..64].copy_from_slice(&sig[..16]);
 }
 
+/// SMB 3.0/3.0.2 signing: AES-128-CMAC over the message with the zeroed Signature field and
+/// the SIGNED flag set, truncated to 16 bytes.
+pub fn sign_v3(message: &mut [u8], signing_key: &[u8; 16]) {
+    use aes::Aes128;
+    use cmac::{Cmac, Mac};
+    for b in &mut message[48..64] {
+        *b = 0;
+    }
+    let mut mac = <Cmac<Aes128>>::new_from_slice(signing_key).expect("cmac key");
+    mac.update(message);
+    let sig = mac.finalize().into_bytes();
+    message[48..64].copy_from_slice(&sig[..16]);
+}
+
+/// SMB 3.0.x signing-key derivation (MS-SMB2 §3.1.4.2): SP800-108 counter-mode KDF with
+/// HMAC-SHA256 over the session key, label "SMB2AESCMAC" and context "SmbSign".
+pub fn kdf_signing_key(session_key: &[u8; 16]) -> [u8; 16] {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut input = Vec::new();
+    input.extend_from_slice(&1u32.to_be_bytes()); // counter i
+    input.extend_from_slice(b"SMB2AESCMAC\0"); // label
+    input.extend_from_slice(b"SmbSign\0"); // context
+    input.extend_from_slice(&128u32.to_be_bytes()); // L (bits)
+    let mut mac = <Hmac<Sha256>>::new_from_slice(session_key).expect("hmac key");
+    mac.update(&input);
+    let out = mac.finalize().into_bytes();
+    let mut k = [0u8; 16];
+    k.copy_from_slice(&out[..16]);
+    k
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
