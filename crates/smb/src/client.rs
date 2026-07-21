@@ -55,6 +55,19 @@ impl SmbClient {
         Ok(p)
     }
 
+    /// Unauthenticated NEGOTIATE probe: returns (dialect revision, signing_required). Signing
+    /// NOT required marks a host as an NTLM-relay target. Cheap — no session setup.
+    pub async fn probe_signing(&mut self) -> Result<(u16, bool)> {
+        let mut guid = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut guid);
+        let resp = self.call(cmd::NEGOTIATE, &msg::negotiate(&guid)).await?;
+        Self::ok(&resp, cmd::NEGOTIATE)?;
+        // NEGOTIATE response body @64: StructureSize(2), SecurityMode(2), DialectRevision(2).
+        let security_mode = u16::from_le_bytes([resp[66], resp[67]]);
+        let dialect = u16::from_le_bytes([resp[68], resp[69]]);
+        Ok((dialect, security_mode & 0x0002 != 0)) // 0x2 = SMB2_NEGOTIATE_SIGNING_REQUIRED
+    }
+
     /// Negotiate + NTLM session setup with the given credentials.
     pub async fn login(&mut self, host: &str, domain: &str, user: &str, password: &str) -> Result<()> {
         // NEGOTIATE

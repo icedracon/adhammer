@@ -32,6 +32,18 @@ enum EnumCmd {
     Samr(SamrArgs),
     /// Resolve a name to its SID over LSAT (\lsarpc).
     Lsa(LsaArgs),
+    /// Sweep a network: live hosts, AD ports, and SMB signing (NTLM-relay targets).
+    Net(NetArgs),
+}
+
+#[derive(Parser)]
+struct NetArgs {
+    /// Targets: CIDR (192.168.10.0/24), comma-list (a,b,c), or @file (one host per line)
+    #[arg(long)]
+    targets: String,
+    /// Max concurrent host probes
+    #[arg(long, default_value = "256")]
+    concurrency: usize,
 }
 
 #[derive(Subcommand)]
@@ -223,6 +235,7 @@ async fn main() -> Result<()> {
         Command::Scan(a) => scan(a).await,
         Command::Enum(EnumCmd::Samr(a)) => samr(a).await,
         Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
+        Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -415,6 +428,91 @@ async fn samr(a: SamrArgs) -> Result<()> {
         println!("  {rid}\t{name}");
     }
     Ok(())
+}
+
+/// Network sweep: for each target, which AD-relevant ports are open + SMB signing posture.
+async fn netenum(a: NetArgs) -> Result<()> {
+    const PORTS: [u16; 6] = [88, 135, 389, 445, 3389, 5985]; // Kerberos, RPC, LDAP, SMB, RDP, WinRM
+    let hosts = expand_targets(&a.targets)?;
+    eprintln!("[*] sweeping {} hosts…", hosts.len());
+
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(a.concurrency));
+    let mut set = tokio::task::JoinSet::new();
+    for host in hosts {
+        let sem = sem.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire().await.ok()?;
+            let mut open = Vec::new();
+            for &port in &PORTS {
+                if tcp_open(&host, port).await {
+                    open.push(port);
+                }
+            }
+            if open.is_empty() {
+                return None;
+            }
+            let mut signing = None;
+            if open.contains(&445) {
+                if let Ok(mut c) = adhammer_smb::SmbClient::connect(&host).await {
+                    signing = c.probe_signing().await.ok();
+                }
+            }
+            Some((host, open, signing))
+        });
+    }
+    let mut results = Vec::new();
+    while let Some(r) = set.join_next().await {
+        if let Ok(Some(v)) = r {
+            results.push(v);
+        }
+    }
+    results.sort_by_key(|(h, _, _)| h.parse::<std::net::Ipv4Addr>().map(u32::from).unwrap_or(u32::MAX));
+
+    println!("== network sweep: {} live hosts ==", results.len());
+    for (host, open, signing) in &results {
+        let is_dc = open.contains(&88) && open.contains(&389);
+        let role = if is_dc { "DC  " } else { "host" };
+        let ports: Vec<String> = open.iter().map(|p| p.to_string()).collect();
+        let sign = match signing {
+            Some((d, true)) => format!("  SMB(0x{d:04x}) signing:REQUIRED"),
+            Some((d, false)) => format!("  SMB(0x{d:04x}) signing:OFF → NTLM-RELAY TARGET"),
+            None => String::new(),
+        };
+        println!("  {host:<15} {role}  [{}]{sign}", ports.join(","));
+    }
+    let relay: Vec<&String> = results.iter().filter(|(_, _, s)| matches!(s, Some((_, false)))).map(|(h, _, _)| h).collect();
+    if !relay.is_empty() {
+        println!("\n[+] {} relay target(s) (SMB signing not required): {}", relay.len(),
+            relay.iter().map(|h| h.as_str()).collect::<Vec<_>>().join(", "));
+    }
+    Ok(())
+}
+
+async fn tcp_open(host: &str, port: u16) -> bool {
+    let fut = tokio::net::TcpStream::connect((host, port));
+    matches!(tokio::time::timeout(std::time::Duration::from_millis(700), fut).await, Ok(Ok(_)))
+}
+
+/// Expand a target spec: `@file` (one host/line), `a.b.c.d/nn` CIDR, or a comma list.
+fn expand_targets(spec: &str) -> Result<Vec<String>> {
+    if let Some(file) = spec.strip_prefix('@') {
+        let content = std::fs::read_to_string(file).context("read targets file")?;
+        return Ok(content.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect());
+    }
+    if spec.contains('/') {
+        let (base, prefix) = spec.split_once('/').unwrap();
+        let ip: std::net::Ipv4Addr = base.parse().context("bad CIDR address")?;
+        let prefix: u32 = prefix.parse().context("bad CIDR prefix")?;
+        anyhow::ensure!((8..=32).contains(&prefix), "CIDR prefix must be 8..=32");
+        let host_bits = 32 - prefix;
+        let size = if host_bits == 0 { 1u32 } else { 1u32 << host_bits };
+        let mask = if host_bits == 0 { u32::MAX } else { !(size - 1) };
+        let net = u32::from(ip) & mask;
+        // Skip network + broadcast addresses for blocks with room for them.
+        let (start, end) = if prefix <= 30 { (1, size - 1) } else { (0, size) };
+        return Ok((start..end).map(|i| std::net::Ipv4Addr::from(net + i).to_string()).collect());
+    }
+    Ok(spec.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
 }
 
 fn config(a: &ScanArgs) -> LdapConfig {
