@@ -95,6 +95,9 @@ Validated end-to-end against a hardened **Windows Server 2025** DC in a controll
   ccache. Handles the Server 2025 `paChecksum2` PKAuthenticator requirement (SHA-256 over the
   KDC-REQ-BODY) that currently breaks Rubeus/PKINITtools.
 - **Coercion** — PetitPotam / MS-EFSR (correctly reports patched DCs as not vulnerable).
+- **DCSync** — `attack dcsync --target <sam>`: DRSBind → DRSCrackNames → DRSGetNCChanges
+  (EXOP_REPL_OBJ) over the sealed channel, then session-key + per-RID-DES decryption of the
+  NT hash → secretsdump format (`user:rid:lm:nt:::`). Verified against `krbtgt`/`Administrator`.
 
 ## Build & test
 
@@ -113,8 +116,6 @@ Requires Rust 1.80+. `ldap3` uses rustls, so the tree builds as a static Linux/m
   RPC PDU shapes, EPM tower/port, SMB2 headers/signing, SAMR/LSAT marshaling, PKINIT DH group
   and reply-key derivation.
 - The audit and offensive flows above are **live-validated** against a Server 2025 lab DC.
-- **DCSync** (DRSUAPI) is in progress: the RPC sign+seal channel it needs is done and tested;
-  the `DRSGetNCChanges` NDR and secret decryption are not yet implemented.
 - Default LDAP binds require LDAPS (`--insecure` for a lab self-signed cert) or SASL GSSAPI
   (`--gssapi`, off-by-default cargo feature); plaintext simple bind is refused by hardened DCs.
   AD CS ESC5/6/7/8/10/11 are out of the current scope.
