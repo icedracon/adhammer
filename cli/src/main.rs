@@ -46,6 +46,9 @@ struct NetArgs {
     /// Max concurrent host probes
     #[arg(long, default_value = "256")]
     concurrency: usize,
+    /// Run per-service attack checks on discovered services (FTP anon, Redis unauth, SMTP VRFY)
+    #[arg(long)]
+    deep: bool,
 }
 
 #[derive(Subcommand)]
@@ -639,6 +642,13 @@ async fn netenum(a: NetArgs) -> Result<()> {
                 relay.push(host.clone());
             }
         }
+        if a.deep {
+            for (port, _, _) in &ports {
+                if let Some(finding) = deep_check(&host, *port).await {
+                    println!("      [!]   {port:<5} {finding}");
+                }
+            }
+        }
     }
     if !relay.is_empty() {
         println!("\n[+] {} NTLM-relay target(s) (SMB signing not required): {}", relay.len(), relay.join(", "));
@@ -669,6 +679,40 @@ async fn probe_port(host: &str, port: u16) -> Option<Option<String>> {
         _ => None,
     };
     Some(banner)
+}
+
+/// Per-service unauthenticated attack checks (--deep): FTP anon login, Redis unauth, SMTP VRFY.
+async fn deep_check(host: &str, port: u16) -> Option<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::{timeout, Duration};
+    let mut s = timeout(Duration::from_millis(1200), tokio::net::TcpStream::connect((host, port))).await.ok()?.ok()?;
+    let mut buf = [0u8; 512];
+    async fn read(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
+        timeout(Duration::from_millis(900), s.read(buf)).await.ok().and_then(|r| r.ok()).unwrap_or(0)
+    }
+    match port {
+        21 => {
+            read(&mut s, &mut buf).await; // 220 banner
+            s.write_all(b"USER anonymous\r\n").await.ok()?;
+            read(&mut s, &mut buf).await;
+            s.write_all(b"PASS anonymous@adhammer\r\n").await.ok()?;
+            let n = read(&mut s, &mut buf).await;
+            String::from_utf8_lossy(&buf[..n]).starts_with("230").then(|| "FTP: ANONYMOUS LOGIN ALLOWED".to_string())
+        }
+        25 => {
+            read(&mut s, &mut buf).await; // 220 banner
+            s.write_all(b"VRFY root\r\n").await.ok()?;
+            let n = read(&mut s, &mut buf).await;
+            let r = String::from_utf8_lossy(&buf[..n]);
+            (r.starts_with("250") || r.starts_with("252")).then(|| "SMTP: VRFY enabled (user enumeration)".to_string())
+        }
+        6379 => {
+            s.write_all(b"INFO\r\n").await.ok()?;
+            let n = read(&mut s, &mut buf).await;
+            String::from_utf8_lossy(&buf[..n]).contains("redis_version").then(|| "REDIS: UNAUTHENTICATED (no AUTH required)".to_string())
+        }
+        _ => None,
+    }
 }
 
 /// Expand a target spec: `@file` (one host/line), `a.b.c.d/nn` CIDR, or a comma list.
