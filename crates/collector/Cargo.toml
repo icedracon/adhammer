@@ -3,7 +3,7 @@ name = "adhammer-collector"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ADhammer LDAP collector — domain + Configuration NC collection over ldap3/rustls."
+description = "ADhammer LDAP collector — domain + Configuration NC collection over ldap3 (native-TLS)."
 repository.workspace = true
 
 [features]
@@ -18,4 +18,4 @@ ldap3 = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-rustls = "0.21"
+native-tls = "0.2"

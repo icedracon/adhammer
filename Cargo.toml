@@ -45,7 +45,7 @@ anyhow      = "1"
 thiserror   = "2"
 bitflags    = { version = "2", features = ["serde"] }
 tokio       = { version = "1", features = ["rt-multi-thread", "macros"] }
-ldap3       = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+ldap3       = { version = "0.11", default-features = false, features = ["tls-native"] }
 petgraph    = "0.6"
 clap        = { version = "4", features = ["derive"] }
 tracing     = "0.1"

@@ -64,28 +64,16 @@ fn url_host(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or("").split(':').next().unwrap_or("").to_string()
 }
 
-/// Accept any server certificate — lab use only, for self-signed DC certs over LDAPS.
-struct NoCertVerify;
-impl rustls::client::ServerCertVerifier for NoCertVerify {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
-}
-
-fn insecure_tls() -> std::sync::Arc<rustls::ClientConfig> {
-    let cfg = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_custom_certificate_verifier(std::sync::Arc::new(NoCertVerify))
-        .with_no_client_auth();
-    std::sync::Arc::new(cfg)
+/// A native-TLS connector that skips certificate + hostname checks — for `--insecure`
+/// LDAPS against self-signed / legacy (e.g. SHA-1-signed) DC certificates. native-TLS
+/// (OpenSSL on Unix, Schannel on Windows) accepts the SHA-1 handshake signatures that
+/// rustls refuses outright, so this reaches DCs rustls cannot.
+fn insecure_connector() -> Result<native_tls::TlsConnector> {
+    native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+        .context("build native-tls connector")
 }
 
 pub struct Collector {
@@ -97,7 +85,7 @@ pub struct Collector {
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
         let (conn, mut ldap) = if cfg.insecure {
-            let settings = ldap3::LdapConnSettings::new().set_config(insecure_tls());
+            let settings = ldap3::LdapConnSettings::new().set_connector(insecure_connector()?);
             LdapConnAsync::with_settings(settings, &cfg.url).await.context("ldap connect")?
         } else {
             LdapConnAsync::new(&cfg.url).await.context("ldap connect")?
