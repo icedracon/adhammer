@@ -482,67 +482,110 @@ async fn samr(a: SamrArgs) -> Result<()> {
     Ok(())
 }
 
-/// Network sweep: for each target, which AD-relevant ports are open + SMB signing posture.
+/// Common service ports scanned by the network sweep (FTP → RDP and the rest of the estate).
+const SERVICES: &[(u16, &str)] = &[
+    (21, "ftp"), (22, "ssh"), (23, "telnet"), (25, "smtp"), (53, "dns"), (80, "http"),
+    (88, "kerberos"), (110, "pop3"), (111, "rpcbind"), (135, "msrpc"), (139, "netbios"),
+    (143, "imap"), (389, "ldap"), (443, "https"), (445, "smb"), (464, "kpasswd"),
+    (587, "smtp"), (636, "ldaps"), (993, "imaps"), (995, "pop3s"), (1433, "mssql"),
+    (1521, "oracle"), (2049, "nfs"), (3268, "gc"), (3306, "mysql"), (3389, "rdp"),
+    (5432, "postgres"), (5900, "vnc"), (5985, "winrm"), (5986, "winrm-s"),
+    (6379, "redis"), (8080, "http-alt"), (8443, "https-alt"), (9200, "elastic"),
+];
+/// Ports whose services send a text greeting on connect — grab it for version intel.
+const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
+
+/// Network sweep: full service scan + banner grab per target, DC detection, and SMB signing
+/// (NTLM-relay) posture — the attack-surface map for the whole estate.
 async fn netenum(a: NetArgs) -> Result<()> {
-    const PORTS: [u16; 6] = [88, 135, 389, 445, 3389, 5985]; // Kerberos, RPC, LDAP, SMB, RDP, WinRM
     let hosts = expand_targets(&a.targets)?;
-    eprintln!("[*] sweeping {} hosts…", hosts.len());
+    eprintln!("[*] sweeping {} hosts × {} ports…", hosts.len(), SERVICES.len());
 
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(a.concurrency));
     let mut set = tokio::task::JoinSet::new();
     for host in hosts {
-        let sem = sem.clone();
-        set.spawn(async move {
-            let _permit = sem.acquire().await.ok()?;
-            let mut open = Vec::new();
-            for &port in &PORTS {
-                if tcp_open(&host, port).await {
-                    open.push(port);
-                }
-            }
-            if open.is_empty() {
-                return None;
-            }
-            let mut signing = None;
-            if open.contains(&445) {
-                if let Ok(mut c) = adhammer_smb::SmbClient::connect(&host).await {
-                    signing = c.probe_signing().await.ok();
-                }
-            }
-            Some((host, open, signing))
-        });
-    }
-    let mut results = Vec::new();
-    while let Some(r) = set.join_next().await {
-        if let Ok(Some(v)) = r {
-            results.push(v);
+        for &(port, svc) in SERVICES {
+            let sem = sem.clone();
+            let host = host.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire().await.ok()?;
+                let banner = probe_port(&host, port).await?; // None if closed
+                Some((host, port, svc, banner))
+            });
         }
     }
-    results.sort_by_key(|(h, _, _)| h.parse::<std::net::Ipv4Addr>().map(u32::from).unwrap_or(u32::MAX));
-
-    println!("== network sweep: {} live hosts ==", results.len());
-    for (host, open, signing) in &results {
-        let is_dc = open.contains(&88) && open.contains(&389);
-        let role = if is_dc { "DC  " } else { "host" };
-        let ports: Vec<String> = open.iter().map(|p| p.to_string()).collect();
-        let sign = match signing {
-            Some((d, true)) => format!("  SMB(0x{d:04x}) signing:REQUIRED"),
-            Some((d, false)) => format!("  SMB(0x{d:04x}) signing:OFF → NTLM-RELAY TARGET"),
-            None => String::new(),
-        };
-        println!("  {host:<15} {role}  [{}]{sign}", ports.join(","));
+    // Group open ports by host.
+    let mut hosts_map: std::collections::HashMap<String, Vec<(u16, &str, Option<String>)>> = Default::default();
+    while let Some(r) = set.join_next().await {
+        if let Ok(Some((host, port, svc, banner))) = r {
+            hosts_map.entry(host).or_default().push((port, svc, banner));
+        }
     }
-    let relay: Vec<&String> = results.iter().filter(|(_, _, s)| matches!(s, Some((_, false)))).map(|(h, _, _)| h).collect();
+
+    // SMB signing (relay) posture for hosts exposing 445.
+    let mut signing: std::collections::HashMap<String, (u16, bool)> = Default::default();
+    for (host, ports) in &hosts_map {
+        if ports.iter().any(|(p, _, _)| *p == 445) {
+            if let Ok(mut c) = adhammer_smb::SmbClient::connect(host).await {
+                if let Ok(s) = c.probe_signing().await {
+                    signing.insert(host.clone(), s);
+                }
+            }
+        }
+    }
+
+    let mut hosts_sorted: Vec<_> = hosts_map.into_iter().collect();
+    hosts_sorted.sort_by_key(|(h, _)| h.parse::<std::net::Ipv4Addr>().map(u32::from).unwrap_or(u32::MAX));
+
+    println!("== network sweep: {} live hosts ==", hosts_sorted.len());
+    let mut relay = Vec::new();
+    for (host, mut ports) in hosts_sorted {
+        ports.sort_by_key(|(p, _, _)| *p);
+        let has = |p: u16| ports.iter().any(|(x, _, _)| *x == p);
+        let role = if has(88) && has(389) { "DC  " } else { "host" };
+        println!("  {host:<15} {role}");
+        for (port, svc, banner) in &ports {
+            let b = banner.as_deref().map(|s| format!("  {s}")).unwrap_or_default();
+            println!("      {port:<5} {svc:<10}{b}");
+        }
+        if let Some((d, req)) = signing.get(&host) {
+            if *req {
+                println!("      445   smb-signing REQUIRED (0x{d:04x})");
+            } else {
+                println!("      445   smb-signing OFF → NTLM-RELAY TARGET (0x{d:04x})");
+                relay.push(host.clone());
+            }
+        }
+    }
     if !relay.is_empty() {
-        println!("\n[+] {} relay target(s) (SMB signing not required): {}", relay.len(),
-            relay.iter().map(|h| h.as_str()).collect::<Vec<_>>().join(", "));
+        println!("\n[+] {} NTLM-relay target(s) (SMB signing not required): {}", relay.len(), relay.join(", "));
     }
     Ok(())
 }
 
-async fn tcp_open(host: &str, port: u16) -> bool {
-    let fut = tokio::net::TcpStream::connect((host, port));
-    matches!(tokio::time::timeout(std::time::Duration::from_millis(700), fut).await, Ok(Ok(_)))
+/// Connect to `host:port` (timeout). Returns Some(banner) if open — banner is the service
+/// greeting for text protocols, empty otherwise; None if the port is closed/filtered.
+async fn probe_port(host: &str, port: u16) -> Option<Option<String>> {
+    use tokio::io::AsyncReadExt;
+    use tokio::time::{timeout, Duration};
+    let connect = tokio::net::TcpStream::connect((host, port));
+    let mut stream = match timeout(Duration::from_millis(800), connect).await {
+        Ok(Ok(s)) => s,
+        _ => return None, // closed / filtered
+    };
+    if !GREETERS.contains(&port) {
+        return Some(None);
+    }
+    // Read the service greeting (FTP/SSH/SMTP/POP3/IMAP announce on connect).
+    let mut buf = [0u8; 256];
+    let banner = match timeout(Duration::from_millis(600), stream.read(&mut buf)).await {
+        Ok(Ok(n)) if n > 0 => {
+            let line = String::from_utf8_lossy(&buf[..n]);
+            Some(line.lines().next().unwrap_or("").trim().to_string())
+        }
+        _ => None,
+    };
+    Some(banner)
 }
 
 /// Expand a target spec: `@file` (one host/line), `a.b.c.d/nn` CIDR, or a comma list.
