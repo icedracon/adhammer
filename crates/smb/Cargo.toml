@@ -10,7 +10,7 @@ repository.workspace = true
 adhammer-ntlm = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["net", "io-util", "time"] }
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt", "sync"] }
 tracing = { workspace = true }
 hmac = { workspace = true }
 sha2 = "0.10"

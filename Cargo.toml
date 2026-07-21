@@ -12,6 +12,7 @@ members = [
     "crates/dcerpc",
     "crates/ntlm",
     "crates/smb",
+    "crates/ldap",
     "cli",
 ]
 
@@ -37,6 +38,7 @@ adhammer-sysvol    = { path = "crates/sysvol",    version = "0.0.1" }
 adhammer-dcerpc    = { path = "crates/dcerpc",    version = "0.0.1" }
 adhammer-ntlm      = { path = "crates/ntlm",      version = "0.0.1" }
 adhammer-smb       = { path = "crates/smb",       version = "0.0.1" }
+adhammer-ldap      = { path = "crates/ldap",      version = "0.0.1" }
 
 # external
 serde       = { version = "1", features = ["derive"] }

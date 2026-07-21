@@ -20,6 +20,7 @@ adhammer-report = { workspace = true }
 adhammer-kerberos = { workspace = true }
 adhammer-sysvol = { workspace = true }
 adhammer-smb = { workspace = true }
+adhammer-ldap = { workspace = true }
 adhammer-dcerpc = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

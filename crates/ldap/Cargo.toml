@@ -1,0 +1,14 @@
+[package]
+name = "adhammer-ldap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ADhammer raw LDAP client — NTLM SASL (GSS-SPNEGO) bind + search/modify, for LDAP-389 auth and NTLM relay."
+repository.workspace = true
+
+[dependencies]
+adhammer-ntlm = { workspace = true }
+adhammer-smb = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "time"] }

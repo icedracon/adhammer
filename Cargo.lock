@@ -12,6 +12,7 @@ dependencies = [
  "adhammer-dcerpc",
  "adhammer-graph",
  "adhammer-kerberos",
+ "adhammer-ldap",
  "adhammer-report",
  "adhammer-sddl",
  "adhammer-smb",
@@ -93,6 +94,17 @@ dependencies = [
  "serde",
  "sha1",
  "sha2",
+ "tokio",
+]
+
+[[package]]
+name = "adhammer-ldap"
+version = "0.0.1"
+dependencies = [
+ "adhammer-ntlm",
+ "adhammer-smb",
+ "anyhow",
+ "thiserror 2.0.18",
  "tokio",
 ]
 

