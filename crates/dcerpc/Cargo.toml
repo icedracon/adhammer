@@ -14,3 +14,5 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 tracing = { workspace = true }
+md-5 = { workspace = true }
+des = "0.8"

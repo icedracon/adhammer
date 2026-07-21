@@ -10,12 +10,18 @@ pub struct RpcTcp {
     stream: TcpStream,
     call_id: u32,
     seal: Option<SealState>,
+    session_key: Option<[u8; 16]>,
 }
 
 impl RpcTcp {
     pub async fn connect(addr: &str) -> Result<Self> {
         let stream = TcpStream::connect(addr).await?;
-        Ok(RpcTcp { stream, call_id: 1, seal: None })
+        Ok(RpcTcp { stream, call_id: 1, seal: None, session_key: None })
+    }
+
+    /// The negotiated NTLM exported session key — the base key for DRSUAPI secret decryption.
+    pub fn session_key(&self) -> Option<[u8; 16]> {
+        self.session_key
     }
 
     async fn send(&mut self, buf: &[u8]) -> Result<()> {
@@ -82,6 +88,7 @@ impl RpcTcp {
             .map_err(|e| RpcError::Protocol(format!("ntlm authenticate: {e}")))?;
         let auth3 = pdu::build_auth3(bind_call_id, &type3);
         self.send(&auth3).await?; // AUTH3 is unacknowledged
+        self.session_key = Some(exported);
         self.seal = Some(SealState::new(&exported));
         Ok(())
     }

@@ -60,6 +60,8 @@ dependencies = [
  "adhammer-ntlm",
  "adhammer-smb",
  "anyhow",
+ "des",
+ "md-5",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

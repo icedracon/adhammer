@@ -97,7 +97,7 @@ impl<'a> NdrDecoder<'a> {
         NdrDecoder { buf, pos: 0 }
     }
 
-    fn align(&mut self, a: usize) {
+    pub fn align(&mut self, a: usize) {
         while self.pos % a != 0 {
             self.pos += 1;
         }

