@@ -215,10 +215,29 @@ impl<'a> SamrClient<'a> {
 
     /// SamrEnumerateUsersInDomain → [(rid, sAMAccountName)] for the open domain.
     pub async fn enumerate_users(&mut self, domain: &SamrHandle) -> Result<Vec<(u32, String)>> {
-        let stub = encode_enum_users(domain, 0, 0, 0x1000);
-        let resp = self.pipe.call(opnum::ENUM_USERS, &stub).await?;
-        let (_resume, list) = decode_enum_domains(&resp)?;
-        Ok(list)
+        // SamrEnumerateUsersInDomain is paged: it returns up to PreferedMaximumLength of
+        // entries plus an EnumerationContext, and NTSTATUS STATUS_MORE_ENTRIES (0x105) while
+        // more remain. Loop on the resume handle until the domain is exhausted.
+        const STATUS_MORE_ENTRIES: u32 = 0x0000_0105;
+        let mut all = Vec::new();
+        let mut resume = 0u32;
+        loop {
+            let stub = encode_enum_users(domain, resume, 0, 0x1000);
+            let resp = self.pipe.call(opnum::ENUM_USERS, &stub).await?;
+            let (next, list) = decode_enum_domains(&resp)?;
+            let got = list.len();
+            all.extend(list);
+            // The operation's return NTSTATUS is the trailing 4 bytes of the stub.
+            let status = resp
+                .get(resp.len().wrapping_sub(4)..)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+                .unwrap_or(0);
+            if status != STATUS_MORE_ENTRIES || got == 0 || next == resume {
+                break; // done, or no forward progress (guard against a stuck context)
+            }
+            resume = next;
+        }
+        Ok(all)
     }
 
     /// End-to-end: connect, pick the account domain (the non-"Builtin" one), and list its
