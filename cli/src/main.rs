@@ -7,6 +7,8 @@ use adhammer_report::{Report, RiskConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod poison;
+
 #[derive(Parser)]
 #[command(name = "adhammer", version, about = "Passive AD security assessment in Rust")]
 struct Cli {
@@ -62,6 +64,15 @@ enum AttackCmd {
     Dcsync(DcsyncArgs),
     /// Capture NetNTLMv2 from coerced/poisoned victims (SMB listener → hashcat -m 5600).
     Capture(CaptureArgs),
+    /// Poison LLMNR + NBT-NS name resolution to lure victims to us (pair with `capture`).
+    Poison(PoisonArgs),
+}
+
+#[derive(Parser)]
+struct PoisonArgs {
+    /// Our IP to hand out for every poisoned name (where `attack capture` listens)
+    #[arg(long)]
+    spoof_ip: std::net::Ipv4Addr,
 }
 
 #[derive(Parser)]
@@ -255,6 +266,7 @@ async fn main() -> Result<()> {
         Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => adhammer_smb::server::capture(&a.listen).await.map_err(Into::into),
+        Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
     }
 }
 
