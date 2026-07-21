@@ -17,15 +17,20 @@ fn u32(b: &[u8], o: usize) -> u32 {
 
 /// Offer dialect 2.1.0 with a random client GUID.
 pub fn negotiate(client_guid: &[u8; 16]) -> Vec<u8> {
+    // Offer SMB 2.0.2 (Server 2008/2008R2) and 2.1.0 (2012+); the server selects the highest
+    // it supports. Both sign with HMAC-SHA256, so the rest of the client is dialect-agnostic.
+    let dialects: [u16; 2] = [0x0202, 0x0210];
     let mut b = Vec::new();
     b.extend_from_slice(&36u16.to_le_bytes()); // StructureSize
-    b.extend_from_slice(&1u16.to_le_bytes()); // DialectCount
+    b.extend_from_slice(&(dialects.len() as u16).to_le_bytes()); // DialectCount
     b.extend_from_slice(&0x0001u16.to_le_bytes()); // SecurityMode = SIGNING_ENABLED
     b.extend_from_slice(&0u16.to_le_bytes()); // Reserved
     b.extend_from_slice(&0u32.to_le_bytes()); // Capabilities
     b.extend_from_slice(client_guid);
     b.extend_from_slice(&0u64.to_le_bytes()); // ClientStartTime
-    b.extend_from_slice(&0x0210u16.to_le_bytes()); // Dialect 2.1.0
+    for dialect in dialects {
+        b.extend_from_slice(&dialect.to_le_bytes());
+    }
     b
 }
 
@@ -144,9 +149,10 @@ mod tests {
     fn negotiate_offers_dialect_210() {
         let b = negotiate(&[0; 16]);
         assert_eq!(u16(&b, 0), 36); // StructureSize
-        assert_eq!(u16(&b, 2), 1); // DialectCount
-        // dialect at 36 (fixed part) — after 4+2+2+4+16+8 = 36
-        assert_eq!(u16(&b, 36), 0x0210);
+        assert_eq!(u16(&b, 2), 2); // DialectCount (2.0.2 + 2.1.0)
+        // dialects at 36 (fixed part) — after 4+2+2+4+16+8 = 36
+        assert_eq!(u16(&b, 36), 0x0202);
+        assert_eq!(u16(&b, 38), 0x0210);
     }
 
     #[test]
