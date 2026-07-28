@@ -133,31 +133,45 @@ pub async fn run(use_old: bool) -> Result<()> {
 
 fn setup_wizard() -> Result<Session> {
     println!("=== ADhammer setup ===");
-    println!("Enter target domain credentials (saved for `adhammer --old`).\n");
+    println!("Enter the engagement target (saved for `adhammer --old`).\n");
 
-    let domain: String = Input::new()
-        .with_prompt("Domain (DNS)")
-        .with_initial_text("corp.local")
-        .interact_text()
-        .context("domain prompt")?;
-
-    let default_dc = format!("dc.{}", domain.trim());
-    let dc: String = Input::new()
-        .with_prompt("Domain controller (hostname or IP)")
-        .with_initial_text(default_dc)
-        .interact_text()
-        .context("dc prompt")?;
-
+    // 1. user  2. password | NT hash  3. domain  4. domain-controller IP  5. TLS.
     let username: String = Input::new()
-        .with_prompt("Username")
+        .with_prompt("User (test account / bind identity)")
         .with_initial_text("administrator")
         .interact_text()
         .context("username prompt")?;
 
-    let password: String = Password::new()
-        .with_prompt("Password")
+    let auth = Select::new()
+        .with_prompt("Authenticate with")
+        .items(&["Password", "NT hash (pass-the-hash)"])
+        .default(0)
         .interact()
-        .context("password prompt")?;
+        .context("auth prompt")?;
+    let (password, nt_hash) = if auth == 0 {
+        (Password::new().with_prompt("Password").interact()?, None)
+    } else {
+        let h: String = Input::new()
+            .with_prompt("NT hash (32 hex)")
+            .validate_with(|s: &String| match s.trim().len() {
+                32 => Ok(()),
+                n => Err(format!("expected 32 hex chars, got {n}")),
+            })
+            .interact_text()?;
+        // A blank password is kept so Kerberos/DCSync actions can report they need one.
+        (String::new(), Some(h.trim().to_string()))
+    };
+
+    let domain: String = Input::new()
+        .with_prompt("Domain (DNS, e.g. corp.local)")
+        .with_initial_text("corp.local")
+        .interact_text()
+        .context("domain prompt")?;
+
+    let dc: String = Input::new()
+        .with_prompt("Domain controller IP (or hostname)")
+        .interact_text()
+        .context("dc prompt")?;
 
     let insecure = Confirm::new()
         .with_prompt("Skip LDAPS certificate verification (lab DC)?")
@@ -170,8 +184,14 @@ fn setup_wizard() -> Result<Session> {
         dc: dc.trim().to_string(),
         username: username.trim().to_string(),
         password,
+        nt_hash,
         insecure,
     })
+}
+
+/// The session's NT hash as `Option<String>` for the pass-the-hash-capable actions.
+fn sess_hash(s: &Session) -> Option<String> {
+    s.nt_hash.clone()
 }
 
 async fn dispatch(action: &Action, s: &Session) -> Result<()> {
@@ -200,7 +220,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 domain: s.netbios(),
                 user: s.username.clone(),
                 password: s.password.clone(),
-                nt_hash: None,
+                nt_hash: sess_hash(s),
             })
             .await
         }
@@ -214,7 +234,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 domain: s.netbios(),
                 user: s.username.clone(),
                 password: s.password.clone(),
-                nt_hash: None,
+                nt_hash: sess_hash(s),
                 name,
             })
             .await
@@ -406,7 +426,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 domain: s.netbios(),
                 user: s.username.clone(),
                 password: s.password.clone(),
-                nt_hash: None,
+                nt_hash: sess_hash(s),
                 command,
             })
             .await
@@ -417,7 +437,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 domain: s.netbios(),
                 user: s.username.clone(),
                 password: s.password.clone(),
-                nt_hash: None,
+                nt_hash: sess_hash(s),
             })
             .await
         }
@@ -592,12 +612,18 @@ async fn fetch_key_and_sid(
     account: &str,
     key_label: &str,
 ) -> Result<(String, String)> {
-    let auto = Confirm::new()
-        .with_prompt(format!(
-            "Auto-fetch {account}'s AES256 key + domain SID via DCSync (uses your session creds)?"
-        ))
-        .default(true)
-        .interact()?;
+    // A hash-only session can't DCSync/LSAT-bind here, so go straight to manual entry.
+    let auto = if s.password.is_empty() {
+        false
+    } else {
+        Confirm::new()
+            .with_prompt(format!(
+                "Auto-fetch {account}'s AES256 key + domain SID via DCSync (uses your session creds)?"
+            ))
+            .default(true)
+            .interact()
+            .unwrap_or(false)
+    };
     if !auto {
         return Ok((prompt_key(key_label)?, prompt_sid()?));
     }

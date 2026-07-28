@@ -15,6 +15,9 @@ pub struct Session {
     /// Bind username (sAMAccountName or DOMAIN\\user)
     pub username: String,
     pub password: String,
+    /// Optional NT hash (32 hex) for pass-the-hash on the SMB-based actions.
+    #[serde(default)]
+    pub nt_hash: Option<String>,
     /// Skip TLS verification for lab LDAPS
     #[serde(default)]
     pub insecure: bool,
