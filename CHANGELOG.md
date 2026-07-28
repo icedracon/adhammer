@@ -63,7 +63,8 @@ Extracted from this repo (the "impacket for Rust" that didn't exist):
 - Live validation is against Server 2025 only; the 2016/2019/2022 matrix is not yet recorded.
 - RC4 golden→TGS completion needs an RC4-service DC (≤2022); on 2025 the forged RC4 TGT is
   accepted but the service ticket is refused (KDC policy).
-- BloodHound export is schema-validated, not yet UI-confirmed.
+- BloodHound export is confirmed to ingest + analyze in **BloodHound CE** (the domain loads as a
+  queryable graph); not yet exercised across every edge type.
 - Open vectors (roadmap): noPac, Zerologon, ADCS ESC5–11, DCShadow, LAPS, trust-key dumping —
   see [VECTORS.md](VECTORS.md).
 
