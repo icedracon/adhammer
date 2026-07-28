@@ -60,23 +60,28 @@ adhammer attack abuse --action pkinit --target victim --realm CORP.LOCAL --kdc d
 
 ## Architecture
 
-16 crates in one workspace, layered so the two audit differentiators — the self-rolled security
-descriptor parser and the in-process control-path graph — sit on shared core types, and the
-offensive tradecraft sits on the self-rolled RPC/Kerberos stack.
+The from-scratch protocol stack has been **extracted into standalone, published crates** — this
+repo now consumes them, which is both the dogfooding proof and the reusable "impacket for Rust"
+that didn't previously exist:
+
+| Published crate | Role |
+|-----------------|------|
+| [`windows-sddl`](https://crates.io/crates/windows-sddl) | ⭐ no-FFI `SECURITY_DESCRIPTOR`/DACL/ACE parser (MS-DTYP) + `Sid`/`Guid` + AD extended-right GUIDs |
+| [`ntlmssp`](https://crates.io/crates/ntlmssp) | NTLMSSP (NTLMv2, MIC, key-exch) + RC4 sign+seal for RPC packet privacy |
+| [`smb2-client`](https://crates.io/crates/smb2-client) | async SMB2 client (negotiate → NTLMv2 SPNEGO → IPC$ → named pipe; signing; file read) |
+| [`dcerpc`](https://crates.io/crates/dcerpc) | NDR · RPC PDUs · sign+seal · TCP/SMB transports · EPM · SAMR · LSAT · DRSUAPI · SVCCTL · EFSR · ICPR |
+
+The audit- and orchestration-specific crates live in this workspace:
 
 | Crate | Role |
 |-------|------|
-| `core` | Shared model: `Sid`/`Guid`, `AdObject`, `Snapshot`, `Finding`, MITRE table |
-| `sddl` | ⭐ Self-rolled `SECURITY_DESCRIPTOR`/DACL/ACE parser (MS-DTYP) + RBCD SD builder + extended-right GUIDs |
+| `core` | Shared model: `AdObject`, `Snapshot`, `Finding`, MITRE table (re-exports `windows-sddl`'s `Sid`/`Guid`) |
 | `graph` | ⭐ Control-path graph on `petgraph`; reverse-Dijkstra to Tier-0 |
 | `collector` | LDAP collection (`ldap3`, native-tls) over domain + Configuration NC; SD_FLAGS control; LDAP writes |
 | `checks` | The 33-rule engine across all four categories |
-| `kerberos` | AS-REP roast · Kerberoast (RC4+AES) · spray/enum · S4U/RBCD · **Shadow Credentials PKINIT** · ccache — on `picky-krb` |
+| `kerberos` | AS-REP roast · Kerberoast · spray/enum · S4U/RBCD · Shadow Credentials PKINIT · **golden/silver tickets · pass-the-ticket** · ccache |
 | `sysvol` | GPP cpassword recovery (MS14-025) + GptTmpl.inf signing/NTLM/LM policy |
 | `report` | Configurable risk scoring → JSON / HTML |
-| `dcerpc` | NDR marshaling · RPC PDUs · **NTLMSSP sign+seal** · TCP/SMB transports · EPM · SAMR · LSAT · EFSR |
-| `ntlm` | NTLMSSP (NTLMv2, MIC) + RC4 sign+seal (`SealState`) for RPC packet privacy |
-| `smb` | Minimal SMB2 client (negotiate → NTLMv2 SPNEGO session → IPC$ → named-pipe RPC; disk-file read for exec output) |
 | `ldap` | Raw LDAP client (hand-rolled BER) with NTLM SASL GSS-SPNEGO bind — LDAP-389 auth + the NTLM-relay bridge |
 | `bloodhound` | SharpHound-compatible BloodHound export (JSON + hand-rolled stored ZIP) |
 | `secrets` | Offline registry-hive (`regf`) parser + bootkey + SAM NT-hash decryption (RC4/AES) |
@@ -100,10 +105,11 @@ LM/NTLMv1, LDAP/SMB signing, NoLMHash, Netlogon sealing.
 Every finding carries a MITRE ATT&CK technique (T1558.003 Kerberoasting, T1558.004 AS-REP,
 T1003.006 DCSync, T1649 cert abuse, T1484 policy/trust modification, …).
 
-## The embedded protocol stack
+## The protocol stack
 
 There is no impacket for Rust, so the RPC- and Kerberos-based capabilities are implemented from
-the wire up and unit-tested against protocol specs:
+the wire up and unit-tested against protocol specs. The RPC/NTLM/SMB/SD layers now ship as the
+standalone crates above; Kerberos remains in-workspace (on `picky-krb`):
 
 ```
 NDR ─ PDU (bind/request/response, sign+seal) ─┬─ TCP transport ── EPM (ept_map)

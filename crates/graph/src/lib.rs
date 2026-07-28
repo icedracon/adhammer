@@ -8,10 +8,10 @@
 use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::AdObject;
-use adhammer_sddl::{rights, AccessMask, AceType};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
+use windows_sddl::{rights, AccessMask, AceType};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdgeKind {
@@ -118,7 +118,7 @@ impl ControlGraph {
     fn add_rbcd_edge(&mut self, o: &AdObject, self_sid: &Sid) {
         // msDS-AllowedToActOnBehalfOfOtherIdentity is itself an SD; anyone in it can act on `self`.
         if let Some(raw) = o.bin1("msDS-AllowedToActOnBehalfOfOtherIdentity") {
-            if let Ok(sd) = adhammer_sddl::parse(raw) {
+            if let Ok(sd) = windows_sddl::parse(raw) {
                 let target = self.node_for(self_sid.clone());
                 for ace in sd
                     .dacl
@@ -137,7 +137,7 @@ impl ControlGraph {
         let Some(raw) = o.bin1("nTSecurityDescriptor") else {
             return;
         };
-        let Ok(sd) = adhammer_sddl::parse(raw) else {
+        let Ok(sd) = windows_sddl::parse(raw) else {
             return;
         };
         let target = self.node_for(self_sid.clone());
@@ -232,7 +232,7 @@ pub struct AttackPath {
 }
 
 /// Turn one allow-ACE into the control primitives it grants.
-fn classify(ace: &adhammer_sddl::Ace) -> Vec<EdgeKind> {
+fn classify(ace: &windows_sddl::Ace) -> Vec<EdgeKind> {
     let m = ace.mask;
     let mut v = Vec::new();
     if m.contains(AccessMask::GENERIC_ALL) {

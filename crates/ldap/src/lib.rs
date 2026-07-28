@@ -5,9 +5,9 @@
 //! steps (`sasl_step1`/`sasl_step2`) so a relay server can forward a victim's Type1/Type3 and
 //! act as the victim (e.g. write msDS-KeyCredentialLink → Shadow Credentials → takeover).
 
-use adhammer_ntlm::Ntlm;
-use adhammer_smb::spnego;
 use anyhow::{anyhow, bail, Context, Result};
+use ntlmssp::Ntlm;
+use smb2_client::spnego;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 

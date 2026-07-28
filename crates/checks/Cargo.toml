@@ -8,6 +8,6 @@ repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }
-adhammer-sddl = { workspace = true }
+windows-sddl = { workspace = true }
 adhammer-graph = { workspace = true }
 

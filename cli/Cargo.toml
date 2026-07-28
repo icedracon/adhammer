@@ -12,19 +12,19 @@ path = "src/main.rs"
 
 [dependencies]
 adhammer-core = { workspace = true }
-adhammer-sddl = { workspace = true }
+windows-sddl = { workspace = true }
 adhammer-collector = { workspace = true }
 adhammer-checks = { workspace = true }
 adhammer-graph = { workspace = true }
 adhammer-report = { workspace = true }
 adhammer-kerberos = { workspace = true }
 adhammer-sysvol = { workspace = true }
-adhammer-smb = { workspace = true }
+smb2-client = { workspace = true }
 adhammer-ldap = { workspace = true }
-adhammer-dcerpc = { workspace = true }
+dcerpc = { workspace = true }
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
-adhammer-ntlm = { workspace = true }
+ntlmssp = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

@@ -11,10 +11,10 @@
 use adhammer_core::sid::{Guid, Sid};
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::AdObject;
-use adhammer_sddl::rights;
-use adhammer_sddl::{AccessMask, AceType};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use windows_sddl::rights;
+use windows_sddl::{AccessMask, AceType};
 
 const VERSION: u32 = 5;
 
@@ -399,7 +399,7 @@ fn owner_ace(ctx: &Ctx, o: &AdObject) -> Vec<Value> {
     let Some(raw) = o.bin1("nTSecurityDescriptor") else {
         return vec![];
     };
-    let Ok(sd) = adhammer_sddl::parse(raw) else {
+    let Ok(sd) = windows_sddl::parse(raw) else {
         return vec![];
     };
     let Some(owner) = sd.owner else { return vec![] };
@@ -419,7 +419,7 @@ fn build_aces(ctx: &Ctx, o: &AdObject) -> Vec<Value> {
     let Some(raw) = o.bin1("nTSecurityDescriptor") else {
         return vec![];
     };
-    let Ok(sd) = adhammer_sddl::parse(raw) else {
+    let Ok(sd) = windows_sddl::parse(raw) else {
         return vec![];
     };
     let mut out = Vec::new();
@@ -450,7 +450,7 @@ fn ace(principal: &str, ptype: &str, right: &str, inherited: bool) -> Value {
 }
 
 /// Map an ACE's access mask + object-type GUID to BloodHound `RightName`s.
-fn ace_rights(a: &adhammer_sddl::Ace) -> Vec<&'static str> {
+fn ace_rights(a: &windows_sddl::Ace) -> Vec<&'static str> {
     let m = a.mask;
     let mut v = Vec::new();
     if m.contains(AccessMask::GENERIC_ALL) {

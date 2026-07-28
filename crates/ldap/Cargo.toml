@@ -7,8 +7,8 @@ description = "ADhammer raw LDAP client — NTLM SASL (GSS-SPNEGO) bind + search
 repository.workspace = true
 
 [dependencies]
-adhammer-ntlm = { workspace = true }
-adhammer-smb = { workspace = true }
+ntlmssp = { workspace = true }
+smb2-client = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time"] }

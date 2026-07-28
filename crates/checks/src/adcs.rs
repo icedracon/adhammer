@@ -12,8 +12,8 @@ use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::{AdObject, Finding};
 use adhammer_graph::ControlGraph;
-use adhammer_sddl::{rights, AccessMask};
 use std::collections::HashSet;
+use windows_sddl::{rights, AccessMask};
 
 // Extended Key Usage OIDs that grant domain authentication.
 const EKU_CLIENT_AUTH: &str = "1.3.6.1.5.5.7.3.2";
@@ -177,7 +177,7 @@ fn broad_rights(o: &AdObject, dsid: Option<&Sid>) -> (bool, bool) {
     let Some(raw) = o.bin1("nTSecurityDescriptor") else {
         return (false, false);
     };
-    let Ok(sd) = adhammer_sddl::parse(raw) else {
+    let Ok(sd) = windows_sddl::parse(raw) else {
         return (false, false);
     };
 

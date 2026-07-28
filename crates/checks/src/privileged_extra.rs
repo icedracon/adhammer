@@ -82,7 +82,7 @@ impl Check for GmsaReadableByBroad {
             .iter_class("msDS-GroupManagedServiceAccount")
             .filter(|o| {
                 o.bin1("msDS-GroupMSAMembership")
-                    .and_then(|raw| adhammer_sddl::parse(raw).ok())
+                    .and_then(|raw| windows_sddl::parse(raw).ok())
                     .map(|sd| {
                         sd.dacl
                             .iter()
@@ -180,7 +180,7 @@ impl Check for RbcdConfigured {
             let Some(raw) = o.bin1("msDS-AllowedToActOnBehalfOfOtherIdentity") else {
                 continue;
             };
-            let Ok(sd) = adhammer_sddl::parse(raw) else {
+            let Ok(sd) = windows_sddl::parse(raw) else {
                 continue;
             };
             let broad = sd

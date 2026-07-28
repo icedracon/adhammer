@@ -9,3 +9,4 @@ repository.workspace = true
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+windows-sddl = { workspace = true }

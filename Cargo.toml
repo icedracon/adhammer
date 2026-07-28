@@ -2,16 +2,12 @@
 resolver = "2"
 members = [
     "crates/core",
-    "crates/sddl",
     "crates/collector",
     "crates/checks",
     "crates/graph",
     "crates/kerberos",
     "crates/report",
     "crates/sysvol",
-    "crates/dcerpc",
-    "crates/ntlm",
-    "crates/smb",
     "crates/ldap",
     "crates/bloodhound",
     "crates/secrets",
@@ -30,18 +26,20 @@ description = "ADhammer — Active Directory security assessment and offensive t
 repository = "https://github.com/icedracon/adhammer"
 
 [workspace.dependencies]
+# the from-scratch protocol stack, now consumed as standalone published crates
+# (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
+windows-sddl = "0.1"
+ntlmssp      = "0.1"
+smb2-client  = "0.1"
+dcerpc       = "0.1"
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "0.0.1" }
-adhammer-sddl      = { path = "crates/sddl",      version = "0.0.1" }
 adhammer-collector = { path = "crates/collector", version = "0.0.1" }
 adhammer-checks    = { path = "crates/checks",    version = "0.0.1" }
 adhammer-graph     = { path = "crates/graph",     version = "0.0.1" }
 adhammer-kerberos  = { path = "crates/kerberos",  version = "0.0.1" }
 adhammer-report    = { path = "crates/report",    version = "0.0.1" }
 adhammer-sysvol    = { path = "crates/sysvol",    version = "0.0.1" }
-adhammer-dcerpc    = { path = "crates/dcerpc",    version = "0.0.1" }
-adhammer-ntlm      = { path = "crates/ntlm",      version = "0.0.1" }
-adhammer-smb       = { path = "crates/smb",       version = "0.0.1" }
 adhammer-ldap      = { path = "crates/ldap",      version = "0.0.1" }
 adhammer-bloodhound = { path = "crates/bloodhound", version = "0.0.1" }
 adhammer-secrets    = { path = "crates/secrets",    version = "0.0.1" }

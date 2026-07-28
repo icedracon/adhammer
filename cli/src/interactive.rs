@@ -350,7 +350,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("Listen address")
                 .with_initial_text("0.0.0.0:445")
                 .interact_text()?;
-            adhammer_smb::server::capture(&listen)
+            smb2_client::server::capture(&listen)
                 .await
                 .map_err(Into::into)
         }
