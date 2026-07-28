@@ -94,7 +94,7 @@ user → password (or NT hash) → domain → DC IP, saves the session, then wal
 actions with prompts. For golden/silver/pass-the-ticket it **auto-fetches** the krbtgt/service
 AES256 key (via DCSync) and the domain SID (via LSAT) from your session — no pasting keys or SIDs.
 
-![ADhammer interactive menu: pick an action, run DCSync against the DC, back to the full menu](docs/interactive.gif)
+![ADhammer first run: the setup wizard (user → password → domain → DC IP), then the 21-action menu, then DCSync krbtgt against the DC](docs/interactive.gif)
 
 `attack abuse` also does `add-spn` (targeted Kerberoast), `add-member`, `set-password`, and
 `write-rbcd`. `attack coerce` is PetitPotam / MS-EFSR.
