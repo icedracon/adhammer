@@ -91,9 +91,33 @@ pub fn decrypt(key: &[u8], usage: i32, ciphertext: &[u8]) -> Result<Vec<u8>, &'s
     Ok(data[8..].to_vec()) // strip the 8-byte confounder
 }
 
+/// KERB_CHECKSUM_HMAC_MD5 (checksum type -138, RFC 4757 §4) — the PAC signature algorithm that
+/// pairs with an RC4 key: `Ksign = HMAC-MD5(K, "signaturekey\0"); HMAC-MD5(Ksign, MD5(LE32(usage) || data))`.
+/// 16-byte output. Used for RC4 golden/silver PAC server+KDC signatures.
+pub fn hmac_md5_checksum(key: &[u8], usage: i32, data: &[u8]) -> [u8; 16] {
+    let ksign = hmac_md5(key, b"signaturekey\0");
+    let mut md5 = Md5::new();
+    md5.update(usage.to_le_bytes());
+    md5.update(data);
+    let tmp = md5.finalize();
+    hmac_md5(&ksign, &tmp)
+}
+
+/// SignatureType for the PAC checksum buffers when signing with an RC4 key.
+pub const SIG_HMAC_MD5: i32 = -138;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hmac_md5_checksum_is_16_and_deterministic() {
+        let k = nt_hash("k");
+        let a = hmac_md5_checksum(&k, 17, b"pac-bytes");
+        assert_eq!(a.len(), 16);
+        assert_eq!(a, hmac_md5_checksum(&k, 17, b"pac-bytes"));
+        assert_ne!(a, hmac_md5_checksum(&k, 17, b"pac-bytez"));
+    }
 
     #[test]
     fn nt_hash_known_vector() {

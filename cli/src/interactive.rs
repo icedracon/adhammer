@@ -529,6 +529,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user,
                 rid,
                 groups: DA_GROUPS.to_vec(),
+                rc4: false,
                 out: (!out.is_empty()).then_some(out),
                 verify_spn: (!verify_spn.is_empty()).then_some(verify_spn),
             })
@@ -557,6 +558,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user,
                 rid,
                 groups: DA_GROUPS.to_vec(),
+                rc4: false,
                 out: (!out.is_empty()).then_some(out),
             })
             .await
@@ -603,6 +605,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user,
                 rid,
                 groups: DA_GROUPS.to_vec(),
+                rc4: false,
                 command: (!command.is_empty()).then_some(command),
             })
             .await
