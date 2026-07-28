@@ -1,0 +1,38 @@
+[package]
+name = "adhammer-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone workspace so the nightly/libFuzzer build doesn't perturb the main tree.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+adhammer-sddl = { path = "../crates/sddl" }
+adhammer-secrets = { path = "../crates/secrets" }
+adhammer-dcerpc = { path = "../crates/dcerpc" }
+
+[[bin]]
+name = "sddl_parse"
+path = "fuzz_targets/sddl_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hive_parse"
+path = "fuzz_targets/hive_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "epm_decode"
+path = "fuzz_targets/epm_decode.rs"
+test = false
+doc = false
+bench = false

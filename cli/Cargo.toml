@@ -1,0 +1,36 @@
+[package]
+name = "adhammer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "adhammer"
+path = "src/main.rs"
+
+[dependencies]
+adhammer-core = { workspace = true }
+adhammer-sddl = { workspace = true }
+adhammer-collector = { workspace = true }
+adhammer-checks = { workspace = true }
+adhammer-graph = { workspace = true }
+adhammer-report = { workspace = true }
+adhammer-kerberos = { workspace = true }
+adhammer-sysvol = { workspace = true }
+adhammer-smb = { workspace = true }
+adhammer-ldap = { workspace = true }
+adhammer-dcerpc = { workspace = true }
+adhammer-bloodhound = { workspace = true }
+adhammer-secrets = { workspace = true }
+adhammer-ntlm = { workspace = true }
+hex = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dialoguer = "0.11"

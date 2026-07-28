@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: build · test · fuzz-lite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: format check
+        run: cargo fmt --all --check
+      - name: clippy (advisory)
+        run: cargo clippy --workspace --all-targets || true
+      - name: build
+        run: cargo build --workspace --release
+      - name: test (unit + fuzz-lite parsers)
+        run: cargo test --workspace
+
+  fuzz:
+    name: cargo-fuzz (nightly, short)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: fuzz each target briefly
+        run: |
+          for t in sddl_parse hive_parse epm_decode; do
+            cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096
+          done

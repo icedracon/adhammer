@@ -1,0 +1,13 @@
+[package]
+name = "adhammer-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ADhammer reporting — configurable risk scoring to JSON/HTML."
+repository.workspace = true
+
+[dependencies]
+adhammer-core = { workspace = true }
+adhammer-graph = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

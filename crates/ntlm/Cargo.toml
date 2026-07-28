@@ -1,0 +1,15 @@
+[package]
+name = "adhammer-ntlm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ADhammer NTLM — NTLMSSP (NTLMv2, MIC) + RC4 sign+seal for RPC packet privacy."
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+md4 = { workspace = true }
+md-5 = { workspace = true }
+hmac = { workspace = true }
+rand = "0.8"
