@@ -54,7 +54,7 @@ impl Snapshot {
     pub fn by_sam(&self, sam: &str) -> Option<&AdObject> {
         self.objects.iter().find(|o| {
             o.one("sAMAccountName")
-                .map_or(false, |s| s.eq_ignore_ascii_case(sam))
+                .is_some_and(|s| s.eq_ignore_ascii_case(sam))
         })
     }
 

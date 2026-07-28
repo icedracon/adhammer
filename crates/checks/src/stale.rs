@@ -59,7 +59,7 @@ impl Check for UnsupportedOs {
         let hits: Vec<String> = snap
             .iter_class("computer")
             .filter(|o| {
-                o.one("operatingSystem").map_or(false, |os| {
+                o.one("operatingSystem").is_some_and(|os| {
                     ["2000", "2003", "2008", "XP", "Windows 7", "Vista", "2012"]
                         .iter()
                         .any(|old| os.contains(old))
@@ -95,7 +95,7 @@ impl Check for PasswordNeverChanged {
         let count = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "pwdLastSet").map_or(false, |d| d > STALE_PW_DAYS))
+            .filter(|o| age_days(o, "pwdLastSet").is_some_and(|d| d > STALE_PW_DAYS))
             .count();
         if count == 0 {
             return vec![];
@@ -124,7 +124,7 @@ impl Check for StaleComputers {
         let count = snap
             .iter_class("computer")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "lastLogonTimestamp").map_or(false, |d| d > INACTIVE_DAYS))
+            .filter(|o| age_days(o, "lastLogonTimestamp").is_some_and(|d| d > INACTIVE_DAYS))
             .count();
         if count == 0 {
             return vec![];
@@ -155,7 +155,7 @@ impl Check for MachinePasswordAge {
         let hits: Vec<String> = snap
             .iter_class("computer")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "pwdLastSet").map_or(false, |d| d > STALE_MACHINE_PW_DAYS))
+            .filter(|o| age_days(o, "pwdLastSet").is_some_and(|d| d > STALE_MACHINE_PW_DAYS))
             .map(|o| o.dn.clone())
             .collect();
         if hits.is_empty() {

@@ -83,14 +83,13 @@ const MENU: &[(&str, Action)] = &[
 ];
 
 pub async fn run(use_old: bool) -> Result<()> {
-    let sess = if use_old {
-        session::load()?
-    } else if session::exists()
-        && Confirm::new()
-            .with_prompt("Saved session found — reuse it? (No = enter new credentials)")
-            .default(true)
-            .interact()?
-    {
+    let reuse = use_old
+        || (session::exists()
+            && Confirm::new()
+                .with_prompt("Saved session found — reuse it? (No = enter new credentials)")
+                .default(true)
+                .interact()?);
+    let sess = if reuse {
         session::load()?
     } else {
         let s = setup_wizard()?;

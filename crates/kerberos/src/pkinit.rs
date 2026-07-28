@@ -196,7 +196,7 @@ fn implicit_constructed(n: u8, content: &[u8]) -> Vec<u8> {
 /// DER INTEGER (unsigned) content bytes: big-endian, 0x00-prefixed when the top bit is set.
 fn der_uint(v: &BigUint) -> IntegerAsn1 {
     let mut b = v.to_bytes_be();
-    if b.first().map_or(true, |x| x & 0x80 != 0) {
+    if b.first().is_none_or(|x| x & 0x80 != 0) {
         b.insert(0, 0);
     }
     IntegerAsn1(b)
@@ -351,7 +351,7 @@ fn self_signed_cert(
     let cert = Certificate {
         tbs_certificate: tbs,
         signature_algorithm: AlgorithmIdentifier::new_sha256_with_rsa_encryption(),
-        signature_value: BitStringAsn1::from(BitString::with_bytes(sig)).into(),
+        signature_value: BitStringAsn1::from(BitString::with_bytes(sig)),
     };
     let sid = IssuerAndSerialNumber {
         issuer: name,
@@ -624,7 +624,7 @@ pub async fn pkinit_with_cert(
     // --- derive the reply key and decrypt the enc-part ---
     let zz = server_pub.modpow(&x, &p);
     let mut zz_bytes = zz.to_bytes_be();
-    let plen = (p.bits() as usize + 7) / 8;
+    let plen = p.bits().div_ceil(8);
     while zz_bytes.len() < plen {
         zz_bytes.insert(0, 0);
     }

@@ -178,7 +178,7 @@ fn decrypt_hash(blob: &[u8], rid: u32, hbk: &HashedBootKey) -> Option<[u8; 16]> 
         }
         let enc = &blob[4..20];
         let mut md = Md5::new();
-        md.update(&hbk.key);
+        md.update(hbk.key);
         md.update(rid.to_le_bytes());
         md.update(NTPASSWORD);
         let rc4key = md.finalize();

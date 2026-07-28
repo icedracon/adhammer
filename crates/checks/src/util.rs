@@ -21,7 +21,7 @@ pub fn is_broad(sid: &Sid, domain_sid: Option<&Sid>) -> bool {
     }
     // Domain Users (513) / Domain Guests (514) / Domain Computers (515), this domain.
     if let (Some(d), Some(rid)) = (domain_sid, sid.rid()) {
-        if matches!(rid, 513 | 514 | 515) {
+        if matches!(rid, 513..=515) {
             let prefix = &sid.sub_authorities[..sid.sub_authorities.len().saturating_sub(1)];
             if prefix == d.sub_authorities.as_slice() {
                 return true;

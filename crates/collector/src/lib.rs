@@ -95,6 +95,7 @@ pub struct LdapConfig {
 }
 
 /// The server FQDN from an LDAP URL, for the GSSAPI service principal (ldap/<fqdn>).
+#[cfg(feature = "gssapi")]
 fn url_host(url: &str) -> String {
     url.split("://")
         .nth(1)

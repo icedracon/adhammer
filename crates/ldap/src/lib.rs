@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn read_tlv_long_form() {
         let mut m = vec![0x04, 0x82, 0x01, 0x00]; // OCTET STRING, length 256
-        m.extend(std::iter::repeat(0xAA).take(256));
+        m.extend(std::iter::repeat_n(0xAA, 256));
         let (tag, c, len, next) = read_tlv(&m, 0).unwrap();
         assert_eq!(tag, 0x04);
         assert_eq!(len, 256);

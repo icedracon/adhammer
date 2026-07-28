@@ -37,7 +37,7 @@ impl Nd {
         self.b.extend_from_slice(v);
     }
     fn align(&mut self, n: usize) {
-        while self.b.len() % n != 0 {
+        while !self.b.len().is_multiple_of(n) {
             self.b.push(0);
         }
     }

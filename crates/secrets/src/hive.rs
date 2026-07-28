@@ -271,6 +271,19 @@ impl Hive {
     }
 }
 
+/// Key/value names are ASCII (Latin-1) when the compressed-name flag is set, else UTF-16LE.
+fn decode_name(bytes: &[u8], ascii: bool) -> String {
+    if ascii {
+        bytes.iter().map(|&b| b as char).collect()
+    } else {
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    }
+}
+
 #[cfg(test)]
 mod fuzz {
     use super::*;
@@ -322,18 +335,5 @@ mod fuzz {
                 u32::from_le_bytes([buf[0x24], buf[0x25], buf[0x26], buf[0x27]])
             );
         }
-    }
-}
-
-/// Key/value names are ASCII (Latin-1) when the compressed-name flag is set, else UTF-16LE.
-fn decode_name(bytes: &[u8], ascii: bool) -> String {
-    if ascii {
-        bytes.iter().map(|&b| b as char).collect()
-    } else {
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        String::from_utf16_lossy(&units)
     }
 }

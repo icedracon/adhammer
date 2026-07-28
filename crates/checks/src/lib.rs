@@ -62,6 +62,6 @@ pub fn registry() -> Vec<Box<dyn Check>> {
 /// Run every rule and flatten. `graph` is built once by the caller.
 pub fn run_all(snap: &Snapshot, graph: &ControlGraph) -> Vec<Finding> {
     let mut out: Vec<Finding> = registry().iter().flat_map(|c| c.run(snap, graph)).collect();
-    out.sort_by(|a, b| b.score().cmp(&a.score()));
+    out.sort_by_key(|f| std::cmp::Reverse(f.score()));
     out
 }

@@ -184,7 +184,7 @@ fn broad_rights(o: &AdObject, dsid: Option<&Sid>) -> (bool, bool) {
     let mut can_enroll = false;
     let mut can_write = false;
 
-    if sd.owner.as_ref().map_or(false, |ow| is_broad(ow, dsid)) {
+    if sd.owner.as_ref().is_some_and(|ow| is_broad(ow, dsid)) {
         can_write = true; // owner can rewrite the DACL
     }
 

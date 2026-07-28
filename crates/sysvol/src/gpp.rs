@@ -20,7 +20,7 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 pub fn decrypt_cpassword(cpassword: &str) -> Result<String> {
     // GPP base64 often lacks trailing padding.
     let mut s = cpassword.trim().to_string();
-    while s.len() % 4 != 0 {
+    while !s.len().is_multiple_of(4) {
         s.push('=');
     }
     let mut data = STANDARD.decode(s.as_bytes())?;

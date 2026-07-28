@@ -1588,9 +1588,9 @@ async fn netenum(a: NetArgs) -> Result<()> {
             });
         }
     }
-    // Group open ports by host.
-    let mut hosts_map: std::collections::HashMap<String, Vec<(u16, &str, Option<String>)>> =
-        Default::default();
+    // Group open ports by host. (port, service-name, optional banner)
+    type PortEntry = (u16, &'static str, Option<String>);
+    let mut hosts_map: std::collections::HashMap<String, Vec<PortEntry>> = Default::default();
     while let Some(r) = set.join_next().await {
         if let Ok(Some((host, port, svc, banner))) = r {
             hosts_map.entry(host).or_default().push((port, svc, banner));
