@@ -89,9 +89,10 @@ adhammer attack golden --kdc dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <6
 adhammer attack pth    --host dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --spn cifs/dc.corp.local --command whoami
 ```
 
-Prefer the interactive menu — `adhammer` with no args — for golden/silver/pass-the-ticket: it
-auto-fetches the krbtgt/service key (DCSync) and the domain SID (LSAT) from your session, so you
-never paste a key or SID by hand.
+Or just run `adhammer` with no arguments for the **guided interactive menu** — it saves your
+session and walks you through every one of the 21 actions with prompts:
+
+![ADhammer interactive menu: pick an action, run DCSync against the DC, back to the full menu](docs/interactive.gif)
 
 `attack abuse` also does `add-spn` (targeted Kerberoast), `add-member`, `set-password`, and
 `write-rbcd`. `attack coerce` is PetitPotam / MS-EFSR.
