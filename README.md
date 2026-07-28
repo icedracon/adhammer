@@ -119,7 +119,10 @@ Kerberos (picky-krb) ── AS-REQ/REP · TGS-REQ/REP · S4U2Self/Proxy (PA-FOR-
 
 ## Offensive capabilities (live-validated)
 
-Validated end-to-end against a hardened **Windows Server 2025** DC in a controlled lab:
+Validated end-to-end against a hardened **Windows Server 2025** DC in a controlled lab — and, to
+prove the Linux-native positioning, **built from source on Kali Linux and run against the DC**:
+the full `DCSync → forge golden ticket → pass-the-ticket over SMB → command execution as
+LocalSystem` chain succeeds from Kali against the patched DC.
 
 - **Recon** — `scan` (33 checks + control-path graph, works as a low-priv user via the LDAP
   SD_FLAGS control), `enum samr` (full SAMR-over-SMB user enumeration), `enum lsa` (LSAT
