@@ -492,11 +492,18 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("ccache output path")
                 .with_initial_text(format!("{}.ccache", s.username))
                 .interact_text()?;
+            // Password auth → AES256; hash-only session → overpass-the-hash (RC4).
+            let (password, nt_hash) = if s.password.is_empty() {
+                (None, sess_hash(s))
+            } else {
+                (Some(s.password.clone()), None)
+            };
             asktgt(AsktgtArgs {
                 user: s.username.clone(),
                 realm: s.realm(),
                 kdc: s.dc.clone(),
-                password: s.password.clone(),
+                password,
+                nt_hash,
                 out: Some(out),
             })
             .await

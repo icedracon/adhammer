@@ -211,6 +211,10 @@ LocalSystem` chain succeeds from Kali against the patched DC.
 - **Pass-the-hash** — `--nt-hash <32-hex | LM:NT>` on `exec`/`secretsdump`/`enum samr`/`enum lsa`:
   authenticate with an NT hash instead of a password. Verified chain: `dcsync` Administrator →
   NT hash → `exec --nt-hash` → `nt authority\system`.
+- **Overpass-the-hash** — `attack asktgt --user <u> --nt-hash <32-hex> --kdc dc`: turn an NT hash
+  into a Kerberos **TGT** (ccache) via a from-scratch RC4-HMAC (etype 23) AS-exchange — the
+  RC4 Kerberos key *is* the NT hash. For RC4-enabled DCs (Server ≤2022; also accepted by the
+  2025 lab). Verified end-to-end: `recon` NT hash → TGT ccache.
 - **gMSA read** — `attack gmsa --target svc$`: read `msDS-ManagedPassword` over LDAPS and derive
   the account's NT hash (for principals allowed to retrieve it). Verified: the recovered hash
   authenticates as the gMSA via pass-the-hash.

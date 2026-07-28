@@ -29,12 +29,13 @@ pub mod csr;
 pub mod gss;
 pub mod pac;
 pub mod pkinit;
+pub mod rc4;
 pub mod shadowcred;
 mod tgs;
 pub use tgs::{
     asktgt, build_ap_req_gss, check_credential, forge_golden_tgt, forge_silver_tgt,
-    get_service_ticket, get_tgt, golden_ccache, rbcd_impersonate, roast_spn, silver_ccache,
-    silver_service_ticket, CredResult, ServiceTicket, Tgt,
+    get_service_ticket, get_tgt, golden_ccache, overpass_the_hash, rbcd_impersonate, roast_spn,
+    silver_ccache, silver_service_ticket, CredResult, ServiceTicket, Tgt,
 };
 
 /// Kerberos encryption type numbers (RFC 3961/4120).

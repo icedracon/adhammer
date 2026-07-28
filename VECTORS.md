@@ -160,6 +160,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 |--------|----------|-------|
 | Pass-the-ticket (Kerberos AP-REQ over SMB) | ✅ | `attack pth` — forge golden/silver → service ticket → SMB AP-REQ → SYSTEM RCE (live Server 2025) |
 | Pass-the-hash (SMB) | ✅ | `--nt-hash` on exec/secretsdump/samr/lsa (live-validated) |
+| Overpass-the-hash (RC4→TGT) | ✅ | `attack asktgt --nt-hash` — from-scratch RC4-HMAC AS-exchange; NT hash → TGT (live-validated) |
 | Constrained delegation abuse | ✅ | `attack constrained` (S4U2Self/S4U2Proxy) |
 | Unconstrained delegation TGT capture | Medium | No `monitor` / `delegate` mode on coerced auth |
 | Golden ticket forge | ✅ | `attack golden` — from-scratch PAC (KERB_VALIDATION_INFO + SERVER/KDC sigs + PAC_REQUESTOR/ATTRIBUTES); forged DA TGT **accepted by patched Server 2025 KDC (KB5020805)** |

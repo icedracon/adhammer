@@ -10,6 +10,9 @@ repository.workspace = true
 adhammer-core = { workspace = true }
 anyhow = { workspace = true }
 hex = { workspace = true }
+md4 = { workspace = true }
+md-5 = { workspace = true }
+hmac = { workspace = true }
 
 # Kerberos roasting is built on picky-krb (Devolutions pure-Rust ASN.1 + KRB message
 # types) — no ASN.1 from scratch.

