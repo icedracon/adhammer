@@ -225,7 +225,8 @@ LocalSystem` chain succeeds from Kali against the patched DC.
   with `subject CN=Administrator` + `SAN UPN=Administrator@…` + Client-Auth EKU on an
   enrollee-supplies-subject template — the ESC1 escalation, end to end.
 
-See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open vector matrix and roadmap.
+See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open vector matrix, and
+**[ROADMAP.md](ROADMAP.md)** for the prioritized post-1.0 build plan (what's next, why, and effort).
 
 ## Test
 
