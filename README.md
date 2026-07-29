@@ -2,57 +2,62 @@
 
 [![CI](https://github.com/icedracon/adhammer/actions/workflows/ci.yml/badge.svg)](https://github.com/icedracon/adhammer/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver)](https://github.com/icedracon/adhammer/releases)
+[![crates.io](https://img.shields.io/crates/v/adhammer.svg)](https://crates.io/crates/adhammer)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 An **Active Directory security-assessment** toolkit in Rust: a PingCastle-class auditor that maps
-a domain's attack paths — scored and MITRE-tagged — on an embedded, from-scratch protocol stack
-(the "impacket for Rust" that doesn't otherwise exist). A single static binary, from Kali/Linux
-or Windows. Because a finding only matters if it's exploitable, ADhammer can also **prove** the
-paths it reports end-to-end — for authorized red-team validation and defensive research.
+a domain's attack paths — scored, graphed, and MITRE-tagged — then, for authorized red-team and
+research use, **proves** those paths end-to-end. One static binary, from Kali/Linux or Windows, on
+an embedded from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack (the "impacket for Rust" that
+didn't otherwise exist).
 
-Built as security research (ITMO), for **authorized engagements, red-team validation, and
-education**. Sibling to a Windows kernel 0-day disclosed to Microsoft MSRC.
+Built as security research (ITMO); sibling to a Windows kernel 0-day disclosed to Microsoft MSRC.
+For **authorized engagements, red-team validation, and education** only.
 
 > **Authorized use only.** The validation modules implement working offensive techniques (DCSync,
 > golden/silver tickets, pass-the-ticket, NTLM relay, ADCS abuse, RCE). Use ADhammer only against
 > systems you own or are explicitly authorized to test. See [SECURITY.md](SECURITY.md).
 
+## How it works
+
+**1 — Audit.** ADhammer collects a domain over LDAP as a low-privileged user (via the `SD_FLAGS`
+control), builds a BloodHound-style control-path graph in-process, and runs **33 checks** across
+the four PingCastle categories — including **10 of the 16 AD CS ESC classes**, ADIDNS exposure,
+and SYSVOL/GPP — scoring and MITRE-tagging every finding, exportable to BloodHound.
+
+**2 — Validate.** A report shouldn't say a path *might* be exploitable. On its native protocol
+stack ADhammer implements the matching tradecraft — Kerberos roasting, coercion, RBCD, Shadow
+Credentials, DCSync, golden/silver tickets, pass-the-ticket, LAPS read, WinRM/SVCCTL exec, ADCS
+enrollment — each **live-validated against a fully-patched Windows Server 2025 DC**.
+
 ![ADhammer demo: DCSync → forge golden ticket → pass-the-ticket over SMB → SYSTEM, run from Kali Linux against a fully-patched Windows Server 2025 DC](docs/demo.gif)
 
-*Above: a single Rust binary on Kali — DCSync the krbtgt key, forge a golden ticket, pass-the-ticket over SMB, and land code execution as `NT AUTHORITY\SYSTEM` on a fully-patched Server 2025 DC.*
-
-**The audit engine comes first.** ADhammer collects a domain over LDAP (as a low-privileged user,
-via the `SD_FLAGS` control), builds a BloodHound-style control-path graph in-process, and runs 33
-checks across the four PingCastle categories — including **10 of the 16 AD CS ESC classes**,
-ADIDNS exposure, and SYSVOL/GPP — scoring and MITRE-tagging every finding and exporting to
-BloodHound.
-
-**Then it validates them.** So a report isn't just "this path *might* be exploitable," ADhammer
-implements the matching tradecraft on a native, from-scratch DCE/RPC · NTLM · SMB2 · Kerberos
-stack — Kerberos roasting, LDAP-object abuse, coercion, **RBCD**, **Shadow Credentials**,
-**DCSync**, **golden/silver tickets**, **pass-the-ticket**, LAPS read, and ADCS enrollment —
-each **live-validated against a fully-patched Windows Server 2025 DC**.
+*A single Rust binary on Kali: DCSync the krbtgt key → forge a golden ticket → pass-the-ticket over SMB → code execution as `NT AUTHORITY\SYSTEM` on a fully-patched Server 2025 DC.*
 
 ## Why ADhammer
 
-|                        | **ADhammer**                          | PingCastle                | impacket / Rubeus         |
-|------------------------|---------------------------------------|---------------------------|---------------------------|
-| Language               | Rust (single static binary)           | C# (.NET)                 | Python / C#               |
-| Runs from              | Kali/Linux **and** Windows            | Windows only              | Linux (impacket) / Win    |
-| Passive AD audit       | ✅ 33 checks + control-path graph      | ✅ (the reference)         | ❌                         |
-| Offensive tradecraft   | ✅ roast/DCSync/tickets/relay/RCE      | ❌ (audit only)            | ✅ (offense only)          |
-| Protocol stack         | from-scratch (no impacket dependency) | .NET libs                 | mature, batteries-included |
-| Dependencies           | pure-Rust crates, no runtime          | .NET runtime              | Python runtime            |
-| Live-validated on      | **Windows Server 2025** (patched)     | broad                     | broad                     |
+|                       | **ADhammer**                          | PingCastle          | impacket / Rubeus          |
+|-----------------------|---------------------------------------|---------------------|----------------------------|
+| Language              | Rust — one static binary              | C# (.NET)           | Python / C#                |
+| Runs from             | Kali/Linux **and** Windows            | Windows only        | Linux (impacket) / Windows |
+| Passive AD audit      | ✅ 33 checks + control-path graph      | ✅ (the reference)   | ❌                          |
+| Validation / offense  | ✅ roast·DCSync·tickets·relay·RCE      | ❌ (audit only)      | ✅ (offense only)           |
+| Protocol stack        | from-scratch, no impacket dependency  | .NET libs           | mature, batteries-included |
+| Runtime               | none (pure-Rust crates)               | .NET runtime        | Python runtime             |
+| Live-validated on     | **Windows Server 2025** (patched)     | broad               | broad                      |
 
-The niche: **audit and offense in one Linux-native binary**, on a self-rolled stack — so the
-security-descriptor parser and the RPC/NTLM/SMB layer are reusable Rust crates that don't
-otherwise exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
+The niche: **audit and validation in one Linux-native binary**, on a self-rolled stack whose
+security-descriptor parser and RPC/NTLM/SMB layer are reusable Rust crates that didn't previously
+exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`ntlmssp`](https://crates.io/crates/ntlmssp),
 [`smb2-client`](https://crates.io/crates/smb2-client),
 [`dcerpc`](https://crates.io/crates/dcerpc)).
 
 ## Install
+
+```sh
+cargo install adhammer
+```
 
 On Debian/Kali, install the build deps first (the LDAP layer links system TLS):
 
@@ -60,200 +65,105 @@ On Debian/Kali, install the build deps first (the LDAP layer links system TLS):
 sudo apt-get install -y build-essential pkg-config libssl-dev
 ```
 
-**From crates.io** (easiest):
-
-```sh
-cargo install adhammer
-```
-
-**Prebuilt binary** — grab `adhammer-vX.Y.Z-x86_64-linux` / `-windows.exe` from
-[Releases](https://github.com/icedracon/adhammer/releases). **From source:**
-
-```sh
-git clone https://github.com/icedracon/adhammer && cd adhammer && cargo build --release
-```
-
-Requires Rust 1.80+ (`rustup`). Runs from Kali/Linux against Windows.
+Or grab a prebuilt binary from [Releases](https://github.com/icedracon/adhammer/releases), or build
+from source (`git clone … && cargo build --release`). Requires Rust 1.80+.
 
 ## Usage
 
+Run `adhammer` with no arguments for the **guided interactive menu**: it asks for user → password
+(or NT hash) → domain → DC, saves the session, then walks every action with prompts. For
+golden/silver/pass-the-ticket it **auto-fetches** the krbtgt/service AES256 key (via DCSync) and the
+domain SID (via LSAT) from your session — no pasting keys or SIDs. Add `--no-save` to keep creds off
+disk, or "Wipe saved session" from the menu.
+
+![ADhammer first run: setup wizard (user → password → domain → DC IP), then the action menu, then DCSync krbtgt against the DC](docs/interactive.gif)
+
+Long-running steps show a live spinner with an elapsed timer; styling auto-disables when output is
+piped (so `scan` JSON and logs stay clean — `NO_COLOR` / `CLICOLOR_FORCE` honored).
+
+Power-user subcommands:
+
 ```
-# Interactive (prompts for domain/user, saves session, full guided attack menu):
-adhammer                  # first run — enter creds, saved to ~/.config/adhammer/session.json
-adhammer --old            # reuse saved session
-
-# Power-user subcommands (unchanged):
-#   scan                                            passive audit (checks + control-path graph + SYSVOL)
-#   enum   {samr,lsa,net}                           read-only RPC / network enumeration
-#   attack {roast,spray,abuse,coerce,rbcd,constrained,dcsync,exec,secretsdump,gmsa,esc1,
-#           golden,silver,pth,asktgt,capture,poison,relay}
-
-adhammer scan  --url ldaps://dc.corp.local:636 --user CORP\\svc --password ... --insecure [--sysvol \\corp.local\SYSVOL] [--bloodhound out.zip]
-adhammer attack roast  --url ldaps://... --user ... --password ... --insecure --kdc dc.corp.local
-adhammer attack spray  --kdc dc.corp.local --realm CORP.LOCAL --users @users.txt --password 'Winter2025!'
-adhammer attack rbcd   --account ... --account-password ... --realm CORP.LOCAL --kdc ... --impersonate Administrator --target-spn cifs/victim
-
-# Shadow Credentials (two phases, same subcommand):
-adhammer attack abuse --url ldaps://... --user ... --password ... --insecure --action add-keycred --target victim
-adhammer attack abuse --action pkinit --target victim --realm CORP.LOCAL --kdc dc.corp.local   # → victim.ccache
-
-# DCSync a target (NT hash + Kerberos keys), then forge + use a golden ticket:
-adhammer attack dcsync --host dc.corp.local --domain CORP --user Administrator --password ... --target krbtgt
-adhammer attack golden --kdc dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --verify-spn cifs/dc.corp.local
-adhammer attack pth    --host dc.corp.local --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-a-b-c --spn cifs/dc.corp.local --command whoami
+scan                                        passive audit → JSON/HTML (+ --sysvol, --bloodhound out.zip)
+enum   {samr, lsa, net, dns, adcs}          RPC / network / ADIDNS / AD-CS enumeration
+attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, secretsdump,
+        gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay}
 ```
 
-Or just run `adhammer` with no arguments for the **guided interactive menu**. It asks for
-user → password (or NT hash) → domain → DC IP, saves the session, then walks you through all 21
-actions with prompts. For golden/silver/pass-the-ticket it **auto-fetches** the krbtgt/service
-AES256 key (via DCSync) and the domain SID (via LSAT) from your session — no pasting keys or SIDs.
+```sh
+# Audit a domain (low-priv creds are enough), export a BloodHound graph:
+adhammer scan --url ldaps://dc.corp.local:636 --user 'CORP\svc' --password … --insecure --bloodhound out.zip
 
-![ADhammer first run: the setup wizard (user → password → domain → DC IP), then the 21-action menu, then DCSync krbtgt against the DC](docs/interactive.gif)
+# ADIDNS + AD CS recon:
+adhammer enum dns  --url ldaps://dc:636 --user 'CORP\svc' --password … --insecure
+adhammer enum adcs --url ldaps://dc:636 --user 'CORP\svc' --password … --insecure   # + ESC8 web-enroll probe
 
-`attack abuse` also does `add-spn` (targeted Kerberoast), `add-member`, `set-password`, and
-`write-rbcd`. `attack coerce` is PetitPotam / MS-EFSR.
-
-## Architecture
-
-The from-scratch protocol stack has been **extracted into standalone, published crates** — this
-repo now consumes them, which is both the dogfooding proof and the reusable "impacket for Rust"
-that didn't previously exist:
-
-| Published crate | Role |
-|-----------------|------|
-| [`windows-sddl`](https://crates.io/crates/windows-sddl) | ⭐ no-FFI `SECURITY_DESCRIPTOR`/DACL/ACE parser (MS-DTYP) + `Sid`/`Guid` + AD extended-right GUIDs |
-| [`ntlmssp`](https://crates.io/crates/ntlmssp) | NTLMSSP (NTLMv2, MIC, key-exch) + RC4 sign+seal for RPC packet privacy |
-| [`smb2-client`](https://crates.io/crates/smb2-client) | async SMB2 client (negotiate → NTLMv2 SPNEGO → IPC$ → named pipe; signing; file read) |
-| [`dcerpc`](https://crates.io/crates/dcerpc) | NDR · RPC PDUs · sign+seal · TCP/SMB transports · EPM · SAMR · LSAT · DRSUAPI · SVCCTL · EFSR · ICPR |
-
-The audit- and orchestration-specific crates live in this workspace:
-
-| Crate | Role |
-|-------|------|
-| `core` | Shared model: `AdObject`, `Snapshot`, `Finding`, MITRE table (re-exports `windows-sddl`'s `Sid`/`Guid`) |
-| `graph` | ⭐ Control-path graph on `petgraph`; reverse-Dijkstra to Tier-0 |
-| `collector` | LDAP collection (`ldap3`, native-tls) over domain + Configuration NC; SD_FLAGS control; LDAP writes |
-| `checks` | The 33-rule engine across all four categories |
-| `kerberos` | AS-REP roast · Kerberoast · spray/enum · S4U/RBCD · Shadow Credentials PKINIT · **golden/silver tickets · pass-the-ticket** · ccache |
-| `sysvol` | GPP cpassword recovery (MS14-025) + GptTmpl.inf signing/NTLM/LM policy |
-| `report` | Configurable risk scoring → JSON / HTML |
-| `ldap` | Raw LDAP client (hand-rolled BER) with NTLM SASL GSS-SPNEGO bind — LDAP-389 auth + the NTLM-relay bridge |
-| `bloodhound` | SharpHound-compatible BloodHound export (JSON + hand-rolled stored ZIP) |
-| `secrets` | Offline registry-hive (`regf`) parser + bootkey + SAM NT-hash decryption (RC4/AES) |
+# DCSync the krbtgt key, forge a golden ticket, pass-the-ticket to SYSTEM:
+adhammer attack dcsync --host dc --domain CORP --user Administrator --password … --target krbtgt
+adhammer attack pth    --host dc --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-… --spn cifs/dc.corp.local --command whoami
+```
 
 ## Audit coverage
 
-**Privileged Accounts** — AS-REP/Kerberoast exposure, unconstrained delegation, DCSync control
-paths (graph), sensitive-group membership, gMSA read ACL, SID history, RBCD, LAPS coverage,
-PASSWD_NOTREQD.
+- **Privileged accounts** — AS-REP/Kerberoast exposure, unconstrained delegation, DCSync control
+  paths (graph), sensitive-group membership, gMSA read ACL, SID history, RBCD, LAPS coverage,
+  PASSWD_NOTREQD.
+- **Trusts** — SID filtering, selective auth, cross-forest TGT delegation, RC4, transitivity.
+- **Stale objects** — inactive users/computers, old passwords, EOL OS, duplicate SPNs, stale
+  machine passwords.
+- **Anomalies** — MachineAccountQuota, krbtgt age, RC4 Kerberos, reversible encryption,
+  badSuccessor (dMSA), password policy, anonymous LDAP (dSHeuristics), Pre-Windows 2000 Compatible
+  Access, Guest, GPP cpassword (MS14-025), and — from GptTmpl.inf — LM/NTLMv1, LDAP/SMB signing.
+- **AD CS (10/16 ESC)** — passive: **ESC1, ESC2, ESC3, ESC4, ESC5, ESC9, ESC13, ESC14, ESC15/EKUwu
+  (CVE-2024-49019)**; active: **ESC8** web-enrollment probe (`enum adcs`). ESC6/7/10/11/16 read the
+  CA/DC registry and are out of current scope.
+- **ADIDNS** — zone/record enumeration with wildcard (mitm6/WPAD) detection (`enum dns`).
 
-**Trusts** — SID filtering, selective auth, TGT delegation across forest, RC4, transitivity.
+Every finding carries a MITRE ATT&CK technique (T1558.003 Kerberoasting, T1003.006 DCSync, T1649
+cert abuse, T1484 policy/trust modification, …).
 
-**Stale Objects** — inactive users/computers, old passwords, EOL OS, duplicate SPNs, stale
-machine passwords.
+## Validated capabilities
 
-**Anomalies** — MachineAccountQuota, krbtgt age, RC4 Kerberos, reversible encryption,
-badSuccessor (dMSA), **AD CS ESC1/2/3/4/9/13**, password policy, anonymous LDAP (dSHeuristics),
-Pre-Windows 2000 Compatible Access, Guest, GPP cpassword, and — from SYSVOL GptTmpl.inf —
-LM/NTLMv1, LDAP/SMB signing, NoLMHash, Netlogon sealing.
+Every audit finding is backed by a working technique, so a red team can confirm impact and a
+defender can see exactly what the misconfiguration yields. All live-validated end-to-end against a
+hardened **Server 2025** DC — and, to prove the Linux-native positioning, built on Kali and run
+against the DC.
 
-Every finding carries a MITRE ATT&CK technique (T1558.003 Kerberoasting, T1558.004 AS-REP,
-T1003.006 DCSync, T1649 cert abuse, T1484 policy/trust modification, …).
+- **Recon / export** — `scan` (33 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
+  `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8), `scan --bloodhound` (SharpHound-compatible zip).
+- **Credential access** — **DCSync** single-object and full-domain (NT hashes + Kerberos keys incl.
+  RFC 8009 AES-SHA2), **gMSA** and **LAPS** read over LDAPS, offline **secretsdump** (hand-rolled
+  `regf` hive parser → bootkey → SAM/LSA/DCC2), **pass-the-hash**, **overpass-the-hash** (RC4→TGT).
+- **Kerberos** — AS-REP + Kerberoast (RC4/AES), **RBCD** (S4U2Self→S4U2Proxy), **Shadow Credentials**
+  PKINIT (incl. Server 2025 `paChecksum2` that breaks Rubeus/PKINITtools), **golden / silver
+  tickets** with a from-scratch PAC (accepted by a patched 2025 KDC, KB5020805), **pass-the-ticket**
+  over SMB.
+- **Lateral / exec** — **SVCCTL** (psexec-style, LocalSystem, C$ output), **WinRM** (WS-Man + NTLM
+  message encryption, no service-install event), **TSCH** (`atexec`).
+- **ADCS** — **ESC1** enrollment (spoofed-UPN SAN over MS-ICPR) → client-auth cert as the target.
+- **Coercion / relay** — PetitPotam / PrinterBug, LLMNR/NBT-NS poisoning, SMB→LDAP NTLM relay
+  (writes a Shadow Credential).
 
-## The protocol stack
+See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open matrix and
+**[ROADMAP.md](ROADMAP.md)** for what's next.
 
-There is no impacket for Rust, so the RPC- and Kerberos-based capabilities are implemented from
-the wire up and unit-tested against protocol specs. The RPC/NTLM/SMB/SD layers now ship as the
-standalone crates above; Kerberos remains in-workspace (on `picky-krb`):
+## Architecture
 
-```
-NDR ─ PDU (bind/request/response, sign+seal) ─┬─ TCP transport ── EPM (ept_map)
-                                               └─ SMB2 (+NTLMv2 SPNEGO) ── SAMR · LSAT · EFSR
-Kerberos (picky-krb) ── AS-REQ/REP · TGS-REQ/REP · S4U2Self/Proxy (PA-FOR-USER) · PKINIT (DH + CMS)
-```
+The protocol stack ships as standalone, published crates — this repo consumes them (the dogfooding
+proof, and the reusable "impacket for Rust"):
 
-## Offensive capabilities (live-validated)
+| Published crate | Role |
+|-----------------|------|
+| [`windows-sddl`](https://crates.io/crates/windows-sddl) | no-FFI `SECURITY_DESCRIPTOR`/DACL/ACE parser (MS-DTYP) + `Sid`/`Guid` + AD extended-right GUIDs |
+| [`ntlmssp`](https://crates.io/crates/ntlmssp) | NTLMSSP (NTLMv2, MIC, key-exch) + RC4 sign+seal for RPC packet privacy |
+| [`smb2-client`](https://crates.io/crates/smb2-client) | async SMB2 client (negotiate → NTLMv2 SPNEGO → IPC$/named pipe; signing; file I/O) |
+| [`dcerpc`](https://crates.io/crates/dcerpc) | NDR · PDUs · sign+seal · TCP/SMB transports · EPM · SAMR · LSAT · DRSUAPI · SVCCTL · TSCH · EFSR · RPRN · ICPR · DCOM (OXID resolver) |
 
-Validated end-to-end against a hardened **Windows Server 2025** DC in a controlled lab — and, to
-prove the Linux-native positioning, **built from source on Kali Linux and run against the DC**:
-the full `DCSync → forge golden ticket → pass-the-ticket over SMB → command execution as
-LocalSystem` chain succeeds from Kali against the patched DC.
-
-- **Recon** — `scan` (33 checks + control-path graph, works as a low-priv user via the LDAP
-  SD_FLAGS control), `enum samr` (full SAMR-over-SMB user enumeration), `enum lsa` (LSAT
-  name↔SID). `scan --bloodhound out.zip` exports the domain as a SharpHound-compatible
-  BloodHound zip (users/computers/groups/domains/ous/gpos/containers + ACE edges), so the
-  in-process graph is explorable in the BloodHound UI.
-- **Roasting** — AS-REP (no creds) and Kerberoast, emitting both RC4 (hashcat 13100/18200) and
-  AES (19700) hashes; targeted Kerberoast via `abuse add-spn`.
-- **RBCD** — full `write-rbcd` → S4U2Self → S4U2Proxy chain to an impersonation ticket, with a
-  hand-rolled PA-FOR-USER checksum and PA-PAC-OPTIONS.
-- **Shadow Credentials** — `add-keycred` writes a `msDS-KeyCredentialLink` KeyCredential, then
-  `pkinit` performs key-trust PKINIT to obtain a TGT as the target and writes a reusable MIT
-  ccache. Handles the Server 2025 `paChecksum2` PKAuthenticator requirement (SHA-256 over the
-  KDC-REQ-BODY) that currently breaks Rubeus/PKINITtools.
-- **Coercion** — PetitPotam / MS-EFSR (correctly reports patched DCs as not vulnerable).
-- **DCSync** — `attack dcsync --target <sam>`: DRSBind → DRSCrackNames → DRSGetNCChanges
-  (EXOP_REPL_OBJ) over the sealed channel, then session-key + per-RID-DES decryption of the
-  NT hash → secretsdump format (`user:rid:lm:nt:::`). Verified against `krbtgt`/`Administrator`.
-  `attack dcsync --all` enumerates every account via SAMR and replicates the whole domain (NTDS
-  dump), reassembling multi-fragment replies so DC/computer accounts work too. Also extracts the
-  **Kerberos keys** from `supplementalCredentials` (AES256/128 + RC4, incl. Server 2025's RFC 8009
-  AES-SHA2 keys) — `user:etype:key` lines. The krbtgt AES256 key is the golden-ticket key.
-- **Golden ticket** — `attack golden --krbtgt-aes256 <key> --domain-sid S-1-5-21-… [--user
-  Administrator --rid 500 --groups 513,512,…]`: forge a TGT for any identity with a from-scratch
-  PAC (KERB_VALIDATION_INFO NDR + SERVER/KDC HMAC-SHA1-96-AES256 signatures + PAC_REQUESTOR /
-  PAC_ATTRIBUTES for KB5020805), sealed under the krbtgt key. `--verify-spn` proves KDC acceptance;
-  `--out` writes an MIT ccache. Verified: a forged Domain-Admin TGT accepted by a fully-patched
-  **Server 2025** KDC.
-- **Silver ticket** — `attack silver --service-aes256 <key> --spn cifs/host --domain-sid …`: forge
-  a service ticket (TGS) sealed + PAC-signed under a service account's key (from `dcsync` of the
-  machine$/service account), presented directly to the service without the KDC.
-- **Pass-the-ticket** — `attack pth --krbtgt-aes256|--service-aes256 <key> --domain-sid … --spn
-  cifs/host [--command <cmd>]`: forge golden/silver → obtain the service ticket → authenticate to
-  SMB with a Kerberos AP-REQ (GSS/SPNEGO) → run a command as the impersonated identity. Verified
-  end-to-end on Server 2025: forged ticket → `whoami` = `nt authority\system` on the DC.
-- **Exec** — `attack exec --command <cmd>`: psexec-style RCE over SVCCTL (MS-SCMR). Creates a
-  service that runs the command as **LocalSystem** (detached so it survives SCM teardown),
-  captures stdout/stderr back over `C$`, and deletes the service + temp file. Verified: `whoami`
-  → `nt authority\system`.
-- **WinRM** — `attack winrm --host <h> --command <cmd>`: command execution over WS-Management
-  (5985/HTTP), NTLM + MS-NLMP message encryption on a from-scratch raw-TCP HTTP client — no service
-  install (quieter than SVCCTL, no 7045 event). Full shell lifecycle, stdout/stderr, exit code,
-  and `--nt-hash` pass-the-hash. Verified: `whoami` → `testlab\administrator` on Server 2025.
-- **Secretsdump (local)** — `attack secretsdump`: `reg save` the SYSTEM+SAM hives (as LocalSystem
-  via exec), pull them over `C$`, then decrypt offline — hand-rolled `regf` hive parser → bootkey
-  → SAM key → per-account NT hashes (RC4 and AES SAM revisions). Output cross-checked byte-for-byte
-  against an independent implementation on live Server 2025 hives. Also dumps LSA secrets from the
-  SECURITY hive ($MACHINE.ACC → NT hash, DPAPI_SYSTEM, service passwords) + cached DCC2 creds.
-- **Pass-the-hash** — `--nt-hash <32-hex | LM:NT>` on `exec`/`secretsdump`/`enum samr`/`enum lsa`:
-  authenticate with an NT hash instead of a password. Verified chain: `dcsync` Administrator →
-  NT hash → `exec --nt-hash` → `nt authority\system`.
-- **Overpass-the-hash** — `attack asktgt --user <u> --nt-hash <32-hex> --kdc dc`: turn an NT hash
-  into a Kerberos **TGT** (ccache) via a from-scratch RC4-HMAC (etype 23) AS-exchange — the
-  RC4 Kerberos key *is* the NT hash. For RC4-enabled DCs (Server ≤2022; also accepted by the
-  2025 lab). Verified end-to-end: `recon` NT hash → TGT ccache.
-- **gMSA read** — `attack gmsa --target svc$`: read `msDS-ManagedPassword` over LDAPS and derive
-  the account's NT hash (for principals allowed to retrieve it). Verified: the recovered hash
-  authenticates as the gMSA via pass-the-hash.
-- **LAPS read** — `attack laps [--target HOST$]`: recover local-admin passwords over LDAPS —
-  legacy `ms-Mcs-AdmPwd` and Windows LAPS `msLAPS-Password` (JSON); omit `--target` to sweep every
-  computer you can read. Chain the cleartext into `attack exec`/`secretsdump` as the local admin.
-  Verified vs Server 2025 (Windows LAPS).
-- **ADIDNS enumeration** — `enum dns`: dump every AD-integrated DNS zone + record over LDAP
-  (adidnsdump-equivalent) with a from-scratch `DNS_RPC_RECORD` parser (A/AAAA/CNAME/NS/SOA/SRV/
-  MX/TXT/PTR), flagging wildcard nodes (mitm6/WPAD name-hijack surface). Verified vs Server 2025.
-- **AD CS + ESC8 check** — `enum adcs`: enumerate enterprise CAs and actively probe each CA host's
-  `/certsrv` web enrollment for a cleartext NTLM 401 — the relayable ESC8 surface. Verified vs
-  Server 2025 (negative without web enrollment, positive with it).
-- **AD CS ESC1** — `attack esc1 --ca <CA> --template <T> --upn Administrator@realm`: build a
-  PKCS#10 CSR with the target UPN in the SAN, enroll it over sealed MS-ICPR (`\pipe\cert`), and
-  save the issued client-auth cert + key. Verified: as low-priv `recon`, the CA issued a cert
-  with `subject CN=Administrator` + `SAN UPN=Administrator@…` + Client-Auth EKU on an
-  enrollee-supplies-subject template — the ESC1 escalation, end to end.
-
-See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open vector matrix, and
-**[ROADMAP.md](ROADMAP.md)** for the prioritized post-1.0 build plan (what's next, why, and effort).
+Workspace crates (audit + orchestration): `core` (model + MITRE), `graph` (control-path,
+reverse-Dijkstra to Tier-0), `collector` (LDAP over domain + Configuration NC), `checks` (the
+33-rule engine), `kerberos` (roast · S4U/RBCD · Shadow-Cred PKINIT · golden/silver · pass-the-ticket),
+`sysvol` (GPP/GptTmpl), `report` (risk scoring → JSON/HTML), `ldap` (hand-rolled BER + NTLM SASL for
+the relay bridge), `bloodhound` (SharpHound export), `secrets` (offline hive/SAM decryption).
 
 ## Test
 
@@ -261,24 +171,24 @@ See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open vector mat
 cargo test --workspace     # hermetic unit tests (no network)
 ```
 
-The workspace's 56 unit tests cover the audit/graph/kerberos/secrets layers; the protocol-stack
-tests (~50 more) live in the extracted crates (`windows-sddl`/`ntlmssp`/`smb2-client`/`dcerpc`).
-Live-DC integration tests in `cli/tests/integration.rs` are `#[ignore]`d — run them against a lab
-with `ADH_DC=… ADH_PASS=… cargo test --test integration -- --ignored`.
+Unit tests cover every parser, crypto primitive, and marshaler against spec vectors and round-trips
+(NTOWFv2, RC4/RFC 6229, GPP AES key, NDR alignment, RPC PDUs, EPM towers, SMB2 signing, SAMR/LSAT,
+PKINIT DH, PAC/DNS-record/LAPS parsing); ~50 more live in the extracted crates. Live-DC integration
+tests in `cli/tests/integration.rs` are `#[ignore]`d — run against a lab with
+`ADH_DC=… ADH_PASS=… cargo test --test integration -- --ignored --test-threads=1`.
 
-Runs from Kali/Linux against Windows (Kali → Windows is the point; PingCastle is Windows-only).
-`ldap3` links platform TLS (native-tls) so LDAPS works against legacy DCs whose handshake still
-uses SHA-1 — which rustls refuses.
+`ldap3` links platform TLS (native-tls) so LDAPS works against legacy DCs whose handshake still uses
+SHA-1 — which rustls refuses.
 
 ## Status & caveats
 
-- All parsing, crypto, and marshaling are covered by unit tests (spec vectors + round-trips):
-  NTOWFv2 (MS-NLMP §4.2.4.2), RC4 (RFC 6229), GPP AES key (MS14-025), NDR alignment/strings,
-  RPC PDU shapes, EPM tower/port, SMB2 headers/signing, SAMR/LSAT marshaling, PKINIT DH group
-  and reply-key derivation.
-- The audit and offensive flows above are **live-validated** against a Server 2025 lab DC.
-- Default LDAP binds require LDAPS (`--insecure` for a lab self-signed cert) or SASL GSSAPI
-  (`--gssapi`, off-by-default cargo feature); plaintext simple bind is refused by hardened DCs.
-  AD CS ESC5/6/7/8/10/11 are out of the current scope — see [VECTORS.md](VECTORS.md).
+- All parsing, crypto, and marshaling are unit-tested; the audit and validated flows above are
+  live-validated against a Server 2025 lab DC. Live validation is single-version so far (2025) — a
+  legacy 2016/2019/2022 matrix is on the roadmap.
+- Default LDAP binds use LDAPS (`--insecure` for a lab self-signed cert; a bare username is
+  auto-qualified to a UPN). Plaintext simple bind is refused by hardened DCs; SASL GSSAPI is an
+  off-by-default cargo feature.
+- Out of current scope: AD CS ESC6/7/10/11/16 (need a CA/DC registry read via RRP/ICertAdmin), and
+  WMI exec (the DCOM/OXID foundation exists in `dcerpc`; the activation chain is not yet wired).
 
-Authorized research / academic / authorized-engagement use only.
+Authorized research / academic / authorized-engagement use only — see [SECURITY.md](SECURITY.md).
