@@ -22,6 +22,53 @@ impacket/netexec/certipy as proven backup.
 
 ---
 
+## Phase B-1 — next build (spec-ready): noPac + Zerologon
+
+The two one-shot domain-takeover CVEs reviewers expect. **Both are patched on every current DC,
+including the 2025 lab** — so on the current lab they can only be *negatively* validated (the tool
+must correctly report "not vulnerable / patched"). A **positive** run needs an unpatched/legacy
+snapshot, so this phase pairs with the Tier-0 legacy-DC matrix; build it *with* a ≤2019 (noPac) /
+≤2020 (Zerologon) box so it ships proven, per the DoD ("built but unprovable ≠ done").
+
+### B-1a — noPac (CVE-2021-42278 + 42287)  ·  Kerberos priv-esc · T1558
+sAMAccountName spoofing: a normal user (MAQ > 0) creates a machine account, renames it to a DC's
+name, and gets a service ticket *as the DC* → DCSync.
+1. **LDAPS create** a machine account (`objectClass=computer`, `unicodePwd`, `sAMAccountName=x$`,
+   an SPN). — *needs the new object-create plumbing below.*
+2. Clear the new machine's `servicePrincipalName` (so the KDC can't find it on the TGS lookup).
+3. Rename `sAMAccountName` → a DC's name **without** the trailing `$` (e.g. `DC01`) — 42278.
+4. AS-REQ a TGT for `DC01`.
+5. Rename the machine back (or delete) → the KDC resolves the TGT's client to the real `DC01$` — 42287.
+6. `s4u2self` as `Administrator` → service ticket as `DC01$`/Administrator → DCSync-capable.
+- **Reuses:** `kerberos::get_tgt`/overpass, `kerberos::tgs` S4U2self, LDAP modify.
+- **Build (shared plumbing):** `collector` gains **LDAP object-create + modify-replace over LDAPS**
+  (ldap3 `add()` / `Mod::Replace`, incl. `unicodePwd` on a confidential channel). This is also the
+  v1.2 ESC-write dependency — build once.
+- **Effort:** M–L (4–5 d). **Validate:** unpatched ≤2019 DC with MAQ > 0 → DCSync as the DC.
+
+### B-1b — Zerologon (CVE-2020-1472)  ·  Netlogon auth bypass · T1210
+Netlogon AES-CFB8 with an all-zero IV: ~1/256 of the time a zero plaintext encrypts to zero, so a
+zero `ClientCredential` authenticates — then reset the DC machine password to empty.
+1. New **MS-NRPC (Netlogon)** RPC client over `ncacn_ip_tcp` (unauthenticated bind; the secure
+   channel is app-level).
+2. `NetrServerReqChallenge` with an all-zero client challenge.
+3. `NetrServerAuthenticate3` with a zero `ClientCredential`, looping ≤~2000 attempts until it
+   validates (the ~1/256 event).
+4. `NetrServerPasswordSet2` with an all-zero encrypted password → **sets DC$'s password empty in AD**.
+5. DCSync as `DC01$` with the empty password → full compromise.
+- **Reuses:** `dcerpc` TCP transport + NDR. **New:** the NRPC interface marshaling + AES-CFB8
+  (add the `aes` crate or hand-roll CFB8).
+- **⚠️ DESTRUCTIVE:** step 4 breaks the DC's secure channel until restored. Gate behind an explicit
+  `--i-understand-this-breaks-the-dc` flag; ship the **restore** path (re-set DC$ to its original
+  hash) and document snapshot-rollback. **Lab-only, on a revertable snapshot.**
+- **Effort:** M (~3 d; the crypto loop is small, the NRPC marshaling is the work).
+  **Validate:** unpatched ≤2020 DC snapshot → auth bypass, then restore.
+
+**Order:** build the LDAP object-create plumbing first (unblocks B-1a *and* the ESC-write class),
+then B-1a, then B-1b. Stand up the legacy snapshot before claiming either "done."
+
+---
+
 ## Tier 1 — quick, high-value, buildable now (no new lab)
 
 ### 1. LAPS read  ·  Cred-dump · T1003  ·  ✅ DONE (v1.1.0)
