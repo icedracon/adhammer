@@ -4,24 +4,34 @@
 [![Release](https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver)](https://github.com/icedracon/adhammer/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Active Directory security assessment **and** offensive tradecraft in Rust — a PingCastle-class
-auditor with an embedded, from-scratch protocol stack (the "impacket for Rust" that doesn't
-otherwise exist). Built to run from Kali/Linux against Windows, as a single static binary.
+An **Active Directory security-assessment** toolkit in Rust: a PingCastle-class auditor that maps
+a domain's attack paths — scored and MITRE-tagged — on an embedded, from-scratch protocol stack
+(the "impacket for Rust" that doesn't otherwise exist). A single static binary, from Kali/Linux
+or Windows. Because a finding only matters if it's exploitable, ADhammer can also **prove** the
+paths it reports end-to-end — for authorized red-team validation and defensive research.
 
-> **Authorized use only.** ADhammer implements working offensive techniques (DCSync, golden/
-> silver tickets, pass-the-ticket, NTLM relay, ADCS abuse, RCE). Use it only against systems you
-> own or are explicitly authorized to test. See [SECURITY.md](SECURITY.md).
+Built as security research (ITMO), for **authorized engagements, red-team validation, and
+education**. Sibling to a Windows kernel 0-day disclosed to Microsoft MSRC.
+
+> **Authorized use only.** The validation modules implement working offensive techniques (DCSync,
+> golden/silver tickets, pass-the-ticket, NTLM relay, ADCS abuse, RCE). Use ADhammer only against
+> systems you own or are explicitly authorized to test. See [SECURITY.md](SECURITY.md).
 
 ![ADhammer demo: DCSync → forge golden ticket → pass-the-ticket over SMB → SYSTEM, run from Kali Linux against a fully-patched Windows Server 2025 DC](docs/demo.gif)
 
 *Above: a single Rust binary on Kali — DCSync the krbtgt key, forge a golden ticket, pass-the-ticket over SMB, and land code execution as `NT AUTHORITY\SYSTEM` on a fully-patched Server 2025 DC.*
 
-ADhammer collects a domain over LDAP, builds a BloodHound-style control-path graph in process,
-runs 33 checks across the four PingCastle categories, and scores the result. On top of the
-passive audit it implements a working offensive stack — Kerberos roasting, password spray,
-LDAP-object abuse, coercion, **RBCD**, **Shadow Credentials**, **DCSync**, **golden/silver
-tickets**, and **pass-the-ticket** — over a native DCE/RPC · NTLM · SMB2 · Kerberos stack
-written from the wire up.
+**The audit engine comes first.** ADhammer collects a domain over LDAP (as a low-privileged user,
+via the `SD_FLAGS` control), builds a BloodHound-style control-path graph in-process, and runs 33
+checks across the four PingCastle categories — including **10 of the 16 AD CS ESC classes**,
+ADIDNS exposure, and SYSVOL/GPP — scoring and MITRE-tagging every finding and exporting to
+BloodHound.
+
+**Then it validates them.** So a report isn't just "this path *might* be exploitable," ADhammer
+implements the matching tradecraft on a native, from-scratch DCE/RPC · NTLM · SMB2 · Kerberos
+stack — Kerberos roasting, LDAP-object abuse, coercion, **RBCD**, **Shadow Credentials**,
+**DCSync**, **golden/silver tickets**, **pass-the-ticket**, LAPS read, and ADCS enrollment —
+each **live-validated against a fully-patched Windows Server 2025 DC**.
 
 ## Why ADhammer
 
