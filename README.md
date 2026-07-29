@@ -44,23 +44,26 @@ otherwise exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 
 ## Install
 
-Requires Rust 1.80+ (`rustup`). From Linux (Kali shown) or Windows:
-
-```sh
-git clone https://github.com/icedracon/adhammer
-cd adhammer
-cargo build --release
-# binary at ./target/release/adhammer
-```
-
-On Debian/Kali, the LDAP layer links system TLS — install the build deps first:
+On Debian/Kali, install the build deps first (the LDAP layer links system TLS):
 
 ```sh
 sudo apt-get install -y build-essential pkg-config libssl-dev
 ```
 
-That's the exact flow used to produce the demo above: built from source on Kali and run against
-the DC.
+**From crates.io** (easiest):
+
+```sh
+cargo install adhammer
+```
+
+**Prebuilt binary** — grab `adhammer-vX.Y.Z-x86_64-linux` / `-windows.exe` from
+[Releases](https://github.com/icedracon/adhammer/releases). **From source:**
+
+```sh
+git clone https://github.com/icedracon/adhammer && cd adhammer && cargo build --release
+```
+
+Requires Rust 1.80+ (`rustup`). Runs from Kali/Linux against Windows.
 
 ## Usage
 
