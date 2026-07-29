@@ -9,7 +9,7 @@ Status key:
 | ❌ | Open — not implemented |
 | 🚫 | Out of scope — requires different tooling or active relay not in passive audit |
 
-Last updated: 2026-07-22 · v0.0.1
+Last updated: 2026-07-29 · v1.0.0
 
 ---
 
@@ -19,8 +19,12 @@ Last updated: 2026-07-22 · v0.0.1
 |------|--------|---------|------|
 | Audit checks (33 rules) | 31 | 2 | 0 |
 | AD CS ESC (passive LDAP) | ESC1/2/3/4/9/13 | ESC15/EKUwu reserved | ESC5/6/7/8/10/11 |
-| Offensive CLI | 13 modes | 3 chains | ~20+ vectors |
-| Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos core | DRSUAPI single-object | SVCCTL·TSCH·RRPM·NETLOGON… |
+| Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
+| Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
+
+**Post-1.0 backlog is planned as milestones — see [ROADMAP.md](ROADMAP.md)** (v1.1 lateral+LAPS,
+v1.2 ADCS ESC8/11, v1.3 legacy matrix + noPac). This file tracks per-vector status; ROADMAP tracks
+the release plan.
 
 See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
 
@@ -253,16 +257,16 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 
 ---
 
-## Suggested close order (roadmap)
+## Close order (roadmap)
 
-1. **Pass-the-ticket** — read existing `.ccache` from PKINIT; trivial win.
-2. **ESC7/ESC5 passive** — extend AD CS LDAP collection to CA objects + enrollment service ACLs.
-3. **Constrained delegation** — reuse S4U code paths already in kerberos/tgs.
-4. **GMSA / LAPS read** — LDAP extended rights + attribute read.
-5. **SVCCTL + TSCH** — remote exec primitives (high engagement value).
-6. **Cert enrollment** — close the AD CS offensive gap.
-7. **ESC8/11 relay** — HTTP + ICPR clients on top of existing relay server.
-8. **Full-domain DCSync** — bulk GetNCChanges + secretsdump-all.
+Pass-the-ticket, constrained delegation, GMSA read, SVCCTL exec, cert enrollment (ESC1) and
+full-domain DCSync from the original list are **shipped in v1.0.0**. The remaining backlog is
+sequenced into releases in **[ROADMAP.md](ROADMAP.md)**:
+
+1. **v1.1** — LAPS read · WinRM exec · WMI exec · session hygiene (provable on the 2025 lab).
+2. **v1.2** — ESC8/ESC11 relay→CA→PKINIT · ESC4 · ExtraSids-golden · LDAPS object-create plumbing.
+3. **v1.3** — legacy-DC matrix (2008 R2 →) · noPac · unconstrained-deleg TGT capture · cross-forest.
+4. **v1.4+** — mitm6/relay→SMB · GPO write · MSSQL · DCShadow · golden cert · remaining ESC.
 
 ---
 

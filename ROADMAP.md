@@ -124,7 +124,41 @@ Everything above is only "done" once proven. adhammer is live-validated **only a
 
 ---
 
-## Suggested build order
-Tier-1 (LAPS → WinRM → WMI → session-hygiene) closes the most common real-world gaps cheaply and
-needs no new lab. Then ESC8/11 (huge, and half-built). noPac + unconstrained + ExtraSids-golden
-pair naturally with the legacy-DC matrix — build them *with* the 2008 R2 box so they ship proven.
+## Release plan (milestones)
+
+Grouped by *what can be proven where*, so nothing ships half-built. **Definition of done (every
+item):** unit tests (spec vector / round-trip) + live-validated on a real DC + CHANGELOG entry +
+README/VECTORS row + tagged release. "Built but unprovable" doesn't count as done.
+
+### v1.1 — "Lateral & LAPS"  ·  ~1 week  ·  provable on the current 2025 lab, zero new infra
+The cheapest, highest-frequency real-engagement gaps — all validatable today.
+- **LAPS read** (S, ½d) — clone the gMSA LDAPS-read path; plaintext first, encrypted-LAPS blob after.
+- **WinRM exec** (M, 2–3d) — HTTP + WS-Man + NTLM-over-HTTP (reuse `ntlmssp`).
+- **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work.
+- **Session hygiene** `--no-save` + wipe menu item (S, 2h).
+> Milestone goal: adhammer has ≥3 lateral-exec methods (SVCCTL/WinRM/WMI) + LAPS local-admin, all green on the 2025 lab.
+
+### v1.2 — "ADCS depth"  ·  ~1 week  ·  provable on the lab CA
+- **ESC8 / ESC11** (M, 3–4d) — wire existing `relay` → CA HTTP (ESC8) / ICPR pipe (ESC11) → `pkinit_with_cert`.
+- **ESC4** template-ACL edit → then ESC1 (S, ~1d) — cheap once we're in ADCS-abuse code.
+- **SID-history / ExtraSids in golden** (S–M, 1–2d) — populate the PAC `ExtraSids` array we already own (single-domain part provable now; cross-forest defers to v1.3).
+- **Infra unlock:** LDAPS object-create + modify-replace on the collector's TLS ldap3 — needed here and a hard dependency for noPac. Build it in this milestone.
+> Milestone goal: the modern relay→ADCS→DA path lands end-to-end on the lab.
+
+### v1.3 — "Legacy & forest"  ·  gated on infra  ·  build *with* the target so it ships proven
+Pairs with the real 2008 R2 engagement box + added DC snapshots. Don't build unprovable attack code ahead of the DC.
+- **Legacy DC matrix** (Tier 0) — record scan/roast/dcsync/golden/pkinit/esc1/secretsdump/relay per version, starting 2008 R2. Fills the README support matrix + per-version integration gates.
+- **noPac** — on the LDAPS object-create plumbing from v1.2; validate on unpatched ≤2019.
+- **Unconstrained-delegation TGT capture** — coerce → listener extracts delegated TGT.
+- **ExtraSids cross-forest** — validate child→parent with a second lab domain.
+- Confirm v1.1/v1.2 features + the 2025-only extras (paChecksum2, PAC requestor) degrade cleanly on old KDCs.
+> Milestone goal: README ships a real per-version support matrix, not "2025 only."
+
+### v1.4+ — backlog (engagement-driven, no fixed date)
+mitm6 + relay→SMB · GPO abuse (write) · MSSQL `xp_cmdshell`/linked-server · DCShadow · golden
+certificate (needs CA-key theft) · remaining ESC2/3/6/7/9/10/13 · AdminSDHolder/DACL backdoor ·
+user DPAPI masterkeys.
+
+### Start here
+**v1.1 → LAPS**, now. ½-day, reuses the gMSA read almost verbatim, and I can validate it against
+the lab (seed LAPS → read → PtH as local admin) in the same session — so it ships done, not staged.

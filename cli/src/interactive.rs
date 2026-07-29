@@ -240,9 +240,19 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::NetSweep => {
+            // Default to the DC's own /24 — accepting a hardcoded 10.0.0.0/24 on a real
+            // engagement just sweeps an empty range and looks broken.
+            let default_targets = s
+                .dc
+                .parse::<std::net::Ipv4Addr>()
+                .map(|ip| {
+                    let o = ip.octets();
+                    format!("{}.{}.{}.0/24", o[0], o[1], o[2])
+                })
+                .unwrap_or_else(|_| "10.0.0.0/24".to_string());
             let targets: String = Input::new()
                 .with_prompt("Targets (CIDR, comma-list, or @file)")
-                .with_initial_text("10.0.0.0/24")
+                .with_initial_text(&default_targets)
                 .interact_text()?;
             let deep = Confirm::new()
                 .with_prompt(

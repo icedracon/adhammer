@@ -138,9 +138,24 @@ impl Collector {
             LdapConnAsync::new(&cfg.url).await.context("ldap connect")?
         };
         ldap3::drive!(conn);
-        Self::bind(&mut ldap, cfg).await?;
 
-        let (default_nc, config_nc) = root_ncs(&mut ldap).await?;
+        // A bare sAMAccountName (e.g. `administrator`) is rejected by a real DC's simple_bind
+        // (rc=49, data 52e) — it wants a UPN or `DOMAIN\user`. RootDSE is readable anonymously
+        // on AD, so read the naming context first and qualify a bare name to `user@domain`.
+        // Best-effort: if the pre-bind read is refused, fall back to binding as-given + reading
+        // RootDSE afterwards (the original order).
+        let pre = if cfg.gssapi {
+            None
+        } else {
+            root_ncs(&mut ldap).await.ok()
+        };
+        let domain = pre.as_ref().map(|(nc, _)| dns_from_nc(nc));
+        Self::bind(&mut ldap, cfg, domain.as_deref()).await?;
+
+        let (default_nc, config_nc) = match pre {
+            Some(v) => v,
+            None => root_ncs(&mut ldap).await?,
+        };
         let base_dn = cfg.base_dn.clone().unwrap_or(default_nc);
         Ok(Collector {
             ldap,
@@ -149,7 +164,7 @@ impl Collector {
         })
     }
 
-    async fn bind(ldap: &mut ldap3::Ldap, cfg: &LdapConfig) -> Result<()> {
+    async fn bind(ldap: &mut ldap3::Ldap, cfg: &LdapConfig, domain: Option<&str>) -> Result<()> {
         if cfg.gssapi {
             #[cfg(feature = "gssapi")]
             {
@@ -163,10 +178,13 @@ impl Collector {
             #[cfg(not(feature = "gssapi"))]
             anyhow::bail!("--gssapi requires a build with `--features gssapi`");
         }
-        ldap.simple_bind(&cfg.bind_dn, &cfg.password)
+        let bind_dn = qualify_bind(&cfg.bind_dn, domain);
+        ldap.simple_bind(&bind_dn, &cfg.password)
             .await?
             .success()
-            .context("bind failed")?;
+            .with_context(|| {
+                format!("bind failed as `{bind_dn}` — check the password, or pass `DOMAIN\\user` / `user@domain`")
+            })?;
         Ok(())
     }
 
@@ -352,6 +370,30 @@ impl Collector {
     }
 }
 
+/// Derive the DNS domain from a naming context DN: `DC=testlab,DC=local` → `testlab.local`.
+fn dns_from_nc(nc: &str) -> String {
+    nc.split(',')
+        .filter_map(|p| {
+            let p = p.trim();
+            p.strip_prefix("DC=").or_else(|| p.strip_prefix("dc="))
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Qualify a bind identity. A bare sAMAccountName gets turned into a UPN (`user@domain`) so
+/// simple_bind succeeds on a real DC; anything already qualified (`DOMAIN\user`, a UPN, or a
+/// full DN containing `=`) is passed through untouched.
+fn qualify_bind(name: &str, domain: Option<&str>) -> String {
+    if name.contains('\\') || name.contains('@') || name.contains('=') {
+        return name.to_string();
+    }
+    match domain {
+        Some(d) if !d.is_empty() => format!("{name}@{d}"),
+        _ => name.to_string(),
+    }
+}
+
 /// Read defaultNamingContext + configurationNamingContext from RootDSE.
 async fn root_ncs(ldap: &mut ldap3::Ldap) -> Result<(String, String)> {
     let (rs, _) = ldap
@@ -386,5 +428,39 @@ fn to_object(se: SearchEntry) -> AdObject {
         dn: se.dn,
         attrs: se.attrs,
         bin,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dns_from_nc, qualify_bind};
+
+    #[test]
+    fn nc_to_dns() {
+        assert_eq!(dns_from_nc("DC=testlab,DC=local"), "testlab.local");
+        assert_eq!(dns_from_nc("dc=corp,dc=example,dc=com"), "corp.example.com");
+        assert_eq!(dns_from_nc("CN=x,DC=a,DC=b"), "a.b"); // ignores non-DC RDNs
+    }
+
+    #[test]
+    fn bare_name_becomes_upn() {
+        assert_eq!(
+            qualify_bind("administrator", Some("testlab.local")),
+            "administrator@testlab.local"
+        );
+    }
+
+    #[test]
+    fn qualified_names_pass_through() {
+        let d = Some("testlab.local");
+        assert_eq!(qualify_bind("TESTLAB\\Administrator", d), "TESTLAB\\Administrator");
+        assert_eq!(qualify_bind("admin@other.com", d), "admin@other.com");
+        assert_eq!(qualify_bind("CN=Admin,DC=testlab,DC=local", d), "CN=Admin,DC=testlab,DC=local");
+    }
+
+    #[test]
+    fn no_domain_leaves_bare_name() {
+        assert_eq!(qualify_bind("administrator", None), "administrator");
+        assert_eq!(qualify_bind("administrator", Some("")), "administrator");
     }
 }

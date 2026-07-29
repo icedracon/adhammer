@@ -3,6 +3,17 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [1.0.1] — 2026-07-29
+
+### Fixed
+- **Scan/roast/all LDAP actions failed on real DCs with a bare username** (`administrator`) —
+  a bare sAMAccountName is rejected by simple_bind (rc=49, `data 52e`). The collector now reads
+  the domain from RootDSE and auto-qualifies a bare name to a UPN (`user@domain`); anything
+  already qualified (`DOMAIN\user`, UPN, full DN) is untouched. Bind errors now name the identity
+  tried and suggest the qualified form instead of a bare "bind failed". Verified live vs Server 2025.
+- **Interactive network sweep defaulted to `10.0.0.0/24`**, which sweeps an empty range on most
+  engagements. It now defaults to the DC's own /24.
+
 ## [1.0.0] — 2026-07-28
 
 First stable release. A single Linux-native Rust binary that both **audits** Active Directory
