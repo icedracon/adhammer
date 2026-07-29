@@ -18,7 +18,7 @@ Last updated: 2026-07-29 · v1.0.0
 | Area | Closed | Partial | Open |
 |------|--------|---------|------|
 | Audit checks (33 rules) | 31 | 2 | 0 |
-| AD CS ESC (passive LDAP) | ESC1/2/3/4/9/13 | ESC15/EKUwu reserved | ESC5/6/7/8/10/11 |
+| AD CS ESC (10/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active | — | ESC6/7/10/11/16 (need CA/DC registry via RRP/ICertAdmin) |
 | Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
@@ -102,7 +102,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | ESC2 | Any-Purpose / SubCA, low-priv enroll | ✅ | |
 | ESC3 | Enrollment Agent template, low-priv enroll | ✅ | |
 | ESC4 | Template ACL writable by low-priv | ✅ | |
-| ESC5 | Vulnerable PKI object ACL (CA server) | ❌ | Needs CA `nTSecurityDescriptor` + enrollment service ACL audit beyond templates |
+| ESC5 | Vulnerable PKI object ACL (CA server) | ✅ | Broad-principal Write/Owner over `pKIEnrollmentService`/`certificationAuthority` objects (reuses the template ACL walk) |
 | ESC6 | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | ❌ | Requires CA registry / `pKIEnrollmentService` flags not in LDAP today |
 | ESC7 | Vulnerable CA ACL (ManageCa / ManageCertificates) | ❌ | CA object ACL parse not wired |
 | ESC8 | Web Enrollment HTTP relay | 🔶 | **Detection done** (`enum adcs`): probes each CA host's `http://…/certsrv` for a cleartext NTLM 401 (relayable). Relay *exploit* still open (see ESC8 in the relay backlog) |
@@ -110,7 +110,9 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | ESC10 | Weak certificate mapping on DC | ❌ | Requires registry / `StrongCertificateBindingEnforcement` — not in LDAP snapshot |
 | ESC11 | ICPR RPC relay | 🚫 | Active relay to `\cert` pipe (similar to ESC8) |
 | ESC13 | Issuance policy → privileged group link | ✅ | |
-| ESC15 / EKUwu | Schema v1 + application policies confusion | 🔶 | `schema_version` collected; rule not implemented (`adcs.rs` reserved) |
+| ESC14 | Weak explicit cert mapping (`altSecurityIdentities`) | ✅ | Flags Subject-only / Issuer+Subject / RFC822 X509 mappings; live-validated |
+| ESC15 / EKUwu | Schema v1 + application-policy injection (CVE-2024-49019) | ✅ | Any enrollable v1 template; live-validated on the lab |
+| ESC16 | Security extension globally disabled on CA | ❌ | CA registry (`DisableExtensionList`) — needs RRP / ICertAdmin |
 
 **Offensive AD CS:** ❌ No cert enrollment, no ESC1/3 exploit, no Certipy parity.
 

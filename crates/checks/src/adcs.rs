@@ -1,6 +1,9 @@
-//! Category: Anomalies / AD CS. ESC1–ESC13 that are decidable from LDAP alone
-//! (template flags + EKUs + the template `nTSecurityDescriptor`). Relay-only vectors
-//! (ESC8/ESC11) and CA-registry vectors (ESC6/ESC7) are out of passive scope.
+//! Category: Anomalies / AD CS. The ESC classes decidable from LDAP alone: template flags +
+//! EKUs + object `nTSecurityDescriptor` (ESC1/2/3/4/9/13/15), CA-object ACLs (ESC5), and weak
+//! explicit certificate mappings (ESC14). ESC8 is detected actively (`enum adcs` web-enroll
+//! probe). Still out of passive scope — need a CA/DC registry or active-RPC read: ESC6
+//! (EDITF_ATTRIBUTESUBJECTALTNAME2), ESC7 (CA ManageCA/ManageCertificates ACL), ESC10 (DC cert
+//! mapping enforcement), ESC11 (unencrypted ICPR), ESC16 (globally disabled security extension).
 //!
 //! The template ACL parse reuses the self-rolled SDDL crate; "low-priv can enroll/write"
 //! is decided against the broad principals (Authenticated Users, Domain Users/Computers,
@@ -100,8 +103,11 @@ impl Check for VulnerableCertTemplates {
         let mut esc2 = Vec::new();
         let mut esc3 = Vec::new();
         let mut esc4 = Vec::new();
+        let mut esc5 = Vec::new();
         let mut esc9 = Vec::new();
         let mut esc13 = Vec::new();
+        let mut esc14 = Vec::new();
+        let mut esc15 = Vec::new();
 
         for o in snap.iter_class("pKICertificateTemplate") {
             let t = Template::from(o);
@@ -134,7 +140,44 @@ impl Check for VulnerableCertTemplates {
             if t.issuance_policies && t.auth_eku() {
                 esc13.push(t.name.clone());
             }
-            let _ = t.schema_version; // reserved for ESC15/EKUwu (v1 + application policies)
+            // ESC15 / EKUwu (CVE-2024-49019): a schema-v1 template enrollable by low-priv lets the
+            // requester inject arbitrary application policies (e.g. Client Authentication) in the
+            // CSR — the template's own EKU is irrelevant, so any enrollable v1 template qualifies.
+            if t.schema_version == 1 && !approved {
+                esc15.push(t.name.clone());
+            }
+        }
+
+        // ESC5: a broad principal holds Write/Owner/DACL control over a CA object itself
+        // (pKIEnrollmentService / certificationAuthority) — they can republish templates, add
+        // EKUs, or otherwise reconfigure the PKI. Reuses the template ACL walk.
+        for o in snap
+            .iter_class("pKIEnrollmentService")
+            .chain(snap.iter_class("certificationAuthority"))
+        {
+            if broad_rights(o, dsid).1 {
+                esc5.push(
+                    o.one("cn")
+                        .or_else(|| o.one("name"))
+                        .unwrap_or(&o.dn)
+                        .to_string(),
+                );
+            }
+        }
+
+        // ESC14: a *weak* explicit certificate mapping (altSecurityIdentities) — an X509 mapping
+        // that isn't pinned by issuer+serial / key id / public-key hash (i.e. Subject-only,
+        // Issuer+Subject, or RFC822/email) can be satisfied by an attacker-obtained certificate.
+        for o in &snap.objects {
+            for m in o.all("altSecurityIdentities") {
+                if is_weak_x509_mapping(m) {
+                    let who = o
+                        .one("sAMAccountName")
+                        .or_else(|| o.one("cn"))
+                        .unwrap_or(&o.dn);
+                    esc14.push(format!("{who} ({m})"));
+                }
+            }
         }
 
         let mut out = Vec::new();
@@ -150,6 +193,15 @@ impl Check for VulnerableCertTemplates {
         push(&mut out, "A-Esc4", "ESC4: certificate template ACL writable by low-priv", Severity::Critical, esc4,
             "A low-privileged principal holds Write/WriteDacl/WriteOwner/GenericAll (or ownership) over the template and can reconfigure it into ESC1.",
             "Remove the offending ACEs; template write access belongs to Tier-0 only.");
+        push(&mut out, "A-Esc5", "ESC5: CA object ACL writable by low-priv", Severity::Critical, esc5,
+            "A low-privileged principal can write/own the CA's AD object (pKIEnrollmentService / certificationAuthority) and can republish templates or reconfigure the PKI into an escalation.",
+            "Restrict Write/WriteDacl/WriteOwner on the Enrollment Services + CA objects to Tier-0.");
+        push(&mut out, "A-Esc14", "ESC14: weak explicit certificate mapping (altSecurityIdentities)", Severity::High, esc14,
+            "The account carries a weak X509 mapping (Subject-only / Issuer+Subject / RFC822) that a certificate the attacker can obtain will satisfy, allowing impersonation.",
+            "Use only strong mappings (Issuer+Serial, SKI, SHA1-PublicKey) and enforce Full strong certificate binding (KB5014754).");
+        push(&mut out, "A-Esc15", "ESC15 / EKUwu: schema-v1 template enrollable by low-priv", Severity::Critical, esc15,
+            "CVE-2024-49019: a version-1 template lets the enrollee inject arbitrary application policies (e.g. Client Authentication) in the request, so an enrollable v1 template yields an auth cert regardless of its own EKU.",
+            "Upgrade v1 templates to v2+, require manager approval, or restrict enrollment; apply the CVE-2024-49019 patch.");
         push(&mut out, "A-Esc9", "ESC9: no-security-extension template with auth EKU", Severity::High, esc9,
             "CT_FLAG_NO_SECURITY_EXTENSION disables the SID binding, enabling weak certificate mapping / impersonation.",
             "Clear the flag and enforce strong (Full) certificate mapping on DCs (KB5014754).");
@@ -167,6 +219,17 @@ fn published_templates(snap: &Snapshot) -> HashSet<String> {
         .flat_map(|ca| ca.all("certificateTemplates"))
         .map(|n| n.to_ascii_lowercase())
         .collect()
+}
+
+/// A weak X509 `altSecurityIdentities` mapping — one not pinned by issuer+serial, subject key
+/// id, or public-key hash. Kerberos/UPN mappings and the strong X509 forms return false.
+fn is_weak_x509_mapping(m: &str) -> bool {
+    let up = m.trim().to_ascii_uppercase();
+    if !up.starts_with("X509:") {
+        return false; // Kerberos:/UPN mappings aren't ESC14
+    }
+    // Strong: <SR> issuer+serial, <SKI> subject-key-id, <SHA1-PUKEY> public-key hash.
+    !(up.contains("<SR>") || up.contains("<SKI>") || up.contains("<SHA1-PUKEY>"))
 }
 
 use crate::util::is_broad;
@@ -323,6 +386,36 @@ mod tests {
             findings.iter().any(|f| f.id == "A-Esc1"),
             "expected ESC1 finding, got {:?}",
             findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn weak_vs_strong_x509_mappings() {
+        // Weak: subject-only, issuer+subject, RFC822/email.
+        assert!(is_weak_x509_mapping("X509:<S>CN=admin"));
+        assert!(is_weak_x509_mapping("X509:<I>DC=corp<S>CN=admin"));
+        assert!(is_weak_x509_mapping("X509:<RFC822>admin@corp.local"));
+        // Strong: issuer+serial, SKI, public-key hash.
+        assert!(!is_weak_x509_mapping("X509:<I>DC=corp<SR>1200000000AABB"));
+        assert!(!is_weak_x509_mapping("X509:<SKI>1a2b3c"));
+        assert!(!is_weak_x509_mapping("X509:<SHA1-PUKEY>deadbeef"));
+        // Not an X509 mapping at all.
+        assert!(!is_weak_x509_mapping("Kerberos:admin@CORP.LOCAL"));
+    }
+
+    #[test]
+    fn detects_esc15_v1_template() {
+        let mut t = esc1_template();
+        // A schema-v1 template, enrollable, no approval → EKUwu/ESC15 regardless of its EKU.
+        t.attrs
+            .insert("msPKI-Template-Schema-Version".into(), vec!["1".into()]);
+        t.attrs.insert("pKIExtendedKeyUsage".into(), vec![]); // even with no client-auth EKU
+        let snap = Snapshot::new(DomainInfo::default(), vec![t]);
+        let graph = ControlGraph::build(&snap);
+        let findings = VulnerableCertTemplates.run(&snap, &graph);
+        assert!(
+            findings.iter().any(|f| f.id == "A-Esc15"),
+            "expected ESC15 for an enrollable v1 template"
         );
     }
 

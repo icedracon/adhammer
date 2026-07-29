@@ -6,6 +6,12 @@ All notable changes to ADhammer are documented here. Format loosely follows
 ## [1.1.0] — 2026-07-29
 
 ### Added
+- **AD CS audit ESC5 / ESC14 / ESC15** — three new passive (LDAP-only) certificate-services checks:
+  ESC5 (broad-principal Write/Owner over a CA object → PKI reconfiguration), ESC14 (weak explicit
+  `altSecurityIdentities` mapping — Subject-only / Issuer+Subject / RFC822), and ESC15 / EKUwu
+  (CVE-2024-49019 — any enrollable schema-v1 template allows application-policy injection). Takes
+  ADhammer's ESC coverage to 10/16. ESC14 + ESC15 live-validated vs Server 2025 (ESC15 on the lab's
+  v1 templates; ESC14 on a seeded weak mapping). ESC6/7/10/11/16 remain (need a CA/DC registry read).
 - **AD CS enumeration + ESC8 detection** (`enum adcs`) — list enterprise CAs (name + host) from the
   Configuration NC, then actively probe each CA's `http://<host>/certsrv` web-enrollment endpoint:
   a cleartext NTLM/Negotiate 401 is flagged as ESC8 (relayable — no TLS ⇒ no channel binding). ESC8
