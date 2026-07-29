@@ -127,6 +127,22 @@ pub struct Collector {
     config_dn: String,
 }
 
+/// One computer's recovered LAPS local-administrator password.
+#[derive(Debug, Clone)]
+pub struct LapsEntry {
+    /// Computer sAMAccountName, e.g. `WIN11$`.
+    pub sam: String,
+    pub dn: String,
+    /// Managed local account name (`Administrator`, or the `n` field of Windows LAPS).
+    pub account: String,
+    /// Cleartext password. `None` when only the DPAPI-NG-encrypted blob is present.
+    pub password: Option<String>,
+    /// Expiration (raw FILETIME string as returned by AD), best-effort.
+    pub expires: Option<String>,
+    /// Which attribute the value came from.
+    pub source: &'static str,
+}
+
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
         let (conn, mut ldap) = if cfg.insecure {
@@ -272,6 +288,44 @@ impl Collector {
         Ok(se.bin_attrs.get(attr).and_then(|v| v.first()).cloned())
     }
 
+    /// Read LAPS local-admin passwords. With `target` set, reads that one computer; otherwise
+    /// sweeps every computer whose LAPS attribute is readable by the bind identity. Covers both
+    /// legacy Microsoft LAPS (`ms-Mcs-AdmPwd`, cleartext) and Windows LAPS (`msLAPS-Password`,
+    /// a JSON blob) — the DPAPI-NG-encrypted `msLAPS-EncryptedPassword` is surfaced but not
+    /// decrypted. Like gMSA, the cleartext is only returned over a sealed/TLS bind.
+    pub async fn read_laps(&mut self, target: Option<&str>) -> Result<Vec<LapsEntry>> {
+        let base = self.base_dn.clone();
+        let filter = match target {
+            Some(sam) => format!("(&(objectCategory=computer)(sAMAccountName={sam}))"),
+            None => "(&(objectCategory=computer)(|(ms-Mcs-AdmPwd=*)(msLAPS-Password=*)(msLAPS-EncryptedPassword=*)))".to_string(),
+        };
+        let attrs = vec![
+            "sAMAccountName",
+            "distinguishedName",
+            "ms-Mcs-AdmPwd",
+            "ms-Mcs-AdmPwdExpirationTime",
+            "msLAPS-Password",
+            "msLAPS-PasswordExpirationTime",
+            "msLAPS-EncryptedPassword",
+        ];
+        let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
+            Box::new(EntriesOnly::new()),
+            Box::new(PagedResults::new(1000)),
+        ];
+        let mut stream = self
+            .ldap
+            .streaming_search_with(adapters, &base, Scope::Subtree, &filter, attrs)
+            .await?;
+        let mut out = Vec::new();
+        while let Some(entry) = stream.next().await? {
+            if let Some(e) = laps_from_entry(&SearchEntry::construct(entry)) {
+                out.push(e);
+            }
+        }
+        stream.finish().await.success().ok();
+        Ok(out)
+    }
+
     pub async fn resolve_dn(&mut self, sam: &str) -> Result<String> {
         let base = self.base_dn.clone();
         let (rs, _) = self
@@ -394,6 +448,82 @@ fn qualify_bind(name: &str, domain: Option<&str>) -> String {
     }
 }
 
+/// Extract one string field from a flat Windows-LAPS JSON blob (`{"n":..,"t":..,"p":..}`),
+/// handling the standard JSON backslash escapes in the value.
+fn json_field(json: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let after = &json[json.find(&needle)? + needle.len()..];
+    let open = after.find('"')?; // the value's opening quote (after the `:`)
+    let mut chars = after[open + 1..].chars();
+    let mut out = String::new();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next()? {
+                'n' => out.push('\n'),
+                't' => out.push('\t'),
+                'r' => out.push('\r'),
+                other => out.push(other), // \" \\ \/ → literal
+            },
+            '"' => return Some(out),
+            other => out.push(other),
+        }
+    }
+    None
+}
+
+/// Build a `LapsEntry` from a computer object, preferring Windows LAPS over legacy, and
+/// surfacing an encrypted-only blob as a non-cleartext entry. Returns `None` if no LAPS
+/// attribute is present (e.g. a targeted read of a host without LAPS).
+fn laps_from_entry(se: &SearchEntry) -> Option<LapsEntry> {
+    let sam = se
+        .attrs
+        .get("sAMAccountName")
+        .and_then(|v| v.first())
+        .cloned()
+        .unwrap_or_default();
+    let dn = se.dn.clone();
+
+    if let Some(js) = se.attrs.get("msLAPS-Password").and_then(|v| v.first()) {
+        return Some(LapsEntry {
+            sam,
+            dn,
+            account: json_field(js, "n").unwrap_or_else(|| "Administrator".into()),
+            password: json_field(js, "p"),
+            expires: se
+                .attrs
+                .get("msLAPS-PasswordExpirationTime")
+                .and_then(|v| v.first())
+                .cloned(),
+            source: "msLAPS-Password",
+        });
+    }
+    if let Some(pw) = se.attrs.get("ms-Mcs-AdmPwd").and_then(|v| v.first()) {
+        return Some(LapsEntry {
+            sam,
+            dn,
+            account: "Administrator".into(),
+            password: Some(pw.clone()),
+            expires: se
+                .attrs
+                .get("ms-Mcs-AdmPwdExpirationTime")
+                .and_then(|v| v.first())
+                .cloned(),
+            source: "ms-Mcs-AdmPwd",
+        });
+    }
+    if se.bin_attrs.contains_key("msLAPS-EncryptedPassword") {
+        return Some(LapsEntry {
+            sam,
+            dn,
+            account: String::new(),
+            password: None,
+            expires: None,
+            source: "msLAPS-EncryptedPassword",
+        });
+    }
+    None
+}
+
 /// Read defaultNamingContext + configurationNamingContext from RootDSE.
 async fn root_ncs(ldap: &mut ldap3::Ldap) -> Result<(String, String)> {
     let (rs, _) = ldap
@@ -433,7 +563,77 @@ fn to_object(se: SearchEntry) -> AdObject {
 
 #[cfg(test)]
 mod tests {
-    use super::{dns_from_nc, qualify_bind};
+    use super::{dns_from_nc, json_field, laps_from_entry, qualify_bind};
+    use ldap3::SearchEntry;
+    use std::collections::HashMap;
+
+    fn entry(dn: &str, attrs: &[(&str, &str)], bin: &[&str]) -> SearchEntry {
+        SearchEntry {
+            dn: dn.to_string(),
+            attrs: attrs
+                .iter()
+                .map(|(k, v)| (k.to_string(), vec![v.to_string()]))
+                .collect(),
+            bin_attrs: bin
+                .iter()
+                .map(|k| (k.to_string(), vec![vec![0u8, 1, 2, 3]]))
+                .collect::<HashMap<_, _>>(),
+        }
+    }
+
+    #[test]
+    fn wlaps_json_field_extract() {
+        let js = r#"{"n":"Administrator","t":"1db0000000","p":"Str0ng!\"pw\\x"}"#;
+        assert_eq!(json_field(js, "n").as_deref(), Some("Administrator"));
+        // password with an escaped quote and backslash must round-trip.
+        assert_eq!(json_field(js, "p").as_deref(), Some("Str0ng!\"pw\\x"));
+        assert_eq!(json_field(js, "missing"), None);
+    }
+
+    #[test]
+    fn laps_prefers_windows_json() {
+        let js = r#"{"n":"LAPSAdmin","t":"1db","p":"WinLapsPw1"}"#;
+        let e = laps_from_entry(&entry(
+            "CN=WIN11,OU=X,DC=t,DC=l",
+            &[("sAMAccountName", "WIN11$"), ("msLAPS-Password", js)],
+            &[],
+        ))
+        .unwrap();
+        assert_eq!(e.sam, "WIN11$");
+        assert_eq!(e.account, "LAPSAdmin");
+        assert_eq!(e.password.as_deref(), Some("WinLapsPw1"));
+        assert_eq!(e.source, "msLAPS-Password");
+    }
+
+    #[test]
+    fn laps_legacy_cleartext() {
+        let e = laps_from_entry(&entry(
+            "CN=SRV,DC=t,DC=l",
+            &[("sAMAccountName", "SRV$"), ("ms-Mcs-AdmPwd", "L3gacyPw!")],
+            &[],
+        ))
+        .unwrap();
+        assert_eq!(e.account, "Administrator");
+        assert_eq!(e.password.as_deref(), Some("L3gacyPw!"));
+        assert_eq!(e.source, "ms-Mcs-AdmPwd");
+    }
+
+    #[test]
+    fn laps_encrypted_blob_has_no_cleartext() {
+        let e = laps_from_entry(&entry(
+            "CN=DC,DC=t,DC=l",
+            &[("sAMAccountName", "DC$")],
+            &["msLAPS-EncryptedPassword"],
+        ))
+        .unwrap();
+        assert!(e.password.is_none());
+        assert_eq!(e.source, "msLAPS-EncryptedPassword");
+    }
+
+    #[test]
+    fn laps_absent_returns_none() {
+        assert!(laps_from_entry(&entry("CN=X,DC=t,DC=l", &[("sAMAccountName", "X$")], &[])).is_none());
+    }
 
     #[test]
     fn nc_to_dns() {

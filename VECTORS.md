@@ -180,7 +180,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 |--------|----------|-------|
 | DCSync via pure LDAP (WS2025 hybrid) | Medium | DRSUAPI path done; LDAP-only replication path not implemented |
 | GMSA password read | ✅ | `attack gmsa` reads msDS-ManagedPassword → NT hash (live-validated) |
-| LAPS password read | Medium | Audit detects missing LAPS; no `attack laps` |
+| LAPS password read | ✅ | `attack laps` reads `ms-Mcs-AdmPwd` (legacy) + `msLAPS-Password` (Windows LAPS JSON) over LDAPS — one host or sweep-all; live-validated. Encrypted `msLAPS-EncryptedPassword` (DPAPI-NG) surfaced but not decrypted |
 | AdminSDHolder / ACL backdoor write | Medium | Graph detects paths; no `attack dacl` helper |
 | DNS ADIDNS poisoning / delegation abuse | Low | No DNS client |
 | Group Policy abuse (GPO edit) | Low | SYSVOL read only |

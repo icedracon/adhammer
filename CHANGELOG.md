@@ -3,6 +3,16 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [1.1.0] — 2026-07-29
+
+### Added
+- **LAPS read** (`attack laps`) — recover local-administrator passwords over LDAPS. Reads both
+  legacy Microsoft LAPS (`ms-Mcs-AdmPwd`, cleartext) and Windows LAPS (`msLAPS-Password`, JSON);
+  `--target <HOST$>` for one host or omit it to sweep every computer whose LAPS attribute you can
+  read. The DPAPI-NG-encrypted `msLAPS-EncryptedPassword` is surfaced but not yet decrypted.
+  Interactive menu entry added. Live-validated vs Server 2025 (Windows LAPS, plaintext mode);
+  degrades cleanly to "no LAPS readable" on DCs without the LAPS schema. First ROADMAP v1.1 item.
+
 ## [1.0.1] — 2026-07-29
 
 ### Fixed

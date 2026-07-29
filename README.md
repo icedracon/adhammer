@@ -222,6 +222,10 @@ LocalSystem` chain succeeds from Kali against the patched DC.
 - **gMSA read** — `attack gmsa --target svc$`: read `msDS-ManagedPassword` over LDAPS and derive
   the account's NT hash (for principals allowed to retrieve it). Verified: the recovered hash
   authenticates as the gMSA via pass-the-hash.
+- **LAPS read** — `attack laps [--target HOST$]`: recover local-admin passwords over LDAPS —
+  legacy `ms-Mcs-AdmPwd` and Windows LAPS `msLAPS-Password` (JSON); omit `--target` to sweep every
+  computer you can read. Chain the cleartext into `attack exec`/`secretsdump` as the local admin.
+  Verified vs Server 2025 (Windows LAPS).
 - **AD CS ESC1** — `attack esc1 --ca <CA> --template <T> --upn Administrator@realm`: build a
   PKCS#10 CSR with the target UPN in the SAN, enroll it over sealed MS-ICPR (`\pipe\cert`), and
   save the issued client-auth cert + key. Verified: as low-priv `recon`, the CA issued a cert

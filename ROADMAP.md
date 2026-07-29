@@ -24,7 +24,7 @@ impacket/netexec/certipy as proven backup.
 
 ## Tier 1 — quick, high-value, buildable now (no new lab)
 
-### 1. LAPS read  ·  Cred-dump · T1003
+### 1. LAPS read  ·  Cred-dump · T1003  ·  ✅ DONE (v1.1.0)
 Read `ms-Mcs-AdmPwd` / `msLAPS-Password` (+ `msLAPS-EncryptedPassword`) over LDAPS for principals
 allowed to. Ubiquitous in real domains; instant local-admin.
 - **Reuses:** the gMSA path (`attack gmsa`) already does authenticated LDAPS attribute reads — clone it.
@@ -132,7 +132,8 @@ README/VECTORS row + tagged release. "Built but unprovable" doesn't count as don
 
 ### v1.1 — "Lateral & LAPS"  ·  ~1 week  ·  provable on the current 2025 lab, zero new infra
 The cheapest, highest-frequency real-engagement gaps — all validatable today.
-- **LAPS read** (S, ½d) — clone the gMSA LDAPS-read path; plaintext first, encrypted-LAPS blob after.
+- ~~**LAPS read** (S, ½d)~~ **DONE (v1.1.0)** — `attack laps`; legacy `ms-Mcs-AdmPwd` + Windows LAPS
+  `msLAPS-Password` (JSON), one host or sweep-all; live-validated vs Server 2025. Encrypted blob deferred.
 - **WinRM exec** (M, 2–3d) — HTTP + WS-Man + NTLM-over-HTTP (reuse `ntlmssp`).
 - **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work.
 - **Session hygiene** `--no-save` + wipe menu item (S, 2h).

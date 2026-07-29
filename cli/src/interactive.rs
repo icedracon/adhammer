@@ -6,10 +6,10 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, asktgt, coerce, dcsync, esc1, exec_cmd, gmsa, golden, lsa, netenum, poison, pth, rbcd,
-    relay, roast, samr, scan, secretsdump, silver, spray, AbuseArgs, AsktgtArgs, CoerceArgs,
-    DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LsaArgs, NetArgs, PthArgs, RbcdArgs,
-    RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs,
+    abuse, asktgt, coerce, dcsync, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, pth,
+    rbcd, relay, roast, samr, scan, secretsdump, silver, spray, AbuseArgs, AsktgtArgs, CoerceArgs,
+    DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs, NetArgs, PthArgs,
+    RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -32,6 +32,7 @@ enum Action {
     Exec,
     Secretsdump,
     Gmsa,
+    Laps,
     Esc1,
     Asktgt,
     Golden,
@@ -64,6 +65,7 @@ const MENU: &[(&str, Action)] = &[
         Action::Secretsdump,
     ),
     ("gMSA — read managed password → NT hash", Action::Gmsa),
+    ("LAPS — read local-admin passwords", Action::Laps),
     ("ESC1 — AD CS cert enroll (spoofed UPN SAN)", Action::Esc1),
     ("AskTGT — password → Kerberos ccache", Action::Asktgt),
     ("Golden — forge a TGT (krbtgt key)", Action::Golden),
@@ -456,6 +458,21 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("gMSA sAMAccountName (e.g. gmsa_web$)")
                 .interact_text()?;
             gmsa(GmsaArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
+                target,
+            })
+            .await
+        }
+        Action::Laps => {
+            let t: String = Input::new()
+                .with_prompt("Computer sAMAccountName (blank = dump all readable)")
+                .allow_empty(true)
+                .interact_text()?;
+            let target = (!t.trim().is_empty()).then(|| t.trim().to_string());
+            laps(LapsArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
                 password: s.password.clone(),

