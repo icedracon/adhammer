@@ -136,7 +136,13 @@ The cheapest, highest-frequency real-engagement gaps — all validatable today.
   `msLAPS-Password` (JSON), one host or sweep-all; live-validated vs Server 2025. Encrypted blob deferred.
 - ~~**WinRM exec** (M, 2–3d)~~ **DONE (v1.1.0)** — `attack winrm`; NTLM + MS-NLMP message encryption
   over 5985 (from-scratch raw-TCP HTTP), full shell lifecycle, stdout/stderr/exit, PtH; live-validated.
-- **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work. **← next**
+- **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work.
+  **IN PROGRESS:** DCOM foundation landed in the `dcerpc` crate (`dcom` module) — `IObjectExporter`
+  (OXID resolver, `ServerAlive` **live-validated** vs the lab) + `ORPCTHIS` + well-known IIDs/CLSIDs.
+  Remaining (the bulk): `ISystemActivator::RemoteCreateInstance` + activation-properties blob →
+  OXID resolution → `IWbemLevel1Login::NTLMLogin` → `IWbemServices::ExecMethod` (Win32_Process.Create,
+  CIM-object marshaling) → output over SMB. **Note:** DCOM lives in standalone `dcerpc`; wiring
+  `attack wmiexec` into adhammer needs a `dcerpc` 0.2 publish + workspace dep bump.
 - ~~**Session hygiene** `--no-save` + wipe menu item (S, 2h)~~ **DONE (v1.1.0)**.
 > Milestone goal: adhammer has ≥3 lateral-exec methods (SVCCTL/WinRM/WMI) + LAPS local-admin, all green on the 2025 lab. **SVCCTL + WinRM + LAPS shipped; WMI remains.**
 
