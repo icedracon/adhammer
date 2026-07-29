@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 mod interactive;
 mod poison;
 mod session;
+mod ui;
 mod winrm;
 
 #[derive(Parser)]
@@ -1300,8 +1301,10 @@ async fn laps(a: LapsArgs) -> Result<()> {
         insecure: a.insecure,
         gssapi: false,
     };
+    let sp = ui::Spinner::start("reading LAPS passwords over LDAPS");
     let mut c = Collector::connect(&cfg).await?;
     let entries = c.read_laps(a.target.as_deref()).await?;
+    sp.done(&format!("{} LAPS entr(y/ies) returned", entries.len()));
     if entries.is_empty() {
         anyhow::bail!(
             "no LAPS password readable (no LAPS deployed, or the bind identity lacks the read right — try a specific --target <HOST$>)"
@@ -1326,7 +1329,7 @@ async fn laps(a: LapsArgs) -> Result<()> {
             ),
         }
     }
-    eprintln!("[+] LAPS: {cleartext} cleartext local-admin password(s) recovered");
+    ui::ok(&format!("LAPS: {cleartext} cleartext local-admin password(s) recovered"));
     Ok(())
 }
 
@@ -1372,37 +1375,45 @@ async fn dnsenum(a: DnsArgs) -> Result<()> {
         insecure: a.insecure,
         gssapi: false,
     };
+    let sp = ui::Spinner::start("connecting + reading ADIDNS zones");
     let mut c = Collector::connect(&cfg).await?;
     let zones = c.read_adidns().await?;
+    sp.done(&format!("{} ADIDNS zone(s) read", zones.len()));
     if zones.is_empty() {
-        println!("== ADIDNS: no zones readable ==");
+        ui::warn("no ADIDNS zones readable");
         return Ok(());
     }
     let (mut total, mut wildcards) = (0usize, 0usize);
     for z in &zones {
-        println!("== zone {} ({} records) ==", z.name, z.records.len());
+        ui::header(&format!("{} ({} records)", z.name, z.records.len()));
         for r in &z.records {
             total += 1;
             let wild = r.node == "*";
             if wild {
                 wildcards += 1;
             }
-            let tags = format!(
-                "{}{}",
-                if wild { "  [!] WILDCARD" } else { "" },
-                if r.tombstoned { "  (tombstoned)" } else { "" }
+            let mut tags = String::new();
+            if wild {
+                tags.push_str(&format!("  {}", ui::accent("◄ WILDCARD")));
+            }
+            if r.tombstoned {
+                tags.push_str(&format!("  {}", ui::dim("(tombstoned)")));
+            }
+            println!(
+                "  {:<28} {} {}{}",
+                r.node,
+                ui::dim(&format!("{:<6}", r.rtype)),
+                r.data,
+                tags
             );
-            println!("  {:<28} {:<6} {}{}", r.node, r.rtype, r.data, tags);
         }
     }
-    eprintln!(
-        "[+] ADIDNS: {} zone(s), {} record(s), {} wildcard(s)",
-        zones.len(),
-        total,
-        wildcards
-    );
+    ui::ok(&format!(
+        "ADIDNS: {} zone(s), {total} record(s), {wildcards} wildcard(s)",
+        zones.len()
+    ));
     if wildcards > 0 {
-        eprintln!("[!] wildcard record present → ADIDNS/mitm6-style name-hijack surface");
+        ui::warn("wildcard record present → ADIDNS/mitm6-style name-hijack surface");
     }
     Ok(())
 }
@@ -1794,11 +1805,11 @@ async fn relay_one(
 /// (NTLM-relay) posture — the attack-surface map for the whole estate.
 async fn netenum(a: NetArgs) -> Result<()> {
     let hosts = expand_targets(&a.targets)?;
-    eprintln!(
-        "[*] sweeping {} hosts × {} ports…",
+    let sp = ui::Spinner::start(format!(
+        "sweeping {} host(s) × {} ports",
         hosts.len(),
         SERVICES.len()
-    );
+    ));
 
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(a.concurrency));
     let mut set = tokio::task::JoinSet::new();
@@ -1841,7 +1852,12 @@ async fn netenum(a: NetArgs) -> Result<()> {
             .unwrap_or(u32::MAX)
     });
 
-    println!("== network sweep: {} live hosts ==", hosts_sorted.len());
+    if hosts_sorted.is_empty() {
+        sp.done_warn("no live hosts found in range");
+    } else {
+        sp.done(&format!("{} live host(s)", hosts_sorted.len()));
+    }
+    ui::header(&format!("network sweep — {} live host(s)", hosts_sorted.len()));
     let mut relay = Vec::new();
     for (host, mut ports) in hosts_sorted {
         ports.sort_by_key(|(p, _, _)| *p);
@@ -1983,29 +1999,40 @@ async fn adcsenum(a: DnsArgs) -> Result<()> {
         insecure: a.insecure,
         gssapi: false,
     };
+    let sp = ui::Spinner::start("enumerating enterprise CAs");
     let mut c = Collector::connect(&cfg).await?;
     let cas = c.read_cas().await?;
+    sp.done(&format!("{} enterprise CA(s) found", cas.len()));
     if cas.is_empty() {
-        println!("== AD CS: no enterprise CA found ==");
+        ui::warn("no enterprise CA found in the forest");
         return Ok(());
     }
-    println!("== AD CS: {} enterprise CA(s) ==", cas.len());
+    ui::header("AD CS — Certification Authorities");
     let mut esc8 = 0usize;
     for (name, host) in &cas {
-        println!("  CA {name}  host={}", if host.is_empty() { "?" } else { host });
+        ui::field(
+            &format!("CA {name}"),
+            &format!("host {}", if host.is_empty() { "?" } else { host }),
+        );
         if host.is_empty() {
             continue;
         }
-        match esc8_probe(host).await {
+        let sp = ui::Spinner::start(format!("probing {host} web enrollment (ESC8)"));
+        let hit = esc8_probe(host).await;
+        match hit {
             Some(d) => {
                 esc8 += 1;
-                println!("      [!] {d}");
+                sp.done_warn(&d);
             }
-            None => println!("      ESC8: web enrollment not exposed over http/80"),
+            None => sp.done(&format!("{host}: ESC8 web enrollment not exposed over http/80")),
         }
     }
-    eprintln!("[+] AD CS: {} CA(s), {esc8} ESC8 web-enrollment exposure(s)", cas.len());
-    eprintln!("    (ESC11 / unencrypted-ICPR detection: not yet implemented — needs a CA config read)");
+    if esc8 > 0 {
+        ui::warn(&format!("AD CS: {esc8} ESC8 web-enrollment exposure(s) across {} CA(s)", cas.len()));
+    } else {
+        ui::ok(&format!("AD CS: {} CA(s), no ESC8 web-enrollment exposure", cas.len()));
+    }
+    ui::info("ESC11 (unencrypted ICPR) detection: follow-up — needs a CA config read");
     Ok(())
 }
 
@@ -2709,13 +2736,26 @@ fn config(a: &ScanArgs) -> LdapConfig {
 }
 
 async fn scan(a: ScanArgs) -> Result<()> {
+    let sp = ui::Spinner::start("collecting AD objects over LDAP");
     let snap = Collector::connect(&config(&a)).await?.collect().await?;
+    sp.done(&format!("{} AD object(s) collected", snap.objects.len()));
     tracing::info!(objects = snap.objects.len(), "collected");
 
     let graph = ControlGraph::build(&snap);
     let stats = graph.stats();
     let paths = graph.paths_to_tier0();
     let mut findings = adhammer_checks::run_all(&snap, &graph);
+    {
+        let crit = findings
+            .iter()
+            .filter(|f| matches!(f.severity, adhammer_core::finding::Severity::Critical))
+            .count();
+        ui::ok(&format!(
+            "{} finding(s) ({crit} critical) · {} control-path(s) to Tier-0",
+            findings.len(),
+            paths.len()
+        ));
+    }
 
     // Optional BloodHound export (SharpHound-compatible .zip) alongside the report.
     if let Some(path) = &a.bloodhound {

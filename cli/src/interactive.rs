@@ -144,7 +144,7 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
             }
             action => {
                 if let Err(e) = dispatch(action, &sess).await {
-                    eprintln!("[-] {e:#}");
+                    crate::ui::bad(&format!("{e:#}"));
                 }
             }
         }
