@@ -17,6 +17,7 @@ dependencies = [
  "adhammer-secrets",
  "adhammer-sysvol",
  "anyhow",
+ "base64",
  "clap",
  "dcerpc",
  "dialoguer",

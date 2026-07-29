@@ -207,6 +207,10 @@ LocalSystem` chain succeeds from Kali against the patched DC.
   service that runs the command as **LocalSystem** (detached so it survives SCM teardown),
   captures stdout/stderr back over `C$`, and deletes the service + temp file. Verified: `whoami`
   → `nt authority\system`.
+- **WinRM** — `attack winrm --host <h> --command <cmd>`: command execution over WS-Management
+  (5985/HTTP), NTLM + MS-NLMP message encryption on a from-scratch raw-TCP HTTP client — no service
+  install (quieter than SVCCTL, no 7045 event). Full shell lifecycle, stdout/stderr, exit code,
+  and `--nt-hash` pass-the-hash. Verified: `whoami` → `testlab\administrator` on Server 2025.
 - **Secretsdump (local)** — `attack secretsdump`: `reg save` the SYSTEM+SAM hives (as LocalSystem
   via exec), pull them over `C$`, then decrypt offline — hand-rolled `regf` hive parser → bootkey
   → SAM key → per-account NT hashes (RC4 and AES SAM revisions). Output cross-checked byte-for-byte

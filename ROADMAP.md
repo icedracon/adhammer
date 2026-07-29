@@ -40,14 +40,14 @@ SVCCTL (no service/event 7045), and the go-to when psexec is flagged.
   interfaces. Real chunk of NDR.
 - **Validate:** `attack wmiexec --command whoami` → SYSTEM/user on the lab DC.
 
-### 3. WinRM exec  ·  Lateral/exec · T1021.006
+### 3. WinRM exec  ·  Lateral/exec · T1021.006  ·  ✅ DONE (v1.1.0)
 PowerShell Remoting (5985/5986) — evolution-run standard, often the only lateral path allowed.
 - **Reuses:** less of the RPC stack; it's HTTP(S) + SOAP/WS-Man + NTLM-over-HTTP (the `ntlmssp` crate
   gives the NTLM). New HTTP client + WSMan envelopes.
 - **Effort:** M (2–3 days).
 - **Validate:** `attack winrm --command whoami` against the lab (enable WinRM first).
 
-### 4. Session hygiene (engagement-safety)  ·  —
+### 4. Session hygiene (engagement-safety)  ·  —  ·  ✅ DONE (v1.1.0)
 `--no-save` flag + a "Wipe session" interactive menu item so creds don't persist to disk on a
 client box.
 - **Effort:** S (1–2 h). Pure CLI.
@@ -134,10 +134,11 @@ README/VECTORS row + tagged release. "Built but unprovable" doesn't count as don
 The cheapest, highest-frequency real-engagement gaps — all validatable today.
 - ~~**LAPS read** (S, ½d)~~ **DONE (v1.1.0)** — `attack laps`; legacy `ms-Mcs-AdmPwd` + Windows LAPS
   `msLAPS-Password` (JSON), one host or sweep-all; live-validated vs Server 2025. Encrypted blob deferred.
-- **WinRM exec** (M, 2–3d) — HTTP + WS-Man + NTLM-over-HTTP (reuse `ntlmssp`).
-- **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work.
-- **Session hygiene** `--no-save` + wipe menu item (S, 2h).
-> Milestone goal: adhammer has ≥3 lateral-exec methods (SVCCTL/WinRM/WMI) + LAPS local-admin, all green on the 2025 lab.
+- ~~**WinRM exec** (M, 2–3d)~~ **DONE (v1.1.0)** — `attack winrm`; NTLM + MS-NLMP message encryption
+  over 5985 (from-scratch raw-TCP HTTP), full shell lifecycle, stdout/stderr/exit, PtH; live-validated.
+- **WMI exec** (M, 2–3d) — DCOM/`IWbemServices` Win32_Process.Create; the DCOM activation is the work. **← next**
+- ~~**Session hygiene** `--no-save` + wipe menu item (S, 2h)~~ **DONE (v1.1.0)**.
+> Milestone goal: adhammer has ≥3 lateral-exec methods (SVCCTL/WinRM/WMI) + LAPS local-admin, all green on the 2025 lab. **SVCCTL + WinRM + LAPS shipped; WMI remains.**
 
 ### v1.2 — "ADCS depth"  ·  ~1 week  ·  provable on the lab CA
 - **ESC8 / ESC11** (M, 3–4d) — wire existing `relay` → CA HTTP (ESC8) / ICPR pipe (ESC11) → `pkinit_with_cert`.

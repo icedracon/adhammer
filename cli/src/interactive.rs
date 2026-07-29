@@ -7,9 +7,9 @@ use dialoguer::{Confirm, Input, Password, Select};
 use crate::session::{self, Session};
 use crate::{
     abuse, asktgt, coerce, dcsync, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, pth,
-    rbcd, relay, roast, samr, scan, secretsdump, silver, spray, AbuseArgs, AsktgtArgs, CoerceArgs,
-    DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs, NetArgs, PthArgs,
-    RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs,
+    rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec, AbuseArgs, AsktgtArgs,
+    CoerceArgs, DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs, NetArgs,
+    PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs, WinrmArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -30,6 +30,7 @@ enum Action {
     Poison,
     Relay,
     Exec,
+    Winrm,
     Secretsdump,
     Gmsa,
     Laps,
@@ -39,6 +40,7 @@ enum Action {
     Silver,
     Pth,
     ShowRoadmap,
+    WipeSession,
     Exit,
 }
 
@@ -60,6 +62,7 @@ const MENU: &[(&str, Action)] = &[
         "Exec — SVCCTL command as LocalSystem (psexec)",
         Action::Exec,
     ),
+    ("WinRM — run a command over WS-Man (5985)", Action::Winrm),
     (
         "Secretsdump — local SAM hashes (reg save + C$)",
         Action::Secretsdump,
@@ -81,10 +84,14 @@ const MENU: &[(&str, Action)] = &[
         "Show open vectors (VECTORS.md summary)",
         Action::ShowRoadmap,
     ),
+    (
+        "Wipe saved session (delete creds from disk)",
+        Action::WipeSession,
+    ),
     ("Exit", Action::Exit),
 ];
 
-pub async fn run(use_old: bool) -> Result<()> {
+pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
     let reuse = use_old
         || (session::exists()
             && Confirm::new()
@@ -95,7 +102,11 @@ pub async fn run(use_old: bool) -> Result<()> {
         session::load()?
     } else {
         let s = setup_wizard()?;
-        session::save(&s)?;
+        if no_save {
+            eprintln!("[*] --no-save: session (creds) will NOT be written to disk");
+        } else {
+            session::save(&s)?;
+        }
         s
     };
 
@@ -120,6 +131,10 @@ pub async fn run(use_old: bool) -> Result<()> {
             Action::Exit => break,
             Action::ShowRoadmap => {
                 print_roadmap_summary();
+                continue;
+            }
+            Action::WipeSession => {
+                session::wipe().ok();
                 continue;
             }
             action => {
@@ -244,14 +259,13 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         Action::NetSweep => {
             // Default to the DC's own /24 — accepting a hardcoded 10.0.0.0/24 on a real
             // engagement just sweeps an empty range and looks broken.
-            let default_targets = s
-                .dc
-                .parse::<std::net::Ipv4Addr>()
-                .map(|ip| {
-                    let o = ip.octets();
-                    format!("{}.{}.{}.0/24", o[0], o[1], o[2])
-                })
-                .unwrap_or_else(|_| "10.0.0.0/24".to_string());
+            let default_targets =
+                s.dc.parse::<std::net::Ipv4Addr>()
+                    .map(|ip| {
+                        let o = ip.octets();
+                        format!("{}.{}.{}.0/24", o[0], o[1], o[2])
+                    })
+                    .unwrap_or_else(|_| "10.0.0.0/24".to_string());
             let targets: String = Input::new()
                 .with_prompt("Targets (CIDR, comma-list, or @file)")
                 .with_initial_text(&default_targets)
@@ -435,6 +449,26 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             exec_cmd(ExecArgs {
                 host: s.dc.clone(),
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                nt_hash: sess_hash(s),
+                command,
+            })
+            .await
+        }
+        Action::Winrm => {
+            let host: String = Input::new()
+                .with_prompt("WinRM target host/IP")
+                .with_initial_text(&s.dc)
+                .interact_text()?;
+            let command: String = Input::new()
+                .with_prompt("Command to run (via cmd.exe /c)")
+                .with_initial_text("whoami")
+                .interact_text()?;
+            winrm_exec(WinrmArgs {
+                host,
+                port: 5985,
                 domain: s.netbios(),
                 user: s.username.clone(),
                 password: s.password.clone(),
@@ -637,7 +671,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             })
             .await
         }
-        Action::ShowRoadmap | Action::Exit => Ok(()),
+        Action::ShowRoadmap | Action::WipeSession | Action::Exit => Ok(()),
     }
 }
 

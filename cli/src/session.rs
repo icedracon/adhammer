@@ -102,3 +102,16 @@ pub fn save(session: &Session) -> Result<()> {
 pub fn exists() -> bool {
     config_path().map(|p| p.is_file()).unwrap_or(false)
 }
+
+/// Delete the saved session file (creds) from disk. Idempotent — a missing file is not an error.
+pub fn wipe() -> Result<()> {
+    let path = config_path()?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => eprintln!("[*] session wiped: {}", path.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("[*] no saved session to wipe ({})", path.display())
+        }
+        Err(e) => return Err(e).context("wipe session"),
+    }
+    Ok(())
+}

@@ -231,7 +231,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | SMB3 encryption | ❌ | Signing probe only |
 | SCHRPC / SVCCTL / TSCH / RRPM | ❌ | |
 | NETLOGON / Zerologon | ❌ | |
-| WINRM / WS-MAN | ❌ | Deep probe only |
+| WINRM / WS-MAN | ✅ | `attack winrm` — NTLM + MS-NLMP message encryption over 5985, full shell lifecycle, PtH; live-validated |
 | Full DRS replication (GetNCChanges bulk) | ❌ | Single-object EXOP only |
 
 ### Graph / analysis gaps

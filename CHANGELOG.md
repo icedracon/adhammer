@@ -6,6 +6,14 @@ All notable changes to ADhammer are documented here. Format loosely follows
 ## [1.1.0] — 2026-07-29
 
 ### Added
+- **WinRM exec** (`attack winrm`) — run commands over WS-Management (5985/HTTP) with NTLM auth
+  and MS-NLMP message encryption ("SPNEGO session-encrypted" multipart), on a from-scratch raw-TCP
+  HTTP client (no external WinRM/HTTP stack). Full shell lifecycle (Create → Command → Receive
+  loop → Signal → Delete), stdout/stderr capture, exit-code propagation, and pass-the-hash
+  (`--nt-hash`). Quieter than SVCCTL — no 7045 service-install event. Interactive menu entry added.
+  Live-validated vs Server 2025 (password + PtH, stdout/stderr, exit codes).
+- **Session hygiene** — top-level `--no-save` (never write creds to disk) and a "Wipe saved
+  session" interactive menu item, for use on a client/engagement box.
 - **LAPS read** (`attack laps`) — recover local-administrator passwords over LDAPS. Reads both
   legacy Microsoft LAPS (`ms-Mcs-AdmPwd`, cleartext) and Windows LAPS (`msLAPS-Password`, JSON);
   `--target <HOST$>` for one host or omit it to sweep every computer whose LAPS attribute you can

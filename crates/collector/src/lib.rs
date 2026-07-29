@@ -632,7 +632,9 @@ mod tests {
 
     #[test]
     fn laps_absent_returns_none() {
-        assert!(laps_from_entry(&entry("CN=X,DC=t,DC=l", &[("sAMAccountName", "X$")], &[])).is_none());
+        assert!(
+            laps_from_entry(&entry("CN=X,DC=t,DC=l", &[("sAMAccountName", "X$")], &[])).is_none()
+        );
     }
 
     #[test]
@@ -653,9 +655,15 @@ mod tests {
     #[test]
     fn qualified_names_pass_through() {
         let d = Some("testlab.local");
-        assert_eq!(qualify_bind("TESTLAB\\Administrator", d), "TESTLAB\\Administrator");
+        assert_eq!(
+            qualify_bind("TESTLAB\\Administrator", d),
+            "TESTLAB\\Administrator"
+        );
         assert_eq!(qualify_bind("admin@other.com", d), "admin@other.com");
-        assert_eq!(qualify_bind("CN=Admin,DC=testlab,DC=local", d), "CN=Admin,DC=testlab,DC=local");
+        assert_eq!(
+            qualify_bind("CN=Admin,DC=testlab,DC=local", d),
+            "CN=Admin,DC=testlab,DC=local"
+        );
     }
 
     #[test]

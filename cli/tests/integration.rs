@@ -215,15 +215,52 @@ fn laps_reads_cleartext() {
     let pw = line.split('\t').nth(2).unwrap_or("");
     assert!(!pw.is_empty(), "no cleartext LAPS password parsed: {line}");
     if let Some(expect) = env("ADH_LAPS_EXPECT") {
-        assert!(pw.contains(&expect), "LAPS password {pw} != expected {expect}");
+        assert!(
+            pw.contains(&expect),
+            "LAPS password {pw} != expected {expect}"
+        );
     }
 }
 
 #[test]
 #[ignore = "live DC"]
+fn winrm_runs_command() {
+    // WinRM must be enabled on the target (5985) and the user must be allowed to remote in.
+    let Some(o) = run(&[
+        "attack",
+        "winrm",
+        "--host",
+        &dc(),
+        "--domain",
+        &domain(),
+        "--user",
+        &user(),
+        "--password",
+        &pass(),
+        "--command",
+        "whoami",
+    ]) else {
+        return;
+    };
+    assert!(
+        o.contains("WinRM shell opened"),
+        "no WinRM shell established:\n{o}"
+    );
+    assert!(
+        o.to_lowercase().contains(&user().to_lowercase()),
+        "whoami over WinRM should echo the user:\n{o}"
+    );
+    assert!(o.contains("exited 0"), "expected clean exit:\n{o}");
+}
+
+#[test]
+#[ignore = "live DC"]
 fn esc1_enrolls_certificate() {
-    let ca = env("ADH_CA").unwrap_or_else(|| "corp-CA".into());
+    // CA + vulnerable template + realm are lab-specific — configure via env, don't hardcode.
+    let Some(ca) = env("ADH_CA") else { return };
     let template = env("ADH_TEMPLATE").unwrap_or_else(|| "User".into());
+    let realm = env("ADH_REALM").unwrap_or_else(|| "CORP.LOCAL".into());
+    let upn = format!("{}@{}", user(), realm.to_lowercase());
     let out = std::env::temp_dir().join("adh_it.crt");
     let Some(o) = run(&[
         "attack",
@@ -241,7 +278,7 @@ fn esc1_enrolls_certificate() {
         "--template",
         &template,
         "--upn",
-        &format!("{}@corp.local", user()),
+        &upn,
         "--out",
         out.to_str().unwrap(),
     ]) else {

