@@ -6,6 +6,13 @@ All notable changes to ADhammer are documented here. Format loosely follows
 ## [1.1.0] — 2026-07-29
 
 ### Added
+- **AD CS enumeration + ESC8 detection** (`enum adcs`) — list enterprise CAs (name + host) from the
+  Configuration NC, then actively probe each CA's `http://<host>/certsrv` web-enrollment endpoint:
+  a cleartext NTLM/Negotiate 401 is flagged as ESC8 (relayable — no TLS ⇒ no channel binding). ESC8
+  is relay-only so it can't be decided from the passive LDAP snapshot; this is the active check.
+  Classifier unit-tested; live-validated vs Server 2025 (CA discovered; ESC8 negative without web
+  enrollment, positive once the Web-Enrollment role is present). ESC11 (unencrypted ICPR) detection
+  is noted as a follow-up (needs a CA config read).
 - **ADIDNS enumeration** (`enum dns`) — adidnsdump-equivalent: read every AD-integrated DNS zone
   and record from the `DomainDnsZones`/`ForestDnsZones` (and legacy `System`) partitions over LDAP,
   with a from-scratch `DNS_RPC_RECORD` parser (A/AAAA/CNAME/NS/SOA/SRV/MX/TXT/PTR; unknown types as

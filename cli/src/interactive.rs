@@ -6,7 +6,7 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum,
+    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum,
     poison, pth, rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec, AbuseArgs,
     AsktgtArgs, CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
     LsaArgs, NetArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
@@ -24,6 +24,7 @@ enum Action {
     EnumLsa,
     NetSweep,
     DnsEnum,
+    AdcsEnum,
     Abuse,
     Coerce,
     Rbcd,
@@ -54,6 +55,7 @@ const MENU: &[(&str, Action)] = &[
     ("Enum LSA — name to SID", Action::EnumLsa),
     ("Net — network sweep", Action::NetSweep),
     ("DNS — enumerate ADIDNS zones/records", Action::DnsEnum),
+    ("AD CS — enumerate CAs + ESC8 web-enrollment check", Action::AdcsEnum),
     ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
     ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
     ("RBCD — impersonation chain", Action::Rbcd),
@@ -300,6 +302,15 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         }
         Action::DnsEnum => {
             dnsenum(DnsArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
+            })
+            .await
+        }
+        Action::AdcsEnum => {
+            adcsenum(DnsArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
                 password: s.password.clone(),

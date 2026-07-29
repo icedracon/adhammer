@@ -53,6 +53,8 @@ enum EnumCmd {
     Net(NetArgs),
     /// Enumerate AD-integrated DNS zones + records over LDAP (adidnsdump-style).
     Dns(DnsArgs),
+    /// Enumerate enterprise CAs and probe each for ESC8 web-enrollment exposure.
+    Adcs(DnsArgs),
 }
 
 #[derive(Parser)]
@@ -621,6 +623,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
         Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
         Command::Enum(EnumCmd::Dns(a)) => dnsenum(a).await,
+        Command::Enum(EnumCmd::Adcs(a)) => adcsenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -1943,6 +1946,69 @@ async fn read_some(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
         .unwrap_or(0)
 }
 
+/// True if an HTTP reply to `/certsrv` is an NTLM/Negotiate 401 over cleartext HTTP — the
+/// relayable ESC8 web-enrollment surface (no TLS ⇒ no channel binding to stop the relay).
+fn is_esc8_response(resp: &str) -> bool {
+    let head = resp.split("\r\n\r\n").next().unwrap_or(resp);
+    let low = head.to_ascii_lowercase();
+    head.contains(" 401") && low.contains("www-authenticate") && (low.contains("negotiate") || low.contains("ntlm"))
+}
+
+/// ESC8 detection: probe a CA host's web-enrollment endpoint over HTTP/80. A cleartext NTLM 401
+/// means the CA is relay-enrollable (coerce a machine → relay its NTLM to `/certsrv` → machine
+/// cert → PKINIT → its TGT). Returns the finding text, or None if not exposed on HTTP.
+async fn esc8_probe(host: &str) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+    let mut s = connect(host, 80).await?;
+    let req = format!(
+        "GET /certsrv/certfnsh.asp HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    );
+    s.write_all(req.as_bytes()).await.ok()?;
+    let mut buf = [0u8; 2048];
+    let n = read_some(&mut s, &mut buf).await;
+    is_esc8_response(&String::from_utf8_lossy(&buf[..n])).then(|| {
+        format!("ESC8: web enrollment at http://{host}/certsrv exposes NTLM over cleartext (relayable)")
+    })
+}
+
+/// Enumerate enterprise CAs and actively check each for ESC8 web-enrollment exposure. ESC8 is
+/// relay-only, so it can't be decided from the passive LDAP snapshot — this probes the CA host.
+async fn adcsenum(a: DnsArgs) -> Result<()> {
+    use adhammer_collector::{Collector, LdapConfig};
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let cas = c.read_cas().await?;
+    if cas.is_empty() {
+        println!("== AD CS: no enterprise CA found ==");
+        return Ok(());
+    }
+    println!("== AD CS: {} enterprise CA(s) ==", cas.len());
+    let mut esc8 = 0usize;
+    for (name, host) in &cas {
+        println!("  CA {name}  host={}", if host.is_empty() { "?" } else { host });
+        if host.is_empty() {
+            continue;
+        }
+        match esc8_probe(host).await {
+            Some(d) => {
+                esc8 += 1;
+                println!("      [!] {d}");
+            }
+            None => println!("      ESC8: web enrollment not exposed over http/80"),
+        }
+    }
+    eprintln!("[+] AD CS: {} CA(s), {esc8} ESC8 web-enrollment exposure(s)", cas.len());
+    eprintln!("    (ESC11 / unencrypted-ICPR detection: not yet implemented — needs a CA config read)");
+    Ok(())
+}
+
 async fn ftp_anon(host: &str) -> Option<String> {
     use tokio::io::AsyncWriteExt;
     let mut s = connect(host, 21).await?;
@@ -2747,6 +2813,15 @@ async fn roast(a: ScanArgs) -> Result<()> {
 #[cfg(test)]
 mod net_tests {
     use super::*;
+
+    #[test]
+    fn esc8_classifier() {
+        let vuln = "HTTP/1.1 401 Unauthorized\r\nServer: Microsoft-IIS/10.0\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n\r\n";
+        assert!(is_esc8_response(vuln), "cleartext NTLM 401 = ESC8");
+        // 200 (anonymous), or a 401 without NTLM (e.g. Basic only), is not the ESC8 surface.
+        assert!(!is_esc8_response("HTTP/1.1 200 OK\r\n\r\n"));
+        assert!(!is_esc8_response("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic\r\n\r\n"));
+    }
 
     #[test]
     fn ber_lengths() {

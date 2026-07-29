@@ -105,7 +105,7 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | ESC5 | Vulnerable PKI object ACL (CA server) | ❌ | Needs CA `nTSecurityDescriptor` + enrollment service ACL audit beyond templates |
 | ESC6 | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | ❌ | Requires CA registry / `pKIEnrollmentService` flags not in LDAP today |
 | ESC7 | Vulnerable CA ACL (ManageCa / ManageCertificates) | ❌ | CA object ACL parse not wired |
-| ESC8 | Web Enrollment HTTP relay | 🚫 | Active NTLM relay to `http://…/certsrv` — detection only possible via port 80/443 sweep |
+| ESC8 | Web Enrollment HTTP relay | 🔶 | **Detection done** (`enum adcs`): probes each CA host's `http://…/certsrv` for a cleartext NTLM 401 (relayable). Relay *exploit* still open (see ESC8 in the relay backlog) |
 | ESC9 | CT_FLAG_NO_SECURITY_EXTENSION + auth EKU | ✅ | |
 | ESC10 | Weak certificate mapping on DC | ❌ | Requires registry / `StrongCertificateBindingEnforcement` — not in LDAP snapshot |
 | ESC11 | ICPR RPC relay | 🚫 | Active relay to `\cert` pipe (similar to ESC8) |

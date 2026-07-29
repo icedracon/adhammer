@@ -233,6 +233,9 @@ LocalSystem` chain succeeds from Kali against the patched DC.
 - **ADIDNS enumeration** — `enum dns`: dump every AD-integrated DNS zone + record over LDAP
   (adidnsdump-equivalent) with a from-scratch `DNS_RPC_RECORD` parser (A/AAAA/CNAME/NS/SOA/SRV/
   MX/TXT/PTR), flagging wildcard nodes (mitm6/WPAD name-hijack surface). Verified vs Server 2025.
+- **AD CS + ESC8 check** — `enum adcs`: enumerate enterprise CAs and actively probe each CA host's
+  `/certsrv` web enrollment for a cleartext NTLM 401 — the relayable ESC8 surface. Verified vs
+  Server 2025 (negative without web enrollment, positive with it).
 - **AD CS ESC1** — `attack esc1 --ca <CA> --template <T> --upn Administrator@realm`: build a
   PKCS#10 CSR with the target UPN in the SAN, enroll it over sealed MS-ICPR (`\pipe\cert`), and
   save the issued client-auth cert + key. Verified: as low-priv `recon`, the CA issued a cert

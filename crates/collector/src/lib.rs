@@ -416,6 +416,47 @@ impl Collector {
         Ok(zones.into_values().collect())
     }
 
+    /// Enumerate the enterprise CAs (`pKIEnrollmentService` under the Configuration NC) as
+    /// (CA name, DNS host). The host is where ESC8 web-enrollment / ESC11 ICPR live.
+    pub async fn read_cas(&mut self) -> Result<Vec<(String, String)>> {
+        let base = format!(
+            "CN=Enrollment Services,CN=Public Key Services,CN=Services,{}",
+            self.config_dn
+        );
+        let (rs, _) = match self
+            .ldap
+            .search(
+                &base,
+                Scope::Subtree,
+                "(objectClass=pKIEnrollmentService)",
+                vec!["cn", "name", "dNSHostName"],
+            )
+            .await
+        {
+            Ok(r) => r.success()?,
+            Err(_) => return Ok(Vec::new()), // no AD CS in the forest
+        };
+        let mut out = Vec::new();
+        for e in rs {
+            let se = SearchEntry::construct(e);
+            let name = se
+                .attrs
+                .get("cn")
+                .or_else(|| se.attrs.get("name"))
+                .and_then(|v| v.first())
+                .cloned()
+                .unwrap_or_default();
+            let host = se
+                .attrs
+                .get("dNSHostName")
+                .and_then(|v| v.first())
+                .cloned()
+                .unwrap_or_default();
+            out.push((name, host));
+        }
+        Ok(out)
+    }
+
     pub async fn resolve_dn(&mut self, sam: &str) -> Result<String> {
         let base = self.base_dn.clone();
         let (rs, _) = self
