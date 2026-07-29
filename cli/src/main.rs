@@ -51,6 +51,8 @@ enum EnumCmd {
     Lsa(LsaArgs),
     /// Sweep a network: live hosts, AD ports, and SMB signing (NTLM-relay targets).
     Net(NetArgs),
+    /// Enumerate AD-integrated DNS zones + records over LDAP (adidnsdump-style).
+    Dns(DnsArgs),
 }
 
 #[derive(Parser)]
@@ -287,6 +289,19 @@ struct LapsArgs {
     /// Computer sAMAccountName to read (e.g. WIN11$). Omit to dump every LAPS password you can read.
     #[arg(long)]
     target: Option<String>,
+}
+
+#[derive(Parser)]
+struct DnsArgs {
+    /// LDAP URL, e.g. ldap://dc:389 or ldaps://dc:636
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
 }
 
 #[derive(Parser)]
@@ -605,6 +620,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Samr(a)) => samr(a).await,
         Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
         Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
+        Command::Enum(EnumCmd::Dns(a)) => dnsenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -1337,6 +1353,54 @@ async fn winrm_exec(a: WinrmArgs) -> Result<()> {
         eprint!("{stderr}");
     }
     eprintln!("[+] WinRM command exited {exit}");
+    Ok(())
+}
+
+/// Enumerate AD-integrated DNS over LDAP (adidnsdump-equivalent): list every zone + record from
+/// the DomainDnsZones/ForestDnsZones partitions, and flag wildcard nodes — a wildcard (or any
+/// writable node) turns ADIDNS into a mitm6 / WPAD name-hijack primitive.
+async fn dnsenum(a: DnsArgs) -> Result<()> {
+    use adhammer_collector::{Collector, LdapConfig};
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let zones = c.read_adidns().await?;
+    if zones.is_empty() {
+        println!("== ADIDNS: no zones readable ==");
+        return Ok(());
+    }
+    let (mut total, mut wildcards) = (0usize, 0usize);
+    for z in &zones {
+        println!("== zone {} ({} records) ==", z.name, z.records.len());
+        for r in &z.records {
+            total += 1;
+            let wild = r.node == "*";
+            if wild {
+                wildcards += 1;
+            }
+            let tags = format!(
+                "{}{}",
+                if wild { "  [!] WILDCARD" } else { "" },
+                if r.tombstoned { "  (tombstoned)" } else { "" }
+            );
+            println!("  {:<28} {:<6} {}{}", r.node, r.rtype, r.data, tags);
+        }
+    }
+    eprintln!(
+        "[+] ADIDNS: {} zone(s), {} record(s), {} wildcard(s)",
+        zones.len(),
+        total,
+        wildcards
+    );
+    if wildcards > 0 {
+        eprintln!("[!] wildcard record present → ADIDNS/mitm6-style name-hijack surface");
+    }
     Ok(())
 }
 

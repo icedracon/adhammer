@@ -6,10 +6,11 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, asktgt, coerce, dcsync, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, pth,
-    rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec, AbuseArgs, AsktgtArgs,
-    CoerceArgs, DcsyncArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs, NetArgs,
-    PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs, SprayArgs, WinrmArgs,
+    abuse, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum,
+    poison, pth, rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec, AbuseArgs,
+    AsktgtArgs, CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
+    LsaArgs, NetArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
+    SprayArgs, WinrmArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -22,6 +23,7 @@ enum Action {
     EnumSamr,
     EnumLsa,
     NetSweep,
+    DnsEnum,
     Abuse,
     Coerce,
     Rbcd,
@@ -51,6 +53,7 @@ const MENU: &[(&str, Action)] = &[
     ("Enum SAMR — list domain users", Action::EnumSamr),
     ("Enum LSA — name to SID", Action::EnumLsa),
     ("Net — network sweep", Action::NetSweep),
+    ("DNS — enumerate ADIDNS zones/records", Action::DnsEnum),
     ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
     ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
     ("RBCD — impersonation chain", Action::Rbcd),
@@ -292,6 +295,15 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 deep,
                 zone,
                 community: "public,private".to_string(),
+            })
+            .await
+        }
+        Action::DnsEnum => {
+            dnsenum(DnsArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
             })
             .await
         }

@@ -230,6 +230,9 @@ LocalSystem` chain succeeds from Kali against the patched DC.
   legacy `ms-Mcs-AdmPwd` and Windows LAPS `msLAPS-Password` (JSON); omit `--target` to sweep every
   computer you can read. Chain the cleartext into `attack exec`/`secretsdump` as the local admin.
   Verified vs Server 2025 (Windows LAPS).
+- **ADIDNS enumeration** — `enum dns`: dump every AD-integrated DNS zone + record over LDAP
+  (adidnsdump-equivalent) with a from-scratch `DNS_RPC_RECORD` parser (A/AAAA/CNAME/NS/SOA/SRV/
+  MX/TXT/PTR), flagging wildcard nodes (mitm6/WPAD name-hijack surface). Verified vs Server 2025.
 - **AD CS ESC1** — `attack esc1 --ca <CA> --template <T> --upn Administrator@realm`: build a
   PKCS#10 CSR with the target UPN in the SAN, enroll it over sealed MS-ICPR (`\pipe\cert`), and
   save the issued client-auth cert + key. Verified: as low-priv `recon`, the CA issued a cert

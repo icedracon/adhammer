@@ -127,6 +127,26 @@ pub struct Collector {
     config_dn: String,
 }
 
+/// One ADIDNS record parsed from a `dnsRecord` blob.
+#[derive(Debug, Clone)]
+pub struct DnsRecordEntry {
+    /// Node relative name: `@` = zone apex, `*` = wildcard.
+    pub node: String,
+    /// Record type mnemonic (A, AAAA, CNAME, NS, SRV, …).
+    pub rtype: String,
+    /// Rendered record data.
+    pub data: String,
+    /// True if the node is DNS-tombstoned (deleted-but-present).
+    pub tombstoned: bool,
+}
+
+/// An AD-integrated DNS zone and its nodes.
+#[derive(Debug, Clone)]
+pub struct DnsZone {
+    pub name: String,
+    pub records: Vec<DnsRecordEntry>,
+}
+
 /// One computer's recovered LAPS local-administrator password.
 #[derive(Debug, Clone)]
 pub struct LapsEntry {
@@ -324,6 +344,76 @@ impl Collector {
         }
         stream.finish().await.success().ok();
         Ok(out)
+    }
+
+    /// Enumerate AD-integrated DNS (ADIDNS) — every `dnsNode` across the `DomainDnsZones` and
+    /// `ForestDnsZones` application partitions plus the legacy `System` container — and parse the
+    /// `dnsRecord` blobs (MS-DNSP). This is the adidnsdump-equivalent: any authenticated user can
+    /// usually read the whole zone, and a writable/wildcard node is a name-hijack (mitm6/WPAD)
+    /// primitive. Missing partitions are tolerated, not fatal.
+    pub async fn read_adidns(&mut self) -> Result<Vec<DnsZone>> {
+        let bases = [
+            format!("DC=DomainDnsZones,{}", self.base_dn),
+            format!("DC=ForestDnsZones,{}", self.base_dn),
+            format!("CN=MicrosoftDNS,CN=System,{}", self.base_dn),
+        ];
+        let mut zones: std::collections::BTreeMap<String, DnsZone> = Default::default();
+        for base in bases {
+            let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
+                Box::new(EntriesOnly::new()),
+                Box::new(PagedResults::new(1000)),
+            ];
+            let mut stream = match self
+                .ldap
+                .streaming_search_with(
+                    adapters,
+                    &base,
+                    Scope::Subtree,
+                    "(objectClass=dnsNode)",
+                    vec!["dc", "dnsRecord", "dNSTombstoned"],
+                )
+                .await
+            {
+                Ok(s) => s,
+                Err(_) => continue, // partition not present on this DC
+            };
+            while let Ok(Some(entry)) = stream.next().await {
+                let se = SearchEntry::construct(entry);
+                let zone_name = zone_from_dn(&se.dn);
+                let node = se
+                    .attrs
+                    .get("dc")
+                    .and_then(|v| v.first())
+                    .cloned()
+                    .unwrap_or_else(|| "@".into());
+                let node_tomb = se
+                    .attrs
+                    .get("dNSTombstoned")
+                    .and_then(|v| v.first())
+                    .map(|s| s.eq_ignore_ascii_case("TRUE"))
+                    .unwrap_or(false);
+                let zone = zones
+                    .entry(zone_name.clone())
+                    .or_insert_with(|| DnsZone {
+                        name: zone_name.clone(),
+                        records: Vec::new(),
+                    });
+                if let Some(blobs) = se.bin_attrs.get("dnsRecord") {
+                    for b in blobs {
+                        if let Some((rtype, data, rec_tomb)) = parse_dns_record(b) {
+                            zone.records.push(DnsRecordEntry {
+                                node: node.clone(),
+                                rtype,
+                                data,
+                                tombstoned: node_tomb || rec_tomb,
+                            });
+                        }
+                    }
+                }
+            }
+            let _ = stream.finish().await; // NoSuchObject on a missing partition is expected
+        }
+        Ok(zones.into_values().collect())
     }
 
     pub async fn resolve_dn(&mut self, sam: &str) -> Result<String> {
@@ -524,6 +614,102 @@ fn laps_from_entry(se: &SearchEntry) -> Option<LapsEntry> {
     None
 }
 
+/// The DNS zone name for a `dnsNode` DN: the last `DC=` component before `,CN=MicrosoftDNS`.
+/// `DC=www,DC=corp.local,CN=MicrosoftDNS,…` → `corp.local`.
+fn zone_from_dn(dn: &str) -> String {
+    let head = dn.split(",CN=MicrosoftDNS").next().unwrap_or(dn);
+    head.split(',')
+        .filter_map(|p| {
+            let p = p.trim();
+            p.strip_prefix("DC=").or_else(|| p.strip_prefix("dc="))
+        })
+        .next_back()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// A `DNS_COUNT_NAME` (MS-DNSP 2.2.2.2.2): total-length byte, label-count byte, then
+/// length-prefixed labels. Rendered dotted; the root is `.`.
+fn dns_count_name(d: &[u8]) -> Option<String> {
+    if d.len() < 2 {
+        return Some(".".into());
+    }
+    let labels_n = d[1] as usize;
+    let mut pos = 2;
+    let mut labels = Vec::with_capacity(labels_n);
+    for _ in 0..labels_n {
+        let len = *d.get(pos)? as usize;
+        pos += 1;
+        let s = d.get(pos..pos + len)?;
+        pos += len;
+        labels.push(String::from_utf8_lossy(s).into_owned());
+    }
+    Some(if labels.is_empty() {
+        ".".into()
+    } else {
+        labels.join(".")
+    })
+}
+
+/// Parse one `DNS_RPC_RECORD` (MS-DNSP 2.2.2.2.1): 24-byte fixed header (DataLength, Type,
+/// version/rank/flags, serial, TTL, reserved, timestamp) then type-specific data. Returns
+/// (type mnemonic, rendered value, is-tombstone). Unknown types render as a hex dump.
+fn parse_dns_record(b: &[u8]) -> Option<(String, String, bool)> {
+    if b.len() < 24 {
+        return None;
+    }
+    let dlen = u16::from_le_bytes([b[0], b[1]]) as usize;
+    let rtype = u16::from_le_bytes([b[2], b[3]]);
+    let data = b.get(24..24 + dlen)?;
+    let render = |t: &str, s: String| Some((t.to_string(), s, false));
+    match rtype {
+        0 => Some(("TOMBSTONE".into(), String::new(), true)),
+        1 if data.len() >= 4 => render("A", format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3])),
+        2 => render("NS", dns_count_name(data)?),
+        5 => render("CNAME", dns_count_name(data)?),
+        6 if data.len() >= 24 => {
+            let serial = u32::from_be_bytes(data[0..4].try_into().ok()?);
+            let primary = dns_count_name(&data[20..])?;
+            render("SOA", format!("serial={serial} primary={primary}"))
+        }
+        12 => render("PTR", dns_count_name(data)?),
+        15 if data.len() >= 2 => {
+            let pref = u16::from_be_bytes([data[0], data[1]]);
+            render("MX", format!("{pref} {}", dns_count_name(&data[2..])?))
+        }
+        16 => {
+            let mut pos = 0;
+            let mut parts = Vec::new();
+            while pos < data.len() {
+                let len = data[pos] as usize;
+                pos += 1;
+                if let Some(s) = data.get(pos..pos + len) {
+                    parts.push(String::from_utf8_lossy(s).into_owned());
+                }
+                pos += len;
+            }
+            render("TXT", parts.join(" "))
+        }
+        28 if data.len() >= 16 => {
+            let groups: Vec<String> = data[..16]
+                .chunks(2)
+                .map(|c| format!("{:02x}{:02x}", c[0], c[1]))
+                .collect();
+            render("AAAA", groups.join(":"))
+        }
+        33 if data.len() >= 6 => {
+            let pri = u16::from_be_bytes([data[0], data[1]]);
+            let wt = u16::from_be_bytes([data[2], data[3]]);
+            let port = u16::from_be_bytes([data[4], data[5]]);
+            render("SRV", format!("{pri} {wt} {port} {}", dns_count_name(&data[6..])?))
+        }
+        n => {
+            let hex: String = data.iter().map(|x| format!("{x:02x}")).collect();
+            render(&format!("TYPE{n}"), hex)
+        }
+    }
+}
+
 /// Read defaultNamingContext + configurationNamingContext from RootDSE.
 async fn root_ncs(ldap: &mut ldap3::Ldap) -> Result<(String, String)> {
     let (rs, _) = ldap
@@ -635,6 +821,65 @@ mod tests {
         assert!(
             laps_from_entry(&entry("CN=X,DC=t,DC=l", &[("sAMAccountName", "X$")], &[])).is_none()
         );
+    }
+
+    // ---- ADIDNS ----------------------------------------------------------
+    use super::{dns_count_name, parse_dns_record, zone_from_dn};
+
+    /// Build a DNS_RPC_RECORD: 24-byte header (DataLength, Type, …) + data.
+    fn dns_rec(rtype: u16, data: &[u8]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&(data.len() as u16).to_le_bytes()); // DataLength
+        b.extend_from_slice(&rtype.to_le_bytes()); // Type
+        b.extend_from_slice(&[0u8; 20]); // version/rank/flags/serial/ttl/reserved/timestamp
+        b.extend_from_slice(data);
+        b
+    }
+
+    #[test]
+    fn zone_name_from_dnsnode_dn() {
+        assert_eq!(
+            zone_from_dn("DC=www,DC=corp.local,CN=MicrosoftDNS,DC=DomainDnsZones,DC=corp,DC=local"),
+            "corp.local"
+        );
+        assert_eq!(
+            zone_from_dn("DC=_ldap._tcp,DC=corp.local,CN=MicrosoftDNS,CN=System,DC=corp,DC=local"),
+            "corp.local"
+        );
+    }
+
+    #[test]
+    fn parse_a_record() {
+        let (t, v, tomb) = parse_dns_record(&dns_rec(1, &[192, 168, 10, 5])).unwrap();
+        assert_eq!((t.as_str(), v.as_str(), tomb), ("A", "192.168.10.5", false));
+    }
+
+    #[test]
+    fn parse_cname_count_name() {
+        // DNS_COUNT_NAME for "dc.corp.local": total-len, label-count=3, then 3 labels.
+        let mut d = vec![0u8, 3]; // [0]=total (unused by parser), [1]=label count
+        for label in ["dc", "corp", "local"] {
+            d.push(label.len() as u8);
+            d.extend_from_slice(label.as_bytes());
+        }
+        let (t, v, _) = parse_dns_record(&dns_rec(5, &d)).unwrap();
+        assert_eq!(t, "CNAME");
+        assert_eq!(v, "dc.corp.local");
+        assert_eq!(dns_count_name(&d).unwrap(), "dc.corp.local");
+    }
+
+    #[test]
+    fn parse_tombstone_and_unknown() {
+        let (t, _, tomb) = parse_dns_record(&dns_rec(0, &[])).unwrap();
+        assert_eq!((t.as_str(), tomb), ("TOMBSTONE", true));
+        let (t2, v2, _) = parse_dns_record(&dns_rec(99, &[0xde, 0xad])).unwrap();
+        assert_eq!(t2, "TYPE99");
+        assert_eq!(v2, "dead"); // 2 bytes → 4 hex chars
+    }
+
+    #[test]
+    fn short_record_rejected() {
+        assert!(parse_dns_record(&[0u8; 10]).is_none());
     }
 
     #[test]

@@ -182,7 +182,8 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | GMSA password read | ✅ | `attack gmsa` reads msDS-ManagedPassword → NT hash (live-validated) |
 | LAPS password read | ✅ | `attack laps` reads `ms-Mcs-AdmPwd` (legacy) + `msLAPS-Password` (Windows LAPS JSON) over LDAPS — one host or sweep-all; live-validated. Encrypted `msLAPS-EncryptedPassword` (DPAPI-NG) surfaced but not decrypted |
 | AdminSDHolder / ACL backdoor write | Medium | Graph detects paths; no `attack dacl` helper |
-| DNS ADIDNS poisoning / delegation abuse | Low | No DNS client |
+| ADIDNS enumeration (adidnsdump-style) | ✅ | `enum dns` — reads all zones/records from DomainDnsZones/ForestDnsZones over LDAP, parses `dnsRecord` (A/AAAA/CNAME/NS/SOA/SRV/MX/TXT/PTR), flags wildcard nodes; live-validated |
+| ADIDNS record write / mitm6 spoofing | ❌ | enumeration + wildcard detection done; no record-write primitive yet |
 | Group Policy abuse (GPO edit) | Low | SYSVOL read only |
 
 ### Relay & coercion

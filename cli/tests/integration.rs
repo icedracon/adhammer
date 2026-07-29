@@ -255,6 +255,24 @@ fn winrm_runs_command() {
 
 #[test]
 #[ignore = "live DC"]
+fn dns_enumerates_adidns() {
+    let url = format!("ldaps://{}:636", dc());
+    let bind_user = format!("{}\\{}", domain(), user());
+    let Some(o) = run(&[
+        "enum", "dns", "--url", &url, "--user", &bind_user, "--password", &pass(), "--insecure",
+    ]) else {
+        return;
+    };
+    // A live DC always self-registers SRV records for its own services under its zone.
+    assert!(o.contains("== zone"), "expected a zone listing:\n{o}");
+    assert!(
+        o.contains("SRV") && o.contains("_ldap._tcp"),
+        "expected the DC's LDAP SRV records:\n{o}"
+    );
+}
+
+#[test]
+#[ignore = "live DC"]
 fn esc1_enrolls_certificate() {
     // CA + vulnerable template + realm are lab-specific — configure via env, don't hardcode.
     let Some(ca) = env("ADH_CA") else { return };

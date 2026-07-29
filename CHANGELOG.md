@@ -6,6 +6,11 @@ All notable changes to ADhammer are documented here. Format loosely follows
 ## [1.1.0] — 2026-07-29
 
 ### Added
+- **ADIDNS enumeration** (`enum dns`) — adidnsdump-equivalent: read every AD-integrated DNS zone
+  and record from the `DomainDnsZones`/`ForestDnsZones` (and legacy `System`) partitions over LDAP,
+  with a from-scratch `DNS_RPC_RECORD` parser (A/AAAA/CNAME/NS/SOA/SRV/MX/TXT/PTR; unknown types as
+  hex). Flags wildcard (`*`) nodes — an ADIDNS/mitm6 name-hijack surface — and tombstoned records.
+  Interactive menu entry. Live-validated vs Server 2025 (zones + all record types + wildcard).
 - **WinRM exec** (`attack winrm`) — run commands over WS-Management (5985/HTTP) with NTLM auth
   and MS-NLMP message encryption ("SPNEGO session-encrypted" multipart), on a from-scratch raw-TCP
   HTTP client (no external WinRM/HTTP stack). Full shell lifecycle (Create → Command → Receive
