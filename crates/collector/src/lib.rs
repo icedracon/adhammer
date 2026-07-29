@@ -394,12 +394,10 @@ impl Collector {
                     .and_then(|v| v.first())
                     .map(|s| s.eq_ignore_ascii_case("TRUE"))
                     .unwrap_or(false);
-                let zone = zones
-                    .entry(zone_name.clone())
-                    .or_insert_with(|| DnsZone {
-                        name: zone_name.clone(),
-                        records: Vec::new(),
-                    });
+                let zone = zones.entry(zone_name.clone()).or_insert_with(|| DnsZone {
+                    name: zone_name.clone(),
+                    records: Vec::new(),
+                });
                 if let Some(blobs) = se.bin_attrs.get("dnsRecord") {
                     for b in blobs {
                         if let Some((rtype, data, rec_tomb)) = parse_dns_record(b) {
@@ -707,7 +705,10 @@ fn parse_dns_record(b: &[u8]) -> Option<(String, String, bool)> {
     let render = |t: &str, s: String| Some((t.to_string(), s, false));
     match rtype {
         0 => Some(("TOMBSTONE".into(), String::new(), true)),
-        1 if data.len() >= 4 => render("A", format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3])),
+        1 if data.len() >= 4 => render(
+            "A",
+            format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3]),
+        ),
         2 => render("NS", dns_count_name(data)?),
         5 => render("CNAME", dns_count_name(data)?),
         6 if data.len() >= 24 => {
@@ -744,7 +745,10 @@ fn parse_dns_record(b: &[u8]) -> Option<(String, String, bool)> {
             let pri = u16::from_be_bytes([data[0], data[1]]);
             let wt = u16::from_be_bytes([data[2], data[3]]);
             let port = u16::from_be_bytes([data[4], data[5]]);
-            render("SRV", format!("{pri} {wt} {port} {}", dns_count_name(&data[6..])?))
+            render(
+                "SRV",
+                format!("{pri} {wt} {port} {}", dns_count_name(&data[6..])?),
+            )
         }
         n => {
             let hex: String = data.iter().map(|x| format!("{x:02x}")).collect();

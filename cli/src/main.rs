@@ -1329,7 +1329,9 @@ async fn laps(a: LapsArgs) -> Result<()> {
             ),
         }
     }
-    ui::ok(&format!("LAPS: {cleartext} cleartext local-admin password(s) recovered"));
+    ui::ok(&format!(
+        "LAPS: {cleartext} cleartext local-admin password(s) recovered"
+    ));
     Ok(())
 }
 
@@ -1857,7 +1859,10 @@ async fn netenum(a: NetArgs) -> Result<()> {
     } else {
         sp.done(&format!("{} live host(s)", hosts_sorted.len()));
     }
-    ui::header(&format!("network sweep — {} live host(s)", hosts_sorted.len()));
+    ui::header(&format!(
+        "network sweep — {} live host(s)",
+        hosts_sorted.len()
+    ));
     let mut relay = Vec::new();
     for (host, mut ports) in hosts_sorted {
         ports.sort_by_key(|(p, _, _)| *p);
@@ -1967,7 +1972,9 @@ async fn read_some(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
 fn is_esc8_response(resp: &str) -> bool {
     let head = resp.split("\r\n\r\n").next().unwrap_or(resp);
     let low = head.to_ascii_lowercase();
-    head.contains(" 401") && low.contains("www-authenticate") && (low.contains("negotiate") || low.contains("ntlm"))
+    head.contains(" 401")
+        && low.contains("www-authenticate")
+        && (low.contains("negotiate") || low.contains("ntlm"))
 }
 
 /// ESC8 detection: probe a CA host's web-enrollment endpoint over HTTP/80. A cleartext NTLM 401
@@ -1976,14 +1983,15 @@ fn is_esc8_response(resp: &str) -> bool {
 async fn esc8_probe(host: &str) -> Option<String> {
     use tokio::io::AsyncWriteExt;
     let mut s = connect(host, 80).await?;
-    let req = format!(
-        "GET /certsrv/certfnsh.asp HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-    );
+    let req =
+        format!("GET /certsrv/certfnsh.asp HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await.ok()?;
     let mut buf = [0u8; 2048];
     let n = read_some(&mut s, &mut buf).await;
     is_esc8_response(&String::from_utf8_lossy(&buf[..n])).then(|| {
-        format!("ESC8: web enrollment at http://{host}/certsrv exposes NTLM over cleartext (relayable)")
+        format!(
+            "ESC8: web enrollment at http://{host}/certsrv exposes NTLM over cleartext (relayable)"
+        )
     })
 }
 
@@ -2024,13 +2032,21 @@ async fn adcsenum(a: DnsArgs) -> Result<()> {
                 esc8 += 1;
                 sp.done_warn(&d);
             }
-            None => sp.done(&format!("{host}: ESC8 web enrollment not exposed over http/80")),
+            None => sp.done(&format!(
+                "{host}: ESC8 web enrollment not exposed over http/80"
+            )),
         }
     }
     if esc8 > 0 {
-        ui::warn(&format!("AD CS: {esc8} ESC8 web-enrollment exposure(s) across {} CA(s)", cas.len()));
+        ui::warn(&format!(
+            "AD CS: {esc8} ESC8 web-enrollment exposure(s) across {} CA(s)",
+            cas.len()
+        ));
     } else {
-        ui::ok(&format!("AD CS: {} CA(s), no ESC8 web-enrollment exposure", cas.len()));
+        ui::ok(&format!(
+            "AD CS: {} CA(s), no ESC8 web-enrollment exposure",
+            cas.len()
+        ));
     }
     ui::info("ESC11 (unencrypted ICPR) detection: follow-up — needs a CA config read");
     Ok(())
@@ -2860,7 +2876,9 @@ mod net_tests {
         assert!(is_esc8_response(vuln), "cleartext NTLM 401 = ESC8");
         // 200 (anonymous), or a 401 without NTLM (e.g. Basic only), is not the ESC8 surface.
         assert!(!is_esc8_response("HTTP/1.1 200 OK\r\n\r\n"));
-        assert!(!is_esc8_response("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic\r\n\r\n"));
+        assert!(!is_esc8_response(
+            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic\r\n\r\n"
+        ));
     }
 
     #[test]

@@ -259,7 +259,15 @@ fn dns_enumerates_adidns() {
     let url = format!("ldaps://{}:636", dc());
     let bind_user = format!("{}\\{}", domain(), user());
     let Some(o) = run(&[
-        "enum", "dns", "--url", &url, "--user", &bind_user, "--password", &pass(), "--insecure",
+        "enum",
+        "dns",
+        "--url",
+        &url,
+        "--user",
+        &bind_user,
+        "--password",
+        &pass(),
+        "--insecure",
     ]) else {
         return;
     };

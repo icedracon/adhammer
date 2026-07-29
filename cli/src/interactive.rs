@@ -6,11 +6,11 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa, netenum,
-    poison, pth, rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec, AbuseArgs,
-    AsktgtArgs, CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
-    LsaArgs, NetArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
-    SprayArgs, WinrmArgs,
+    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa,
+    netenum, poison, pth, rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec,
+    AbuseArgs, AsktgtArgs, CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, ExecArgs, GmsaArgs,
+    GoldenArgs, LapsArgs, LsaArgs, NetArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs,
+    SecretsdumpArgs, SilverArgs, SprayArgs, WinrmArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -55,7 +55,10 @@ const MENU: &[(&str, Action)] = &[
     ("Enum LSA — name to SID", Action::EnumLsa),
     ("Net — network sweep", Action::NetSweep),
     ("DNS — enumerate ADIDNS zones/records", Action::DnsEnum),
-    ("AD CS — enumerate CAs + ESC8 web-enrollment check", Action::AdcsEnum),
+    (
+        "AD CS — enumerate CAs + ESC8 web-enrollment check",
+        Action::AdcsEnum,
+    ),
     ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
     ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
     ("RBCD — impersonation chain", Action::Rbcd),
