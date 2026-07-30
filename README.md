@@ -18,6 +18,8 @@ For **authorized engagements, red-team validation, and education** only.
 > golden/silver tickets, pass-the-ticket, NTLM relay, ADCS abuse, RCE). Use ADhammer only against
 > systems you own or are explicitly authorized to test. See [SECURITY.md](SECURITY.md).
 
+📝 **Write-up:** [I built a full AD pentest + audit tool in Rust — on a protocol stack I wrote from scratch (no impacket)](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)
+
 ## How it works
 
 **1 — Audit.** ADhammer collects a domain over LDAP as a low-privileged user (via the `SD_FLAGS`
