@@ -114,7 +114,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                 ui::info("no automated validator — recorded as potential");
                 Outcome::Potential
             }
-            Some((label, argv)) => {
+            Some((label, argv, marker)) => {
                 let run = a.yes
                     || Confirm::new()
                         .with_prompt(format!("  validate «{label}» and capture a PoC?"))
@@ -129,12 +129,18 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                     let cmd = format!("adhammer {}", argv.join(" "));
                     match Command::new(&exe).args(&argv).output() {
                         Ok(o) => {
-                            let ev = combine(&o.stdout, &o.stderr);
-                            if o.status.success() {
+                            // Confirm the *specific* proof is present, not just exit 0 — e.g. an
+                            // actual `$krb5tgs$` hash, an ISSUED cert. Check the full (untruncated)
+                            // output so evidence truncation can't cause a false negative.
+                            let full = full_out(&o.stdout, &o.stderr);
+                            let confirmed = o.status.success()
+                                && (marker.is_empty() || full.contains(marker));
+                            let ev = truncate(&full);
+                            if confirmed {
                                 sp.done("validated — PoC captured");
                                 Outcome::Validated { cmd, evidence: ev }
                             } else {
-                                sp.done_warn("attempted — did not confirm (see report)");
+                                sp.done_warn("attempted — proof not found (see report)");
                                 Outcome::Attempted { cmd, evidence: ev }
                             }
                         }
@@ -169,7 +175,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
 
 /// Map a finding to the attack that proves it (label + argv for the adhammer subcommand), or
 /// `None` when there's no automated validator yet.
-fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>)> {
+fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)> {
     let ldap = || {
         let mut v = vec![
             "--url".into(),
@@ -189,14 +195,21 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>)> {
             let mut v = vec!["attack".into(), "roast".into()];
             v.extend(ldap());
             v.extend(["--kdc".into(), c.kdc.clone()]);
-            Some(("Kerberoast / AS-REP roast".into(), v))
+            // The specific proof differs: an AS-REP finding needs a $krb5asrep$ hash, a
+            // Kerberoast one needs $krb5tgs$ — exit 0 alone isn't proof either fired.
+            let marker = if f.id == "P-AsrepRoast" {
+                "$krb5asrep$"
+            } else {
+                "$krb5tgs$"
+            };
+            Some(("Kerberoast / AS-REP roast".into(), v, marker))
         }
         "P-GmsaRead" => {
             let target = affected_sam(f)?;
             let mut v = vec!["attack".into(), "gmsa".into()];
             v.extend(ldap());
             v.extend(["--target".into(), target]);
-            Some(("gMSA managed-password read".into(), v))
+            Some(("gMSA managed-password read".into(), v, "NT hash recovered"))
         }
         "P-DcsyncPath" => {
             let v = vec![
@@ -213,7 +226,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>)> {
                 "--target".into(),
                 "krbtgt".into(),
             ];
-            Some(("DCSync (replicate krbtgt secret)".into(), v))
+            Some(("DCSync (replicate krbtgt secret)".into(), v, "krbtgt:"))
         }
         "A-Esc1" => {
             let ca = c.ca.clone()?; // need a known CA
@@ -236,7 +249,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>)> {
                 "--upn".into(),
                 format!("{}@{}", c.user, c.realm.to_lowercase()),
             ];
-            Some(("AD CS ESC1 (enroll a cert as the target)".into(), v))
+            Some(("AD CS ESC1 (enroll a cert as the target)".into(), v, "ISSUED"))
         }
         _ => None,
     }
@@ -250,19 +263,28 @@ fn affected_sam(f: &Finding) -> Option<String> {
         .find(|s| !s.is_empty() && !s.starts_with("S-1-") && !s.contains('='))
 }
 
-fn combine(stdout: &[u8], stderr: &[u8]) -> String {
+/// Full combined stdout+stderr (untruncated) — the success-marker is checked against this so
+/// evidence truncation can never cause a false negative.
+fn full_out(stdout: &[u8], stderr: &[u8]) -> String {
     let mut s = String::from_utf8_lossy(stdout).into_owned();
     let e = String::from_utf8_lossy(stderr);
     if !e.trim().is_empty() {
         s.push('\n');
         s.push_str(&e);
     }
-    let s = s.trim().to_string();
-    if s.len() > 6000 {
-        format!("{}\n… (truncated)", &s[..6000])
-    } else {
-        s
+    s.trim().to_string()
+}
+
+/// Truncate captured evidence for the report (char-boundary-safe).
+fn truncate(s: &str) -> String {
+    if s.len() <= 6000 {
+        return s.to_string();
     }
+    let mut end = 6000;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n… (truncated)", &s[..end])
 }
 
 fn tally(r: &[(Finding, Outcome)]) -> (usize, usize, usize, usize) {
