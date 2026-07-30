@@ -46,7 +46,7 @@ enrollment — each **live-validated against a fully-patched Windows Server 2025
 | Validation / offense  | ✅ roast·DCSync·tickets·relay·RCE      | ❌ (audit only)      | ✅ (offense only)           |
 | Protocol stack        | from-scratch, no impacket dependency  | .NET libs           | mature, batteries-included |
 | Runtime               | none (pure-Rust crates)               | .NET runtime        | Python runtime             |
-| Live-validated on     | **Windows Server 2025** (patched)     | broad               | broad                      |
+| Live-validated on     | **Windows Server 2025** (patched) **+ Server 2022** | broad     | broad                      |
 
 The niche: **audit and validation in one Linux-native binary**, on a self-rolled stack whose
 security-descriptor parser and RPC/NTLM/SMB layer are reusable Rust crates that didn't previously
@@ -144,7 +144,8 @@ hardened **Server 2025** DC — and, to prove the Linux-native positioning, buil
 against the DC.
 
 - **Recon / export** — `scan` (33 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
-  `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8), `scan --bloodhound` (SharpHound-compatible zip).
+  `enum net` (host/AD-port/SMB-signing sweep), `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8),
+  `enum esc` (ESC6/10/11/16 over MS-RRP), `scan --bloodhound` (SharpHound-compatible zip).
 - **Credential access** — **DCSync** single-object and full-domain (NT hashes + Kerberos keys incl.
   RFC 8009 AES-SHA2), **gMSA** and **LAPS** read over LDAPS, offline **secretsdump** (hand-rolled
   `regf` hive parser → bootkey → SAM/LSA/DCC2), **pass-the-hash**, **overpass-the-hash** (RC4→TGT).
@@ -154,7 +155,9 @@ against the DC.
   over SMB.
 - **Lateral / exec** — **SVCCTL** (psexec-style, LocalSystem, C$ output), **WinRM** (WS-Man + NTLM
   message encryption, no service-install event), **TSCH** (`atexec`).
-- **ADCS** — **ESC1** enrollment (spoofed-UPN SAN over MS-ICPR) → client-auth cert as the target.
+- **ADCS** — **ESC1** enrollment (spoofed-UPN SAN over MS-ICPR) → client-auth cert as the target,
+  and **ESC6/10/11/16** decided from the CA/DC registry over **MS-RRP** (`enum esc`, the checks
+  LDAP can't see).
 - **Coercion / relay** — PetitPotam / PrinterBug, LLMNR/NBT-NS poisoning, SMB→LDAP NTLM relay
   (writes a Shadow Credential).
 
@@ -197,12 +200,20 @@ SHA-1 — which rustls refuses.
 ## Status & caveats
 
 - All parsing, crypto, and marshaling are unit-tested; the audit and validated flows above are
-  live-validated against a Server 2025 lab DC. Live validation is single-version so far (2025) — a
-  legacy 2016/2019/2022 matrix is on the roadmap.
+  live-validated against **Server 2025 and Server 2022** lab DCs. On 2022, 22 flows were run
+  end-to-end — `scan`/`auto`, `enum` (`samr`/`lsa`/`net`/`dns`/`adcs`/`esc`), `roast` (RC4+AES) /
+  `spray` / `dcsync --all`, `exec` (SVCCTL→SYSTEM) / `winrm` / `pth`, `golden` (KDC-accepted) /
+  `silver` / `asktgt`, `secretsdump`, `abuse` (add-spn/set-password/add-member/write-rbcd), `coerce`
+  (PrinterBug), and **ESC1** (low-priv → Administrator cert → PKINIT TGT). The 2016/2019/2012R2
+  matrix is on the roadmap.
+- `attack capture`/`relay`/`poison` need a Linux attacker host (a Windows host holds TCP/445), which
+  is the Kali-native positioning; `attack atexec` (TSCH) is a redundant RCE method that still
+  faults `nca_s_fault_ndr` on modern targets — use `exec` (SVCCTL) or `winrm`.
 - Default LDAP binds use LDAPS (`--insecure` for a lab self-signed cert; a bare username is
   auto-qualified to a UPN). Plaintext simple bind is refused by hardened DCs; SASL GSSAPI is an
   off-by-default cargo feature.
-- Out of current scope: AD CS ESC6/7/10/11/16 (need a CA/DC registry read via RRP/ICertAdmin), and
-  WMI exec (the DCOM/OXID foundation exists in `dcerpc`; the activation chain is not yet wired).
+- Out of current scope: AD CS **ESC7** (CA Security-SD parse over RRP), and WMI exec (the DCOM/OXID
+  foundation exists in `dcerpc`; the activation chain is not yet wired). ESC6/10/11/16 are now
+  covered by `enum esc`.
 
 Authorized research / academic / authorized-engagement use only — see [SECURITY.md](SECURITY.md).
