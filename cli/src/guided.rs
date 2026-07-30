@@ -42,6 +42,21 @@ struct Ctx {
     ca: Option<String>,
 }
 
+impl Ctx {
+    /// Bare sAMAccountName for RPC/SMB validators (DRSUAPI, AD CS): the LDAP bind identity may be
+    /// a UPN (`user@realm`) or `DOMAIN\user`, but NTLM/Kerberos over SMB wants the plain name plus
+    /// a separate `--domain`.
+    fn sam_user(&self) -> String {
+        if let Some((_, s)) = self.user.split_once('\\') {
+            s.to_string()
+        } else if let Some((s, _)) = self.user.split_once('@') {
+            s.to_string()
+        } else {
+            self.user.clone()
+        }
+    }
+}
+
 enum Outcome {
     Validated { cmd: String, evidence: String },
     Attempted { cmd: String, evidence: String },
@@ -292,7 +307,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--domain".into(),
                 c.domain.clone(),
                 "--user".into(),
-                c.user.clone(),
+                c.sam_user(),
                 "--password".into(),
                 c.password.clone(),
                 "--target".into(),
@@ -311,7 +326,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--domain".into(),
                 c.domain.clone(),
                 "--user".into(),
-                c.user.clone(),
+                c.sam_user(),
                 "--password".into(),
                 c.password.clone(),
                 "--ca".into(),
@@ -319,7 +334,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--template".into(),
                 template,
                 "--upn".into(),
-                format!("{}@{}", c.user, c.realm.to_lowercase()),
+                format!("{}@{}", c.sam_user(), c.realm.to_lowercase()),
             ];
             Some((
                 "AD CS ESC1 (enroll a cert as the target)".into(),
@@ -618,5 +633,23 @@ mod tests {
         assert!(validator(&f("P-DcsyncPath", &[]), &c).is_some());
         assert!(validator(&f("A-Esc1", &["User"]), &c).is_none()); // no CA known → no validator
         assert!(validator(&f("S-Inactive", &[]), &c).is_none());
+    }
+
+    #[test]
+    fn sam_user_strips_upn_and_netbios_prefix() {
+        let mk = |u: &str| Ctx {
+            url: "ldaps://dc:636".into(),
+            user: u.into(),
+            password: "p".into(),
+            insecure: true,
+            host: "dc".into(),
+            domain: "CORP".into(),
+            realm: "CORP.LOCAL".into(),
+            kdc: "dc".into(),
+            ca: None,
+        };
+        assert_eq!(mk("administrator@corp.local").sam_user(), "administrator");
+        assert_eq!(mk("CORP\\administrator").sam_user(), "administrator");
+        assert_eq!(mk("administrator").sam_user(), "administrator");
     }
 }
