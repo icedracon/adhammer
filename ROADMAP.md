@@ -69,6 +69,28 @@ then B-1a, then B-1b. Stand up the legacy snapshot before claiming either "done.
 
 ---
 
+## Completeness queue → 10/10 (the remaining offensive backlog)
+
+The whole "feature-completeness" gap, ordered. Three new from-scratch protocol clients
+(DCOM-activation, RRP remote-registry, MS-NRPC) + DCShadow (rogue-DC DRSUAPI server). One at a
+time, each live-validated. Dev setup: a `[patch.crates-io] dcerpc = { path = "../dcerpc" }` override
+in the workspace lets these build+validate against local `dcerpc` without publishing; publish
+`dcerpc 0.2` + bump the workspace dep once a batch is proven.
+
+| # | Gap | New plumbing | Validate on | Effort |
+|---|-----|--------------|-------------|--------|
+| 1 | **ESC6/7/10/11/16** | **RRP** (winreg) client → read CA/DC registry: EditFlags (ESC6), CA Security SD (ESC7), StrongCertificateBindingEnforcement + Schannel mapping (ESC10), InterfaceFlags `IF_ENFORCEENCRYPTICERTREQUEST` (ESC11), DisableExtensionList (ESC16) | 2025 now (needs RemoteRegistry started) | M–L |
+| 2 | **WMI exec** | finish DCOM activation on the OXID foundation → `IWbemServices::ExecMethod` Win32_Process.Create, output over SMB | 2025 now | L |
+| 3 | **noPac** | LDAPS object-create + `unicodePwd` | unpatched ≤2019 | M |
+| 4 | **Zerologon** | **MS-NRPC** client + AES-CFB8 (+ `--i-understand…` + restore) | unpatched 2016/2019 | M |
+| 5 | **GPO write abuse** | SYSVOL write + GPC versioning | 2025 now | M |
+| 6 | **MSSQL** | TDS auth + query (xp_cmdshell / linked-server) | a SQL-Server VM | M |
+| 7 | **mitm6 + relay→SMB** | IPv6 DHCPv6/DNS + SMB relay target | a victim host | M–L |
+| 8 | **DCShadow** | rogue-DC registration + DRSUAPI **server** side | 2025/legacy | XL |
+
+**Order:** #1 RRP→ESCs (now, closes 5 gaps → ESC 10/16→15/16), #2 WMI (now), then #3/#4 on the
+legacy VMs, then #5–#8. **Started with #1.**
+
 ## Tier 1 — quick, high-value, buildable now (no new lab)
 
 ### 1. LAPS read  ·  Cred-dump · T1003  ·  ✅ DONE (v1.1.0)
