@@ -13,6 +13,12 @@ All notable changes to ADhammer are documented here. Format loosely follows
   still documented in the report (marked not-exercised), so it's the complete picture. Colored,
   severity-coded terminal output; `--yes` runs unattended. Live-validated vs Server 2025 (report
   captured a real DCSync krbtgt-hash PoC).
+  - **Proof-based validation:** a finding is marked "validated" only when the specific evidence is
+    present (an actual `$krb5tgs$`/`$krb5asrep$` hash, a replicated `krbtgt` secret, an `ISSUED`
+    cert), checked against the full output — otherwise "attempted." No exit-code false positives.
+  - **Opportunistic active checks** beyond the passive scan: LAPS local-admin read and AD CS ESC8
+    web-enrollment probe, added to the report only when a weakness is confirmed (live-validated: a
+    seeded LAPS password was recovered into the PoC). Coercion/relay deferred (need a capture listener).
 
 ## [1.1.0] — 2026-07-29
 

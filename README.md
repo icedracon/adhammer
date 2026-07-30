@@ -93,10 +93,16 @@ attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, se
         gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay}
 ```
 
-**Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then for each
-finding asks *"validate and capture a PoC?"* — on yes it runs the matching attack, captures the
-command + output as evidence, and writes a Markdown assessment report. Declined findings stay in
-the report as documented-but-not-exercised. `--yes` runs it unattended.
+**Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then walks
+each finding — colored, severity-coded — asking *"validate and capture a PoC?"*. On yes it runs the
+matching attack, and marks the finding **validated only when the real proof is present** (an actual
+`$krb5tgs$`/`$krb5asrep$` hash, a replicated `krbtgt` secret, an `ISSUED` cert) — otherwise honestly
+"attempted." It also runs opportunistic **active checks** beyond the passive scan (LAPS local-admin
+read, AD CS ESC8 web-enrollment probe), adding them only if a weakness is confirmed. Everything —
+validated, attempted, declined, and potential — lands in a **Markdown assessment report** with the
+exact command + captured evidence per PoC. `--yes` runs it unattended.
+
+Validators: Kerberoast · AS-REP · DCSync · gMSA read · AD CS ESC1 · LAPS read · ESC8 probe.
 
 ```sh
 # Audit a domain (low-priv creds are enough), export a BloodHound graph:

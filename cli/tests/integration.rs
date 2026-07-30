@@ -272,7 +272,10 @@ fn dns_enumerates_adidns() {
         return;
     };
     // A live DC always self-registers SRV records for its own services under its zone.
-    assert!(o.contains("ADIDNS:"), "expected the ADIDNS summary line:\n{o}");
+    assert!(
+        o.contains("ADIDNS:"),
+        "expected the ADIDNS summary line:\n{o}"
+    );
     assert!(
         o.contains("SRV") && o.contains("_ldap._tcp"),
         "expected the DC's LDAP SRV records:\n{o}"

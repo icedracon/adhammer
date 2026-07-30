@@ -61,7 +61,11 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
 
     let sp = ui::Spinner::start("collecting AD objects + correlating findings");
     let mut c = Collector::connect(&cfg).await?;
-    let ca = c.read_cas().await.ok().and_then(|v| v.into_iter().next().map(|(n, _)| n));
+    let ca = c
+        .read_cas()
+        .await
+        .ok()
+        .and_then(|v| v.into_iter().next().map(|(n, _)| n));
     let snap = c.collect().await?;
     let graph = ControlGraph::build(&snap);
     let paths = graph.paths_to_tier0();
@@ -133,8 +137,8 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                             // actual `$krb5tgs$` hash, an ISSUED cert. Check the full (untruncated)
                             // output so evidence truncation can't cause a false negative.
                             let full = full_out(&o.stdout, &o.stderr);
-                            let confirmed = o.status.success()
-                                && (marker.is_empty() || full.contains(marker));
+                            let confirmed =
+                                o.status.success() && (marker.is_empty() || full.contains(marker));
                             let ev = truncate(&full);
                             if confirmed {
                                 sp.done("validated — PoC captured");
@@ -158,6 +162,71 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         results.push((f, outcome));
     }
 
+    // Opportunistic active checks that aren't part of the passive scan (network/ADCS). Each runs
+    // a read/probe and only becomes a report finding when a weakness is actually confirmed.
+    println!();
+    ui::header("Active checks (beyond the passive scan)");
+
+    // LAPS local-admin read across the estate.
+    {
+        let mut argv = vec!["attack".to_string(), "laps".into()];
+        argv.extend(ldap_args(&ctx));
+        if a.yes || confirm("read LAPS local-admin passwords across the estate?") {
+            let sp = ui::Spinner::start("LAPS local-admin read");
+            let cmd = format!("adhammer {}", argv.join(" "));
+            match Command::new(&exe).args(&argv).output() {
+                Ok(o) => {
+                    let full = full_out(&o.stdout, &o.stderr);
+                    // Success = at least one recovered credential row (HOST$<TAB>account<TAB>pw).
+                    let hit =
+                        o.status.success() && full.lines().any(|l| l.matches('\t').count() >= 2);
+                    if hit {
+                        sp.done("validated — LAPS credentials recovered");
+                        results.push((
+                            laps_finding(),
+                            Outcome::Validated {
+                                cmd,
+                                evidence: truncate(&full),
+                            },
+                        ));
+                    } else {
+                        sp.done("no LAPS password readable — not exposed");
+                    }
+                }
+                Err(e) => sp.done_warn(&format!("could not run: {e}")),
+            }
+        }
+    }
+
+    // AD CS ESC8 web-enrollment relay exposure.
+    {
+        let mut argv = vec!["enum".to_string(), "adcs".into()];
+        argv.extend(ldap_args(&ctx));
+        if a.yes || confirm("probe the CA(s) for ESC8 web-enrollment relay exposure?") {
+            let sp = ui::Spinner::start("ADCS ESC8 web-enrollment probe");
+            let cmd = format!("adhammer {}", argv.join(" "));
+            match Command::new(&exe).args(&argv).output() {
+                Ok(o) => {
+                    let full = full_out(&o.stdout, &o.stderr);
+                    let hit = o.status.success() && full.contains("exposes NTLM");
+                    if hit {
+                        sp.done("validated — ESC8 web enrollment exposed");
+                        results.push((
+                            esc8_finding(),
+                            Outcome::Validated {
+                                cmd,
+                                evidence: truncate(&full),
+                            },
+                        ));
+                    } else {
+                        sp.done("no ESC8 web-enrollment exposure");
+                    }
+                }
+                Err(e) => sp.done_warn(&format!("could not run: {e}")),
+            }
+        }
+    }
+
     let (v, at, d, p) = tally(&results);
     println!();
     println!(
@@ -175,21 +244,24 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
 
 /// Map a finding to the attack that proves it (label + argv for the adhammer subcommand), or
 /// `None` when there's no automated validator yet.
+/// The shared `--url --user --password [--insecure]` block for LDAP-bound attacks.
+fn ldap_args(c: &Ctx) -> Vec<String> {
+    let mut v = vec![
+        "--url".into(),
+        c.url.clone(),
+        "--user".into(),
+        c.user.clone(),
+        "--password".into(),
+        c.password.clone(),
+    ];
+    if c.insecure {
+        v.push("--insecure".into());
+    }
+    v
+}
+
 fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)> {
-    let ldap = || {
-        let mut v = vec![
-            "--url".into(),
-            c.url.clone(),
-            "--user".into(),
-            c.user.clone(),
-            "--password".into(),
-            c.password.clone(),
-        ];
-        if c.insecure {
-            v.push("--insecure".into());
-        }
-        v
-    };
+    let ldap = || ldap_args(c);
     match f.id.as_str() {
         "P-AsrepRoast" | "P-KerberoastAdmin" => {
             let mut v = vec!["attack".into(), "roast".into()];
@@ -249,9 +321,51 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--upn".into(),
                 format!("{}@{}", c.user, c.realm.to_lowercase()),
             ];
-            Some(("AD CS ESC1 (enroll a cert as the target)".into(), v, "ISSUED"))
+            Some((
+                "AD CS ESC1 (enroll a cert as the target)".into(),
+                v,
+                "ISSUED",
+            ))
         }
         _ => None,
+    }
+}
+
+fn confirm(prompt: &str) -> bool {
+    Confirm::new()
+        .with_prompt(format!("  {prompt}"))
+        .default(false)
+        .interact()
+        .unwrap_or(false)
+}
+
+/// Synthetic finding for a confirmed LAPS local-admin read (not a passive-scan rule).
+fn laps_finding() -> Finding {
+    Finding {
+        id: "X-LapsRead".into(),
+        title: "LAPS local-admin password readable".into(),
+        category: Category::PrivilegedAccounts,
+        severity: Severity::Critical,
+        mitre: vec![adhammer_core::finding::mitre::VALID_ACCOUNTS],
+        affected: vec![],
+        detail: "A LAPS-managed local administrator password was readable with the current identity — instant local admin, reusable for lateral movement.".into(),
+        remediation: "Restrict read access to ms-Mcs-AdmPwd / msLAPS-Password to tier-appropriate admins; deploy encrypted (DPAPI-NG) LAPS.".into(),
+        weight_bonus: 0,
+    }
+}
+
+/// Synthetic finding for a confirmed ESC8 web-enrollment relay exposure.
+fn esc8_finding() -> Finding {
+    Finding {
+        id: "X-Esc8".into(),
+        title: "AD CS ESC8 — web-enrollment relay exposure".into(),
+        category: Category::Anomalies,
+        severity: Severity::Critical,
+        mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
+        affected: vec![],
+        detail: "A CA exposes HTTP web enrollment with NTLM over cleartext — a coerced machine's NTLM can be relayed to it for a cert, then PKINIT for that machine's TGT.".into(),
+        remediation: "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); enforce SMB/LDAP signing to blunt the relay.".into(),
+        weight_bonus: 0,
     }
 }
 
@@ -339,8 +453,18 @@ fn print_card(f: &Finding) {
     }
     if !f.affected.is_empty() {
         let n = f.affected.len();
-        let shown = f.affected.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
-        let extra = if n > 4 { format!(" (+{} more)", n - 4) } else { String::new() };
+        let shown = f
+            .affected
+            .iter()
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let extra = if n > 4 {
+            format!(" (+{} more)", n - 4)
+        } else {
+            String::new()
+        };
         ui::field("affected", &format!("{shown}{extra}"));
     }
     ui::field("why", &f.detail);
