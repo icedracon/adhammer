@@ -18,7 +18,7 @@ Last updated: 2026-07-29 · v1.0.0
 | Area | Closed | Partial | Open |
 |------|--------|---------|------|
 | Audit checks (33 rules) | 31 | 2 | 0 |
-| AD CS ESC (10/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active | — | ESC6/7/10/11/16 (need CA/DC registry via RRP/ICertAdmin) |
+| AD CS ESC (15/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active + ESC6/7/10/11/16 via MS-RRP (`enum esc`) | — | ESC12 (hardware token, out of scope) |
 | Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
@@ -103,18 +103,21 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | ESC3 | Enrollment Agent template, low-priv enroll | ✅ | |
 | ESC4 | Template ACL writable by low-priv | ✅ | |
 | ESC5 | Vulnerable PKI object ACL (CA server) | ✅ | Broad-principal Write/Owner over `pKIEnrollmentService`/`certificationAuthority` objects (reuses the template ACL walk) |
-| ESC6 | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | ❌ | Requires CA registry / `pKIEnrollmentService` flags not in LDAP today |
-| ESC7 | Vulnerable CA ACL (ManageCa / ManageCertificates) | ❌ | CA object ACL parse not wired |
+| ESC6 | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | ✅ | `enum esc` reads the policy-module `EditFlags` over MS-RRP (live-validated, Server 2022) |
+| ESC7 | Vulnerable CA ACL (ManageCa / ManageCertificates) | ✅ | `enum esc` parses the CA `Security` SD over MS-RRP; flags non-Tier-0 ManageCA/ManageCertificates (live-validated, Server 2022) |
 | ESC8 | Web Enrollment HTTP relay | 🔶 | **Detection done** (`enum adcs`): probes each CA host's `http://…/certsrv` for a cleartext NTLM 401 (relayable). Relay *exploit* still open (see ESC8 in the relay backlog) |
 | ESC9 | CT_FLAG_NO_SECURITY_EXTENSION + auth EKU | ✅ | |
-| ESC10 | Weak certificate mapping on DC | ❌ | Requires registry / `StrongCertificateBindingEnforcement` — not in LDAP snapshot |
-| ESC11 | ICPR RPC relay | 🚫 | Active relay to `\cert` pipe (similar to ESC8) |
+| ESC10 | Weak certificate mapping on DC | ✅ | `enum esc` reads the DC `Kdc\StrongCertificateBindingEnforcement` over MS-RRP (live-validated, Server 2022) |
+| ESC11 | ICPR RPC relay | 🔶 | **Detection done** (`enum esc`): CA `InterfaceFlags` lacks `IF_ENFORCEENCRYPTICERTREQUEST` ⇒ relayable. Active relay to `\cert` pipe still open |
 | ESC13 | Issuance policy → privileged group link | ✅ | |
 | ESC14 | Weak explicit cert mapping (`altSecurityIdentities`) | ✅ | Flags Subject-only / Issuer+Subject / RFC822 X509 mappings; live-validated |
 | ESC15 / EKUwu | Schema v1 + application-policy injection (CVE-2024-49019) | ✅ | Any enrollable v1 template; live-validated on the lab |
-| ESC16 | Security extension globally disabled on CA | ❌ | CA registry (`DisableExtensionList`) — needs RRP / ICertAdmin |
+| ESC16 | Security extension globally disabled on CA | ✅ | `enum esc` reads the policy-module `DisableExtensionList` over MS-RRP (live-validated, Server 2022) |
 
-**Offensive AD CS:** ❌ No cert enrollment, no ESC1/3 exploit, no Certipy parity.
+**Offensive AD CS:** ✅ **ESC1** enrollment end-to-end (`attack esc1`: PKCS#10 + spoofed-UPN SAN over
+MS-ICPR → client-auth cert → PKINIT TGT; live-validated low-priv → Administrator on Server 2022).
+Detection now covers ESC1/2/3/4/5/6/7/8/9/10/11/13/14/15/16 (**15/16**; only ESC12 hardware-token
+is out of scope).
 
 ---
 

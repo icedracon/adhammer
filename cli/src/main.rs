@@ -2041,7 +2041,7 @@ async fn read_some(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
 /// `\winreg`, read the CA/DC registry values, and decide each ESC. Needs the target's Remote
 /// Registry service reachable.
 async fn esc_registry_scan(a: EscArgs) -> Result<()> {
-    use crate::esc_registry::{esc10, esc11, esc16, esc6};
+    use crate::esc_registry::{esc10, esc11, esc16, esc6, esc7};
     use dcerpc::rrp::RegistryClient;
     use smb2_client::SmbClient;
 
@@ -2082,6 +2082,10 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     }
     if let Ok(v) = reg.read_value(&policy_key, "DisableExtensionList").await {
         hits.extend(esc16(&v.as_string()));
+    }
+    // ESC7 — the CA `Security` REG_BINARY is a SECURITY_DESCRIPTOR; flag non-Tier-0 ManageCA/Certs.
+    if let Ok(v) = reg.read_value(&ca, "Security").await {
+        hits.extend(esc7(&v.data));
     }
     // ESC10 lives on the DC's Kdc key (this host, if it's a DC).
     if let Ok(v) = reg

@@ -90,9 +90,117 @@ pub fn esc10(strong_binding: u32) -> Option<EscHit> {
     })
 }
 
+/// On a CA `Security` descriptor the low ACCESS_MASK bits are CA-specific rights (certsrv.h):
+/// bit 0 = ManageCA (CA administrator), bit 1 = ManageCertificates (certificate manager/officer).
+/// These are the two rights ESC7 abuses (an officer can issue/approve a request → ESC7 → ESC1-style
+/// escalation; a CA admin can flip EDITF_ATTRIBUTESUBJECTALTNAME2 → ESC6).
+pub const CA_MANAGE_CA: u32 = 0x0000_0001;
+pub const CA_MANAGE_CERTIFICATES: u32 = 0x0000_0002;
+
+/// SIDs that legitimately hold CA control (Tier-0). ManageCA/ManageCertificates held by these is the
+/// default and benign, so it must not raise ESC7.
+fn is_tier0(sid: &windows_sddl::Sid) -> bool {
+    let s = sid.to_string();
+    // BUILTIN\Administrators, LocalSystem, Enterprise DCs.
+    if s == "S-1-5-32-544" || s == "S-1-5-18" || s == "S-1-5-9" {
+        return true;
+    }
+    // Domain groups by RID: Domain/Enterprise/Schema Admins, Domain Controllers, Administrator.
+    matches!(sid.rid(), Some(500 | 512 | 516 | 518 | 519))
+        && sid.identifier_authority == 5
+        && sid.sub_authorities.first() == Some(&21)
+}
+
+/// ESC7 decision over a parsed CA security descriptor: any non-Tier-0 principal granted ManageCA
+/// or ManageCertificates. One hit per offending trustee.
+fn esc7_from_sd(sd: &windows_sddl::SecurityDescriptor) -> Vec<EscHit> {
+    let Some(dacl) = &sd.dacl else {
+        return Vec::new();
+    };
+    let mut hits = Vec::new();
+    for ace in &dacl.aces {
+        if !ace.is_allow() || is_tier0(&ace.trustee) {
+            continue;
+        }
+        let m = ace.mask.bits();
+        let ca = m & CA_MANAGE_CA != 0;
+        let certs = m & CA_MANAGE_CERTIFICATES != 0;
+        if !ca && !certs {
+            continue;
+        }
+        let right = match (ca, certs) {
+            (true, true) => "ManageCA + ManageCertificates",
+            (true, false) => "ManageCA",
+            _ => "ManageCertificates",
+        };
+        hits.push(EscHit {
+            id: "A-Esc7",
+            title: "ESC7: non-admin principal holds CA management rights",
+            detail: format!(
+                "{} is granted {right} on the CA. ManageCertificates lets it approve a pending \
+                 request (issue a cert on any template → ESC1-style impersonation); ManageCA lets \
+                 it set EDITF_ATTRIBUTESUBJECTALTNAME2 (→ ESC6) or add itself as an officer. \
+                 Remediation: remove the ACE — restrict CA Administrators/Certificate Managers to Tier-0.",
+                ace.trustee
+            ),
+        });
+    }
+    hits
+}
+
+/// ESC7 from the raw `Security` REG_BINARY under the CA config key.
+pub fn esc7(sd_bytes: &[u8]) -> Vec<EscHit> {
+    match windows_sddl::parse(sd_bytes) {
+        Ok(sd) => esc7_from_sd(&sd),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sddl::{Ace, AceType, AccessMask, Acl, SecurityDescriptor, Sid};
+
+    fn sd_with(trustee: &str, mask: u32) -> SecurityDescriptor {
+        SecurityDescriptor {
+            owner: None,
+            group: None,
+            dacl: Some(Acl {
+                aces: vec![Ace {
+                    ace_type: AceType::AccessAllowed,
+                    flags: 0,
+                    mask: AccessMask::from_bits_truncate(mask),
+                    trustee: Sid::parse(trustee).unwrap(),
+                    object_type: None,
+                    inherited_object_type: None,
+                }],
+            }),
+        }
+    }
+
+    #[test]
+    fn esc7_fires_for_nonadmin_manageca() {
+        // low-priv domain user with ManageCA
+        let sd = sd_with("S-1-5-21-1-2-3-1105", CA_MANAGE_CA);
+        let h = esc7_from_sd(&sd);
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0].id, "A-Esc7");
+        assert!(h[0].detail.contains("ManageCA"));
+    }
+
+    #[test]
+    fn esc7_ignores_tier0_and_enroll_only() {
+        // Domain Admins with both rights → benign
+        assert!(esc7_from_sd(&sd_with(
+            "S-1-5-21-1-2-3-512",
+            CA_MANAGE_CA | CA_MANAGE_CERTIFICATES
+        ))
+        .is_empty());
+        // BUILTIN\Administrators → benign
+        assert!(esc7_from_sd(&sd_with("S-1-5-32-544", CA_MANAGE_CA)).is_empty());
+        // Authenticated Users with Enroll (0x200, not a management bit) → benign
+        assert!(esc7_from_sd(&sd_with("S-1-5-11", 0x200)).is_empty());
+    }
 
     #[test]
     fn esc6_fires_only_on_the_bit() {

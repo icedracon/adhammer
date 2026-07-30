@@ -24,7 +24,7 @@ For **authorized engagements, red-team validation, and education** only.
 
 **1 — Audit.** ADhammer collects a domain over LDAP as a low-privileged user (via the `SD_FLAGS`
 control), builds a BloodHound-style control-path graph in-process, and runs **33 checks** across
-the four PingCastle categories — including **10 of the 16 AD CS ESC classes**, ADIDNS exposure,
+the four PingCastle categories — including **15 of the 16 AD CS ESC classes**, ADIDNS exposure,
 and SYSVOL/GPP — scoring and MITRE-tagging every finding, exportable to BloodHound.
 
 **2 — Validate.** A report shouldn't say a path *might* be exploitable. On its native protocol
@@ -128,9 +128,9 @@ adhammer attack pth    --host dc --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --d
 - **Anomalies** — MachineAccountQuota, krbtgt age, RC4 Kerberos, reversible encryption,
   badSuccessor (dMSA), password policy, anonymous LDAP (dSHeuristics), Pre-Windows 2000 Compatible
   Access, Guest, GPP cpassword (MS14-025), and — from GptTmpl.inf — LM/NTLMv1, LDAP/SMB signing.
-- **AD CS (10/16 ESC)** — passive: **ESC1, ESC2, ESC3, ESC4, ESC5, ESC9, ESC13, ESC14, ESC15/EKUwu
-  (CVE-2024-49019)**; active: **ESC8** web-enrollment probe (`enum adcs`). ESC6/7/10/11/16 read the
-  CA/DC registry and are out of current scope.
+- **AD CS (15/16 ESC)** — passive: **ESC1, ESC2, ESC3, ESC4, ESC5, ESC9, ESC13, ESC14, ESC15/EKUwu
+  (CVE-2024-49019)**; active: **ESC8** web-enrollment probe (`enum adcs`); registry over MS-RRP:
+  **ESC6, ESC7, ESC10, ESC11, ESC16** (`enum esc`). Only ESC12 (hardware token) is out of scope.
 - **ADIDNS** — zone/record enumeration with wildcard (mitm6/WPAD) detection (`enum dns`).
 
 Every finding carries a MITRE ATT&CK technique (T1558.003 Kerberoasting, T1003.006 DCSync, T1649
@@ -145,7 +145,7 @@ against the DC.
 
 - **Recon / export** — `scan` (33 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
   `enum net` (host/AD-port/SMB-signing sweep), `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8),
-  `enum esc` (ESC6/10/11/16 over MS-RRP), `scan --bloodhound` (SharpHound-compatible zip).
+  `enum esc` (ESC6/7/10/11/16 over MS-RRP), `scan --bloodhound` (SharpHound-compatible zip).
 - **Credential access** — **DCSync** single-object and full-domain (NT hashes + Kerberos keys incl.
   RFC 8009 AES-SHA2), **gMSA** and **LAPS** read over LDAPS, offline **secretsdump** (hand-rolled
   `regf` hive parser → bootkey → SAM/LSA/DCC2), **pass-the-hash**, **overpass-the-hash** (RC4→TGT).
@@ -156,8 +156,8 @@ against the DC.
 - **Lateral / exec** — **SVCCTL** (psexec-style, LocalSystem, C$ output), **WinRM** (WS-Man + NTLM
   message encryption, no service-install event), **TSCH** (`atexec`).
 - **ADCS** — **ESC1** enrollment (spoofed-UPN SAN over MS-ICPR) → client-auth cert as the target,
-  and **ESC6/10/11/16** decided from the CA/DC registry over **MS-RRP** (`enum esc`, the checks
-  LDAP can't see).
+  and **ESC6/7/10/11/16** decided from the CA/DC registry over **MS-RRP** (`enum esc`, the checks
+  LDAP can't see — incl. ESC7 non-admin ManageCA/ManageCertificates from the CA `Security` SD).
 - **Coercion / relay** — PetitPotam / PrinterBug, LLMNR/NBT-NS poisoning, SMB→LDAP NTLM relay
   (writes a Shadow Credential).
 
@@ -212,8 +212,7 @@ SHA-1 — which rustls refuses.
 - Default LDAP binds use LDAPS (`--insecure` for a lab self-signed cert; a bare username is
   auto-qualified to a UPN). Plaintext simple bind is refused by hardened DCs; SASL GSSAPI is an
   off-by-default cargo feature.
-- Out of current scope: AD CS **ESC7** (CA Security-SD parse over RRP), and WMI exec (the DCOM/OXID
-  foundation exists in `dcerpc`; the activation chain is not yet wired). ESC6/10/11/16 are now
-  covered by `enum esc`.
+- Out of current scope: **WMI exec** (the DCOM/OXID foundation exists in `dcerpc`; the activation
+  chain is not yet wired). ESC6/7/10/11/16 are now covered by `enum esc`.
 
 Authorized research / academic / authorized-engagement use only — see [SECURITY.md](SECURITY.md).
