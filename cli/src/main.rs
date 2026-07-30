@@ -2048,6 +2048,7 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     let sp = ui::Spinner::start(format!("{} — SMB auth + \\winreg", a.host));
     let mut smb = SmbClient::connect(&a.host).await?;
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
     let mut reg = RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
     sp.done("Remote Registry reachable");
 
@@ -2057,17 +2058,29 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
         a.ca
     );
     let mut hits = Vec::new();
-    if let Ok(v) = reg.read_value(&ca, "EditFlags").await {
-        if let Some(d) = v.as_dword() {
-            hits.extend(esc6(d));
-        }
-    }
+
+    // InterfaceFlags sits directly under the CA config key.
     if let Ok(v) = reg.read_value(&ca, "InterfaceFlags").await {
         if let Some(d) = v.as_dword() {
             hits.extend(esc11(d));
         }
     }
-    if let Ok(v) = reg.read_value(&ca, "DisableExtensionList").await {
+
+    // EditFlags and DisableExtensionList live under the *active policy module* subkey, whose name
+    // is the `Active` REG_SZ under `<CA>\PolicyModules` (e.g. CertificateAuthority_MicrosoftDefault.Policy).
+    let pm_root = format!("{ca}\\PolicyModules");
+    let policy = reg
+        .read_value(&pm_root, "Active")
+        .await
+        .map(|v| v.as_string())
+        .unwrap_or_else(|_| "CertificateAuthority_MicrosoftDefault.Policy".into());
+    let policy_key = format!("{pm_root}\\{policy}");
+    if let Ok(v) = reg.read_value(&policy_key, "EditFlags").await {
+        if let Some(d) = v.as_dword() {
+            hits.extend(esc6(d));
+        }
+    }
+    if let Ok(v) = reg.read_value(&policy_key, "DisableExtensionList").await {
         hits.extend(esc16(&v.as_string()));
     }
     // ESC10 lives on the DC's Kdc key (this host, if it's a DC).
