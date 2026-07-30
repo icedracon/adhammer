@@ -87,10 +87,16 @@ Power-user subcommands:
 
 ```
 scan                                        passive audit → JSON/HTML (+ --sysvol, --bloodhound out.zip)
+auto                                         guided: scan → confirm each weakness → validate + PoC report
 enum   {samr, lsa, net, dns, adcs}          RPC / network / ADIDNS / AD-CS enumeration
 attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, secretsdump,
         gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay}
 ```
+
+**Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then for each
+finding asks *"validate and capture a PoC?"* — on yes it runs the matching attack, captures the
+command + output as evidence, and writes a Markdown assessment report. Declined findings stay in
+the report as documented-but-not-exercised. `--yes` runs it unattended.
 
 ```sh
 # Audit a domain (low-priv creds are enough), export a BloodHound graph:

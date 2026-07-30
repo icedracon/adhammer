@@ -7,6 +7,7 @@ use adhammer_report::{Report, RiskConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod guided;
 mod interactive;
 mod poison;
 mod session;
@@ -42,6 +43,39 @@ enum Command {
     /// Active attacks: roasting, spraying, LDAP abuse, coercion, RBCD.
     #[command(subcommand)]
     Attack(AttackCmd),
+    /// Guided: scan → correlate → confirm each weakness → validate + PoC → report.
+    Auto(AutoArgs),
+}
+
+#[derive(Parser)]
+struct AutoArgs {
+    /// LDAP URL, e.g. ldaps://dc:636
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// DC host/IP for SMB/Kerberos validators (defaults to the URL host).
+    #[arg(long)]
+    host: Option<String>,
+    /// NetBIOS domain (defaults to the collected domain).
+    #[arg(long)]
+    domain: Option<String>,
+    /// Kerberos realm (defaults to the DNS domain, upper-cased).
+    #[arg(long)]
+    realm: Option<String>,
+    /// KDC host (defaults to --host).
+    #[arg(long)]
+    kdc: Option<String>,
+    /// Report output path (Markdown).
+    #[arg(long, default_value = "adhammer-report.md")]
+    out: String,
+    /// Validate every finding without prompting (unattended).
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -648,6 +682,21 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
         Command::Attack(AttackCmd::Pth(a)) => pth(a).await,
+        Command::Auto(a) => {
+            guided::guided(guided::GuidedArgs {
+                url: a.url,
+                user: a.user,
+                password: a.password,
+                insecure: a.insecure,
+                host: a.host,
+                domain: a.domain,
+                realm: a.realm,
+                kdc: a.kdc,
+                out: a.out,
+                yes: a.yes,
+            })
+            .await
+        }
     }
 }
 

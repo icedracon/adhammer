@@ -3,6 +3,17 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [Unreleased]
+
+### Added
+- **Guided exploitation** (`adhammer auto`, + interactive "Guided" menu item) — scan → correlate
+  findings → for each weakness **ask the operator "validate + capture a PoC?"** → run the matching
+  attack (Kerberoast, DCSync, gMSA read, AD CS ESC1) → capture the exact command + output as
+  evidence → write a **Markdown assessment report**. Declined and non-auto-validatable findings are
+  still documented in the report (marked not-exercised), so it's the complete picture. Colored,
+  severity-coded terminal output; `--yes` runs unattended. Live-validated vs Server 2025 (report
+  captured a real DCSync krbtgt-hash PoC).
+
 ## [1.1.0] — 2026-07-29
 
 ### Added

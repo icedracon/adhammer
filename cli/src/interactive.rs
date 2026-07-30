@@ -18,6 +18,7 @@ const DA_GROUPS: &[u32] = &[513, 512, 520, 518, 519];
 
 enum Action {
     Scan,
+    Guided,
     Roast,
     Spray,
     EnumSamr,
@@ -49,6 +50,10 @@ enum Action {
 
 const MENU: &[(&str, Action)] = &[
     ("Scan — passive audit (33 checks + graph)", Action::Scan),
+    (
+        "Guided — scan → confirm each weakness → validate + PoC report",
+        Action::Guided,
+    ),
     ("Roast — Kerberoast + AS-REP", Action::Roast),
     ("Spray — password spray", Action::Spray),
     ("Enum SAMR — list domain users", Action::EnumSamr),
@@ -222,6 +227,21 @@ fn sess_hash(s: &Session) -> Option<String> {
 async fn dispatch(action: &Action, s: &Session) -> Result<()> {
     match action {
         Action::Scan => scan(s.scan_args()).await,
+        Action::Guided => {
+            crate::guided::guided(crate::guided::GuidedArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
+                host: Some(s.dc.clone()),
+                domain: Some(s.netbios()),
+                realm: Some(s.realm()),
+                kdc: Some(s.dc.clone()),
+                out: "adhammer-report.md".into(),
+                yes: false,
+            })
+            .await
+        }
         Action::Roast => roast(s.scan_args()).await,
         Action::Spray => {
             let users: String = Input::new()

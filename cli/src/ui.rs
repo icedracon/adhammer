@@ -47,6 +47,16 @@ pub fn dim(s: &str) -> String {
 pub fn accent(s: &str) -> String {
     paint(stdout_tty(), &format!("{BOLD}{CYAN}"), s)
 }
+/// Severity-tinted text on stdout (for finding cards / reports).
+pub fn red(s: &str) -> String {
+    paint(stdout_tty(), &format!("{BOLD}{RED}"), s)
+}
+pub fn yellow(s: &str) -> String {
+    paint(stdout_tty(), YELLOW, s)
+}
+pub fn green(s: &str) -> String {
+    paint(stdout_tty(), GREEN, s)
+}
 
 /// A section header on stdout: `▸ TITLE` in bold cyan, with a dim rule underneath.
 pub fn header(title: &str) {
