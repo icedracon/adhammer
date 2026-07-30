@@ -7,6 +7,7 @@ use adhammer_report::{Report, RiskConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod esc_registry;
 mod guided;
 mod interactive;
 mod poison;
@@ -90,6 +91,25 @@ enum EnumCmd {
     Dns(DnsArgs),
     /// Enumerate enterprise CAs and probe each for ESC8 web-enrollment exposure.
     Adcs(DnsArgs),
+    /// Registry-only AD CS ESC checks (ESC6/10/11/16) over MS-RRP — needs Remote Registry.
+    Esc(EscArgs),
+}
+
+#[derive(Parser)]
+struct EscArgs {
+    /// CA host. ESC10 is read from this host's Kdc key too, so point it at a DC-hosted CA.
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. CORP.
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    /// CA name (the `Configuration\<CA>` registry key), e.g. corp-CA.
+    #[arg(long)]
+    ca: String,
 }
 
 #[derive(Parser)]
@@ -659,6 +679,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
         Command::Enum(EnumCmd::Dns(a)) => dnsenum(a).await,
         Command::Enum(EnumCmd::Adcs(a)) => adcsenum(a).await,
+        Command::Enum(EnumCmd::Esc(a)) => esc_registry_scan(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -2014,6 +2035,68 @@ async fn read_some(s: &mut tokio::net::TcpStream, buf: &mut [u8]) -> usize {
         .ok()
         .and_then(|r| r.ok())
         .unwrap_or(0)
+}
+
+/// Registry-only AD CS ESC checks (ESC6/10/11/16) over MS-RRP: authenticate over SMB, open
+/// `\winreg`, read the CA/DC registry values, and decide each ESC. Needs the target's Remote
+/// Registry service reachable.
+async fn esc_registry_scan(a: EscArgs) -> Result<()> {
+    use crate::esc_registry::{esc10, esc11, esc16, esc6};
+    use dcerpc::rrp::RegistryClient;
+    use smb2_client::SmbClient;
+
+    let sp = ui::Spinner::start(format!("{} — SMB auth + \\winreg", a.host));
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    let mut reg = RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
+    sp.done("Remote Registry reachable");
+
+    ui::header(&format!("AD CS registry ESC checks — CA {}", a.ca));
+    let ca = format!(
+        "SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{}",
+        a.ca
+    );
+    let mut hits = Vec::new();
+    if let Ok(v) = reg.read_value(&ca, "EditFlags").await {
+        if let Some(d) = v.as_dword() {
+            hits.extend(esc6(d));
+        }
+    }
+    if let Ok(v) = reg.read_value(&ca, "InterfaceFlags").await {
+        if let Some(d) = v.as_dword() {
+            hits.extend(esc11(d));
+        }
+    }
+    if let Ok(v) = reg.read_value(&ca, "DisableExtensionList").await {
+        hits.extend(esc16(&v.as_string()));
+    }
+    // ESC10 lives on the DC's Kdc key (this host, if it's a DC).
+    if let Ok(v) = reg
+        .read_value(
+            "SYSTEM\\CurrentControlSet\\Services\\Kdc",
+            "StrongCertificateBindingEnforcement",
+        )
+        .await
+    {
+        if let Some(d) = v.as_dword() {
+            hits.extend(esc10(d));
+        }
+    }
+
+    if hits.is_empty() {
+        ui::ok("no registry-based ESC (ESC6/10/11/16) exposure found");
+    } else {
+        for h in &hits {
+            ui::warn(&format!("{} — {}", h.id, h.title));
+            ui::field("detail", &h.detail);
+        }
+        ui::warn(&format!(
+            "{} registry-based ESC exposure(s) on {}",
+            hits.len(),
+            a.host
+        ));
+    }
+    Ok(())
 }
 
 /// True if an HTTP reply to `/certsrv` is an NTLM/Negotiate 401 over cleartext HTTP — the
