@@ -8,6 +8,7 @@ use adhammer_graph::ControlGraph;
 pub mod adcs;
 pub mod anomalies;
 pub mod anomalies_extra;
+pub mod hygiene;
 pub mod privileged;
 pub mod privileged_extra;
 pub mod stale;
@@ -56,6 +57,14 @@ pub fn registry() -> Vec<Box<dyn Check>> {
         Box::new(stale::StaleComputers),
         Box::new(stale::MachinePasswordAge),
         Box::new(stale::DuplicateSpn),
+        Box::new(hygiene::PrivilegedPasswordNeverExpires),
+        Box::new(hygiene::DesOnlyAccounts),
+        Box::new(hygiene::ObsoleteFunctionalLevel),
+        Box::new(hygiene::DisabledPrivileged),
+        Box::new(hygiene::NeverLoggedOn),
+        Box::new(hygiene::PrimaryGroupPrivileged),
+        Box::new(hygiene::DormantPrivileged),
+        Box::new(hygiene::DefaultAdministratorActive),
     ]
 }
 

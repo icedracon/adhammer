@@ -23,7 +23,7 @@ For **authorized engagements, red-team validation, and education** only.
 ## How it works
 
 **1 — Audit.** ADhammer collects a domain over LDAP as a low-privileged user (via the `SD_FLAGS`
-control), builds a BloodHound-style control-path graph in-process, and runs **33 checks** across
+control), builds a BloodHound-style control-path graph in-process, and runs **41 checks** across
 the four PingCastle categories — including **15 of the 16 AD CS ESC classes**, ADIDNS exposure,
 and SYSVOL/GPP — scoring and MITRE-tagging every finding, exportable to BloodHound.
 
@@ -42,7 +42,7 @@ enrollment — each **live-validated against a fully-patched Windows Server 2025
 |-----------------------|---------------------------------------|---------------------|----------------------------|
 | Language              | Rust — one static binary              | C# (.NET)           | Python / C#                |
 | Runs from             | Kali/Linux **and** Windows            | Windows only        | Linux (impacket) / Windows |
-| Passive AD audit      | ✅ 33 checks + control-path graph      | ✅ (the reference)   | ❌                          |
+| Passive AD audit      | ✅ 41 checks + control-path graph      | ✅ (the reference)   | ❌                          |
 | Validation / offense  | ✅ roast·DCSync·tickets·relay·RCE      | ❌ (audit only)      | ✅ (offense only)           |
 | Protocol stack        | from-scratch, no impacket dependency  | .NET libs           | mature, batteries-included |
 | Runtime               | none (pure-Rust crates)               | .NET runtime        | Python runtime             |
@@ -143,7 +143,7 @@ defender can see exactly what the misconfiguration yields. All live-validated en
 hardened **Server 2025** DC — and, to prove the Linux-native positioning, built on Kali and run
 against the DC.
 
-- **Recon / export** — `scan` (33 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
+- **Recon / export** — `scan` (41 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
   `enum net` (host/AD-port/SMB-signing sweep), `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8),
   `enum esc` (ESC6/7/10/11/16 over MS-RRP), `scan --bloodhound` (SharpHound-compatible zip).
 - **Credential access** — **DCSync** single-object and full-domain (NT hashes + Kerberos keys incl.
@@ -178,7 +178,7 @@ proof, and the reusable "impacket for Rust"):
 
 Workspace crates (audit + orchestration): `core` (model + MITRE), `graph` (control-path,
 reverse-Dijkstra to Tier-0), `collector` (LDAP over domain + Configuration NC), `checks` (the
-33-rule engine), `kerberos` (roast · S4U/RBCD · Shadow-Cred PKINIT · golden/silver · pass-the-ticket),
+41-rule engine), `kerberos` (roast · S4U/RBCD · Shadow-Cred PKINIT · golden/silver · pass-the-ticket),
 `sysvol` (GPP/GptTmpl), `report` (risk scoring → JSON/HTML), `ldap` (hand-rolled BER + NTLM SASL for
 the relay bridge), `bloodhound` (SharpHound export), `secrets` (offline hive/SAM decryption).
 

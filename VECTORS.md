@@ -17,7 +17,7 @@ Last updated: 2026-07-29 · v1.0.0
 
 | Area | Closed | Partial | Open |
 |------|--------|---------|------|
-| Audit checks (33 rules) | 31 | 2 | 0 |
+| Audit checks (41 rules) | 39 | 2 | 0 |
 | AD CS ESC (15/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active + ESC6/7/10/11/16 via MS-RRP (`enum esc`) | — | ESC12 (hardware token, out of scope) |
 | Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
@@ -45,6 +45,9 @@ See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
 | P-Rbcd | msDS-AllowedToActOnBehalfOfOtherIdentity set | ✅ | Config detection only |
 | P-Laps | Computers without LAPS | ✅ | ms-Mcs-AdmPwd absent |
 | P-PasswdNotReqd | PASSWD_NOTREQD accounts | ✅ | |
+| P-PrimaryGroupPriv | Privileged via primaryGroupID (hidden membership) | ✅ | Stealth Domain-Admin persistence; live-validated |
+| P-DormantPrivileged | adminCount=1 accounts inactive > 90d | ✅ | |
+| P-DefaultAdminActive | Built-in Administrator (RID 500) in active use | ✅ | Break-glass hygiene; live-validated |
 
 ---
 
@@ -58,6 +61,8 @@ See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
 | S-StaleComputers | Stale computer accounts | ✅ | |
 | S-MachinePasswordAge | Old machine password | ✅ | |
 | S-DuplicateSpn | Duplicate servicePrincipalName | ✅ | |
+| S-DisabledInPrivGroup | Disabled accounts still stamped adminCount=1 | ✅ | AdminSDHolder residue; live-validated (krbtgt) |
+| S-NeverLoggedOn | Enabled accounts created long ago, never logged on | ✅ | |
 
 ---
 
@@ -81,6 +86,9 @@ See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
 | A-KrbtgtAge | krbtgt password age | ✅ | |
 | A-ReversibleEncryption | ENCRYPTED_TEXT_PWD_ALLOWED | ✅ | |
 | A-Rc4Kerberos | RC4 on service accounts | ✅ | |
+| A-PrivPwdNeverExpires | Privileged accounts with non-expiring passwords | ✅ | live-validated (svc_sql) |
+| A-DesOnly | Accounts restricted to DES Kerberos keys | ✅ | |
+| A-FunctionalLevel | Domain functional level < 2016 | ✅ | msDS-Behavior-Version |
 | A-BadSuccessor | dMSA objects present | 🔶 | **Partial** — flags presence only; does not yet walk OU ACLs for CreateChild/Write delegation |
 | A-WeakPasswordPolicy | Domain password policy | ✅ | minPwdLength / complexity |
 | A-DsHeuristics | Anonymous LDAP bind allowed | ✅ | |
