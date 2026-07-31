@@ -254,10 +254,10 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     })
 }
 
-/// Ask-TGT: obtain a TGT with a password (AES256, with ETYPE-INFO2 salt discovery) and emit a
-/// reusable MIT ccache for Kerberos-only (`-k`) workflows. Classic overpass-the-hash (NT hash →
-/// TGT) would need RC4-HMAC, which `picky-krb` doesn't implement and modern DCs (Server 2025)
-/// disable anyway — use `--nt-hash` pass-the-hash for NTLM auth from a hash instead.
+/// Ask-TGT: obtain a TGT with a password (AES256 first, with ETYPE-INFO2 salt discovery) and emit
+/// a reusable MIT ccache for Kerberos-only (`-k`) workflows. If the account has no AES key (the KDC
+/// answers ETYPE_NOSUPP) — e.g. the built-in Administrator whose password was set before the domain
+/// existed, or an RC4-only account — it transparently falls back to an RC4-HMAC TGT from the NT hash.
 pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Result<Vec<u8>> {
     let realm = realm.to_uppercase();
     let user = user.split('@').next().unwrap_or(user);
@@ -300,12 +300,18 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     let raw2 = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype))
         .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
     let resp2 = kdc_exchange(kdc, &raw2).await?;
-    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp2).map_err(|e| {
-        match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
-            Ok(err) => anyhow!("AS-REQ rejected, KDC error {}", err.0.error_code.0),
-            Err(_) => anyhow!("AS-REP decode: {e}"),
+    if let Ok(err) = picky_asn1_der::from_bytes::<KrbError>(&resp2) {
+        // KDC_ERR_ETYPE_NOSUPP (14): the account has no AES key — e.g. its password was set
+        // outside a domain context (the built-in Administrator on a freshly promoted DC) or it is
+        // RC4-only. Fall back to an RC4-HMAC TGT derived from the NT hash of the password.
+        if err.0.error_code.0 == 14 {
+            let nt = crate::rc4::nt_hash(password);
+            return overpass_the_hash(user, &realm, kdc, &nt).await;
         }
-    })?;
+        bail!("AS-REQ rejected, KDC error {}", err.0.error_code.0);
+    }
+    let as_rep: AsRep =
+        picky_asn1_der::from_bytes(&resp2).map_err(|e| anyhow!("AS-REP decode: {e}"))?;
     let enc = &as_rep.0.enc_part.0;
     let plain = cipher
         .decrypt(&key, AS_REP_ENC, &enc.cipher.0 .0)
