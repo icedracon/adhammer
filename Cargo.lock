@@ -511,13 +511,15 @@ dependencies = [
 [[package]]
 name = "dcerpc"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69548e1970e8b9427e5ecdd4b1be837895096f6111645ecefd92ce74faca320f"
+source = "git+https://github.com/icedracon/dcerpc.git?branch=main#fd4d3b4e93f117428c2b99747ac17d27f7c52e38"
 dependencies = [
+ "aes",
  "des",
  "hex",
+ "hmac",
  "md-5",
  "ntlmssp",
+ "sha2",
  "smb2-client",
  "thiserror 2.0.18",
  "tokio",

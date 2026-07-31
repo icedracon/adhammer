@@ -31,7 +31,9 @@ repository = "https://github.com/icedracon/adhammer"
 windows-sddl = "0.1"
 ntlmssp      = "0.1"
 smb2-client  = "0.1"
-dcerpc       = "0.1"
+# dcerpc tracks the git repo until 0.2 is published (it carries the in-development
+# RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
+dcerpc       = { git = "https://github.com/icedracon/dcerpc.git", branch = "main" }
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "1.1.0" }
 adhammer-collector = { path = "crates/collector", version = "1.1.0" }
