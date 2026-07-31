@@ -113,6 +113,19 @@ struct PostureArgs {
 }
 
 #[derive(Parser)]
+struct ZerologonArgs {
+    /// DC host or IP.
+    #[arg(long)]
+    host: String,
+    /// DC NetBIOS computer name (the machine account without the `$`), e.g. DC01.
+    #[arg(long)]
+    netbios: String,
+    /// Max handshake attempts (success is expected within ~256 on a vulnerable DC).
+    #[arg(long, default_value_t = 2000)]
+    attempts: u32,
+}
+
+#[derive(Parser)]
 struct EscArgs {
     /// CA host. ESC10 is read from this host's Kdc key too, so point it at a DC-hosted CA.
     #[arg(long)]
@@ -159,6 +172,8 @@ enum AttackCmd {
     Abuse(AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
     Coerce(CoerceArgs),
+    /// Zerologon (CVE-2020-1472) SAFE detection over MS-NRPC — never resets the machine password.
+    Zerologon(ZerologonArgs),
     /// RBCD: S4U2Self + S4U2Proxy to impersonate a user to a target service.
     Rbcd(RbcdArgs),
     /// Constrained delegation abuse: same S4U2Self+S4U2Proxy chain via a `msDS-AllowedToDelegateTo`
@@ -702,6 +717,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
         Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
+        Command::Attack(AttackCmd::Zerologon(a)) => zerologon(a).await,
         Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Constrained(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Asktgt(a)) => asktgt(a).await,
@@ -2130,6 +2146,44 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
             hits.len(),
             a.host
         ));
+    }
+    Ok(())
+}
+
+/// Zerologon (CVE-2020-1472) SAFE detection: try the all-zero Netlogon handshake over MS-NRPC and
+/// report whether the DC accepts it. Never calls NetrServerPasswordSet2 — the machine password is
+/// left untouched. Exploitation (with password restore) is a separate, explicitly-confirmed step.
+async fn zerologon(a: ZerologonArgs) -> Result<()> {
+    use dcerpc::netlogon::{detect_zerologon, Zerologon};
+    let sp = ui::Spinner::start(format!(
+        "{} — Netlogon zero-auth probe (≤{} attempts)",
+        a.host, a.attempts
+    ));
+    match detect_zerologon(&a.host, &a.netbios, a.attempts).await? {
+        Zerologon::Vulnerable { attempts } => {
+            sp.done("probe complete");
+            ui::bad(&format!(
+                "VULNERABLE to Zerologon (CVE-2020-1472) — Netlogon accepted an unauthenticated \
+                 all-zero secure channel after {attempts} attempt(s)"
+            ));
+            ui::field(
+                "impact",
+                "an unauthenticated attacker on the network can set the DC machine account password \
+                 to empty → DCSync the domain → Domain Admin.",
+            );
+            ui::field(
+                "note",
+                "detection only — the machine password was NOT changed. Exploitation resets it and \
+                 MUST restore it afterwards (a broken machine secret orphans the DC).",
+            );
+            ui::field("remediation", "apply the August 2020 patch and enforce KB4557222 (enforcement mode).");
+        }
+        Zerologon::NotVulnerable { attempts } => {
+            sp.done("probe complete");
+            ui::ok(&format!(
+                "not vulnerable to Zerologon — all {attempts} handshake attempts were rejected (patched/enforced)"
+            ));
+        }
     }
     Ok(())
 }

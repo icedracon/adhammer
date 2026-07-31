@@ -90,7 +90,7 @@ scan                                        passive audit → JSON/HTML (+ --sys
 auto                                         guided: scan → confirm each weakness → validate + PoC report
 enum   {samr, lsa, net, dns, adcs, esc, posture}  RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture
 attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, secretsdump,
-        gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay}
+        gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay, zerologon}
 ```
 
 **Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then walks
