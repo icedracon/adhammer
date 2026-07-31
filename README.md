@@ -88,7 +88,7 @@ Power-user subcommands:
 ```
 scan                                        passive audit → JSON/HTML (+ --sysvol, --bloodhound out.zip)
 auto                                         guided: scan → confirm each weakness → validate + PoC report
-enum   {samr, lsa, net, dns, adcs}          RPC / network / ADIDNS / AD-CS enumeration
+enum   {samr, lsa, net, dns, adcs, esc, posture}  RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture
 attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, secretsdump,
         gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay}
 ```
@@ -145,7 +145,7 @@ against the DC.
 
 - **Recon / export** — `scan` (41 checks + graph as a low-priv user), `enum samr` / `enum lsa`,
   `enum net` (host/AD-port/SMB-signing sweep), `enum dns` (ADIDNS), `enum adcs` (CAs + ESC8),
-  `enum esc` (ESC6/7/10/11/16 over MS-RRP), `scan --bloodhound` (SharpHound-compatible zip).
+  `enum esc` (ESC6/7/10/11/16 over MS-RRP), `enum posture` (LDAP signing/channel-binding + Spooler — relay/coercion enablers), `scan --bloodhound` (SharpHound-compatible zip).
 - **Credential access** — **DCSync** single-object and full-domain (NT hashes + Kerberos keys incl.
   RFC 8009 AES-SHA2), **gMSA** and **LAPS** read over LDAPS, offline **secretsdump** (hand-rolled
   `regf` hive parser → bootkey → SAM/LSA/DCC2), **pass-the-hash**, **overpass-the-hash** (RC4→TGT).

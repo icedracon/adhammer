@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 
 mod esc_registry;
 mod guided;
+mod host_posture;
 mod interactive;
 mod poison;
 mod session;
@@ -93,6 +94,22 @@ enum EnumCmd {
     Adcs(DnsArgs),
     /// Registry-only AD CS ESC checks (ESC6/10/11/16) over MS-RRP — needs Remote Registry.
     Esc(EscArgs),
+    /// DC posture over MS-RRP + pipes: LDAP signing / channel binding + Spooler (relay/coercion enablers).
+    Posture(PostureArgs),
+}
+
+#[derive(Parser)]
+struct PostureArgs {
+    /// DC host or IP.
+    #[arg(long)]
+    host: String,
+    /// NetBIOS domain, e.g. CORP.
+    #[arg(long)]
+    domain: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
 }
 
 #[derive(Parser)]
@@ -680,6 +697,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Dns(a)) => dnsenum(a).await,
         Command::Enum(EnumCmd::Adcs(a)) => adcsenum(a).await,
         Command::Enum(EnumCmd::Esc(a)) => esc_registry_scan(a).await,
+        Command::Enum(EnumCmd::Posture(a)) => posture_scan(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -2109,6 +2127,60 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
         }
         ui::warn(&format!(
             "{} registry-based ESC exposure(s) on {}",
+            hits.len(),
+            a.host
+        ));
+    }
+    Ok(())
+}
+
+/// DC posture over MS-RRP + pipe reachability: LDAP signing / channel binding (`NTDS\Parameters`)
+/// and the Print Spooler — the NTLM-relay and coercion enablers a passive LDAP scan can't see.
+async fn posture_scan(a: PostureArgs) -> Result<()> {
+    use crate::host_posture::{ldap_channel_binding, ldap_signing, spooler_running};
+    use dcerpc::rrp::RegistryClient;
+    use smb2_client::SmbClient;
+
+    let sp = ui::Spinner::start(format!("{} — SMB auth + \\winreg", a.host));
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    // Read the NTDS relay-posture values, scoped so the RRP client releases the SMB session.
+    let ntds = "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters";
+    let (signing, cbt) = {
+        let mut reg =
+            RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
+        let s = reg
+            .read_value(ntds, "LDAPServerIntegrity")
+            .await
+            .ok()
+            .and_then(|v| v.as_dword());
+        let c = reg
+            .read_value(ntds, "LdapEnforceChannelBinding")
+            .await
+            .ok()
+            .and_then(|v| v.as_dword());
+        (s, c)
+    };
+    // Spooler running? The \spoolss pipe answering means the service is up.
+    let spooler_open = smb.open_pipe("spoolss").await.is_ok();
+    sp.done("posture read");
+
+    ui::header(&format!("DC posture — {}", a.host));
+    let mut hits = Vec::new();
+    hits.extend(ldap_signing(signing));
+    hits.extend(ldap_channel_binding(cbt));
+    hits.extend(spooler_running(spooler_open));
+
+    if hits.is_empty() {
+        ui::ok("LDAP signing + channel binding enforced, no Spooler on the DC — no relay/coercion posture exposure");
+    } else {
+        for h in &hits {
+            ui::warn(&format!("[{}] {} — {}", h.severity, h.id, h.title));
+            ui::field("detail", &h.detail);
+        }
+        ui::warn(&format!(
+            "{} relay/coercion posture exposure(s) on {}",
             hits.len(),
             a.host
         ));
