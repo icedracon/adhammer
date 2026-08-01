@@ -82,7 +82,7 @@ golden/silver/pass-the-ticket it **auto-fetches** the krbtgt/service AES256 key 
 domain SID (via LSAT) from your session — no pasting keys or SIDs. Add `--no-save` to keep creds off
 disk, or "Wipe saved session" from the menu.
 
-![ADhammer first run: setup wizard (user → password → domain → DC IP), then the action menu, then DCSync krbtgt against the DC](docs/interactive.gif)
+![ADhammer first run: the setup wizard (user → password → domain → DC), then the full 31-action guided menu — audit, enum, and every attack in one keyboard-driven list](docs/interactive.gif)
 
 Long-running steps show a live spinner with an elapsed timer; styling auto-disables when output is
 piped (so `scan` JSON and logs stay clean — `NO_COLOR` / `CLICOLOR_FORCE` honored).
@@ -105,6 +105,10 @@ matching attack, and marks the finding **validated only when the real proof is p
 read, AD CS ESC8 web-enrollment probe), adding them only if a weakness is confirmed. Everything —
 validated, attempted, declined, and potential — lands in a **Markdown assessment report** with the
 exact command + captured evidence per PoC. `--yes` runs it unattended.
+
+![ADhammer guided output: severity-coded finding cards (CRITICAL DCSync control path, ESC1, Kerberoast, AS-REP, MachineAccountQuota) each validated with a captured PoC, ending in a 13-finding summary](docs/vulns.gif)
+
+*Real `auto` output from the `testlab.local` DC assessment — 13 findings, 4 confirmed with a live PoC (full report: [auto-report.md](auto-report.md)).*
 
 Validators: Kerberoast · AS-REP · DCSync · gMSA read · AD CS ESC1 · LAPS read · ESC8 probe.
 
