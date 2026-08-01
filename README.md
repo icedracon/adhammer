@@ -36,9 +36,9 @@ stack ADhammer implements the matching tradecraft — Kerberos roasting, coercio
 Credentials, DCSync, golden/silver tickets, pass-the-ticket, LAPS read, WinRM/SVCCTL exec, ADCS
 enrollment — each **live-validated against a fully-patched Windows Server 2025 DC**.
 
-![ADhammer demo: DCSync → forge golden ticket → pass-the-ticket over SMB → SYSTEM, run from Kali Linux against a fully-patched Windows Server 2025 DC](docs/demo.gif)
+![ADhammer live attack chain from Kali against a Windows DC: audit the relay-posture, safely detect Zerologon, DCSync the krbtgt key, then forge a golden ticket and pass-the-ticket over SMB to SYSTEM](docs/demo.gif)
 
-*A single Rust binary on Kali: DCSync the krbtgt key → forge a golden ticket → pass-the-ticket over SMB → code execution as `NT AUTHORITY\SYSTEM` on a fully-patched Server 2025 DC.*
+*One Rust binary on Kali, live against a Windows DC: **audit** the DC's NTLM-relay posture → **safely detect Zerologon** (CVE-2020-1472, no reset) → **DCSync** the krbtgt key → **forge a golden ticket** → **pass-the-ticket** over SMB to code-exec as `NT AUTHORITY\SYSTEM`. The same tradecraft is live-validated against a fully-patched **Server 2025** DC (see the [write-up](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)).*
 
 ## Why ADhammer
 
