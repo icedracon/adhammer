@@ -69,7 +69,9 @@ struct HashedBootKey {
 
 fn hashed_bootkey(sam: &Hive, bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     let f = sam.value("SAM\\Domains\\Account", "F")?;
-    if f.len() < 0x70 {
+    // Need through f[0xA0] (kd[24..56]) on the RC4 path; a shorter/crafted F must return None,
+    // not panic on the slice (this parser runs on attacker/analyst-supplied hives).
+    if f.len() < 0xA0 {
         return None;
     }
     let kd = &f[0x68..];

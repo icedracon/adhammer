@@ -90,6 +90,22 @@ pub fn esc10(strong_binding: u32) -> Option<EscHit> {
     })
 }
 
+/// ESC10 when the value is *absent*. The default is version-dependent: Compatibility (weak) on
+/// Server 2016–2022 until the Feb-2025 enforcement, Full (safe) on Server 2025 / enforced builds.
+/// Flag it honestly rather than silently assuming "safe".
+pub fn esc10_absent() -> EscHit {
+    EscHit {
+        id: "A-Esc10",
+        title: "ESC10: DC StrongCertificateBindingEnforcement is not set (default is version-dependent)",
+        detail:
+            "Kdc\\StrongCertificateBindingEnforcement is absent. Its default is Compatibility \
+             (exploitable) on Server 2016–2022 prior to the Feb-2025 enforcement, and Full (safe) \
+             on Server 2025 / enforced builds. Verify the DC's patch level; set it explicitly to 2 \
+             (Full) — KB5014754."
+                .into(),
+    }
+}
+
 /// On a CA `Security` descriptor the low ACCESS_MASK bits are CA-specific rights (certsrv.h):
 /// bit 0 = ManageCA (CA administrator), bit 1 = ManageCertificates (certificate manager/officer).
 /// These are the two rights ESC7 abuses (an officer can issue/approve a request → ESC7 → ESC1-style

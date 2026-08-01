@@ -2119,12 +2119,15 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     );
     let mut hits = Vec::new();
 
-    // InterfaceFlags sits directly under the CA config key.
-    if let Ok(v) = reg.read_value(&ca, "InterfaceFlags").await {
-        if let Some(d) = v.as_dword() {
-            hits.extend(esc11(d));
-        }
-    }
+    // InterfaceFlags sits directly under the CA config key. If absent, the default lacks
+    // IF_ENFORCEENCRYPTICERTREQUEST (relayable), so treat a missing value as 0 rather than skipping.
+    let iflags = reg
+        .read_value(&ca, "InterfaceFlags")
+        .await
+        .ok()
+        .and_then(|v| v.as_dword())
+        .unwrap_or(0);
+    hits.extend(esc11(iflags));
 
     // EditFlags and DisableExtensionList live under the *active policy module* subkey, whose name
     // is the `Active` REG_SZ under `<CA>\PolicyModules` (e.g. CertificateAuthority_MicrosoftDefault.Policy).
@@ -2147,16 +2150,36 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     if let Ok(v) = reg.read_value(&ca, "Security").await {
         hits.extend(esc7(&v.data));
     }
-    // ESC10 lives on the DC's Kdc key (this host, if it's a DC).
-    if let Ok(v) = reg
+    // ESC10 lives on the DC's Kdc key and only applies to a DC. Confirm DC-ness via NTDS first so an
+    // absent value on a CA-only host isn't mis-flagged; on a real DC, an absent value is NOT
+    // automatically safe (weak default on 2016–2022), so flag it with that caveat.
+    let is_dc = reg
         .read_value(
-            "SYSTEM\\CurrentControlSet\\Services\\Kdc",
-            "StrongCertificateBindingEnforcement",
+            "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+            "DSA Working Directory",
         )
         .await
-    {
-        if let Some(d) = v.as_dword() {
-            hits.extend(esc10(d));
+        .is_ok()
+        || reg
+            .read_value(
+                "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+                "Machine DN Name",
+            )
+            .await
+            .is_ok();
+    if is_dc {
+        match reg
+            .read_value(
+                "SYSTEM\\CurrentControlSet\\Services\\Kdc",
+                "StrongCertificateBindingEnforcement",
+            )
+            .await
+        {
+            Ok(v) => match v.as_dword() {
+                Some(d) => hits.extend(esc10(d)),
+                None => hits.push(crate::esc_registry::esc10_absent()),
+            },
+            Err(_) => hits.push(crate::esc_registry::esc10_absent()),
         }
     }
 

