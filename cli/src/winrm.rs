@@ -75,7 +75,7 @@ impl WinRm {
         user: &str,
         secret: &Secret,
     ) -> Result<(Self, String)> {
-        let mut stream = TcpStream::connect((host, port))
+        let mut stream = smb2_client::socks::dial(host, port)
             .await
             .with_context(|| format!("connect {host}:{port}"))?;
         let host_hdr = format!("{host}:{port}");

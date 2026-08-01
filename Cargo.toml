@@ -30,7 +30,7 @@ repository = "https://github.com/icedracon/adhammer"
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
 windows-sddl = "0.1"
 ntlmssp      = "0.1"
-smb2-client  = "0.1"
+smb2-client  = { git = "https://github.com/icedracon/smb2-client.git", branch = "main" }
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
 dcerpc       = { git = "https://github.com/icedracon/dcerpc.git", branch = "main" }

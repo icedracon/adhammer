@@ -31,6 +31,11 @@ struct Cli {
     #[arg(long)]
     no_save: bool,
 
+    /// Route ALL outbound TCP through a SOCKS5 pivot: `[user:pass@]host:port` (proxy-side DNS).
+    /// Covers SMB, RPC/DCSync/Zerologon, LDAP, KDC, WinRM and the network sweep.
+    #[arg(long, global = true, value_name = "[user:pass@]host:port")]
+    socks: Option<String>,
+
     #[command(subcommand)]
     cmd: Option<Command>,
 }
@@ -722,6 +727,20 @@ struct ScanArgs {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_target(false).init();
     let cli = Cli::parse();
+
+    // Register the SOCKS5 pivot (if any) before any connection is made. Every owned transport
+    // (smb2-client, dcerpc) and the in-tree TCP dials consult this global.
+    if let Some(spec) = &cli.socks {
+        match smb2_client::socks::Socks5::parse(spec) {
+            Some(cfg) => {
+                ui::info(&format!("routing all TCP through SOCKS5 {}", cfg.proxy));
+                smb2_client::socks::set_proxy(Some(cfg));
+            }
+            None => {
+                anyhow::bail!("invalid --socks value '{spec}' (expected [user:pass@]host:port)");
+            }
+        }
+    }
 
     match cli.cmd {
         None => interactive::run(cli.old, cli.no_save).await,
@@ -2041,7 +2060,7 @@ async fn netenum(a: NetArgs) -> Result<()> {
 async fn probe_port(host: &str, port: u16) -> Option<Option<String>> {
     use tokio::io::AsyncReadExt;
     use tokio::time::{timeout, Duration};
-    let connect = tokio::net::TcpStream::connect((host, port));
+    let connect = smb2_client::socks::dial(host, port);
     let mut stream = match timeout(Duration::from_millis(800), connect).await {
         Ok(Ok(s)) => s,
         _ => return None, // closed / filtered
@@ -2082,7 +2101,7 @@ async fn deep_check(host: &str, port: u16, zone: Option<&str>) -> Option<String>
 async fn connect(host: &str, port: u16) -> Option<tokio::net::TcpStream> {
     tokio::time::timeout(
         std::time::Duration::from_millis(1200),
-        tokio::net::TcpStream::connect((host, port)),
+        smb2_client::socks::dial(host, port),
     )
     .await
     .ok()?

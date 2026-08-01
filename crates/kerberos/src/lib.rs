@@ -200,7 +200,7 @@ pub(crate) async fn kdc_exchange(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
     } else {
         format!("{kdc}:88")
     };
-    let mut stream = TcpStream::connect(&addr).await?;
+    let mut stream = smb2_client::socks::dial(&addr, 88).await?;
 
     let mut framed = Vec::with_capacity(request.len() + 4);
     framed.extend_from_slice(&(request.len() as u32).to_be_bytes());

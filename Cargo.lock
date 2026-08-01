@@ -101,6 +101,7 @@ dependencies = [
  "serde",
  "sha1",
  "sha2",
+ "smb2-client",
  "tokio",
 ]
 
@@ -511,7 +512,7 @@ dependencies = [
 [[package]]
 name = "dcerpc"
 version = "0.1.0"
-source = "git+https://github.com/icedracon/dcerpc.git?branch=main#060c8f0a518995b88ecc2cc2bd5d79c632b40752"
+source = "git+https://github.com/icedracon/dcerpc.git?branch=main#cef66d694f292f7366d7b487fe2ddb0a684d689a"
 dependencies = [
  "aes",
  "des",
@@ -1718,8 +1719,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 [[package]]
 name = "smb2-client"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6406963a813dcf329766cdc7ff1bb4c7ec73344a63db2f7301fb522e278abd25"
+source = "git+https://github.com/icedracon/smb2-client.git?branch=main#e5bc310a53ce245789599a5b3a291a06046e7be6"
 dependencies = [
  "aes",
  "cmac",

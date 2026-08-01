@@ -25,6 +25,7 @@ rsa = "0.9"
 sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 picky-asn1-x509 = { version = "0.14", features = ["pkcs7"] }
+smb2-client = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 
 [dev-dependencies]
