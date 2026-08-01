@@ -6,11 +6,12 @@ use dialoguer::{Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, exec_cmd, gmsa, golden, laps, lsa,
-    netenum, poison, pth, rbcd, relay, roast, samr, scan, secretsdump, silver, spray, winrm_exec,
-    AbuseArgs, AsktgtArgs, CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, ExecArgs, GmsaArgs,
-    GoldenArgs, LapsArgs, LsaArgs, NetArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs,
-    SecretsdumpArgs, SilverArgs, SprayArgs, WinrmArgs,
+    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
+    golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
+    secretsdump, silver, spray, winrm_exec, zerologon, AbuseArgs, AsktgtArgs, CoerceArgs,
+    DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs,
+    NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
+    SprayArgs, WinrmArgs, ZerologonArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -26,8 +27,11 @@ enum Action {
     NetSweep,
     DnsEnum,
     AdcsEnum,
+    EnumEsc,
+    EnumPosture,
     Abuse,
     Coerce,
+    Zerologon,
     Rbcd,
     Dcsync,
     Capture,
@@ -49,7 +53,7 @@ enum Action {
 }
 
 const MENU: &[(&str, Action)] = &[
-    ("Scan — passive audit (33 checks + graph)", Action::Scan),
+    ("Scan — passive audit (41 checks + graph)", Action::Scan),
     (
         "Guided — scan → confirm each weakness → validate + PoC report",
         Action::Guided,
@@ -64,8 +68,20 @@ const MENU: &[(&str, Action)] = &[
         "AD CS — enumerate CAs + ESC8 web-enrollment check",
         Action::AdcsEnum,
     ),
+    (
+        "ESC (registry) — ESC6/7/10/11/16 over MS-RRP",
+        Action::EnumEsc,
+    ),
+    (
+        "Posture — LDAP signing / channel binding + Spooler (relay enablers)",
+        Action::EnumPosture,
+    ),
     ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
     ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
+    (
+        "Zerologon — CVE-2020-1472 SAFE detection (no reset)",
+        Action::Zerologon,
+    ),
     ("RBCD — impersonation chain", Action::Rbcd),
     ("DCSync — replicate secrets", Action::Dcsync),
     ("Capture — NTLM listener", Action::Capture),
@@ -338,6 +354,46 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user: s.username.clone(),
                 password: s.password.clone(),
                 insecure: s.insecure,
+            })
+            .await
+        }
+        Action::EnumEsc => {
+            let ca: String = Input::new()
+                .with_prompt("CA name (the Configuration\\<CA> key, e.g. corp-CA)")
+                .interact_text()?;
+            esc_registry_scan(EscArgs {
+                host: s.dc.clone(),
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                ca,
+            })
+            .await
+        }
+        Action::EnumPosture => {
+            posture_scan(PostureArgs {
+                host: s.dc.clone(),
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+            })
+            .await
+        }
+        Action::Zerologon => {
+            let netbios: String = Input::new()
+                .with_prompt("DC NetBIOS computer name (e.g. DC01)")
+                .interact_text()?;
+            // Interactive mode offers SAFE detection only — never the destructive exploit.
+            zerologon(ZerologonArgs {
+                host: s.dc.clone(),
+                netbios,
+                attempts: 2000,
+                exploit: false,
+                yes: false,
+                confirm_brick_risk: false,
+                domain: s.netbios(),
+                restore: None,
+                restore_password: None,
             })
             .await
         }

@@ -23,7 +23,6 @@ use picky_krb::data_types::{KerberosTime, PrincipalName};
 use picky_krb::messages::{AsRep, AsReq, KdcReq, KdcReqBody};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
 pub mod csr;
 pub mod gss;
