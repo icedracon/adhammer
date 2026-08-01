@@ -15,7 +15,8 @@ gssapi = ["ldap3/gssapi"]
 [dependencies]
 adhammer-core = { workspace = true }
 ldap3 = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util"] }
+smb2-client = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 native-tls = "0.2"

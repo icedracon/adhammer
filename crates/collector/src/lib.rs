@@ -165,15 +165,63 @@ pub struct LapsEntry {
     pub source: &'static str,
 }
 
+/// When a global SOCKS5 proxy is set, ldap3 (which owns its own TCP connect and can't be
+/// handed a pre-dialed socket) is pointed at a local one-shot forwarder that tunnels the
+/// connection to the DC through the proxy. Returns the rewritten `127.0.0.1:<port>` URL, or
+/// `None` when no proxy is active (ldap3 connects directly).
+async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> {
+    if smb2_client::socks::proxy().is_none() {
+        return Ok(None);
+    }
+    let scheme = if url.starts_with("ldaps://") { "ldaps" } else { "ldap" };
+    let default_port: u16 = if scheme == "ldaps" { 636 } else { 389 };
+    let hostport = url.split("://").nth(1).unwrap_or(url);
+    let hostport = hostport.split('/').next().unwrap_or(hostport);
+    let host = hostport.split(':').next().unwrap_or("").to_string();
+    let port: u16 = hostport
+        .rsplit(':')
+        .next()
+        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && *p != hostport)
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(default_port);
+    // LDAPS over the tunnel presents the DC's cert to a client that dialed 127.0.0.1, so the
+    // hostname can never match — this only works with the cert-skipping connector.
+    if scheme == "ldaps" && !insecure {
+        anyhow::bail!(
+            "LDAPS through --socks needs --insecure (the DC cert can't match the local tunnel \
+             endpoint); re-run with --insecure or use an ldap:// URL"
+        );
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("bind local LDAP→SOCKS forwarder")?;
+    let local = listener.local_addr()?.port();
+    tokio::spawn(async move {
+        while let Ok((mut inbound, _)) = listener.accept().await {
+            let host = host.clone();
+            tokio::spawn(async move {
+                if let Ok(mut outbound) = smb2_client::socks::dial(&host, port).await {
+                    let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                }
+            });
+        }
+    });
+    Ok(Some(format!("{scheme}://127.0.0.1:{local}")))
+}
+
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
+        // Route ldap3's connect through the SOCKS pivot when one is configured.
+        let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
+            .await?
+            .unwrap_or_else(|| cfg.url.clone());
         let (conn, mut ldap) = if cfg.insecure {
             let settings = ldap3::LdapConnSettings::new().set_connector(insecure_connector()?);
-            LdapConnAsync::with_settings(settings, &cfg.url)
+            LdapConnAsync::with_settings(settings, &dial_url)
                 .await
                 .context("ldap connect")?
         } else {
-            LdapConnAsync::new(&cfg.url).await.context("ldap connect")?
+            LdapConnAsync::new(&dial_url).await.context("ldap connect")?
         };
         ldap3::drive!(conn);
 

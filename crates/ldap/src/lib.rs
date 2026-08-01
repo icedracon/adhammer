@@ -103,12 +103,17 @@ pub struct LdapClient {
 
 impl LdapClient {
     pub async fn connect(addr: &str) -> Result<Self> {
-        let addr = if addr.contains(':') {
-            addr.to_string()
-        } else {
-            format!("{addr}:389")
+        // Split an optional explicit port so the connection can be routed through the global
+        // SOCKS5 pivot (dial() falls back to a direct connect when no proxy is set).
+        let (host, port) = match addr.rsplit_once(':') {
+            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
+                (h, p.parse().unwrap_or(389))
+            }
+            _ => (addr, 389u16),
         };
-        let stream = TcpStream::connect(&addr).await.context("ldap connect")?;
+        let stream = smb2_client::socks::dial(host, port)
+            .await
+            .context("ldap connect")?;
         Ok(LdapClient { stream, msg_id: 0 })
     }
 
