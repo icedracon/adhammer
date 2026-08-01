@@ -210,6 +210,12 @@ impl Hive {
                 // data stored in the offset field itself (≤ 4 bytes).
                 return Some(vk[0x08..0x08 + data_len.min(4)].to_vec());
             }
+            // Values > 16344 bytes use "db" big-data indirection (data split across blocks). We
+            // don't reassemble those, so return None rather than risk handing back the indirection
+            // cell's raw bytes as if they were the value (silent garbage → wrong decryption).
+            if data_len > 16344 {
+                return None;
+            }
             let cell = self.cell(data_off)?;
             return cell.get(0..data_len).map(|s| s.to_vec());
         }
