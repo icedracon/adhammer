@@ -75,7 +75,9 @@ fn hashed_bootkey(sam: &Hive, bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     let kd = &f[0x68..];
     let revision = kd[0];
     match revision {
-        2 => {
+        // Revision 1 (≤ Server 2012 R2) and 2 share the RC4 SAM_KEY_DATA structure + derivation;
+        // revision 3 (Server 2016+) is AES.
+        1 | 2 => {
             // SAM_KEY_DATA: Revision(4) Length(4) Salt(16) Key(16) CheckSum(16).
             let salt = &kd[8..24];
             let enc = &kd[24..56]; // Key(16) + CheckSum(16)
