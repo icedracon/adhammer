@@ -5,11 +5,16 @@
 //!   ADH_DC=10.0.0.1 ADH_DOMAIN=CORP ADH_REALM=CORP.LOCAL \
 //!   ADH_USER=Administrator ADH_PASS='...' cargo test -p adhammer --test integration -- --ignored --test-threads=1
 //!
+//! Optional per-test gates (a test skips cleanly if its env is unset): `ADH_CA` (enum esc),
+//! `ADH_NETBIOS` (zerologon detect), `ADH_KRBTGT_AES256` + `ADH_DOMAIN_SID` + `ADH_SPN`
+//! (golden/pth), `ADH_OPTH_USER` + `ADH_OPTH_HASH` (overpass-the-hash).
+//!
 //! Use `--test-threads=1`: these share one DC and the SVCCTL-exec tests churn services rapidly,
 //! so running them concurrently can race the detached-exec output read.
 //!
 //! Each asserts a known-good outcome (e.g. krbtgt hash is 32 hex, exec returns SYSTEM), so a
-//! regression in DCSync/exec/SAMR/secretsdump/ESC1 fails the run instead of silently shipping.
+//! regression in DCSync/exec/SAMR/secretsdump/ESC1/esc/posture/zerologon fails the run instead of
+//! silently shipping. This is the reproducible backing for the legacy-DC matrix.
 
 use std::process::Command;
 
@@ -477,4 +482,78 @@ fn overpass_the_hash_gets_tgt() {
         return;
     };
     assert!(o.contains("TGT obtained"), "overpass-the-hash failed:\n{o}");
+}
+
+#[test]
+#[ignore = "live DC"]
+fn enum_esc_registry_checks() {
+    // ESC6/7/10/11/16 over MS-RRP. Needs the CA name (ADH_CA) and Remote Registry running.
+    let Some(ca) = env("ADH_CA") else { return };
+    let pw = pass();
+    let Some(o) = run(&[
+        "enum", "esc", "--host", &dc(), "--domain", &domain(), "--user", &user(),
+        "--password", &pw, "--ca", &ca,
+    ]) else {
+        return;
+    };
+    // A valid run either reaches the registry and lists ESC hits, or cleanly reports none —
+    // both prove the SMB → \winreg → decision path works end to end.
+    assert!(
+        o.contains("Remote Registry reachable"),
+        "enum esc did not reach the registry:\n{o}"
+    );
+    assert!(
+        o.contains("A-Esc") || o.contains("no registry-based ESC"),
+        "enum esc produced no verdict:\n{o}"
+    );
+}
+
+#[test]
+#[ignore = "live DC"]
+fn enum_posture_relay_enablers() {
+    // LDAP signing / channel binding + Spooler over MS-RRP.
+    let pw = pass();
+    let Some(o) = run(&[
+        "enum", "posture", "--host", &dc(), "--domain", &domain(), "--user", &user(),
+        "--password", &pw,
+    ]) else {
+        return;
+    };
+    assert!(
+        o.contains("A-Ldap") || o.contains("A-SpoolerOnDc") || o.contains("no relay/coercion"),
+        "enum posture produced no verdict:\n{o}"
+    );
+}
+
+#[test]
+#[ignore = "live DC"]
+fn zerologon_detect_reports_verdict() {
+    // SAFE detection only (never resets the machine password). Needs the DC NetBIOS name.
+    let Some(netbios) = env("ADH_NETBIOS") else { return };
+    let Some(o) = run(&["attack", "zerologon", "--host", &dc(), "--netbios", &netbios]) else {
+        return;
+    };
+    assert!(
+        o.contains("VULNERABLE to Zerologon") || o.contains("not vulnerable to Zerologon"),
+        "zerologon probe gave no verdict:\n{o}"
+    );
+}
+
+#[test]
+#[ignore = "live DC"]
+fn asktgt_returns_ccache() {
+    // Password → TGT, exercising the AES path (and the RC4 fallback for AES-keyless accounts).
+    let pw = pass();
+    if pw.is_empty() {
+        return;
+    }
+    let realm = env("ADH_REALM").unwrap_or_else(|| "CORP.LOCAL".into());
+    let out = std::env::temp_dir().join("adh_asktgt.ccache");
+    let Some(o) = run(&[
+        "attack", "asktgt", "--user", &user(), "--realm", &realm, "--kdc", &dc(),
+        "--password", &pw, "--out", out.to_str().unwrap(),
+    ]) else {
+        return;
+    };
+    assert!(o.contains("TGT obtained"), "asktgt failed:\n{o}");
 }
