@@ -59,6 +59,7 @@ dependencies = [
  "anyhow",
  "ldap3",
  "native-tls",
+ "smb2-client",
  "tokio",
  "tracing",
 ]
@@ -512,7 +513,7 @@ dependencies = [
 [[package]]
 name = "dcerpc"
 version = "0.1.0"
-source = "git+https://github.com/icedracon/dcerpc.git?branch=main#cef66d694f292f7366d7b487fe2ddb0a684d689a"
+source = "git+https://github.com/icedracon/dcerpc.git?branch=main#854cfd1bb1c81b693d6ce6ead55aa4bb7d31a006"
 dependencies = [
  "aes",
  "des",

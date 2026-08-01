@@ -8,7 +8,7 @@ use crate::session::{self, Session};
 use crate::{
     abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
     golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
-    secretsdump, silver, spray, winrm_exec, zerologon, AbuseArgs, AsktgtArgs, CoerceArgs,
+    secretsdump, silver, spray, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs, CoerceArgs,
     DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs,
     NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
     SprayArgs, WinrmArgs, ZerologonArgs,
@@ -38,6 +38,7 @@ enum Action {
     Poison,
     Relay,
     Exec,
+    Wmiexec,
     Winrm,
     Secretsdump,
     Gmsa,
@@ -91,6 +92,7 @@ const MENU: &[(&str, Action)] = &[
         "Exec — SVCCTL command as LocalSystem (psexec)",
         Action::Exec,
     ),
+    ("WMIexec — DCOM Win32_Process.Create (output over C$)", Action::Wmiexec),
     ("WinRM — run a command over WS-Man (5985)", Action::Winrm),
     (
         "Secretsdump — local SAM hashes (reg save + C$)",
@@ -550,6 +552,21 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text("whoami")
                 .interact_text()?;
             exec_cmd(ExecArgs {
+                host: s.dc.clone(),
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                nt_hash: sess_hash(s),
+                command,
+            })
+            .await
+        }
+        Action::Wmiexec => {
+            let command: String = Input::new()
+                .with_prompt("Command to run over WMI (Win32_Process.Create)")
+                .with_initial_text("whoami")
+                .interact_text()?;
+            wmiexec_cmd(ExecArgs {
                 host: s.dc.clone(),
                 domain: s.netbios(),
                 user: s.username.clone(),

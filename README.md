@@ -93,8 +93,9 @@ Power-user subcommands:
 scan                                        passive audit → JSON/HTML (+ --sysvol, --bloodhound out.zip)
 auto                                         guided: scan → confirm each weakness → validate + PoC report
 enum   {samr, lsa, net, dns, adcs, esc, posture}  RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture
-attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, secretsdump,
-        gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison, relay, zerologon}
+attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, wmiexec,
+        secretsdump, gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison,
+        relay, zerologon}
 ```
 
 **Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then walks
@@ -162,7 +163,9 @@ against the DC.
   tickets** with a from-scratch PAC (accepted by a patched 2025 KDC, KB5020805), **pass-the-ticket**
   over SMB.
 - **Lateral / exec** — **SVCCTL** (psexec-style, LocalSystem, C$ output), **WinRM** (WS-Man + NTLM
-  message encryption, no service-install event), **TSCH** (`atexec`).
+  message encryption, no service-install event), **TSCH** (`atexec`), and **WMI** (`wmiexec` — DCOM
+  activation → OXID resolve → `IWbemServices::ExecMethod Win32_Process.Create`, from a hand-built
+  MS-DCOM/MS-WMIO stack, output over C$).
 - **ADCS** — **ESC1** enrollment (spoofed-UPN SAN over MS-ICPR) → client-auth cert as the target,
   and **ESC6/7/10/11/16** decided from the CA/DC registry over **MS-RRP** (`enum esc`, the checks
   LDAP can't see — incl. ESC7 non-admin ManageCA/ManageCertificates from the CA `Security` SD).

