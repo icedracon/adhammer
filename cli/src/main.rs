@@ -42,7 +42,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Passive audit: LDAP collection → control-path graph → 33 checks → scored report.
+    /// Passive audit: LDAP collection → control-path graph → 41 checks → scored report.
     Scan(ScanArgs),
     /// Read-only enumeration over RPC (SAMR users, LSAT name↔SID).
     #[command(subcommand)]
