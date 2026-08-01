@@ -392,7 +392,11 @@ fn golden_ticket_accepted() {
         return;
     };
     let realm = env("ADH_REALM").unwrap_or_else(|| "CORP.LOCAL".into());
-    let spn = format!("cifs/dc01.{}", realm.to_lowercase());
+    // Prefer an explicit ADH_SPN, else derive from the DC name (ADH_NETBIOS), else the old default.
+    let spn = env("ADH_SPN").unwrap_or_else(|| {
+        let host = env("ADH_NETBIOS").unwrap_or_else(|| "dc01".into());
+        format!("cifs/{}.{}", host.to_lowercase(), realm.to_lowercase())
+    });
     let Some(o) = run(&[
         "attack",
         "golden",
