@@ -131,6 +131,11 @@ struct ZerologonArgs {
     /// Skip the exploit confirmation prompt (unattended).
     #[arg(long)]
     yes: bool,
+    /// Required to arm --exploit. The reset can PERMANENTLY BREAK a single-DC domain: restore is
+    /// only reliable with the original cleartext and is not guaranteed on a lone DC. Pass this only
+    /// after reading that and confirming an authorized, recoverable (multi-DC or disposable) target.
+    #[arg(long)]
+    confirm_brick_risk: bool,
     /// NetBIOS domain (for the DCSync proof), e.g. CORP.
     #[arg(long, default_value = "")]
     domain: String,
@@ -2249,9 +2254,15 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
         return Ok(());
     }
 
-    // --- Exploitation (DESTRUCTIVE) — explicit opt-in ---
-    ui::warn("EXPLOIT will reset the DC machine account password to EMPTY (destructive).");
-    ui::warn("The DC's secure channel breaks until restored; only run against systems you are authorized to test.");
+    // --- Exploitation (DESTRUCTIVE) — double-gated ---
+    ui::bad("EXPLOIT resets the DC machine account password to EMPTY. This is DESTRUCTIVE.");
+    ui::warn("It orphans the DC's secure channel and can PERMANENTLY BREAK a single-DC domain —");
+    ui::warn("restore requires the ORIGINAL machine secret and is NOT guaranteed on a lone DC.");
+    ui::warn("Only run against an authorized, RECOVERABLE target (multi-DC domain, or disposable).");
+    if !a.confirm_brick_risk {
+        ui::info("refusing to exploit: re-run with --confirm-brick-risk once you accept the above.");
+        return Ok(());
+    }
     if !a.yes {
         use std::io::Write;
         print!("Proceed with exploitation? [y/N]: ");
