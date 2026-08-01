@@ -513,7 +513,7 @@ dependencies = [
 [[package]]
 name = "dcerpc"
 version = "0.1.0"
-source = "git+https://github.com/icedracon/dcerpc.git?branch=main#854cfd1bb1c81b693d6ce6ead55aa4bb7d31a006"
+source = "git+https://github.com/icedracon/dcerpc.git?branch=main#0ed22edfbac7be419e9bb99c487d374260d9d776"
 dependencies = [
  "aes",
  "des",
