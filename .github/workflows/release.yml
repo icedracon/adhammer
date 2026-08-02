@@ -1,0 +1,56 @@
+name: release
+
+# Cross-compiled release binaries. The default build is pure-Rust (rustls) with no OpenSSL, so
+# every target builds with a plain toolchain — a fully static x86_64 Linux binary needs only
+# musl-tools. Push a tag (v1.2.3) or run manually to build and attach the assets to the release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest } # fully static, drop-anywhere
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: musl tools
+        if: endsWith(matrix.target, '-linux-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: build (default features = rustls, no OpenSSL)
+        run: cargo build --release --bin adhammer --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
+          asset="adhammer-${{ matrix.target }}${ext}"
+          cp "target/${{ matrix.target }}/release/adhammer${ext}" "$asset"
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+      - name: attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          # Legacy DCs with SHA-1 LDAPS certs need a native-TLS build from source:
+          #   cargo build --release --no-default-features --features tls-native
+          body: |
+            Static/cross-compiled binaries (pure-Rust rustls TLS — no OpenSSL).
+            For legacy DCs with SHA-1 LDAPS certs, build from source with
+            `--no-default-features --features tls-native`.
