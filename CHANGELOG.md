@@ -5,7 +5,23 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-08-02
+
 ### Added
+- **WMI / DCOM remote execution** (`attack wmiexec`) — a from-scratch MS-DCOM + MS-WMIO stack:
+  `RemoteCreateInstance` activation → OXID-binding resolve → object-ORPC (`PFC_OBJECT_UUID`) →
+  `IWbemLevel1Login::NTLMLogin` → `IWbemServices::ExecMethod Win32_Process.Create`. Runs an arbitrary
+  command detached under WmiPrvSE, captures output over C$; **password or pass-the-hash**. No service
+  or scheduled task (distinct host telemetry from `exec`/`atexec`). Live-verified vs a Windows DC.
+- **Hygiene checks → 41 total** — privileged-account, stale-object and password-policy rules on top of
+  the PingCastle-class set.
+- **`enum esc`** — AD CS ESC6/7/10/11/16 over a from-scratch MS-RRP remote-registry client (takes ESC
+  coverage to 15/16); **`enum posture`** — LDAP signing / channel binding / Spooler relay-enablers.
+- **`attack zerologon`** — CVE-2020-1472 **safe detection** (never resets the machine password).
+- **SOCKS5 pivot** (`--socks`) routing all outbound TCP — SMB, RPC/DCSync, LDAP collection, KDC, WinRM,
+  and the network sweep — through a proxy with proxy-side DNS.
+- **Legacy-DC support matrix** — live-validated on Server 2012 R2 / 2016 / 2019 / 2022 in addition to
+  fully-patched 2025 (golden ticket KDC-accepted on every version).
 - **Guided exploitation** (`adhammer auto`, + interactive "Guided" menu item) — scan → correlate
   findings → for each weakness **ask the operator "validate + capture a PoC?"** → run the matching
   attack (Kerberoast, DCSync, gMSA read, AD CS ESC1) → capture the exact command + output as
@@ -19,6 +35,22 @@ All notable changes to ADhammer are documented here. Format loosely follows
   - **Opportunistic active checks** beyond the passive scan: LAPS local-admin read and AD CS ESC8
     web-enrollment probe, added to the report only when a weakness is confirmed (live-validated: a
     seeded LAPS password was recovered into the PoC). Coercion/relay deferred (need a capture listener).
+
+### Changed
+- **TLS backend is now a Cargo feature — rustls by default.** The default build is pure-Rust (no
+  `openssl-sys`, no system libraries), so it cross-compiles cleanly and static-links (a fully static
+  `x86_64-unknown-linux-musl` binary). `--no-default-features --features tls-native` selects the
+  OpenSSL/Schannel backend for legacy DCs whose LDAPS certs use SHA-1 handshake signatures.
+
+### Fixed
+- **SOCKS pivot now covers LDAP collection** — ldap3 owns its own connect, so a local forwarder
+  bridges it through the proxy (the `--socks` help claimed LDAP coverage that the collector bypassed).
+- **S4U / service-ticket etype robustness** — `get_service_ticket` offers RC4 alongside AES256 (an
+  overpass-the-hash TGT is RC4); `pa_for_user` rejects a non-AES256 TGT key with a clear error.
+
+### CI
+- **Release workflow** — cross-compiled binaries (x86_64 linux-musl static / linux-gnu / windows-msvc,
+  aarch64 macOS) built and attached to the GitHub release on tag push.
 
 ## [1.1.0] — 2026-07-29
 
