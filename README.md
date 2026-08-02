@@ -62,17 +62,27 @@ exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 ## Install
 
 ```sh
-cargo install adhammer
+cargo install adhammer          # or: git clone … && cargo build --release
 ```
 
-On Debian/Kali, install the build deps first (the LDAP layer links system TLS):
+The default build is **pure-Rust** (rustls) — no OpenSSL, no system libraries — so it
+**cross-compiles cleanly and static-links** (e.g. a fully static `x86_64-unknown-linux-musl`
+binary you can drop on any Linux box):
 
 ```sh
-sudo apt-get install -y build-essential pkg-config libssl-dev
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
 ```
 
-Or grab a prebuilt binary from [Releases](https://github.com/icedracon/adhammer/releases), or build
-from source (`git clone … && cargo build --release`). Requires Rust 1.80+.
+**Legacy DCs (SHA-1 LDAPS certs):** rustls refuses SHA-1 handshake signatures, so for those hosts
+build with the native-TLS backend (OpenSSL/Schannel) instead:
+
+```sh
+sudo apt-get install -y build-essential pkg-config libssl-dev   # Debian/Kali
+cargo build --release --no-default-features --features tls-native
+```
+
+Prebuilt binaries: [Releases](https://github.com/icedracon/adhammer/releases). Requires Rust 1.80+.
 
 ## Usage
 

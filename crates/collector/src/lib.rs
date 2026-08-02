@@ -111,16 +111,29 @@ fn url_host(url: &str) -> String {
         .to_string()
 }
 
-/// A native-TLS connector that skips certificate + hostname checks — for `--insecure`
-/// LDAPS against self-signed / legacy (e.g. SHA-1-signed) DC certificates. native-TLS
-/// (OpenSSL on Unix, Schannel on Windows) accepts the SHA-1 handshake signatures that
-/// rustls refuses outright, so this reaches DCs rustls cannot.
-fn insecure_connector() -> Result<native_tls::TlsConnector> {
-    native_tls::TlsConnector::builder()
+#[cfg(not(any(feature = "tls-native", feature = "tls-rustls")))]
+compile_error!("enable a TLS backend: `tls-rustls` (default) or `tls-native`");
+
+/// `--insecure` LDAPS settings that skip certificate + hostname verification (self-signed /
+/// legacy DC certs, or an IP/tunnel endpoint that can't match the cert CN).
+///
+/// tls-native path: a custom connector setting BOTH danger flags — ldap3's own `no_tls_verify`
+/// skips certs but not hostnames, and native-TLS (OpenSSL/Schannel) also accepts the SHA-1
+/// handshake signatures rustls refuses, reaching legacy DCs rustls cannot.
+#[cfg(feature = "tls-native")]
+fn insecure_settings() -> Result<ldap3::LdapConnSettings> {
+    let connector = native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .build()
-        .context("build native-tls connector")
+        .context("build native-tls connector")?;
+    Ok(ldap3::LdapConnSettings::new().set_connector(connector))
+}
+
+/// rustls path: ldap3's built-in `NoCertVerification` skips both cert and hostname checks.
+#[cfg(all(feature = "tls-rustls", not(feature = "tls-native")))]
+fn insecure_settings() -> Result<ldap3::LdapConnSettings> {
+    Ok(ldap3::LdapConnSettings::new().set_no_tls_verify(true))
 }
 
 pub struct Collector {
@@ -216,8 +229,7 @@ impl Collector {
             .await?
             .unwrap_or_else(|| cfg.url.clone());
         let (conn, mut ldap) = if cfg.insecure {
-            let settings = ldap3::LdapConnSettings::new().set_connector(insecure_connector()?);
-            LdapConnAsync::with_settings(settings, &dial_url)
+            LdapConnAsync::with_settings(insecure_settings()?, &dial_url)
                 .await
                 .context("ldap connect")?
         } else {

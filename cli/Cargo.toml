@@ -10,6 +10,16 @@ repository.workspace = true
 name = "adhammer"
 path = "src/main.rs"
 
+[features]
+default = ["tls-rustls"]
+# TLS backend for LDAPS (forwarded to adhammer-collector):
+#   tls-rustls (default) — pure-Rust, static/musl, cross-compiles with no OpenSSL.
+#   tls-native           — OpenSSL/Schannel; reaches legacy DCs with SHA-1 certs.
+# Legacy build:  cargo build --release --no-default-features --features tls-native
+tls-rustls = ["adhammer-collector/tls-rustls"]
+tls-native = ["adhammer-collector/tls-native"]
+gssapi = ["adhammer-collector/gssapi"]
+
 [dependencies]
 adhammer-core = { workspace = true }
 windows-sddl = { workspace = true }
