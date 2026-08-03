@@ -278,7 +278,7 @@ impl Check for DefaultAdministratorActive {
         let Some(admin) = snap.by_rid(500) else {
             return vec![];
         };
-        if !age_days(admin, "lastLogonTimestamp").is_some_and(|d| d <= RECENT_DAYS) {
+        if age_days(admin, "lastLogonTimestamp").is_none_or(|d| d > RECENT_DAYS) {
             return vec![];
         }
         vec![Finding {

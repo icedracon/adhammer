@@ -113,7 +113,7 @@ impl Check for DcsyncPath {
         let close: Vec<String> = paths
             .iter()
             .filter(|p| p.cost <= 1)
-            .map(|p| format!("{} → {} (cost {})", p.principal, p.target, p.cost))
+            .map(|p| format!("{} (cost {})", p.render(), p.cost))
             .collect();
         if close.is_empty() {
             return vec![];

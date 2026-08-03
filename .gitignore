@@ -17,3 +17,8 @@ venv/
 *.ccache
 *.kirbi
 *.pcap
+
+# local run artefacts — never commit
+auto-report.md
+esc1.crt
+esc1.crt.key.pem

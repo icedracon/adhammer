@@ -3336,6 +3336,19 @@ async fn scan(a: ScanArgs) -> Result<()> {
         ));
     }
 
+    // The cheapest routes, hop by hop, with the command that walks each hop. A hop with no
+    // executor is printed as such rather than silently skipped.
+    for p in paths.iter().take(5) {
+        eprintln!("\n[>] {} (cost {})", p.render(), p.cost);
+        for (i, s) in p.steps.iter().enumerate() {
+            match &s.command {
+                Some(c) => eprintln!("    {}. {:<26} {}", i + 1, s.edge, c),
+                None => eprintln!("    {}. {:<26} (detection only)", i + 1, s.edge),
+            }
+            eprintln!("       fix: {}", s.mitigation);
+        }
+    }
+
     // Optional BloodHound export (SharpHound-compatible .zip) alongside the report.
     if let Some(path) = &a.bloodhound {
         let p = std::path::Path::new(path);

@@ -96,16 +96,65 @@ impl Report {
             "<!doctype html><meta charset=utf-8><title>ADhammer — {dom}</title>\
              <style>body{{font:14px system-ui;margin:2rem}}table{{border-collapse:collapse;width:100%}}\
              td,th{{border:1px solid #ccc;padding:4px 8px;text-align:left}}\
-             h1 small{{color:#888}}</style>\
+             h1 small{{color:#888}}\
+             .path{{border:1px solid #ccc;margin:1rem 0;padding:.5rem 1rem}}\
+             .route{{font-weight:600}}\
+             .hop{{margin:.5rem 0 .5rem 1rem;border-left:3px solid #ddd;padding-left:.75rem}}\
+             .cmd{{font-family:ui-monospace,Consolas,monospace;background:#f4f4f4;padding:2px 6px;display:inline-block}}\
+             .todo{{color:#a60;font-style:italic}}\
+             .fix{{color:#060}}</style>\
              <h1>ADhammer report <small>{dom}</small></h1>\
              <p>Total risk score: <b>{score}</b> — graph: {nodes} nodes / {edges} edges</p>\
-             <table><tr><th>Severity</th><th>Rule</th><th>Category</th><th>Finding</th><th>#</th></tr>{rows}</table>",
+             <table><tr><th>Severity</th><th>Rule</th><th>Category</th><th>Finding</th><th>#</th></tr>{rows}</table>\
+             {paths}",
             dom = html_escape(&self.domain),
             score = self.total_score,
             nodes = self.graph_nodes,
             edges = self.graph_edges,
             rows = rows,
+            paths = self.paths_html(),
         )
+    }
+
+    /// The kill-chain section: each route to Tier-0 hop by hop, with the command that walks
+    /// the hop and the change that removes it.
+    fn paths_html(&self) -> String {
+        if self.top_paths.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("<h2>Attack paths to Tier-0</h2>");
+        for p in &self.top_paths {
+            out.push_str(&format!(
+                "<div class=path><div class=route>{route}</div>\
+                 <div>cost {cost}{exec}</div>",
+                route = html_escape(&p.render()),
+                cost = p.cost,
+                exec = if p.fully_executable() {
+                    " · every hop is executable"
+                } else {
+                    ""
+                },
+            ));
+            for (i, s) in p.steps.iter().enumerate() {
+                let cmd = match &s.command {
+                    Some(c) => format!("<div class=cmd>{}</div>", html_escape(c)),
+                    None => "<div class=todo>no executor yet — detection only</div>".into(),
+                };
+                out.push_str(&format!(
+                    "<div class=hop><b>{n}. {edge}</b> — {from} → {to}<br>{impact}<br>{cmd}\
+                     <div class=fix>fix: {fix}</div></div>",
+                    n = i + 1,
+                    edge = s.edge,
+                    from = html_escape(&s.from),
+                    to = html_escape(&s.to),
+                    impact = html_escape(s.impact),
+                    cmd = cmd,
+                    fix = html_escape(s.mitigation),
+                ));
+            }
+            out.push_str("</div>");
+        }
+        out
     }
 }
 

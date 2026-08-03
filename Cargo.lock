@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "ad-acl"
+version = "0.1.0"
+dependencies = [
+ "windows-sddl 0.1.1",
+]
+
+[[package]]
 name = "adhammer"
 version = "1.2.0"
 dependencies = [
@@ -29,7 +36,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "windows-sddl",
+ "windows-sddl 0.1.1",
 ]
 
 [[package]]
@@ -39,7 +46,7 @@ dependencies = [
  "adhammer-core",
  "serde",
  "serde_json",
- "windows-sddl",
+ "windows-sddl 0.1.1",
 ]
 
 [[package]]
@@ -48,7 +55,7 @@ version = "1.2.0"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
- "windows-sddl",
+ "windows-sddl 0.1.1",
 ]
 
 [[package]]
@@ -70,17 +77,18 @@ version = "1.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
- "windows-sddl",
+ "windows-sddl 0.1.1",
 ]
 
 [[package]]
 name = "adhammer-graph"
 version = "1.2.0"
 dependencies = [
+ "ad-acl",
  "adhammer-core",
  "petgraph",
  "serde",
- "windows-sddl",
+ "windows-sddl 0.1.1",
 ]
 
 [[package]]
@@ -594,7 +602,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "windows-sddl",
+ "windows-sddl 0.1.0",
 ]
 
 [[package]]
@@ -2588,6 +2596,14 @@ name = "windows-sddl"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f38453f10d23860a2985bfe60012b8e28c84144a6d4e4b5bf61a2eafedf319c9"
+dependencies = [
+ "bitflags",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "windows-sddl"
+version = "0.1.1"
 dependencies = [
  "bitflags",
  "thiserror 2.0.18",
