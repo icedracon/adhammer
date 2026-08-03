@@ -176,7 +176,7 @@ $msDnsp = $LASTEXITCODE
 Pop-Location
 
 Write-Host "`n=== registry-pol: parse + re-encode ==="
-Push-Location (Join-Path $CratesRoot 'registry-pol')
+Push-Location (Join-Path $CratesRoot 'preg')
 $pols = (Get-ChildItem $polDir -Filter '*.pol' | ForEach-Object { $_.FullName })
 if ($pols) { cargo run --quiet --example roundtrip_file -- @pols; $regPol = $LASTEXITCODE }
 else { Write-Host "no Registry.pol files found"; $regPol = 0 }
@@ -200,7 +200,7 @@ Pop-Location
 Write-Host "`n────────── summary ──────────"
 foreach ($row in @(
     @{ n = 'ad-acl'; c = $adAcl }, @{ n = 'ms-dnsp'; c = $msDnsp },
-    @{ n = 'registry-pol'; c = $regPol }, @{ n = 'dpapi-ng'; c = $dpapi })) {
+    @{ n = 'preg'; c = $regPol }, @{ n = 'dpapi-ng'; c = $dpapi })) {
     $verdict = if ($row.c -eq 0) { 'ok' } else { 'FAILED' }
     "{0,-14} {1}" -f $row.n, $verdict | Write-Host
 }
