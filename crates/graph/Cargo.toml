@@ -9,5 +9,6 @@ repository.workspace = true
 [dependencies]
 adhammer-core = { workspace = true }
 windows-sddl = { workspace = true }
+ad-acl = { workspace = true }
 petgraph = { workspace = true }
 serde = { workspace = true }

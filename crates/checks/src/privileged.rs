@@ -138,9 +138,9 @@ impl Check for ShadowCredentialsPath {
         "P-ShadowCred"
     }
     fn run(&self, _snap: &Snapshot, g: &ControlGraph) -> Vec<Finding> {
-        use adhammer_graph::EdgeKind;
+        use adhammer_graph::ControlPrimitive;
         let hits: Vec<String> = g
-            .direct_edges_to_tier0(EdgeKind::AddKeyCredential)
+            .direct_edges_to_tier0(ControlPrimitive::AddKeyCredential.into())
             .into_iter()
             .map(|(src, dst)| format!("{src} → {dst} (msDS-KeyCredentialLink write)"))
             .collect();

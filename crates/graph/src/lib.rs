@@ -11,21 +11,15 @@ use adhammer_core::AdObject;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
-use windows_sddl::{rights, AccessMask, AceType};
 
+pub use ad_acl::{ControlPrimitive, SchemaMap};
+
+/// Edge label. ACL-derived edges are [`ad_acl::ControlPrimitive`]s; `MemberOf` is the one
+/// edge that comes from group membership rather than from a security descriptor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdgeKind {
     MemberOf,
-    Owns,
-    WriteDacl,
-    WriteOwner,
-    GenericAll,
-    GenericWrite,
-    ForceChangePassword,
-    AddMember,
-    AddKeyCredential, // Shadow Credentials
-    WriteRbcd,
-    DcsyncRight,
+    Acl(ControlPrimitive),
 }
 
 impl EdgeKind {
@@ -33,14 +27,37 @@ impl EdgeKind {
     pub fn weight(self) -> u32 {
         match self {
             EdgeKind::MemberOf => 0,
-            EdgeKind::GenericAll | EdgeKind::Owns => 1,
-            EdgeKind::WriteDacl | EdgeKind::WriteOwner => 1,
-            EdgeKind::ForceChangePassword | EdgeKind::AddKeyCredential => 1,
-            EdgeKind::AddMember => 1,
-            EdgeKind::WriteRbcd => 2,
-            EdgeKind::GenericWrite => 2,
-            EdgeKind::DcsyncRight => 0,
+            EdgeKind::Acl(p) => p.cost(),
         }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            EdgeKind::MemberOf => "MemberOf",
+            EdgeKind::Acl(p) => p.name(),
+        }
+    }
+
+    /// What traversing this edge gets the attacker (empty for `MemberOf`).
+    pub fn impact(self) -> &'static str {
+        match self {
+            EdgeKind::MemberOf => "inherits every privilege of the group",
+            EdgeKind::Acl(p) => p.impact(),
+        }
+    }
+
+    /// How a defender removes this edge.
+    pub fn mitigation(self) -> &'static str {
+        match self {
+            EdgeKind::MemberOf => "remove the principal from the group",
+            EdgeKind::Acl(p) => p.mitigation(),
+        }
+    }
+}
+
+impl From<ControlPrimitive> for EdgeKind {
+    fn from(p: ControlPrimitive) -> Self {
+        EdgeKind::Acl(p)
     }
 }
 
@@ -58,6 +75,12 @@ pub struct ControlGraph {
 
 impl ControlGraph {
     pub fn build(snap: &Snapshot) -> Self {
+        Self::build_with(snap, &SchemaMap::new())
+    }
+
+    /// [`ControlGraph::build`] with a forest schema map, so ACEs on LAPS / gMSA / dMSA
+    /// attributes — whose GUIDs differ per forest — become edges too.
+    pub fn build_with(snap: &Snapshot, schema: &SchemaMap) -> Self {
         let mut cg = ControlGraph {
             g: DiGraph::new(),
             by_sid: HashMap::new(),
@@ -77,7 +100,7 @@ impl ControlGraph {
                 continue;
             };
             cg.add_membership_edges(snap, o, &dst);
-            cg.add_acl_edges(snap, o, &dst);
+            cg.add_acl_edges(o, &dst, schema);
             cg.add_rbcd_edge(o, &dst);
         }
         cg
@@ -127,13 +150,14 @@ impl ControlGraph {
                     .filter(|a| a.is_allow())
                 {
                     let src = self.node_for(ace.trustee.clone());
-                    self.g.add_edge(src, target, EdgeKind::WriteRbcd);
+                    self.g
+                        .add_edge(src, target, ControlPrimitive::WriteRbcd.into());
                 }
             }
         }
     }
 
-    fn add_acl_edges(&mut self, _snap: &Snapshot, o: &AdObject, self_sid: &Sid) {
+    fn add_acl_edges(&mut self, o: &AdObject, self_sid: &Sid, schema: &SchemaMap) {
         let Some(raw) = o.bin1("nTSecurityDescriptor") else {
             return;
         };
@@ -142,29 +166,14 @@ impl ControlGraph {
         };
         let target = self.node_for(self_sid.clone());
 
-        if let Some(owner) = sd.owner {
-            if !owner.is_well_known() {
-                let src = self.node_for(owner);
-                self.g.add_edge(src, target, EdgeKind::Owns);
-            }
-        }
-
-        for ace in sd.dacl.iter().flat_map(|d| &d.aces) {
-            if ace.ace_type == AceType::AccessDenied || ace.ace_type == AceType::AccessDeniedObject
-            {
-                continue; // model allows only; deny-aware pathing is future work
-            }
-            if ace.trustee.is_well_known() {
+        // `ad_acl` owns the ACE→primitive semantics (deny ACEs yield nothing); we only
+        // decide which trustees are worth a node.
+        for grant in ad_acl::grants_with(&sd, schema) {
+            if grant.trustee_is_well_known() {
                 continue;
             }
-            let kinds = classify(ace);
-            if kinds.is_empty() {
-                continue;
-            }
-            let src = self.node_for(ace.trustee.clone());
-            for k in kinds {
-                self.g.add_edge(src, target, k);
-            }
+            let src = self.node_for(grant.trustee.clone());
+            self.g.add_edge(src, target, grant.primitive.into());
         }
     }
 
@@ -175,7 +184,7 @@ impl ControlGraph {
         let rev = petgraph::visit::Reversed(&self.g);
         let mut out = Vec::new();
         for tix in self.g.node_indices().filter(|&i| self.g[i].tier0) {
-            let dist = dijkstra(rev, tix, None, |e| *edge_weight(e.weight()));
+            let dist = dijkstra(rev, tix, None, |e| e.weight().weight());
             for (src, cost) in dist {
                 if src == tix || self.g[src].tier0 {
                     continue;
@@ -214,62 +223,12 @@ impl ControlGraph {
     }
 }
 
-fn edge_weight(k: &EdgeKind) -> &u32 {
-    // dijkstra wants &measure; cache the small set of weights.
-    match k {
-        EdgeKind::MemberOf | EdgeKind::DcsyncRight => &0,
-        EdgeKind::WriteRbcd | EdgeKind::GenericWrite => &2,
-        _ => &1,
-    }
-}
-
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct AttackPath {
     pub principal: String,
     pub principal_sid: String,
     pub target: String,
     pub cost: u32,
-}
-
-/// Turn one allow-ACE into the control primitives it grants.
-fn classify(ace: &windows_sddl::Ace) -> Vec<EdgeKind> {
-    let m = ace.mask;
-    let mut v = Vec::new();
-    if m.contains(AccessMask::GENERIC_ALL) {
-        v.push(EdgeKind::GenericAll);
-    }
-    if m.contains(AccessMask::WRITE_DAC) {
-        v.push(EdgeKind::WriteDacl);
-    }
-    if m.contains(AccessMask::WRITE_OWNER) {
-        v.push(EdgeKind::WriteOwner);
-    }
-    if m.contains(AccessMask::GENERIC_WRITE) {
-        v.push(EdgeKind::GenericWrite);
-    }
-    // Object-scoped rights: only count when the GUID matches a dangerous primitive,
-    // OR when no GUID is present (applies to all properties/rights).
-    let broad = ace.object_type.is_none();
-    if m.contains(AccessMask::CONTROL_ACCESS) {
-        match &ace.object_type {
-            Some(g) if rights::FORCE_CHANGE_PASSWORD.matches(g) => {
-                v.push(EdgeKind::ForceChangePassword)
-            }
-            Some(g) if rights::is_dcsync_right(g) => v.push(EdgeKind::DcsyncRight),
-            None => v.push(EdgeKind::GenericAll), // all extended rights
-            _ => {}
-        }
-    }
-    if m.contains(AccessMask::WRITE_PROP) {
-        match &ace.object_type {
-            Some(g) if rights::MEMBER_ATTR.matches(g) => v.push(EdgeKind::AddMember),
-            Some(g) if rights::KEY_CREDENTIAL_LINK.matches(g) => v.push(EdgeKind::AddKeyCredential),
-            Some(g) if rights::RBCD_ATTR.matches(g) => v.push(EdgeKind::WriteRbcd),
-            None if broad => v.push(EdgeKind::GenericWrite),
-            _ => {}
-        }
-    }
-    v
 }
 
 fn is_tier0(snap: &Snapshot, sid: &Sid) -> bool {
