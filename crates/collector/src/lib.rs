@@ -186,7 +186,11 @@ async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> 
     if smb2_client::socks::proxy().is_none() {
         return Ok(None);
     }
-    let scheme = if url.starts_with("ldaps://") { "ldaps" } else { "ldap" };
+    let scheme = if url.starts_with("ldaps://") {
+        "ldaps"
+    } else {
+        "ldap"
+    };
     let default_port: u16 = if scheme == "ldaps" { 636 } else { 389 };
     let hostport = url.split("://").nth(1).unwrap_or(url);
     let hostport = hostport.split('/').next().unwrap_or(hostport);
@@ -233,7 +237,9 @@ impl Collector {
                 .await
                 .context("ldap connect")?
         } else {
-            LdapConnAsync::new(&dial_url).await.context("ldap connect")?
+            LdapConnAsync::new(&dial_url)
+                .await
+                .context("ldap connect")?
         };
         ldap3::drive!(conn);
 

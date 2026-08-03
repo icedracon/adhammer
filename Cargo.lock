@@ -579,8 +579,9 @@ dependencies = [
 
 [[package]]
 name = "dcerpc"
-version = "0.1.0"
-source = "git+https://github.com/icedracon/dcerpc.git?branch=main#0ed22edfbac7be419e9bb99c487d374260d9d776"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15838c9243f18dd2c4b754cd54050332d6f191851c289b5e461123e7c564af0c"
 dependencies = [
  "aes",
  "des",
@@ -697,7 +698,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1261,7 +1262,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1735,7 +1736,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1968,8 +1969,9 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "smb2-client"
-version = "0.1.0"
-source = "git+https://github.com/icedracon/smb2-client.git?branch=main#e5bc310a53ce245789599a5b3a291a06046e7be6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae9d99184683f0acd04537f3601df0b65cd69368db00d3d30681aa5e00de8e73"
 dependencies = [
  "aes",
  "cmac",
@@ -2087,7 +2089,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

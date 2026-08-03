@@ -40,6 +40,6 @@ jobs:
         run: cargo install cargo-fuzz --locked
       - name: fuzz each target briefly
         run: |
-          for t in sddl_parse hive_parse epm_decode; do
+          for t in sddl_parse hive_parse; do
             cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096
           done

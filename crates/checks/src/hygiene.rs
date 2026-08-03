@@ -205,8 +205,17 @@ impl Check for PrimaryGroupPrivileged {
         let hits: Vec<String> = snap
             .iter_class("user")
             .filter(|o| !o.has_class("computer"))
-            .filter(|o| o.int("primaryGroupID").is_some_and(|r| PRIV_RIDS.contains(&r)))
-            .map(|o| format!("{} (primaryGroupID={})", o.dn, o.int("primaryGroupID").unwrap_or(0)))
+            .filter(|o| {
+                o.int("primaryGroupID")
+                    .is_some_and(|r| PRIV_RIDS.contains(&r))
+            })
+            .map(|o| {
+                format!(
+                    "{} (primaryGroupID={})",
+                    o.dn,
+                    o.int("primaryGroupID").unwrap_or(0)
+                )
+            })
             .collect();
         if hits.is_empty() {
             return vec![];
@@ -298,7 +307,11 @@ mod tests {
         for (k, v) in attrs {
             a.entry((*k).into()).or_default().push((*v).to_string());
         }
-        AdObject { dn: dn.into(), attrs: a, bin: Map::new() }
+        AdObject {
+            dn: dn.into(),
+            attrs: a,
+            bin: Map::new(),
+        }
     }
 
     #[test]
@@ -307,7 +320,10 @@ mod tests {
             DomainInfo::default(),
             vec![
                 // privileged + non-expiring + enabled → fires
-                user("CN=svc_sql,DC=x", &[("adminCount", "1"), ("userAccountControl", "66048")]),
+                user(
+                    "CN=svc_sql,DC=x",
+                    &[("adminCount", "1"), ("userAccountControl", "66048")],
+                ),
                 // non-expiring but NOT privileged → ignored
                 user("CN=bob,DC=x", &[("userAccountControl", "66048")]),
             ],
@@ -339,7 +355,10 @@ mod tests {
         let snap = Snapshot::new(
             DomainInfo::default(),
             // disabled (0x2) + adminCount=1 → 0x10002 = 65538
-            vec![user("CN=old_da,DC=x", &[("adminCount", "1"), ("userAccountControl", "65538")])],
+            vec![user(
+                "CN=old_da,DC=x",
+                &[("adminCount", "1"), ("userAccountControl", "65538")],
+            )],
         );
         let g = ControlGraph::build(&snap);
         assert_eq!(DisabledPrivileged.run(&snap, &g).len(), 1);

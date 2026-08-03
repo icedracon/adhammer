@@ -8,10 +8,10 @@ use crate::session::{self, Session};
 use crate::{
     abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
     golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
-    secretsdump, silver, spray, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs, CoerceArgs,
-    DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs, LsaArgs,
-    NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs, SilverArgs,
-    SprayArgs, WinrmArgs, ZerologonArgs,
+    secretsdump, silver, spray, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs,
+    CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
+    LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs,
+    SilverArgs, SprayArgs, WinrmArgs, ZerologonArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -92,7 +92,10 @@ const MENU: &[(&str, Action)] = &[
         "Exec — SVCCTL command as LocalSystem (psexec)",
         Action::Exec,
     ),
-    ("WMIexec — DCOM Win32_Process.Create (output over C$)", Action::Wmiexec),
+    (
+        "WMIexec — DCOM Win32_Process.Create (output over C$)",
+        Action::Wmiexec,
+    ),
     ("WinRM — run a command over WS-Man (5985)", Action::Winrm),
     (
         "Secretsdump — local SAM hashes (reg save + C$)",

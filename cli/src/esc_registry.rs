@@ -175,7 +175,7 @@ pub fn esc7(sd_bytes: &[u8]) -> Vec<EscHit> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows_sddl::{Ace, AceType, AccessMask, Acl, SecurityDescriptor, Sid};
+    use windows_sddl::{AccessMask, Ace, AceType, Acl, SecurityDescriptor, Sid};
 
     fn sd_with(trustee: &str, mask: u32) -> SecurityDescriptor {
         SecurityDescriptor {

@@ -12,9 +12,10 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-adhammer-sddl = { path = "../crates/sddl" }
+# windows-sddl and dcerpc were extracted to standalone crates; sddl is fuzzed here via crates.io,
+# the dcerpc EPM parsers are fuzzed in the dcerpc repo.
+windows-sddl = "0.1"
 adhammer-secrets = { path = "../crates/secrets" }
-adhammer-dcerpc = { path = "../crates/dcerpc" }
 
 [[bin]]
 name = "sddl_parse"
@@ -26,13 +27,6 @@ bench = false
 [[bin]]
 name = "hive_parse"
 path = "fuzz_targets/hive_parse.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "epm_decode"
-path = "fuzz_targets/epm_decode.rs"
 test = false
 doc = false
 bench = false

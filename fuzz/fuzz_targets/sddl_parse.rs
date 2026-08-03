@@ -4,5 +4,5 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = adhammer_sddl::parse(data);
+    let _ = windows_sddl::parse(data);
 });

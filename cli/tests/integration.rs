@@ -495,8 +495,18 @@ fn enum_esc_registry_checks() {
     let Some(ca) = env("ADH_CA") else { return };
     let pw = pass();
     let Some(o) = run(&[
-        "enum", "esc", "--host", &dc(), "--domain", &domain(), "--user", &user(),
-        "--password", &pw, "--ca", &ca,
+        "enum",
+        "esc",
+        "--host",
+        &dc(),
+        "--domain",
+        &domain(),
+        "--user",
+        &user(),
+        "--password",
+        &pw,
+        "--ca",
+        &ca,
     ]) else {
         return;
     };
@@ -518,8 +528,16 @@ fn enum_posture_relay_enablers() {
     // LDAP signing / channel binding + Spooler over MS-RRP.
     let pw = pass();
     let Some(o) = run(&[
-        "enum", "posture", "--host", &dc(), "--domain", &domain(), "--user", &user(),
-        "--password", &pw,
+        "enum",
+        "posture",
+        "--host",
+        &dc(),
+        "--domain",
+        &domain(),
+        "--user",
+        &user(),
+        "--password",
+        &pw,
     ]) else {
         return;
     };
@@ -533,8 +551,17 @@ fn enum_posture_relay_enablers() {
 #[ignore = "live DC"]
 fn zerologon_detect_reports_verdict() {
     // SAFE detection only (never resets the machine password). Needs the DC NetBIOS name.
-    let Some(netbios) = env("ADH_NETBIOS") else { return };
-    let Some(o) = run(&["attack", "zerologon", "--host", &dc(), "--netbios", &netbios]) else {
+    let Some(netbios) = env("ADH_NETBIOS") else {
+        return;
+    };
+    let Some(o) = run(&[
+        "attack",
+        "zerologon",
+        "--host",
+        &dc(),
+        "--netbios",
+        &netbios,
+    ]) else {
         return;
     };
     assert!(
@@ -554,8 +581,18 @@ fn asktgt_returns_ccache() {
     let realm = env("ADH_REALM").unwrap_or_else(|| "CORP.LOCAL".into());
     let out = std::env::temp_dir().join("adh_asktgt.ccache");
     let Some(o) = run(&[
-        "attack", "asktgt", "--user", &user(), "--realm", &realm, "--kdc", &dc(),
-        "--password", &pw, "--out", out.to_str().unwrap(),
+        "attack",
+        "asktgt",
+        "--user",
+        &user(),
+        "--realm",
+        &realm,
+        "--kdc",
+        &dc(),
+        "--password",
+        &pw,
+        "--out",
+        out.to_str().unwrap(),
     ]) else {
         return;
     };

