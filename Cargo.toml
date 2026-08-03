@@ -28,8 +28,8 @@ repository = "https://github.com/icedracon/adhammer"
 [workspace.dependencies]
 # the from-scratch protocol stack, now consumed as standalone published crates
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
-windows-sddl = { version = "0.1.1", path = "../windows-sddl" }
-ad-acl       = { version = "0.1", path = "../ad-acl" }
+windows-sddl = "0.1.1"
+ad-acl       = "0.1"
 ntlmssp      = "0.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
