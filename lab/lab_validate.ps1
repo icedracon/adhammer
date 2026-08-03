@@ -10,7 +10,7 @@
                     diffed against the hard-coded catalog. A wrong GUID is silent —
                     the ACE stops classifying and an edge never appears.
       ms-dnsp       every dnsRecord value in the forward zone, parsed and re-encoded.
-      registry-pol  every Registry.pol under SYSVOL, parsed and re-encoded.
+      preg          every Registry.pol under SYSVOL, parsed and re-encoded.
       dpapi-ng      any msLAPS-EncryptedPassword or gMSA managed-password blob.
 
     Read-only: it binds LDAP, reads SYSVOL over SMB, and writes only into -OutDir.
@@ -175,7 +175,7 @@ cargo run --quiet --example parse_dump -- $dnsDir
 $msDnsp = $LASTEXITCODE
 Pop-Location
 
-Write-Host "`n=== registry-pol: parse + re-encode ==="
+Write-Host "`n=== preg: parse + re-encode ==="
 Push-Location (Join-Path $CratesRoot 'preg')
 $pols = (Get-ChildItem $polDir -Filter '*.pol' | ForEach-Object { $_.FullName })
 if ($pols) { cargo run --quiet --example roundtrip_file -- @pols; $regPol = $LASTEXITCODE }
