@@ -2,7 +2,7 @@
 //! Reuse saved session with `adhammer --old`.
 
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Input, Password, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
@@ -122,6 +122,27 @@ const MENU: &[(&str, Action)] = &[
     ("Exit", Action::Exit),
 ];
 
+/// Colored boxed banner + session line shown above the interactive menu.
+fn banner(sess: &session::Session) {
+    use crate::ui;
+    let title = "ADHAMMER · Active Directory audit + validation";
+    let rule = "─".repeat(title.chars().count() + 2);
+    println!();
+    println!("  {}", ui::accent(&format!("╭{rule}╮")));
+    println!("  {}", ui::accent(&format!("│ {title} │")));
+    println!("  {}", ui::accent(&format!("╰{rule}╯")));
+    println!(
+        "  {} {}    {} {}    {} {}",
+        ui::dim("domain"),
+        ui::green(&sess.domain),
+        ui::dim("dc"),
+        ui::green(&sess.dc),
+        ui::dim("user"),
+        ui::green(&sess.username),
+    );
+    println!();
+}
+
 pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
     let reuse = use_old
         || (session::exists()
@@ -141,17 +162,12 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
         s
     };
 
+    let theme = ColorfulTheme::default();
     loop {
-        println!();
-        println!("=== ADhammer ===");
-        println!(
-            "  domain: {}  dc: {}  user: {}",
-            sess.domain, sess.dc, sess.username
-        );
-        println!();
+        banner(&sess);
 
         let labels: Vec<&str> = MENU.iter().map(|(l, _)| *l).collect();
-        let idx = Select::new()
+        let idx = Select::with_theme(&theme)
             .with_prompt("Choose action")
             .items(&labels)
             .default(0)
