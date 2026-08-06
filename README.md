@@ -59,22 +59,25 @@ exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`smb2-client`](https://crates.io/crates/smb2-client),
 [`dcerpc`](https://crates.io/crates/dcerpc)).
 
-### Head-to-head timings vs impacket / certipy / bloodyAD / NetExec
+### Head-to-head timings vs impacket / certipy / bloodyAD / bloodhound-python / NetExec
 
-Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Server 2022 DC, python tools via SOCKS5-over-SSH tunnel to be a fair fight (same network path):
+Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Server 2022 DC, Python tools via SOCKS5-over-SSH tunnel so both sides travel the same network path:
 
 | Scenario | ADhammer | Fastest competitor | Delta |
 |---|---:|---:|:---:|
+| **BloodHound-format collection** | **90 ms** | bloodhound-python 30891 ms | ✅ **343×** |
+| **AD CS enumeration** | **147 ms** | certipy 5997 ms | ✅ **40.8×** |
+| Full LDAP audit + graph + checks | **91 ms** | nxc 2058 ms | ✅ **22.6×** |
+| LDAP tree walk | **104 ms** | bloodyAD 718 ms | ✅ **6.9×** |
+| Zerologon safe-detect | **1782 ms** | nxc 7779 ms | ✅ **4.4×** |
 | DCSync `krbtgt` (AES256 extract) | **85 ms** | impacket 335 ms | ✅ **3.9×** |
+| LDAP query (name → SID) | **192 ms** | bloodyAD 627 ms | ✅ **3.3×** |
 | Kerberoast (SPN enum + TGS harvest) | **92 ms** | impacket 234 ms | ✅ **2.5×** |
 | AS-REP Roast | **87 ms** | impacket 220 ms | ✅ **2.5×** |
 | SAMR user enumeration | **225 ms** | impacket 310 ms | ✅ **1.4×** |
-| **AD CS enumeration** | **147 ms** | certipy 5997 ms | ✅ **40.8×** |
-| LDAP query (name → SID) | **192 ms** | bloodyAD 627 ms | ✅ **3.3×** |
-| Full LDAP audit + graph + checks | **91 ms** | nxc 2058 ms | ✅ **22.6×** |
-| Zerologon safe-detect | **1782 ms** | nxc 7779 ms | ✅ **4.4×** |
+| Local secretsdump (SAM/SYSTEM hive) | 10307 ms | impacket 446 ms | ⚠️ 23.1× slower |
 
-**8/8 wins.** Python interpreter cold-start dominates Python-tool times; ADhammer's Rust binary avoids it entirely, and that saving compounds when you chain 3+ ops in one engagement.
+**10/11 wins.** The one loss is honest — adhammer's local secretsdump saves whole registry hives via `reg save` then reads over `C$`; impacket uses remote registry API (WINREG) that reads specific keys in-place. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
 
 ## Install
 

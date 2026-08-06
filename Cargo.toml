@@ -11,6 +11,7 @@ members = [
     "crates/ldap",
     "crates/bloodhound",
     "crates/secrets",
+    "crates/sdk",
     "cli",
 ]
 # cargo-fuzz targets are their own workspace (nightly + libFuzzer; run on Kali/Linux).
@@ -77,3 +78,11 @@ base64      = "0.22"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Local dev during the library-extraction effort (L1 ms-ndr → …). Points the published
+# crates at their working sibling repos so adhammer tracks them without republishing.
+# Drop these lines once dcerpc 0.3 / ms-ndr 0.1 are on crates.io and the version reqs bump.
+[patch.crates-io]
+ms-ndr = { path = "../ms-ndr" }
+dcerpc = { path = "../dcerpc" }
+smb2-client = { path = "../smb2-client" }

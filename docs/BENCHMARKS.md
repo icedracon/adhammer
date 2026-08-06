@@ -12,8 +12,11 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | **SAMR user enumeration over `\samr` named pipe** | 225 ms | impacket · 310 ms | ✅ **1.4× faster** |
 | **AD CS certification-authority enumeration** | 147 ms | certipy · 5997 ms | ✅ **40.8× faster** |
 | **LDAP single-object query (name → SID)** | 192 ms | bloodyad · 627 ms | ✅ **3.3× faster** |
+| **LDAP tree walk (children under `CN=Users`)** | 104 ms | bloodyad · 718 ms | ✅ **6.9× faster** |
 | **Full LDAP collect + checks + attack-path report** | 91 ms | nxc · 2058 ms | ✅ **22.6× faster** |
+| **BloodHound-format DC collection (users/computers/groups/ACLs)** | 90 ms | bloodhound-python · 30891 ms | ✅ **343.2× faster** |
 | **Zerologon (CVE-2020-1472) safe-detect probe** | 1782 ms | nxc · 7779 ms | ✅ **4.4× faster** |
+| **Local secretsdump — SAM/SYSTEM hive registry read** | 10307 ms | impacket · 446 ms | ⚠️ 23.1× slower |
 
 ## All timings per scenario
 
@@ -63,6 +66,13 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | `adhammer` | 192 ms | ✅ |
 | `bloodyad` | 627 ms | ✅ |
 
+### LDAP tree walk (children under `CN=Users`)
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `adhammer` | 104 ms | ✅ |
+| `bloodyad` | 718 ms | ✅ |
+
 ### Full LDAP collect + checks + attack-path report
 
 | Tool | Wall-clock | Exit |
@@ -70,12 +80,26 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | `adhammer` | 91 ms | ✅ |
 | `nxc` | 2058 ms | ✅ |
 
+### BloodHound-format DC collection (users/computers/groups/ACLs)
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `adhammer` | 90 ms | ✅ |
+| `bloodhound-python` | 30891 ms | ✅ |
+
 ### Zerologon (CVE-2020-1472) safe-detect probe
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
 | `adhammer` | 1782 ms | ✅ |
 | `nxc` | 7779 ms | ✅ |
+
+### Local secretsdump — SAM/SYSTEM hive registry read
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `impacket` | 446 ms | ✅ |
+| `adhammer` | 10307 ms | ✅ |
 
 ## Why ADhammer where it wins
 

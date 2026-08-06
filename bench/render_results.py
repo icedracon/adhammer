@@ -20,8 +20,11 @@ SCENARIO_DESC = {
     "samr-enum": "SAMR user enumeration over `\\samr` named pipe",
     "adcs-enum": "AD CS certification-authority enumeration",
     "ldap-query": "LDAP single-object query (name → SID)",
+    "bloodyad-tree": "LDAP tree walk (children under `CN=Users`)",
     "full-audit": "Full LDAP collect + checks + attack-path report",
+    "bloodhound-collect": "BloodHound-format DC collection (users/computers/groups/ACLs)",
     "zerologon": "Zerologon (CVE-2020-1472) safe-detect probe",
+    "secretsdump-sam": "Local secretsdump — SAM/SYSTEM hive registry read",
     "golden-forge": "Golden ticket forge + KDC accept",
 }
 
