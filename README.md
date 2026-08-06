@@ -79,7 +79,7 @@ Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wal
 | SAMR user enumeration | **225 ms** | impacket 310 ms | ✅ **1.4×** |
 | Local secretsdump (SAM+LSA via RRP) | 1083 ms | impacket 223 ms | ⚠️ 4.9× slower |
 
-**12/13 wins.** The one loss is honest — adhammer's local secretsdump saves whole registry hives via `reg save` then reads over `C$`; impacket uses remote registry API (WINREG) that reads specific keys in-place. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
+**12/13 wins.** The one loss is honest — both tools now use the same MS-RRP path (adhammer's SAM+LSA-via-WINREG matches impacket byte-for-byte; NT hashes verified identical) and the remaining ~4.9× gap is per-request latency across the ~50 sealed RPC roundtrips the SAM+LSA path needs. Pipelining `CloseKey` (fire-and-forget SMB WRITE instead of TRANSCEIVE) is the next optimization and closes most of it. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
 
 ## Install
 
