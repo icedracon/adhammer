@@ -31,15 +31,27 @@ pub enum EdgeKind {
     /// The source carries the target's SID in `sIDHistory` — it already *is* the target as
     /// far as access checks are concerned.
     SidHistory,
+    /// A privileged principal has a live logon session on the source host; controlling the host
+    /// yields that principal's credentials/TGT. Populated by `enum sessions` (S2).
+    HasSession,
+    /// The target can be coerced into authenticating to an attacker listener (MS-EFSR/RPRN/
+    /// DFSNM/FSRVP), feeding an NTLM relay. Populated by coercion posture (S2).
+    Coercible,
+    /// The source is a local administrator on the target host — full control and secret
+    /// extraction. Populated by session/local-admin collection (S5).
+    AdminTo,
 }
 
 impl EdgeKind {
     /// Lower = cheaper for the attacker = more dangerous.
     pub fn weight(self) -> u32 {
         match self {
-            EdgeKind::MemberOf | EdgeKind::SidHistory => 0,
+            EdgeKind::MemberOf | EdgeKind::SidHistory | EdgeKind::AdminTo => 0,
             EdgeKind::Acl(p) => p.cost(),
-            EdgeKind::AllowedToDelegate | EdgeKind::UnconstrainedDelegation => 2,
+            EdgeKind::AllowedToDelegate
+            | EdgeKind::UnconstrainedDelegation
+            | EdgeKind::Coercible => 2,
+            EdgeKind::HasSession => 1,
         }
     }
 
@@ -50,6 +62,9 @@ impl EdgeKind {
             EdgeKind::AllowedToDelegate => "AllowedToDelegate",
             EdgeKind::UnconstrainedDelegation => "UnconstrainedDelegation",
             EdgeKind::SidHistory => "SidHistory",
+            EdgeKind::HasSession => "HasSession",
+            EdgeKind::Coercible => "Coercible",
+            EdgeKind::AdminTo => "AdminTo",
         }
     }
 
@@ -65,6 +80,13 @@ impl EdgeKind {
                 "coerce the target to authenticate here and its TGT is captured, then replayed"
             }
             EdgeKind::SidHistory => "access checks already grant the target's rights",
+            EdgeKind::HasSession => {
+                "a privileged logon session is live on this host — its TGT/credentials can be dumped"
+            }
+            EdgeKind::Coercible => {
+                "can be coerced to authenticate to an attacker listener, feeding an NTLM relay"
+            }
+            EdgeKind::AdminTo => "local administrator on the target — full control and secret extraction",
         }
     }
 
@@ -80,6 +102,13 @@ impl EdgeKind {
                 "clear TRUSTED_FOR_DELEGATION, put Tier-0 in Protected Users, block the coercion RPCs"
             }
             EdgeKind::SidHistory => "clean sIDHistory after the migration and enable SID filtering",
+            EdgeKind::HasSession => {
+                "keep privileged logons off member hosts; enable Credential Guard; Protected Users"
+            }
+            EdgeKind::Coercible => {
+                "patch MS-EFSR/RPRN/DFSNM/FSRVP coercion and require SMB + LDAP signing"
+            }
+            EdgeKind::AdminTo => "remove the local-admin grant; deploy LAPS; enforce Tier-0 isolation",
         }
     }
 
@@ -93,6 +122,9 @@ impl EdgeKind {
             EdgeKind::MemberOf | EdgeKind::SidHistory => return None,
             EdgeKind::AllowedToDelegate => "attack constrained --target {to}",
             EdgeKind::UnconstrainedDelegation => return None, // planned: attack unconstrained
+            EdgeKind::HasSession => "attack secretsdump --host {from}",
+            EdgeKind::Coercible => "attack coerce --host {to} --listener <ATTACKER>",
+            EdgeKind::AdminTo => "attack secretsdump --host {to}",
             EdgeKind::Acl(p) => match p {
                 P::DcsyncGetChangesAll | P::AllExtendedRights => "attack dcsync --user krbtgt",
                 P::AddMember | P::AddSelfToGroup => {
@@ -123,6 +155,36 @@ impl EdgeKind {
 impl From<ControlPrimitive> for EdgeKind {
     fn from(p: ControlPrimitive) -> Self {
         EdgeKind::Acl(p)
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    /// The S2/S5 edge kinds each carry a name, impact, mitigation, and (for the walkable ones)
+    /// an `adhammer` command — so `scan` can plan and report them like every other hop.
+    #[test]
+    fn new_edges_are_fully_described() {
+        for e in [EdgeKind::HasSession, EdgeKind::Coercible, EdgeKind::AdminTo] {
+            assert!(!e.name().is_empty());
+            assert!(!e.impact().is_empty());
+            assert!(!e.mitigation().is_empty());
+        }
+        assert_eq!(EdgeKind::AdminTo.weight(), 0); // already admin — free hop
+        assert_eq!(EdgeKind::HasSession.weight(), 1);
+        assert!(EdgeKind::Coercible
+            .command("bob", "dc01")
+            .unwrap()
+            .starts_with("adhammer attack coerce"));
+        assert!(EdgeKind::AdminTo
+            .command("bob", "srv01")
+            .unwrap()
+            .contains("secretsdump --host srv01"));
+        assert!(EdgeKind::HasSession
+            .command("dc01", "admin")
+            .unwrap()
+            .contains("secretsdump --host dc01"));
     }
 }
 

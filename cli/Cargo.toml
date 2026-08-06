@@ -32,6 +32,14 @@ adhammer-sysvol = { workspace = true }
 smb2-client = { workspace = true }
 adhammer-ldap = { workspace = true }
 dcerpc = { workspace = true }
+ms-drsr = { path = "../../ms-drsr" }
+dpapi-ng = { path = "../../dpapi-ng", features = ["rpc"] }
+
+# ESC8 (adcs-http relay) — minimal NTLM-over-HTTP client. Same rustls/tokio-rustls versions
+# ldap3 already pulls in, so no duplicate-crate risk.
+tokio-rustls = "0.24"
+rustls = "0.21"
+rustls-native-certs = "0.6"
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
 ntlmssp = { workspace = true }
