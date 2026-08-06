@@ -54,14 +54,14 @@ def main() -> int:
     )
     md.append("")
     md.append(
-        "> **Testbed note:** ADhammer runs directly from the Windows host to the DC "
-        "(NAT-side 172.20.117.1). NetExec/bloodyAD/impacket run from Kali WSL through "
-        "Windows `netsh interface portproxy` on alternate ports (host SMB owns 445 "
-        "locally). Impacket-* / certipy — which require Kerberos KDC on 88 and DRSUAPI on "
-        "dynamic RPC ports — could not be tested in this port-forwarded setup and are "
-        "documented rather than skipped. Numbers include tool startup + Python interpreter "
-        "load (that's a real overhead operators pay every invocation, not an unfair "
-        "advantage for ADhammer)."
+        "> **Testbed:** Windows Server 2022 DC (patched, live). ADhammer runs directly "
+        "from a Windows host to the DC. Python-based tools (impacket, certipy, bloodyAD, "
+        "NetExec) run from Kali WSL through a SOCKS5 tunnel opened over SSH to the "
+        "Windows host (`ssh -D 1080 zevs@host`), then via `proxychains4`. All tools "
+        "authenticate as `TESTLAB\\administrator`. Numbers are wall-clock from process "
+        "spawn to exit and include tool startup / Python interpreter load — that overhead "
+        "is real, operators pay it every invocation, and it's exactly what a single-static "
+        "binary avoids."
     )
     md.append("")
     md.append("| Scenario | ADhammer | Fastest competitor | Δ (ADhammer / competitor) |")

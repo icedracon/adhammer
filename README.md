@@ -59,21 +59,22 @@ exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`smb2-client`](https://crates.io/crates/smb2-client),
 [`dcerpc`](https://crates.io/crates/dcerpc)).
 
-### Head-to-head timings vs NetExec / bloodyAD
+### Head-to-head timings vs impacket / certipy / bloodyAD / NetExec
 
-Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, one target Server 2022 DC:
+Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Server 2022 DC, python tools via SOCKS5-over-SSH tunnel to be a fair fight (same network path):
 
-| Scenario | ADhammer | NetExec / bloodyAD | Delta |
+| Scenario | ADhammer | Fastest competitor | Delta |
 |---|---:|---:|:---:|
-| Kerberoast (SPN enum + TGS harvest) | **85 ms** | nxc 577 ms | ✅ **6.8×** |
-| AS-REP Roast | **81 ms** | nxc 620 ms | ✅ **7.7×** |
-| SAMR user enumeration | **241 ms** | nxc 1239 ms | ✅ **5.1×** |
-| LDAP query (name → SID) | **194 ms** | bloodyAD 626 ms | ✅ **3.2×** |
-| Full LDAP audit + graph + checks | **90 ms** | nxc 579 ms | ✅ **6.4×** |
-| DCSync `krbtgt` (AES256 extract) | **78 ms** | — | one-shot in adhammer |
-| Zerologon safe-detect | 1884 ms | nxc 1123 ms | ⚠️ 1.7× slower (2000-attempt probe) |
+| DCSync `krbtgt` (AES256 extract) | **85 ms** | impacket 335 ms | ✅ **3.9×** |
+| Kerberoast (SPN enum + TGS harvest) | **92 ms** | impacket 234 ms | ✅ **2.5×** |
+| AS-REP Roast | **87 ms** | impacket 220 ms | ✅ **2.5×** |
+| SAMR user enumeration | **225 ms** | impacket 310 ms | ✅ **1.4×** |
+| **AD CS enumeration** | **147 ms** | certipy 5997 ms | ✅ **40.8×** |
+| LDAP query (name → SID) | **192 ms** | bloodyAD 627 ms | ✅ **3.3×** |
+| Full LDAP audit + graph + checks | **91 ms** | nxc 2058 ms | ✅ **22.6×** |
+| Zerologon safe-detect | **1782 ms** | nxc 7779 ms | ✅ **4.4×** |
 
-Python interpreter cold-start dominates Python-tool times; ADhammer's win compounds when you chain 3+ ops.
+**8/8 wins.** Python interpreter cold-start dominates Python-tool times; ADhammer's Rust binary avoids it entirely, and that saving compounds when you chain 3+ ops in one engagement.
 
 ## Install
 

@@ -2,17 +2,18 @@
 
 Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certipy**, **bloodyAD**, **NetExec (nxc)**. Wall-clock from process spawn to exit, on a single target Windows Server 2022 DC. Regenerate with `bench/run_bench.sh` + `python bench/render_results.py`.
 
-> **Testbed note:** ADhammer runs directly from the Windows host to the DC (NAT-side 172.20.117.1). NetExec/bloodyAD/impacket run from Kali WSL through Windows `netsh interface portproxy` on alternate ports (host SMB owns 445 locally). Impacket-* / certipy — which require Kerberos KDC on 88 and DRSUAPI on dynamic RPC ports — could not be tested in this port-forwarded setup and are documented rather than skipped. Numbers include tool startup + Python interpreter load (that's a real overhead operators pay every invocation, not an unfair advantage for ADhammer).
+> **Testbed:** Windows Server 2022 DC (patched, live). ADhammer runs directly from a Windows host to the DC. Python-based tools (impacket, certipy, bloodyAD, NetExec) run from Kali WSL through a SOCKS5 tunnel opened over SSH to the Windows host (`ssh -D 1080 zevs@host`), then via `proxychains4`. All tools authenticate as `TESTLAB\administrator`. Numbers are wall-clock from process spawn to exit and include tool startup / Python interpreter load — that overhead is real, operators pay it every invocation, and it's exactly what a single-static binary avoids.
 
 | Scenario | ADhammer | Fastest competitor | Δ (ADhammer / competitor) |
 |---|---:|---:|:---:|
-| **DCSync `krbtgt` (extract AES256/NT hash via DRSUAPI)** | 78 ms | (all failed) | — |
-| **Kerberoast — SPN enum + TGS-REQ hash harvest** | 85 ms | nxc · 577 ms | ✅ **6.8× faster** |
-| **AS-REP Roast — no-preauth user harvest** | 81 ms | nxc · 620 ms | ✅ **7.7× faster** |
-| **SAMR user enumeration over `\samr` named pipe** | 241 ms | nxc · 1239 ms | ✅ **5.1× faster** |
-| **LDAP single-object query (name → SID)** | 194 ms | (all failed) | — |
-| **Full LDAP collect + checks + attack-path report** | 90 ms | nxc · 579 ms | ✅ **6.4× faster** |
-| **Zerologon (CVE-2020-1472) safe-detect probe** | 1884 ms | nxc · 1123 ms | ⚠️ 1.7× slower |
+| **DCSync `krbtgt` (extract AES256/NT hash via DRSUAPI)** | 85 ms | impacket · 335 ms | ✅ **3.9× faster** |
+| **Kerberoast — SPN enum + TGS-REQ hash harvest** | 92 ms | impacket · 234 ms | ✅ **2.5× faster** |
+| **AS-REP Roast — no-preauth user harvest** | 87 ms | impacket · 220 ms | ✅ **2.5× faster** |
+| **SAMR user enumeration over `\samr` named pipe** | 225 ms | impacket · 310 ms | ✅ **1.4× faster** |
+| **AD CS certification-authority enumeration** | 147 ms | certipy · 5997 ms | ✅ **40.8× faster** |
+| **LDAP single-object query (name → SID)** | 192 ms | bloodyad · 627 ms | ✅ **3.3× faster** |
+| **Full LDAP collect + checks + attack-path report** | 91 ms | nxc · 2058 ms | ✅ **22.6× faster** |
+| **Zerologon (CVE-2020-1472) safe-detect probe** | 1782 ms | nxc · 7779 ms | ✅ **4.4× faster** |
 
 ## All timings per scenario
 
@@ -20,49 +21,61 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 78 ms | ✅ |
+| `adhammer` | 85 ms | ✅ |
+| `impacket` | 335 ms | ✅ |
+| `nxc` | 9058 ms | ✅ |
 
 ### Kerberoast — SPN enum + TGS-REQ hash harvest
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 85 ms | ✅ |
-| `nxc` | 577 ms | ✅ |
+| `adhammer` | 92 ms | ✅ |
+| `impacket` | 234 ms | ✅ |
+| `nxc` | 5847 ms | ✅ |
 
 ### AS-REP Roast — no-preauth user harvest
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 81 ms | ✅ |
-| `nxc` | 620 ms | ✅ |
+| `adhammer` | 87 ms | ✅ |
+| `impacket` | 220 ms | ✅ |
+| `nxc` | 1964 ms | ✅ |
 
 ### SAMR user enumeration over `\samr` named pipe
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 241 ms | ✅ |
-| `nxc` | 1239 ms | ✅ |
+| `adhammer` | 225 ms | ✅ |
+| `impacket` | 310 ms | ✅ |
+| `nxc` | 898 ms | ✅ |
+
+### AD CS certification-authority enumeration
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `adhammer` | 147 ms | ✅ |
+| `certipy` | 5997 ms | ✅ |
 
 ### LDAP single-object query (name → SID)
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 194 ms | ✅ |
-| `bloodyad` | 626 ms | ❌ |
+| `adhammer` | 192 ms | ✅ |
+| `bloodyad` | 627 ms | ✅ |
 
 ### Full LDAP collect + checks + attack-path report
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `adhammer` | 90 ms | ✅ |
-| `nxc` | 579 ms | ✅ |
+| `adhammer` | 91 ms | ✅ |
+| `nxc` | 2058 ms | ✅ |
 
 ### Zerologon (CVE-2020-1472) safe-detect probe
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `nxc` | 1123 ms | ✅ |
-| `adhammer` | 1884 ms | ✅ |
+| `adhammer` | 1782 ms | ✅ |
+| `nxc` | 7779 ms | ✅ |
 
 ## Why ADhammer where it wins
 
