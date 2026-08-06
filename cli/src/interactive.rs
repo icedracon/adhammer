@@ -49,7 +49,6 @@ enum Action {
     Golden,
     Silver,
     Pth,
-    // Newer entries (S2/S5/S6 additions):
     EnumSessions,
     Unconstrained,
     Shadowcred,
