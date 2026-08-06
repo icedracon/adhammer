@@ -18,7 +18,7 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | **Full LDAP collect + checks + attack-path report** | 91 ms | nxc · 2058 ms | ✅ **22.6× faster** |
 | **BloodHound-format DC collection (users/computers/groups/ACLs)** | 90 ms | bloodhound-python · 30891 ms | ✅ **343.2× faster** |
 | **Zerologon (CVE-2020-1472) safe-detect probe** | 1782 ms | nxc · 7779 ms | ✅ **4.4× faster** |
-| **Local secretsdump — SAM/SYSTEM hive registry read** | 1153 ms | impacket · 446 ms | ⚠️ 2.6× slower |
+| **Local secretsdump — SAM/SYSTEM hive registry read** | 1083 ms | impacket · 223 ms | ⚠️ 4.9× slower |
 | **AD CS ESC1 — request client-auth cert with spoofed UPN SAN** | 315 ms | certipy · 9793 ms | ✅ **31.1× faster** |
 | **RBCD write — msDS-AllowedToActOnBehalfOfOtherIdentity** | 80 ms | bloodyad · 363 ms | ✅ **4.5× faster** |
 
@@ -102,8 +102,8 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
-| `impacket` | 446 ms | ✅ |
-| `adhammer` | 1153 ms | ✅ |
+| `impacket` | 223 ms | ✅ |
+| `adhammer` | 1083 ms | ✅ |
 
 ### AD CS ESC1 — request client-auth cert with spoofed UPN SAN
 
