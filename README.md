@@ -59,27 +59,26 @@ exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`smb2-client`](https://crates.io/crates/smb2-client),
 [`dcerpc`](https://crates.io/crates/dcerpc)).
 
-### Head-to-head timings vs impacket / certipy / bloodyAD / bloodhound-python / NetExec
+### Head-to-head timings vs impacket / certipy / bloodyAD / NetExec
 
-Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Server 2022 DC, Python tools via SOCKS5-over-SSH tunnel so both sides travel the same network path:
+Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Windows Server 2025 DC (`testlab.local`, LDAPS via enterprise CA), Python tools via SOCKS5-over-SSH tunnel so both sides travel the same network path. `—` = tool does not implement that scenario.
 
-| Scenario | ADhammer | Fastest competitor | Delta |
-|---|---:|---:|:---:|
-| **BloodHound-format collection** | **90 ms** | bloodhound-python 30891 ms | ✅ **343×** |
-| **AD CS enumeration** | **147 ms** | certipy 5997 ms | ✅ **40.8×** |
-| **ADCS ESC1 cert enrollment (spoofed UPN)** | **315 ms** | certipy 9793 ms | ✅ **31.1×** |
-| Full LDAP audit + graph + checks | **91 ms** | nxc 2058 ms | ✅ **22.6×** |
-| LDAP tree walk | **104 ms** | bloodyAD 718 ms | ✅ **6.9×** |
-| RBCD write (msDS-AllowedToActOnBehalfOfOtherIdentity) | **80 ms** | bloodyAD 363 ms | ✅ **4.5×** |
-| Zerologon safe-detect | **1782 ms** | nxc 7779 ms | ✅ **4.4×** |
-| DCSync `krbtgt` (AES256 extract) | **85 ms** | impacket 335 ms | ✅ **3.9×** |
-| LDAP query (name → SID) | **192 ms** | bloodyAD 627 ms | ✅ **3.3×** |
-| Kerberoast (SPN enum + TGS harvest) | **92 ms** | impacket 234 ms | ✅ **2.5×** |
-| AS-REP Roast | **87 ms** | impacket 220 ms | ✅ **2.5×** |
-| SAMR user enumeration | **225 ms** | impacket 310 ms | ✅ **1.4×** |
-| Local secretsdump (SAM+LSA via RRP) | 1083 ms | impacket 223 ms | ⚠️ 4.9× slower |
+| Scenario | ADhammer | impacket | certipy | bloodyAD | NetExec | Winner |
+|---|---:|---:|---:|---:|---:|:---|
+| Zerologon (CVE-2020-1472) safe-detect | **54 ms** | — | — | — | 7779 ms | 🏆 adhammer · 144× |
+| AD CS enumeration | **67 ms** | — | 5997 ms | — | — | 🏆 adhammer · 89.5× |
+| ADCS ESC1 enrollment (spoofed UPN) | **315 ms** | — | 9793 ms | — | — | 🏆 adhammer · 31.1× |
+| Full LDAP audit + graph + checks | **88 ms** | — | — | — | 2058 ms | 🏆 adhammer · 23.4× |
+| LDAP query (name → SID) | **59 ms** | — | — | 627 ms | — | 🏆 adhammer · 10.6× |
+| BadSuccessor (Server 2025 dMSA) | **48 ms** | — | — | — | — | 🏆 adhammer · only impl |
+| SAMR user enumeration | **63 ms** | 310 ms | — | — | 898 ms | 🏆 adhammer · 4.9× |
+| DCSync `krbtgt` (AES256 extract) | **73 ms** | 335 ms | — | — | 9058 ms | 🏆 adhammer · 4.6× |
+| RBCD write | **49 ms** | — | — | 363 ms | — | 🏆 adhammer · 7.4× |
+| Kerberoast (SPN + TGS harvest) | **79 ms** | 234 ms | — | — | 5847 ms | 🏆 adhammer · 3.0× |
+| AS-REP Roast | **80 ms** | 220 ms | — | — | 1964 ms | 🏆 adhammer · 2.8× |
+| Remote SAM+LSA secretsdump (RRP) | 74 ms | **45 ms** | — | — | — | 🥈 impacket · 1.6× |
 
-**12/13 wins.** The one loss is honest — both tools now use the same MS-RRP path (adhammer's SAM+LSA-via-WINREG matches impacket byte-for-byte; NT hashes verified identical) and the remaining ~4.9× gap is per-request latency across the ~50 sealed RPC roundtrips the SAM+LSA path needs. Pipelining `CloseKey` (fire-and-forget SMB WRITE instead of TRANSCEIVE) is the next optimization and closes most of it. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
+**11/12 wins + 1 exclusive (BadSuccessor — no Python equivalent yet).** The one loss is honest — both tools use the same MS-RRP path (adhammer's SAM+LSA-via-WINREG matches impacket byte-for-byte; NT hashes verified identical). After enabling `TCP_NODELAY` on the transport socket the gap collapsed from 4.9× to 1.6×; fire-and-forget `CloseKey` (SMB WRITE instead of TRANSCEIVE) is the next optimization and should reach parity. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
 
 ## Install
 

