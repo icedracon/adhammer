@@ -3,9 +3,13 @@ name = "adhammer-sysvol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ADhammer SYSVOL — adapter mapping the standalone `gpo` crate's GPP/GptTmpl results onto ADhammer findings."
+description = "ADhammer SYSVOL — GPP cpassword (MS14-025) and GptTmpl.inf policy analysis."
 repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }
-gpo = { path = "../../../gpo" }
+aes = { workspace = true }
+cbc = { workspace = true }
+base64 = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

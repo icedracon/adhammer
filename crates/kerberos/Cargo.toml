@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 adhammer-core = { workspace = true }
-ms-pac = { path = "../../../ms-pac" }
 anyhow = { workspace = true }
 hex = { workspace = true }
 md4 = { workspace = true }
