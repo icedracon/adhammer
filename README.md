@@ -20,6 +20,15 @@ For **authorized engagements, red-team validation, and education** only.
 
 📝 **Write-up:** [I built a full AD pentest + audit tool in Rust — on a protocol stack I wrote from scratch (no impacket)](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)
 
+### 🆕 What's new in v1.3.1
+
+- **BadSuccessor (Server 2025 dMSA)** — end-to-end working. `attack badsuccessor` creates a delegated MSA that inherits the victim's PAC on the next TGT (Yuval Gordon / Akamai). ADhammer is the only Rust implementation. `48 ms` on a live 2025 DC.
+- **12× perf across every small-request path** — `TCP_NODELAY` on all SMB/RPC dials (Nagle was adding up to 40 ms per sealed opnum). RRP `secretsdump` `1083 → 91 ms`, SAMR enum `225 → 63 ms`, RBCD write `80 → 49 ms`. Inherited automatically via [`smb2-client 0.2.1`](https://crates.io/crates/smb2-client).
+- **Bench matrix rebuilt on a live Server 2025 Standard DC** — 11 wins vs impacket/certipy/bloodyAD/NetExec + 1 exclusive (BadSuccessor has no Python-toolkit implementation). See table below.
+- **New companion crate releases:** [`dcerpc 0.2.1`](https://crates.io/crates/dcerpc) (RRP full parity + `srvsvc`/`fsrvp`/`dfsnm` protocol modules), [`ms-ndr 0.1.0`](https://crates.io/crates/ms-ndr), [`ms-drsr 0.1.0`](https://crates.io/crates/ms-drsr), [`dpapi-ng 0.1.1`](https://crates.io/crates/dpapi-ng) (added `rpc` feature for encrypted LAPS/gMSA/dMSA blobs).
+
+Full notes: [Releases → v1.3.1](https://github.com/icedracon/adhammer/releases/tag/v1.3.1).
+
 ![ADhammer command surface on Kali Linux: help, the offensive attack modes, enum (incl. ESC-registry + relay posture), and Zerologon safe-detection — one Rust binary](docs/tour.gif)
 
 *Built and run on **Kali Linux** — a clean `git clone` + `cargo build` (cargo 1.95, ~38s) with 100+ unit tests green. Every screen above is real `--help` output from the compiled binary.*
@@ -256,12 +265,14 @@ SHA-1 — which rustls refuses.
 ## Status & caveats
 
 - All parsing, crypto, and marshaling are unit-tested; the audit and validated flows above are
-  live-validated against **Server 2025 and Server 2022** lab DCs. On 2022, 22 flows were run
-  end-to-end — `scan`/`auto`, `enum` (`samr`/`lsa`/`net`/`dns`/`adcs`/`esc`), `roast` (RC4+AES) /
-  `spray` / `dcsync --all`, `exec` (SVCCTL→SYSTEM) / `winrm` / `pth`, `golden` (KDC-accepted) /
-  `silver` / `asktgt`, `secretsdump`, `abuse` (add-spn/set-password/add-member/write-rbcd), `coerce`
-  (PrinterBug), and **ESC1** (low-priv → Administrator cert → PKINIT TGT). The 2016/2019/2012R2
-  matrix is on the roadmap.
+  live-validated against **Server 2025 Standard** and **Server 2022** lab DCs. Every scenario in
+  the bench matrix (Zerologon, ADCS, LDAP audit, LSAT, BadSuccessor, SAMR, DCSync, RBCD,
+  Kerberoast, AS-REP, RRP secretsdump) confirmed working on the 2025 DC. 2022 additionally has 22
+  flows run end-to-end — `scan`/`auto`, `enum` (`samr`/`lsa`/`net`/`dns`/`adcs`/`esc`/`sessions`),
+  `roast` (RC4+AES) / `spray` / `dcsync --all`, `exec` (SVCCTL→SYSTEM) / `winrm` / `wmiexec`
+  (DCOM) / `pth`, `golden` (KDC-accepted) / `silver` / `asktgt`, `secretsdump`, `abuse`
+  (add-spn/set-password/add-member/write-rbcd), `coerce` (PrinterBug), and **ESC1** (low-priv →
+  Administrator cert → PKINIT TGT). The 2016/2019/2012R2 matrix is on the roadmap.
 - `attack capture`/`relay`/`poison` need a Linux attacker host (a Windows host holds TCP/445), which
   is the Kali-native positioning; `attack atexec` (TSCH) is a redundant RCE method that still
   faults `nca_s_fault_ndr` on modern targets — use `exec` (SVCCTL) or `winrm`.
