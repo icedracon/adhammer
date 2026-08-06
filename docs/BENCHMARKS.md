@@ -19,6 +19,8 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | **BloodHound-format DC collection (users/computers/groups/ACLs)** | 90 ms | bloodhound-python · 30891 ms | ✅ **343.2× faster** |
 | **Zerologon (CVE-2020-1472) safe-detect probe** | 1782 ms | nxc · 7779 ms | ✅ **4.4× faster** |
 | **Local secretsdump — SAM/SYSTEM hive registry read** | 6785 ms | impacket · 446 ms | ⚠️ 15.2× slower |
+| **AD CS ESC1 — request client-auth cert with spoofed UPN SAN** | 315 ms | certipy · 9793 ms | ✅ **31.1× faster** |
+| **RBCD write — msDS-AllowedToActOnBehalfOfOtherIdentity** | 80 ms | bloodyad · 363 ms | ✅ **4.5× faster** |
 
 ## All timings per scenario
 
@@ -102,6 +104,20 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 |---|---:|:---:|
 | `impacket` | 446 ms | ✅ |
 | `adhammer` | 6785 ms | ✅ |
+
+### AD CS ESC1 — request client-auth cert with spoofed UPN SAN
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `adhammer` | 315 ms | ✅ |
+| `certipy` | 9793 ms | ✅ |
+
+### RBCD write — msDS-AllowedToActOnBehalfOfOtherIdentity
+
+| Tool | Wall-clock | Exit |
+|---|---:|:---:|
+| `adhammer` | 80 ms | ✅ |
+| `bloodyad` | 363 ms | ✅ |
 
 ## Why ADhammer where it wins
 

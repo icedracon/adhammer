@@ -25,6 +25,8 @@ SCENARIO_DESC = {
     "bloodhound-collect": "BloodHound-format DC collection (users/computers/groups/ACLs)",
     "zerologon": "Zerologon (CVE-2020-1472) safe-detect probe",
     "secretsdump-sam": "Local secretsdump — SAM/SYSTEM hive registry read",
+    "esc1-enroll": "AD CS ESC1 — request client-auth cert with spoofed UPN SAN",
+    "rbcd-write": "RBCD write — msDS-AllowedToActOnBehalfOfOtherIdentity",
     "golden-forge": "Golden ticket forge + KDC accept",
 }
 
