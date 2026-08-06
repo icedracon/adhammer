@@ -59,6 +59,22 @@ exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`smb2-client`](https://crates.io/crates/smb2-client),
 [`dcerpc`](https://crates.io/crates/dcerpc)).
 
+### Head-to-head timings vs NetExec / bloodyAD
+
+Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, one target Server 2022 DC:
+
+| Scenario | ADhammer | NetExec / bloodyAD | Delta |
+|---|---:|---:|:---:|
+| Kerberoast (SPN enum + TGS harvest) | **85 ms** | nxc 577 ms | ✅ **6.8×** |
+| AS-REP Roast | **81 ms** | nxc 620 ms | ✅ **7.7×** |
+| SAMR user enumeration | **241 ms** | nxc 1239 ms | ✅ **5.1×** |
+| LDAP query (name → SID) | **194 ms** | bloodyAD 626 ms | ✅ **3.2×** |
+| Full LDAP audit + graph + checks | **90 ms** | nxc 579 ms | ✅ **6.4×** |
+| DCSync `krbtgt` (AES256 extract) | **78 ms** | — | one-shot in adhammer |
+| Zerologon safe-detect | 1884 ms | nxc 1123 ms | ⚠️ 1.7× slower (2000-attempt probe) |
+
+Python interpreter cold-start dominates Python-tool times; ADhammer's win compounds when you chain 3+ ops.
+
 ## Install
 
 ```sh
