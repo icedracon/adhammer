@@ -11,7 +11,7 @@ pub mod sam;
 
 pub use hive::Hive;
 pub use lsa::{CachedCred, LsaDump, LsaSecret};
-pub use rrp::bootkey_via_rrp;
+pub use rrp::{bootkey_via_rrp, dump_lsa_via_rrp, dump_sam_via_rrp};
 pub use sam::{dump, SamAccount};
 
 /// Parse SYSTEM + SAM hive bytes and return the decrypted local accounts.

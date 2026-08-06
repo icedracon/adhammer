@@ -62,15 +62,19 @@ pub fn bootkey(system: &Hive) -> Option<[u8; 16]> {
 }
 
 /// The revision of the SAM key material (2 = RC4, 3 = AES) plus the derived hashed bootkey.
-struct HashedBootKey {
-    revision: u8,
-    key: [u8; 16],
+pub struct HashedBootKey {
+    pub revision: u8,
+    pub key: [u8; 16],
 }
 
 fn hashed_bootkey(sam: &Hive, bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     let f = sam.value("SAM\\Domains\\Account", "F")?;
-    // Need through f[0xA0] (kd[24..56]) on the RC4 path; a shorter/crafted F must return None,
-    // not panic on the slice (this parser runs on attacker/analyst-supplied hives).
+    hashed_bootkey_from_f(&f, bootkey)
+}
+
+/// [`hashed_bootkey`] taking the raw `F` value bytes — for callers that fetched it via RRP
+/// (`crate::rrp::dump_sam_via_rrp`) instead of walking a hive.
+pub fn hashed_bootkey_from_f(f: &[u8], bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     if f.len() < 0xA0 {
         return None;
     }
@@ -139,7 +143,9 @@ fn le32(b: &[u8], o: usize) -> usize {
     u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as usize
 }
 
-fn decrypt_user(v: &[u8], rid: u32, hbk: &HashedBootKey) -> Option<SamAccount> {
+/// Decrypt one user's `V` value blob against the hashed bootkey. Public so the RRP path
+/// (`crate::rrp::dump_sam_via_rrp`) can decode V values it fetched directly via WINREG.
+pub fn decrypt_user(v: &[u8], rid: u32, hbk: &HashedBootKey) -> Option<SamAccount> {
     if v.len() < 0xCC {
         return None;
     }
