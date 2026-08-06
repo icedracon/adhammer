@@ -1,67 +1,13 @@
-//! SYSVOL collection — Group Policy Preferences (GPP) cpassword recovery (MS14-025).
-//!
-//! On Windows the SYSVOL share is reachable as a UNC path (`\\domain\SYSVOL\...`) through
-//! the OS SMB redirector, so we walk it with ordinary filesystem I/O — no Rust SMB stack,
-//! no FFI. GPP XML files embed a `cpassword` attribute encrypted with an AES-256 key that
-//! Microsoft *published*, making every such password trivially recoverable. We decrypt it
-//! and report the file, the target account, and the plaintext.
+//! SYSVOL analysis — a thin adapter over the standalone [`gpo`] crate, mapping its neutral
+//! GPP / GptTmpl results onto ADhammer [`Finding`]s. All parsing, crypto, and policy logic
+//! lives in `gpo`; this crate only owns the ADhammer-specific finding shapes.
 
 use adhammer_core::finding::{mitre, Category, Severity};
 use adhammer_core::Finding;
-use std::path::{Path, PathBuf};
 
-pub mod gpp;
-pub mod gptmpl;
+pub use gpo::gpp::{scan, GppHit};
 
-/// One recovered GPP credential.
-#[derive(Clone, Debug)]
-pub struct GppHit {
-    pub file: PathBuf,
-    pub user: Option<String>,
-    pub password: String,
-}
-
-/// Recursively scan a SYSVOL path for GPP XML files carrying a `cpassword`.
-/// `root` is typically `\\<domain-fqdn>\SYSVOL` on a domain-joined host.
-pub fn scan(root: &Path) -> Vec<GppHit> {
-    let mut hits = Vec::new();
-    walk(root, &mut hits);
-    hits
-}
-
-fn walk(dir: &Path, out: &mut Vec<GppHit>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => {
-            tracing::debug!(?dir, %e, "skip unreadable dir");
-            return;
-        }
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk(&path, out);
-        } else if path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
-        {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                for (b64, user) in gpp::extract_cpasswords(&content) {
-                    match gpp::decrypt_cpassword(&b64) {
-                        Ok(password) => out.push(GppHit {
-                            file: path.clone(),
-                            user,
-                            password,
-                        }),
-                        Err(e) => tracing::warn!(?path, %e, "cpassword decrypt failed"),
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Roll the recovered credentials into a single Critical finding.
+/// Roll the recovered GPP credentials into a single Critical finding.
 pub fn finding(hits: &[GppHit]) -> Option<Finding> {
     if hits.is_empty() {
         return None;
@@ -90,28 +36,65 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
     })
 }
 
+/// GptTmpl.inf security-template analysis.
+pub mod gptmpl {
+    use super::*;
+    pub use gpo::gptmpl::{parse_registry_values, scan_policy};
+
+    fn map_sev(s: gpo::Severity) -> Severity {
+        match s {
+            gpo::Severity::Low => Severity::Low,
+            gpo::Severity::Medium => Severity::Medium,
+            gpo::Severity::High => Severity::High,
+            gpo::Severity::Critical => Severity::Critical,
+        }
+    }
+
+    /// Map the GptTmpl policy issues onto ADhammer findings (Anomalies / Valid-Accounts).
+    pub fn policy_findings(map: &std::collections::HashMap<String, String>) -> Vec<Finding> {
+        gpo::gptmpl::policy_issues(map)
+            .into_iter()
+            .map(|i| Finding {
+                id: i.id.into(),
+                title: i.title.into(),
+                category: Category::Anomalies,
+                severity: map_sev(i.severity),
+                mitre: vec![mitre::VALID_ACCOUNTS],
+                weight_bonus: 0,
+                affected: vec![i.evidence],
+                detail: i.detail.into(),
+                remediation: i.remediation.into(),
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn scan_walks_tree_and_recovers_password() {
-        let dir = std::env::temp_dir().join(format!("adhammer_sysvol_{}", std::process::id()));
-        let deep = dir.join("Policies/{GUID}/Machine/Preferences/Groups");
-        std::fs::create_dir_all(&deep).unwrap();
-        std::fs::write(
-            deep.join("Groups.xml"),
-            r#"<Groups><User><Properties userName="svc_admin"
-               cpassword="j1Uyj3Vx8TY9LtLZil2uAuZkFQA/4latT76ZwgdHdhw"/></User></Groups>"#,
-        )
-        .unwrap();
+    fn gpp_finding_maps_to_critical() {
+        let hits = vec![GppHit {
+            file: "Groups.xml".into(),
+            user: Some("svc_admin".into()),
+            password: "Local*P4ssword!".into(),
+        }];
+        let f = finding(&hits).unwrap();
+        assert_eq!(f.id, "A-GppPassword");
+        assert!(matches!(f.severity, Severity::Critical));
+        assert_eq!(f.weight_bonus, 10);
+        assert!(finding(&[]).is_none());
+    }
 
-        let hits = scan(&dir);
-        std::fs::remove_dir_all(&dir).ok();
-
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].user.as_deref(), Some("svc_admin"));
-        assert_eq!(hits[0].password, "Local*P4ssword!");
-        assert!(finding(&hits).is_some());
+    #[test]
+    fn gptmpl_issues_map_to_findings() {
+        let inf = "[Registry Values]\n\
+            MACHINE\\System\\CurrentControlSet\\Control\\Lsa\\LmCompatibilityLevel=4,1\n\
+            MACHINE\\System\\CurrentControlSet\\Services\\NTDS\\Parameters\\LDAPServerIntegrity=4,1\n";
+        let map = gptmpl::parse_registry_values(inf);
+        let f = gptmpl::policy_findings(&map);
+        assert!(f.iter().any(|x| x.id == "A-NtlmV1"));
+        assert!(f.iter().any(|x| x.id == "A-LdapSigning"));
     }
 }
