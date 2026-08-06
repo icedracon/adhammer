@@ -53,11 +53,17 @@ enrollment — each **live-validated against a fully-patched Windows Server 2025
 | Live-validated on     | **Windows Server 2025** (patched) **+ Server 2022** | broad     | broad                      |
 
 The niche: **audit and validation in one Linux-native binary**, on a self-rolled stack whose
-security-descriptor parser and RPC/NTLM/SMB layer are reusable Rust crates that didn't previously
-exist ([`windows-sddl`](https://crates.io/crates/windows-sddl),
+security-descriptor parser, ACL semantics, NDR marshaler, and RPC/NTLM/SMB layer are reusable Rust
+crates that didn't previously exist — all published under [`icedracon`](https://crates.io/users/icedracon):
+[`windows-sddl`](https://crates.io/crates/windows-sddl),
+[`ad-acl`](https://crates.io/crates/ad-acl),
 [`ntlmssp`](https://crates.io/crates/ntlmssp),
+[`ms-ndr`](https://crates.io/crates/ms-ndr),
 [`smb2-client`](https://crates.io/crates/smb2-client),
-[`dcerpc`](https://crates.io/crates/dcerpc)).
+[`dcerpc`](https://crates.io/crates/dcerpc),
+[`dpapi-ng`](https://crates.io/crates/dpapi-ng),
+[`ms-dnsp`](https://crates.io/crates/ms-dnsp),
+[`preg`](https://crates.io/crates/preg).
 
 ### Head-to-head timings vs impacket / certipy / bloodyAD / NetExec
 
@@ -123,11 +129,14 @@ Power-user subcommands:
 ```
 scan                                        passive audit → JSON/HTML (+ --sysvol, --bloodhound out.zip)
 auto                                         guided: scan → confirm each weakness → validate + PoC report
-enum   {samr, lsa, net, dns, adcs, esc, posture}  RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture
-attack {roast, spray, abuse, coerce, rbcd, constrained, dcsync, exec, atexec, wmiexec,
-        secretsdump, gmsa, laps, esc1, golden, silver, pth, asktgt, winrm, capture, poison,
-        relay, zerologon}
+enum   {samr, lsa, net, dns, adcs, esc, posture, sessions}
+                                            RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture / SRVSVC
+attack {roast, spray, abuse, coerce, rbcd, constrained, unconstrained, dcsync, exec, atexec, wmiexec,
+        secretsdump, gmsa, laps, esc1, esc4, golden, silver, pth, asktgt, winrm, capture, poison,
+        relay, zerologon, shadowcred, dcshadow, badsuccessor}
 ```
+
+**Server 2025 dMSA succession (BadSuccessor):** `attack badsuccessor --dmsa-name pwn --target <victim>` creates a delegated MSA that inherits the victim's PAC on the next TGT — Yuval Gordon / Akamai 2025. **ADhammer is the only Rust implementation.**
 
 **Guided mode** (`adhammer auto`, or the interactive "Guided" menu): runs the audit, then walks
 each finding — colored, severity-coded — asking *"validate and capture a PoC?"*. On yes it runs the
@@ -208,21 +217,26 @@ See **[VECTORS.md](VECTORS.md)** for the full closed / partial / open matrix and
 
 ## Architecture
 
-The protocol stack ships as standalone, published crates — this repo consumes them (the dogfooding
-proof, and the reusable "impacket for Rust"):
+The protocol stack ships as **10 standalone, published crates** — this repo consumes them (the dogfooding proof, and the reusable "impacket for Rust"). All published under [`icedracon`](https://crates.io/users/icedracon) on crates.io, MIT-licensed, pure-Rust, no FFI.
 
 | Published crate | Role |
 |-----------------|------|
 | [`windows-sddl`](https://crates.io/crates/windows-sddl) | no-FFI `SECURITY_DESCRIPTOR`/DACL/ACE parser (MS-DTYP) + `Sid`/`Guid` + AD extended-right GUIDs |
+| [`ad-acl`](https://crates.io/crates/ad-acl) | AD ACE semantics — turn a security descriptor into concrete primitives (DCSync, Shadow Credentials, RBCD, WriteSPN, ReadGMSAPassword …) |
 | [`ntlmssp`](https://crates.io/crates/ntlmssp) | NTLMSSP (NTLMv2, MIC, key-exch) + RC4 sign+seal for RPC packet privacy |
-| [`smb2-client`](https://crates.io/crates/smb2-client) | async SMB2 client (negotiate → NTLMv2 SPNEGO → IPC$/named pipe; signing; file I/O) |
-| [`dcerpc`](https://crates.io/crates/dcerpc) | NDR · PDUs · sign+seal · TCP/SMB transports · EPM · SAMR · LSAT · DRSUAPI · SVCCTL · TSCH · EFSR · RPRN · ICPR · DCOM (OXID resolver) |
+| [`smb2-client`](https://crates.io/crates/smb2-client) | async SMB2 client (negotiate → NTLMv2 SPNEGO → IPC$/named pipe; signing; SOCKS5 egress; **`TCP_NODELAY`** — 12× speedup on small-request paths) |
+| [`ms-ndr`](https://crates.io/crates/ms-ndr) | NDR transfer syntax (MS-RPCE, LE): aligned primitives, conformant + varying arrays, unique-pointer referents, UTF-16 c-v strings |
+| [`dcerpc`](https://crates.io/crates/dcerpc) | Sealed BIND · PDU reassembly · TCP + SMB pipe transports · EPM · SAMR · LSAT · DRSUAPI · SVCCTL · TSCH · EFSR · RPRN · ICPR · SRVSVC · FSRVP · DFSNM · Netlogon (Zerologon safe-detect) · DCOM/WMI (OXID → `Win32_Process.Create`) |
+| [`dpapi-ng`](https://crates.io/crates/dpapi-ng) | DPAPI-NG (CNG group protection) + MS-GKDI — decrypt LAPS, gMSA, dMSA blobs offline |
+| [`ms-dnsp`](https://crates.io/crates/ms-dnsp) | MS-DNSP `dnsRecord` blob parser/builder for AD-integrated DNS zones |
+| [`preg`](https://crates.io/crates/preg) | Windows Group Policy `Registry.pol` (PReg) reader/writer |
 
 Workspace crates (audit + orchestration): `core` (model + MITRE), `graph` (control-path,
-reverse-Dijkstra to Tier-0), `collector` (LDAP over domain + Configuration NC), `checks` (the
-41-rule engine), `kerberos` (roast · S4U/RBCD · Shadow-Cred PKINIT · golden/silver · pass-the-ticket),
-`sysvol` (GPP/GptTmpl), `report` (risk scoring → JSON/HTML), `ldap` (hand-rolled BER + NTLM SASL for
-the relay bridge), `bloodhound` (SharpHound export), `secrets` (offline hive/SAM decryption).
+reverse-Dijkstra to Tier-0, hops carry ready-to-copy `adhammer …` commands), `collector` (LDAP over
+domain + Configuration NC), `checks` (the 41-rule engine), `kerberos` (roast · S4U/RBCD ·
+Shadow-Cred PKINIT · golden/silver · pass-the-ticket), `sysvol` (GPP/GptTmpl, delegates to `preg`),
+`report` (risk scoring → JSON/HTML), `ldap` (hand-rolled BER + NTLM SASL for the relay bridge),
+`bloodhound` (SharpHound export), `secrets` (offline hive/SAM + WINREG-based `secretsdump`).
 
 ## Test
 
@@ -252,9 +266,13 @@ SHA-1 — which rustls refuses.
   is the Kali-native positioning; `attack atexec` (TSCH) is a redundant RCE method that still
   faults `nca_s_fault_ndr` on modern targets — use `exec` (SVCCTL) or `winrm`.
 - Default LDAP binds use LDAPS (`--insecure` for a lab self-signed cert; a bare username is
-  auto-qualified to a UPN). Plaintext simple bind is refused by hardened DCs; SASL GSSAPI is an
-  off-by-default cargo feature.
-- Out of current scope: **WMI exec** (the DCOM/OXID foundation exists in `dcerpc`; the activation
-  chain is not yet wired). ESC6/7/10/11/16 are now covered by `enum esc`.
+  auto-qualified to a UPN). Plaintext simple bind is refused by hardened DCs (Server 2025 requires
+  LDAP sealing / LDAPS); SASL GSSAPI is an off-by-default cargo feature.
+- **WMI exec** is live: `attack wmiexec` runs a full DCOM activation → OXID resolve →
+  `IWbemServices::ExecMethod Win32_Process.Create` chain from the hand-built MS-DCOM/MS-WMIO stack,
+  captures output over `C$`, and honors `-hashes` (PtH).
+- ESC coverage: 7 of 16 ADCS ESC classes have active/enrollment paths (ESC1 via `attack esc1`,
+  ESC4 via `attack esc4`, ESC6/10/11/16 via `enum esc` over MS-RRP, ESC8 web-enroll via `enum adcs`).
+  ESC2/3/5/7/9/12/13/14/15 are audit-only in `scan` — active exploitation on the roadmap.
 
 Authorized research / academic / authorized-engagement use only — see [SECURITY.md](SECURITY.md).
