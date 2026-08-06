@@ -77,7 +77,7 @@ Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wal
 | Kerberoast (SPN enum + TGS harvest) | **92 ms** | impacket 234 ms | ✅ **2.5×** |
 | AS-REP Roast | **87 ms** | impacket 220 ms | ✅ **2.5×** |
 | SAMR user enumeration | **225 ms** | impacket 310 ms | ✅ **1.4×** |
-| Local secretsdump (SAM/SYSTEM hive) | 6785 ms | impacket 446 ms | ⚠️ 15.2× slower (RRP bootkey skips SYSTEM; SAM/LSA hive still) |
+| Local secretsdump (SAM+LSA via RRP) | 1153 ms | impacket 446 ms | ⚠️ 2.6× slower |
 
 **12/13 wins.** The one loss is honest — adhammer's local secretsdump saves whole registry hives via `reg save` then reads over `C$`; impacket uses remote registry API (WINREG) that reads specific keys in-place. On a DC, `attack dcsync` covers domain creds and wins anyway. Python interpreter cold-start dominates the small Python-tool times; ADhammer's Rust binary skips it, and the saving compounds when you chain 3+ ops in one engagement.
 
