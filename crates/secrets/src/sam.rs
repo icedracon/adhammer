@@ -111,7 +111,14 @@ fn hashed_bootkey(sam: &Hive, bootkey: &[u8; 16]) -> Option<HashedBootKey> {
 /// Decrypt all local accounts from a SAM hive given the SYSTEM bootkey.
 pub fn dump(system: &Hive, sam: &Hive) -> Option<Vec<SamAccount>> {
     let bk = bootkey(system)?;
-    let hbk = hashed_bootkey(sam, &bk)?;
+    dump_with_bootkey(sam, &bk)
+}
+
+/// Decrypt all local accounts from a SAM hive when the bootkey has already been derived
+/// out-of-band (e.g. via `crate::rrp::bootkey_via_rrp` — the fast path that skips the
+/// 15 MB SYSTEM hive fetch).
+pub fn dump_with_bootkey(sam: &Hive, bk: &[u8; 16]) -> Option<Vec<SamAccount>> {
+    let hbk = hashed_bootkey(sam, bk)?;
     let mut out = Vec::new();
     for name in sam.subkey_names("SAM\\Domains\\Account\\Users") {
         let Ok(rid) = u32::from_str_radix(&name, 16) else {

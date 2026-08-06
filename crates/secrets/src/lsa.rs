@@ -47,10 +47,10 @@ pub struct LsaDump {
     pub cached: Vec<CachedCred>,
 }
 
-/// Decrypt LSA secrets + cached credentials from SYSTEM (for the bootkey) and SECURITY hives.
-pub fn dump(system: &Hive, security: &Hive) -> Option<LsaDump> {
-    let bk = bootkey(system)?;
-    let lsa_key = lsa_key(security, &bk)?;
+/// Decrypt LSA secrets + cached credentials with an already-derived bootkey (e.g. from
+/// `crate::rrp::bootkey_via_rrp`). Skips the SYSTEM hive entirely.
+pub fn dump_with_bootkey(security: &Hive, bk: &[u8; 16]) -> Option<LsaDump> {
+    let lsa_key = lsa_key(security, bk)?;
 
     let mut secrets = Vec::new();
     let mut nlkm: Option<Vec<u8>> = None;
@@ -75,7 +75,6 @@ pub fn dump(system: &Hive, security: &Hive) -> Option<LsaDump> {
 
     let mut cached = Vec::new();
     if let Some(nlkm) = nlkm {
-        // NL$n cached logons are *values* of the Cache key (NL$Control holds no credential).
         for name in security.value_names("Cache") {
             if !name.to_uppercase().starts_with("NL$") || name.eq_ignore_ascii_case("NL$Control") {
                 continue;
@@ -89,6 +88,12 @@ pub fn dump(system: &Hive, security: &Hive) -> Option<LsaDump> {
         }
     }
     Some(LsaDump { secrets, cached })
+}
+
+/// Decrypt LSA secrets + cached credentials from SYSTEM (for the bootkey) and SECURITY hives.
+pub fn dump(system: &Hive, security: &Hive) -> Option<LsaDump> {
+    let bk = bootkey(system)?;
+    dump_with_bootkey(security, &bk)
 }
 
 /// Vista+ LSA key: unwrap `Policy\PolEKList` with the bootkey.

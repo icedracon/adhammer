@@ -67,6 +67,15 @@ def main() -> int:
         "binary avoids."
     )
     md.append("")
+    md.append(
+        "> **secretsdump-sam note:** ADhammer 1.2 gained a fast-path bootkey extractor via "
+        "MS-RRP (Remote Registry API) so the 15 MB SYSTEM hive save is skipped entirely — "
+        "the derived key matches impacket's byte-for-byte. SAM and SECURITY hives still go "
+        "through `reg save` + SMB `C$` read, so a hardened DC that denies `reg save HKLM\\SAM` "
+        "(SeBackupPrivilege not held in the SCM service token) still costs ~3 s per hive "
+        "waiting for the file to appear. Full RRP-based SAM/LSA readers are next up."
+    )
+    md.append("")
     md.append("| Scenario | ADhammer | Fastest competitor | Δ (ADhammer / competitor) |")
     md.append("|---|---:|---:|:---:|")
     for scenario in [s for s in SCENARIO_DESC if s in by_scenario]:

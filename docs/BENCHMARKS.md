@@ -4,6 +4,8 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 
 > **Testbed:** Windows Server 2022 DC (patched, live). ADhammer runs directly from a Windows host to the DC. Python-based tools (impacket, certipy, bloodyAD, NetExec) run from Kali WSL through a SOCKS5 tunnel opened over SSH to the Windows host (`ssh -D 1080 zevs@host`), then via `proxychains4`. All tools authenticate as `TESTLAB\administrator`. Numbers are wall-clock from process spawn to exit and include tool startup / Python interpreter load — that overhead is real, operators pay it every invocation, and it's exactly what a single-static binary avoids.
 
+> **secretsdump-sam note:** ADhammer 1.2 gained a fast-path bootkey extractor via MS-RRP (Remote Registry API) so the 15 MB SYSTEM hive save is skipped entirely — the derived key matches impacket's byte-for-byte. SAM and SECURITY hives still go through `reg save` + SMB `C$` read, so a hardened DC that denies `reg save HKLM\SAM` (SeBackupPrivilege not held in the SCM service token) still costs ~3 s per hive waiting for the file to appear. Full RRP-based SAM/LSA readers are next up.
+
 | Scenario | ADhammer | Fastest competitor | Δ (ADhammer / competitor) |
 |---|---:|---:|:---:|
 | **DCSync `krbtgt` (extract AES256/NT hash via DRSUAPI)** | 85 ms | impacket · 335 ms | ✅ **3.9× faster** |
@@ -16,7 +18,7 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | **Full LDAP collect + checks + attack-path report** | 91 ms | nxc · 2058 ms | ✅ **22.6× faster** |
 | **BloodHound-format DC collection (users/computers/groups/ACLs)** | 90 ms | bloodhound-python · 30891 ms | ✅ **343.2× faster** |
 | **Zerologon (CVE-2020-1472) safe-detect probe** | 1782 ms | nxc · 7779 ms | ✅ **4.4× faster** |
-| **Local secretsdump — SAM/SYSTEM hive registry read** | 10307 ms | impacket · 446 ms | ⚠️ 23.1× slower |
+| **Local secretsdump — SAM/SYSTEM hive registry read** | 6785 ms | impacket · 446 ms | ⚠️ 15.2× slower |
 
 ## All timings per scenario
 
@@ -99,7 +101,7 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 | Tool | Wall-clock | Exit |
 |---|---:|:---:|
 | `impacket` | 446 ms | ✅ |
-| `adhammer` | 10307 ms | ✅ |
+| `adhammer` | 6785 ms | ✅ |
 
 ## Why ADhammer where it wins
 
