@@ -1405,6 +1405,8 @@ dependencies = [
 [[package]]
 name = "ms-ndr"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2605dcce42b622ec08a5ccf22b8fc9254619f4dbebf611a4376d0450e388850d"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -2199,6 +2201,8 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 [[package]]
 name = "smb2-client"
 version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "262e6a65d675cef1c23106908b1afb5186b1d7d9b9cd596800d28cc2cacc46d7"
 dependencies = [
  "aes",
  "cmac",
