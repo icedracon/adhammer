@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.3.2"
+version = "1.3.3"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -36,17 +36,26 @@ smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
 dcerpc       = "0.2"
+# ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
+# tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack certipy` (ms-icpr),
+# and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
+# transport) is disabled because its dcerpc pull would tug the local dcerpc HEAD
+# into the resolve graph and reintroduce the ms-nrpc cycle; the wire path uses
+# `ms_icpr::IcprClient::stub` + the offline CSR builder for now.
+ms-crtd      = "0.1.0-dev"
+ms-icpr      = { version = "0.1.0-dev", default-features = false }
+ms-gkdi      = "0.1.0-dev"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.3.2" }
-adhammer-collector = { path = "crates/collector", version = "1.3.2", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.3.2" }
-adhammer-graph     = { path = "crates/graph",     version = "1.3.2" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.3.2" }
-adhammer-report    = { path = "crates/report",    version = "1.3.2" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.3.2" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.3.2" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.3.2" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.3.2" }
+adhammer-core      = { path = "crates/core",      version = "1.3.3" }
+adhammer-collector = { path = "crates/collector", version = "1.3.3", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.3.3" }
+adhammer-graph     = { path = "crates/graph",     version = "1.3.3" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.3.3" }
+adhammer-report    = { path = "crates/report",    version = "1.3.3" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.3.3" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.3.3" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.3.3" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.3.3" }
 
 # external
 serde       = { version = "1", features = ["derive"] }
@@ -84,5 +93,9 @@ codegen-units = 1
 # Drop these lines once dcerpc 0.3 / ms-ndr 0.1 are on crates.io and the version reqs bump.
 [patch.crates-io]
 ms-ndr = { path = "../ms-ndr" }
-dcerpc = { path = "../dcerpc" }
+# Local dcerpc HEAD (0.2.2) recently added `ms-nrpc = "0.1.0-dev"` as a normal dep;
+# ms-nrpc in turn depends on `dcerpc = "0.2"`, forming a dep cycle that cargo's
+# resolver refuses. Until dcerpc makes the ms-nrpc pull optional (or the two land
+# on crates.io together), pin dcerpc to the published 0.2.x for this workspace.
+# dcerpc = { path = "../dcerpc" }
 smb2-client = { path = "../smb2-client" }

@@ -342,6 +342,8 @@ mod tests {
         let (st, hs) = parse_head(s).unwrap();
         assert_eq!(st, 401);
         assert_eq!(hs.len(), 2);
-        assert!(hs.iter().any(|(k, v)| k == "WWW-Authenticate" && v == "NTLM abc"));
+        assert!(hs
+            .iter()
+            .any(|(k, v)| k == "WWW-Authenticate" && v == "NTLM abc"));
     }
 }

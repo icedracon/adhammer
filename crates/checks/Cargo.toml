@@ -10,4 +10,6 @@ repository.workspace = true
 adhammer-core = { workspace = true }
 windows-sddl = { workspace = true }
 adhammer-graph = { workspace = true }
+# ESC1-15 rule pack — operates on ms-crtd's typed CertTemplate view.
+ms-crtd = { workspace = true }
 

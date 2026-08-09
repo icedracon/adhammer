@@ -12,6 +12,8 @@ use ldap3::controls::RawControl;
 use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use std::collections::{HashMap, HashSet};
 
+pub mod sources;
+
 /// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of
 /// nTSecurityDescriptor (0x7), omitting the SACL. Without this, a non-admin bind gets an
 /// empty security descriptor, so DACL-based checks (ESC, control paths) see nothing.
@@ -629,14 +631,15 @@ impl Collector {
 
     /// Create a new LDAP object. `attrs` is a list of `(attribute, [values…])` pairs including
     /// `objectClass`. Used by BadSuccessor (dMSA creation) and dcshadow-style rogue-DC prep.
-    pub async fn add_object(
-        &mut self,
-        dn: &str,
-        attrs: Vec<(&str, Vec<Vec<u8>>)>,
-    ) -> Result<()> {
+    pub async fn add_object(&mut self, dn: &str, attrs: Vec<(&str, Vec<Vec<u8>>)>) -> Result<()> {
         let list: Vec<(Vec<u8>, HashSet<Vec<u8>>)> = attrs
             .into_iter()
-            .map(|(a, vs)| (a.as_bytes().to_vec(), vs.into_iter().collect::<HashSet<_>>()))
+            .map(|(a, vs)| {
+                (
+                    a.as_bytes().to_vec(),
+                    vs.into_iter().collect::<HashSet<_>>(),
+                )
+            })
             .collect();
         self.ldap
             .add(dn, list)

@@ -7,12 +7,12 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 use crate::session::{self, Session};
 use crate::{
     abuse, adcsenum, asktgt, badsuccessor, coerce, dcshadow, dcsync, dnsenum, esc1, esc4,
-    esc_registry_scan, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, posture_scan, pth,
-    rbcd, relay, roast, samr, scan, secretsdump, sessions, shadowcred, silver, spray,
-    unconstrained, winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs, BadsuccessorArgs,
-    CoerceArgs, DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
-    LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs,
-    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs, ZerologonArgs,
+    esc_registry_scan, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd,
+    relay, roast, samr, scan, secretsdump, sessions, shadowcred, silver, spray, unconstrained,
+    winrm_exec, wmiexec_cmd, zerologon, AbuseArgs, AsktgtArgs, BadsuccessorArgs, CoerceArgs,
+    DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs, LapsArgs,
+    LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, SamrArgs, SecretsdumpArgs,
+    SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs, ZerologonArgs,
 };
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -918,7 +918,11 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user: s.username.clone(),
                 password: s.password.clone(),
                 insecure: true,
-                container: if container.is_empty() { None } else { Some(container) },
+                container: if container.is_empty() {
+                    None
+                } else {
+                    Some(container)
+                },
                 dmsa_name,
                 target,
             })
@@ -979,8 +983,7 @@ async fn fetch_key_and_sid(
     }
 
     // Key via DCSync (DRSUAPI over sealed RPC).
-    let mut drs =
-        ms_drsr::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
+    let mut drs = ms_drsr::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
     let (_rid, _nt, kerb) = drs.dcsync(&s.netbios(), account).await?;
     let key = kerb
         .iter()

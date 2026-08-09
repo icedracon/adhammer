@@ -11,6 +11,7 @@ pub mod anomalies_extra;
 pub mod hygiene;
 pub mod privileged;
 pub mod privileged_extra;
+pub mod rules;
 pub mod stale;
 pub mod trusts;
 pub mod util;

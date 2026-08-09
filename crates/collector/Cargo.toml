@@ -26,3 +26,8 @@ smb2-client = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 native-tls = { version = "0.2", optional = true }
+# ADCS + LAPS/gMSA sources. ms-crtd → typed CertTemplate view over
+# pKICertificateTemplate LDAP attrs; ms-gkdi → GKDI L0/L1/L2 tree walk
+# + ISDKey::GetKey (used by the LAPS-v2 / gMSA seed-key path).
+ms-crtd = { workspace = true }
+ms-gkdi = { workspace = true }

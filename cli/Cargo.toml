@@ -34,6 +34,15 @@ adhammer-ldap = { workspace = true }
 dcerpc = { workspace = true }
 ms-drsr = "0.1"
 dpapi-ng = { version = "0.1", features = ["rpc"] }
+# ESC1-15 static analysis (`check adcs`) + certipy-style CSR construction
+# (`attack certipy`) + LAPS-v2 / gMSA seed-key derivation (`dump laps`/`dump gmsa`).
+ms-crtd = { workspace = true }
+ms-icpr = { workspace = true }
+ms-gkdi = { workspace = true }
+# ms-icpr's build_csr_with_upn_san signs with an RSA key; `attack certipy`
+# generates a fresh 2048-bit key when the caller doesn't supply one.
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+rand = "0.8"
 
 # ESC8 (adcs-http relay) — minimal NTLM-over-HTTP client. Same rustls/tokio-rustls versions
 # ldap3 already pulls in, so no duplicate-crate risk.

@@ -30,10 +30,7 @@ pub async fn bootkey_via_rrp(reg: &mut RegistryClient<'_>) -> Result<[u8; 16]> {
 
 /// [`bootkey_via_rrp`] using a caller-provided HKLM handle — saves 2 RPC roundtrips per call
 /// in multi-step flows (open once, use for bootkey + SAM + LSA).
-pub async fn bootkey_via_rrp_hklm(
-    reg: &mut RegistryClient<'_>,
-    hklm: &Hkey,
-) -> Result<[u8; 16]> {
+pub async fn bootkey_via_rrp_hklm(reg: &mut RegistryClient<'_>, hklm: &Hkey) -> Result<[u8; 16]> {
     // Which control set is active — read `HKLM\SYSTEM\Select\Current`.
     let sel = reg.open(hklm, r"SYSTEM\Select").await?;
     let cs = reg.query(&sel, "Current").await?.as_dword().unwrap_or(1);
@@ -165,7 +162,10 @@ pub async fn dump_lsa_via_rrp_hklm(
         reg.close_handle(&curr).await;
         let Ok(enc) = enc else { continue };
         if let Some(plain) = lsa::decrypt_secret_public(&lsa_key, &enc.data) {
-            out.push(lsa::LsaSecret { name, secret: plain });
+            out.push(lsa::LsaSecret {
+                name,
+                secret: plain,
+            });
         }
     }
     reg.close_handle(&secrets).await;

