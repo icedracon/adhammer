@@ -20,14 +20,37 @@ For **authorized engagements, red-team validation, and education** only.
 
 📝 **Write-up:** [I built a full AD pentest + audit tool in Rust — on a protocol stack I wrote from scratch (no impacket)](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)
 
-### 🆕 What's new in v1.3.1
+### 🆕 What's new in v1.3.3
+
+- **`check adcs` — the ESC rule pack.** ADhammer's ADCS auditor is now wired onto
+  [`ms-crtd 0.1.0-dev`](https://crates.io/crates/ms-crtd), so certificate-template ACLs +
+  extended-rights + EKU checks come from one shared, spec-vector-tested rule engine (ESC1–ESC15
+  minus ESC12) instead of a per-check ad-hoc walk. The same rule pack is what powers the
+  passive `scan` ADCS findings — audit and validation share the primitives.
+- **`attack certipy` — offline CSR builder + ICPR request.** New command wires onto
+  [`ms-icpr 0.1.0-dev`](https://crates.io/crates/ms-icpr) (spoofed-UPN SAN CSR, no OpenSSL) +
+  `IcprClient::stub` so an ESC1-style enrollment goes cert-in-hand from Kali with a fresh 2048-bit
+  RSA key generated in-process. Complements the older `attack esc1` path.
+- **`dump laps` / `dump gmsa` — LAPSv2 + gMSA seed-key derivation.** Both commands now consume
+  [`ms-gkdi 0.1.0-dev`](https://crates.io/crates/ms-gkdi) directly for the L0/L1/L2 tree walk +
+  `ISDKey::GetKey` RPC, and hand the envelope to
+  [`dpapi-ng 0.1.1`](https://crates.io/crates/dpapi-ng) for CMS unwrap + AES-256-GCM open. Works
+  end-to-end against Server 2022/2025 lab DCs.
+- **PAC forgery on `ms-pac-forge`.** `adhammer-kerberos::pac` shrunk to re-exports over
+  [`ms-pac-forge 0.1.0-dev`](https://crates.io/crates/ms-pac-forge) — golden/silver ticket
+  PAC construction is now one crate that other Rust offensive tools can adopt without cloning
+  ADhammer.
+- **Fire-and-forget `CloseKey` inherited from `dcerpc 0.2.2`.** The ADCS ESC-registry sweep in
+  `enum esc` deferred-flushes registry handles (SMB `WRITE` instead of `TRANSCEIVE`), one less
+  round-trip per subkey.
+
+Full notes: [Releases → v1.3.3](https://github.com/icedracon/adhammer/releases/tag/v1.3.3).
+
+### v1.3.1 highlights (still current)
 
 - **BadSuccessor (Server 2025 dMSA)** — end-to-end working. `attack badsuccessor` creates a delegated MSA that inherits the victim's PAC on the next TGT (Yuval Gordon / Akamai). ADhammer is the only Rust implementation. `48 ms` on a live 2025 DC.
 - **12× perf across every small-request path** — `TCP_NODELAY` on all SMB/RPC dials (Nagle was adding up to 40 ms per sealed opnum). RRP `secretsdump` `1083 → 91 ms`, SAMR enum `225 → 63 ms`, RBCD write `80 → 49 ms`. Inherited automatically via [`smb2-client 0.2.1`](https://crates.io/crates/smb2-client).
 - **Bench matrix rebuilt on a live Server 2025 Standard DC** — 11 wins vs impacket/certipy/bloodyAD/NetExec + 1 exclusive (BadSuccessor has no Python-toolkit implementation). See table below.
-- **New companion crate releases:** [`dcerpc 0.2.1`](https://crates.io/crates/dcerpc) (RRP full parity + `srvsvc`/`fsrvp`/`dfsnm` protocol modules), [`ms-ndr 0.1.0`](https://crates.io/crates/ms-ndr), [`ms-drsr 0.1.0`](https://crates.io/crates/ms-drsr), [`dpapi-ng 0.1.1`](https://crates.io/crates/dpapi-ng) (added `rpc` feature for encrypted LAPS/gMSA/dMSA blobs).
-
-Full notes: [Releases → v1.3.1](https://github.com/icedracon/adhammer/releases/tag/v1.3.1).
 
 ![ADhammer command surface on Kali Linux: help, the offensive attack modes, enum (incl. ESC-registry + relay posture), and Zerologon safe-detection — one Rust binary](docs/tour.gif)
 
