@@ -11,7 +11,6 @@ research use, **proves** those paths end-to-end. One static binary, from Kali/Li
 an embedded from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack (the "impacket for Rust" that
 didn't otherwise exist).
 
-Built as security research (ITMO); sibling to a Windows kernel 0-day disclosed to Microsoft MSRC.
 For **authorized engagements, red-team validation, and education** only.
 
 > **Authorized use only.** The validation modules implement working offensive techniques (DCSync,
@@ -45,6 +44,13 @@ For **authorized engagements, red-team validation, and education** only.
   round-trip per subkey.
 
 Full notes: [Releases → v1.3.3](https://github.com/icedracon/adhammer/releases/tag/v1.3.3).
+
+> **Semver scope.** `adhammer 1.3.x` (this CLI + its `adhammer-*` workspace crates) is
+> the stable public surface. Foundation library crates it consumes (`ms-crtd`, `ms-icpr`,
+> `ms-pkca`, `ms-gkdi`, `ms-pac-forge`, `ms-nrpc`, `ms-tds`, `credssp`, `msldap-ext`,
+> `ms-even6`, `windows-*`) remain **`0.1.0-dev`** (pre-alpha) and will bump to `0.1.0`
+> only after live-DC validation against a Server 2022 + 2025 matrix. Depending on the
+> foundation crates directly today means expecting breaking changes before `0.1.0`.
 
 ### v1.3.1 highlights (still current)
 
@@ -99,7 +105,7 @@ crates that didn't previously exist — all published under [`icedracon`](https:
 
 ### Head-to-head timings vs impacket / certipy / bloodyAD / NetExec
 
-Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Wall-clock, live Windows Server 2025 DC (`testlab.local`, LDAPS via enterprise CA), Python tools via SOCKS5-over-SSH tunnel so both sides travel the same network path. `—` = tool does not implement that scenario.
+Full comparison + methodology in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Raw run log ([`bench/full.log`](bench/full.log)), driver script ([`bench/run_bench.sh`](bench/run_bench.sh)), renderer ([`bench/render_results.py`](bench/render_results.py)), and TSV ([`bench/results.tsv`](bench/results.tsv)) are all tracked in the repo — reproduce with one command. Wall-clock includes process spawn + interpreter load (real cost paid by every invocation, not an artificial handicap); live Windows Server 2025 DC (`testlab.local`, LDAPS via enterprise CA); Python tools travel Kali WSL → SOCKS5-over-SSH → same Windows host that runs ADhammer, so both sides share the network path. `—` = tool does not implement that scenario.
 
 | Scenario | ADhammer | impacket | certipy | bloodyAD | NetExec | Winner |
 |---|---:|---:|---:|---:|---:|:---|

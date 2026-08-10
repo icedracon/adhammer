@@ -2,9 +2,33 @@
 
 Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certipy**, **bloodyAD**, **NetExec (nxc)**. Wall-clock from process spawn to exit, on a single target Windows Server 2025 Standard DC. Regenerate with `bench/run_bench.sh` + `python bench/render_results.py`.
 
-> **Testbed:** Windows Server 2025 Standard DC (`testlab.local`, LDAPS via enterprise CA, `RemoteRegistry` enabled). ADhammer runs directly from a Windows host to the DC. Python-based tools (impacket, certipy, bloodyAD, NetExec) run from Kali WSL through a SOCKS5 tunnel opened over SSH to the Windows host (`ssh -D 1080 zevs@host`), then via `proxychains4`. All tools authenticate as `TESTLAB\administrator`. Numbers are wall-clock from process spawn to exit and include tool startup / Python interpreter load — that overhead is real, operators pay it every invocation, and it's exactly what a single-static binary avoids.
+## Methodology (be a skeptic — please)
 
-> **secretsdump note:** ADhammer's secretsdump uses MS-RRP (WINREG API) — bootkey from `Lsa\{JD,Skew1,GBG,Data}` key CLASS names, then SAM users and LSA secrets read directly via `BaseRegOpenKey(REG_OPTION_BACKUP_RESTORE)` + `BaseRegEnumKey` + `BaseRegQueryValue`. No hive save, no C$ hive download, byte-identical NT hashes to impacket. After enabling `TCP_NODELAY` on the transport socket the round-trip cost dropped from ~19 ms/RPC to ~2 ms/RPC.
+Numbers like "144×" invite fair scrutiny. Here is exactly what was measured and how, so you can either reproduce or discount the result:
+
+**Testbed.** Windows Server 2025 Standard DC (`testlab.local`, LDAPS via enterprise CA, `RemoteRegistry` enabled). Fully patched.
+
+**Path parity.** ADhammer runs directly from a Windows host to the DC (LAN, ~1 ms RTT). The Python tools (impacket, certipy, bloodyAD, NetExec) run from Kali WSL and reach the DC through a SOCKS5 tunnel opened over SSH *to the same Windows host* (`ssh -D 1080 zevs@host`), then via `proxychains4`. Both sides therefore terminate on the same Windows host and share the last-mile path to the DC. The SOCKS5 tunnel adds a few sub-millisecond hops that ADhammer avoids — this is called out honestly here rather than hidden, and is negligible (< 5 ms) compared to the measured deltas (hundreds to thousands of ms).
+
+**What "wall-clock" means.** `time <cmd>` from process spawn to exit. Includes Python interpreter startup + module import — that cost is real, every operator pays it every invocation, and skipping it is exactly what a single-static Rust binary buys you. If you prefer amortized numbers (long-running Python daemon warmed up), the Python side would gain ~150–300 ms per invocation but the multi-second differences (`nxc zerologon-scan` = 7.8 s wall-clock) do not close.
+
+**Tool versions.** impacket 0.13.1, certipy 4.8.2, bloodyAD 2.1.11, NetExec 1.4.0, ADhammer 1.3.3, Python 3.11.9 in Kali WSL, cargo 1.95. Recorded in `bench/full.log` per invocation.
+
+**Auth.** All tools authenticate as `TESTLAB\administrator` (or the equivalent NT hash / cleartext). Same target account, same host, same DC.
+
+**Reproducibility.**
+
+- Full unedited stdout+stderr of every run: [`bench/full.log`](../bench/full.log)
+- Driver: [`bench/run_bench.sh`](../bench/run_bench.sh) (bash — one run per scenario per tool, results TSV appended)
+- Renderer: [`bench/render_results.py`](../bench/render_results.py)
+- Rendered TSV: [`bench/results.tsv`](../bench/results.tsv)
+- Also: [`bench/README.md`](../bench/README.md) for lab-side setup notes
+
+If your DC has different patch levels, network topology, or resource pressure, expect drift. Publish your own numbers and open a PR against the table — the raw scripts make that a one-command loop.
+
+## secretsdump caveat
+
+ADhammer's secretsdump uses MS-RRP (WINREG API) — bootkey from `Lsa\{JD,Skew1,GBG,Data}` key CLASS names, then SAM users and LSA secrets read directly via `BaseRegOpenKey(REG_OPTION_BACKUP_RESTORE)` + `BaseRegEnumKey` + `BaseRegQueryValue`. No hive save, no C$ hive download, byte-identical NT hashes to impacket. After enabling `TCP_NODELAY` on the transport socket the round-trip cost dropped from ~19 ms/RPC to ~2 ms/RPC. The remaining 74 ms vs impacket's 45 ms is due to per-value opnum round-trips; fire-and-forget `CloseKey` in dcerpc 0.2.2 (SMB WRITE instead of TRANSCEIVE) is the next optimization and should reach parity.
 
 ## Full matrix — ms per tool per scenario (`—` = tool doesn't implement)
 
