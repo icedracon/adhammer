@@ -73,6 +73,7 @@ const ATTRS: &[&str] = &[
     "msPKI-Certificate-Application-Policy",
     "msPKI-Certificate-Policy",
     "msPKI-Template-Schema-Version",
+    "msPKI-Cert-Template-OID",
     // ESC14: explicit certificate mappings (weak X509 mapping strings).
     "altSecurityIdentities",
     // domain password policy + Directory Service heuristics (anonymous LDAP etc.)
