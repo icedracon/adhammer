@@ -128,9 +128,37 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
 
     let exe = std::env::current_exe().context("locate adhammer binary")?;
     let mut results: Vec<(Finding, Outcome)> = Vec::new();
+    // Per-finding decision: whether the operator asked to see (and include in report)
+    // the "Impact" attack-chain narrative for this specific finding. `--no-impact`
+    // shortcuts every finding to NO without prompting; `--yes` (unattended) shortcuts
+    // every finding to YES so the report is fully-annotated.
+    let mut impact_yes: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for f in findings {
         print_card(&f);
+        // Per-finding impact prompt — after the card renders (Why but NOT Impact yet),
+        // ask if the operator wants to see the attack-chain narrative. YES prints it
+        // to the terminal AND flags the finding for inclusion in the report's
+        // **Impact:** line.
+        if f.impact.is_some() {
+            let show_impact = if a.no_impact {
+                false
+            } else if a.yes {
+                true
+            } else {
+                Confirm::new()
+                    .with_prompt("  want impact? (attack-chain narrative for this finding)")
+                    .default(true)
+                    .interact()
+                    .unwrap_or(true)
+            };
+            if show_impact {
+                impact_yes.insert(f.id.clone());
+                if let Some(imp) = &f.impact {
+                    ui::field("impact", imp);
+                }
+            }
+        }
         let outcome = match validator(&f, &ctx) {
             None => {
                 ui::info("no automated validator — recorded as potential");
@@ -254,7 +282,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         ui::dim(&format!("◻ {d} declined")),
         ui::dim(&format!("◽ {p} potential"))
     );
-    let report = build_report(&snap, &results, !a.no_impact);
+    let report = build_report(&snap, &results, &impact_yes);
     std::fs::write(&a.out, report).with_context(|| format!("write report {}", a.out))?;
     ui::ok(&format!("report written → {}", a.out));
     Ok(())
@@ -488,14 +516,18 @@ fn print_card(f: &Finding) {
         ui::field("affected", &format!("{shown}{extra}"));
     }
     ui::field("why", &f.detail);
-    if let Some(imp) = &f.impact {
-        ui::field("impact", imp);
-    }
+    // Impact is intentionally NOT printed here — it's shown per-finding via a
+    // "want impact? (y/n)" prompt in the guided loop, so operators can pick which
+    // findings to annotate before the terminal fills with narrative.
 }
 
 // ---- report ---------------------------------------------------------------------------
 
-fn build_report(snap: &Snapshot, results: &[(Finding, Outcome)], include_impact: bool) -> String {
+fn build_report(
+    snap: &Snapshot,
+    results: &[(Finding, Outcome)],
+    impact_ids: &std::collections::HashSet<String>,
+) -> String {
     let (v, at, d, p) = tally(results);
     let mut s = String::new();
     s.push_str("# ADhammer — guided assessment report\n\n");
@@ -530,7 +562,9 @@ fn build_report(snap: &Snapshot, results: &[(Finding, Outcome)], include_impact:
             s.push_str(&format!("- **Affected:** {}\n", f.affected.join(", ")));
         }
         s.push_str(&format!("- **Why:** {}\n", f.detail));
-        if include_impact {
+        // Only include the Impact line if the operator answered YES to the per-finding
+        // prompt during the interactive walk.
+        if impact_ids.contains(&f.id) {
             if let Some(imp) = &f.impact {
                 s.push_str(&format!("- **Impact:** {imp}\n"));
             }
