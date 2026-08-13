@@ -19,54 +19,38 @@ For **authorized engagements, red-team validation, and education** only.
 
 📝 **Write-up:** [I built a full AD pentest + audit tool in Rust — on a protocol stack I wrote from scratch (no impacket)](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)
 
-### 🆕 What's new in v1.4.0 (2026-08-13)
-
-- **All 19 foundation library crates published as `0.1.0` stable.** The `ms-*` /
-  `credssp` / `windows-*` / `winrm-pentest` crates ADhammer consumes are no longer
-  `-dev` pre-releases — they hit `0.1.0` after a live-DC validation session on
-  Server 2022 + Server 2025 DCs (16 of 19 crates end-to-end validated, remaining 3
-  cover offline RFC vectors and real-TLS handshakes). Any Rust project can
-  `cargo add ms-crtd` / `ms-gkdi` / `credssp` / etc. without `--allow-prereleases`.
-- **CredSSP CSPRNG hardening (CVE-2018-0886 posture).** `credssp 0.1.0` swapped
-  the deliberately-weak xorshift-of-clock RNG for the OS CSPRNG
-  (`rand::rng` ThreadRng, `getrandom`/`BCryptGenRandom` backend) across the nonce,
-  Kerberos initiator subkey and RFC 4121 GSS Wrap confounder. `sealed authInfo`
-  and `pubKeyAuth` are now cryptographically-secure by construction.
-- **adhammer 1.4.0 — foundation dep pins bumped `"0.1.0-dev"` → `"0.1"`.** Same
-  workspace, same CLI, no API break on the adhammer side; the bump is a
-  minor because the foundation stack under it went through breaking changes on
-  the way to `0.1.0` stable.
-
-Full notes: [Releases → v1.4.0](https://github.com/icedracon/adhammer/releases/tag/v1.4.0).
-
-### 🆕 v1.3.3–1.3.4 (2026-08-10)
+### 🆕 What's new in v1.3.3
 
 - **`check adcs` — the ESC rule pack.** ADhammer's ADCS auditor is now wired onto
-  [`ms-crtd`](https://crates.io/crates/ms-crtd), so certificate-template ACLs +
+  [`ms-crtd 0.1.0-dev`](https://crates.io/crates/ms-crtd), so certificate-template ACLs +
   extended-rights + EKU checks come from one shared, spec-vector-tested rule engine (ESC1–ESC15
   minus ESC12) instead of a per-check ad-hoc walk. The same rule pack is what powers the
   passive `scan` ADCS findings — audit and validation share the primitives.
 - **`attack certipy` — offline CSR builder + ICPR request.** New command wires onto
-  [`ms-icpr`](https://crates.io/crates/ms-icpr) (spoofed-UPN SAN CSR, no OpenSSL) +
+  [`ms-icpr 0.1.0-dev`](https://crates.io/crates/ms-icpr) (spoofed-UPN SAN CSR, no OpenSSL) +
   `IcprClient::stub` so an ESC1-style enrollment goes cert-in-hand from Kali with a fresh 2048-bit
   RSA key generated in-process. Complements the older `attack esc1` path.
 - **`dump laps` / `dump gmsa` — LAPSv2 + gMSA seed-key derivation.** Both commands now consume
-  [`ms-gkdi`](https://crates.io/crates/ms-gkdi) directly for the L0/L1/L2 tree walk +
+  [`ms-gkdi 0.1.0-dev`](https://crates.io/crates/ms-gkdi) directly for the L0/L1/L2 tree walk +
   `ISDKey::GetKey` RPC, and hand the envelope to
-  [`dpapi-ng`](https://crates.io/crates/dpapi-ng) for CMS unwrap + AES-256-GCM open. Works
+  [`dpapi-ng 0.1.1`](https://crates.io/crates/dpapi-ng) for CMS unwrap + AES-256-GCM open. Works
   end-to-end against Server 2022/2025 lab DCs.
 - **PAC forgery on `ms-pac-forge`.** `adhammer-kerberos::pac` shrunk to re-exports over
-  [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) — golden/silver ticket
+  [`ms-pac-forge 0.1.0-dev`](https://crates.io/crates/ms-pac-forge) — golden/silver ticket
   PAC construction is now one crate that other Rust offensive tools can adopt without cloning
   ADhammer.
-- **`check adcs` bug fix (1.3.4).** The collector was silently missing
-  `msPKI-Cert-Template-OID` from its LDAP attr list, so `ms-crtd::parse_template_ldap`
-  rejected every template and `check adcs` returned `0 findings`. Fixed — expect the
-  full ESC1–ESC15 rule pack to fire on any AD CS deployment.
-- **Fire-and-forget `CloseKey` inherited from `dcerpc 0.2.3`.** The ADCS ESC-registry sweep in
+- **Fire-and-forget `CloseKey` inherited from `dcerpc 0.2.2`.** The ADCS ESC-registry sweep in
   `enum esc` deferred-flushes registry handles (SMB `WRITE` instead of `TRANSCEIVE`), one less
-  round-trip per subkey. (`dcerpc 0.2.2` had a resolver-cycle bug via ms-nrpc — yanked and
-  replaced by `0.2.3` which keeps the CloseKey refactor without the cyclic dep.)
+  round-trip per subkey.
+
+Full notes: [Releases → v1.3.3](https://github.com/icedracon/adhammer/releases/tag/v1.3.3).
+
+> **Semver scope.** `adhammer 1.3.x` (this CLI + its `adhammer-*` workspace crates) is
+> the stable public surface. Foundation library crates it consumes (`ms-crtd`, `ms-icpr`,
+> `ms-pkca`, `ms-gkdi`, `ms-pac-forge`, `ms-nrpc`, `ms-tds`, `credssp`, `msldap-ext`,
+> `ms-even6`, `windows-*`) remain **`0.1.0-dev`** (pre-alpha) and will bump to `0.1.0`
+> only after live-DC validation against a Server 2022 + 2025 matrix. Depending on the
+> foundation crates directly today means expecting breaking changes before `0.1.0`.
 
 ### v1.3.1 highlights (still current)
 
