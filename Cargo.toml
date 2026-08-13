@@ -39,11 +39,9 @@ dcerpc       = "0.2"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack certipy` (ms-icpr),
 # and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
-# transport) is disabled because its dcerpc pull would tug the local dcerpc HEAD
-# into the resolve graph and reintroduce the ms-nrpc cycle; the wire path uses
-# `ms_icpr::IcprClient::stub` + the offline CSR builder for now.
+# transport via SMB2 + dcerpc) is ON by default after the dcerpc 0.2.3 cycle fix.
 ms-crtd      = "0.1.0-dev"
-ms-icpr      = { version = "0.1.0-dev", default-features = false }
+ms-icpr      = "0.1.0-dev"
 ms-gkdi      = "0.1.0-dev"
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "1.3.4" }

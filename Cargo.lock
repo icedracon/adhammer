@@ -1394,11 +1394,14 @@ version = "0.1.0-dev"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7aca0de3d7044744d61a4f79efd5964afbcaffdd54c757b750674515b1c3fb16"
 dependencies = [
+ "dcerpc",
  "ms-crtd",
  "ms-ndr",
  "rsa",
  "sha2",
+ "smb2-client",
  "thiserror 2.0.20",
+ "tokio",
  "x509-cert",
 ]
 
