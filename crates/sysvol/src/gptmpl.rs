@@ -114,6 +114,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
         weight_bonus: 0,
         affected: vec![val],
         detail: detail.into(),
+        impact: None,
         remediation: rem.into(),
     };
 

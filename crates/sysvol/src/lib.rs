@@ -86,6 +86,7 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
         weight_bonus: hits.len() as u32 * 10,
         affected,
         detail: "Group Policy Preferences store passwords encrypted with a Microsoft-published AES key; any authenticated user who can read SYSVOL can decrypt them.".into(),
+        impact: None,
         remediation: "Remove the offending GPP XML files, rotate the exposed credentials, and stop using GPP to set passwords (KB2962486).".into(),
     })
 }

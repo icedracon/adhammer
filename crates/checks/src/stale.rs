@@ -44,6 +44,7 @@ impl Check for InactiveAccounts {
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: vec![format!("{count} user objects")],
             detail: "Dormant accounts expand the attack surface and are prime targets for password spray / takeover.".into(),
+            impact: Some("Stale accounts with valid credentials are the easiest lateral-movement path. They're rarely monitored, their passwords are old (crackable), and they may hold group memberships whose relevance the owners have forgotten.".into()),
             remediation: "Disable or remove accounts unused beyond the inactivity threshold.".into(),
             weight_bonus: 0,
         }]
@@ -79,6 +80,7 @@ impl Check for UnsupportedOs {
             weight_bonus: hits.len() as u32 * 3,
             affected: hits,
             detail: "EOL Windows versions receive no security patches and often force weak protocols (NTLMv1, SMBv1).".into(),
+            impact: Some("EoL OSes miss every security patch since their EoL date. Local privilege escalation via known unpatched CVEs, protocol downgrade (SMBv1, RC4-only), and no support for modern Kerberos/RPC hardening.".into()),
             remediation: "Decommission or isolate; where unavoidable, apply ESU and segment the network.".into(),
         }]
     }
@@ -109,6 +111,7 @@ impl Check for PasswordNeverChanged {
             weight_bonus: 0,
             affected: vec![format!("{count} user objects")],
             detail: "Long-lived passwords are more likely to be cracked, reused, or already exposed in breaches.".into(),
+            impact: Some("Passwords that never change accumulate risk. Old cracked passwords remain valid; the account may have been compromised years ago and the attacker retains persistence via credential rotation on their side, not yours.".into()),
             remediation: "Enforce password rotation and investigate accounts exempt from expiry.".into(),
         }]
     }
@@ -138,6 +141,7 @@ impl Check for StaleComputers {
             weight_bonus: 0,
             affected: vec![format!("{count} computer objects")],
             detail: "Dormant computer accounts remain valid Kerberos principals and expand the attack surface (e.g. resurrected-machine attacks).".into(),
+            impact: Some("Dormant computer objects still hold their machine password + delegation rights. An attacker who resurrects one (physical box or by writing to the object) gets a machine-account foothold with the historical trust.".into()),
             remediation: "Disable and remove computer accounts unused beyond the threshold.".into(),
         }]
     }
@@ -170,6 +174,7 @@ impl Check for MachinePasswordAge {
             weight_bonus: 0,
             affected: hits,
             detail: "The machine password normally rotates every ~30 days; a much older one indicates a dead computer or a manually pinned credential usable for persistence.".into(),
+            impact: Some("Machine password rotation limits the useful lifetime of a captured NTLM hash / Kerberos machine key. 180+ day-old machine password = any historical LSASS dump or NTDS extract that included this machine still works today.".into()),
             remediation: "Remove dead computer accounts; investigate any live host that stopped rotating its password.".into(),
         }]
     }
@@ -210,6 +215,7 @@ impl Check for DuplicateSpn {
             weight_bonus: affected.len() as u32 * 3,
             affected,
             detail: "A service principal name registered on multiple accounts causes Kerberos auth failures and can hide a rogue account shadowing a real service.".into(),
+            impact: Some("Two accounts registering the same SPN causes the KDC to pick unpredictably. An attacker can register a duplicate SPN on a controlled account, then any Kerberos auth to that SPN yields a ticket the attacker's account can decrypt: silent MitM.".into()),
             remediation: "Remove the duplicate SPN from the incorrect account (setspn -D).".into(),
         }]
     }

@@ -56,6 +56,7 @@ impl Check for WeakPasswordPolicy {
             weight_bonus: issues.len() as u32 * 3,
             affected: issues,
             detail: "The default domain password policy allows weak or long-lived credentials, easing brute-force and spray attacks.".into(),
+            impact: Some("Short minimum length + low complexity means accounts are crackable in hours from a single Kerberoast or AS-REP capture, and password-spray attacks succeed against multiple accounts before lockout fires.".into()),
             remediation: "Enforce length >= 14, complexity on, a lockout threshold, and finite maximum password age.".into(),
         }]
     }
@@ -85,6 +86,7 @@ impl Check for DsHeuristics {
                 weight_bonus: 0,
                 affected: vec![format!("dSHeuristics = {h}")],
                 detail: "The 7th dSHeuristics character is '2', permitting unauthenticated LDAP reads of the directory.".into(),
+                impact: Some("Unauthenticated attackers can enumerate the domain (users, groups, SPNs, policy) without a single credential, accelerating every subsequent attack path: Kerberoasting, targeting, deprovisioned-account reuse.".into()),
                 remediation: "Clear the anonymous-operations flag (set the 7th dSHeuristics character to 0).".into(),
             });
         }
@@ -99,6 +101,7 @@ impl Check for DsHeuristics {
                 weight_bonus: 0,
                 affected: vec![format!("dSHeuristics = {h}")],
                 detail: "dwAdminSDExMask is set, excluding operator groups from AdminSDHolder ACL propagation and weakening their protection.".into(),
+                impact: Some("Unauthenticated attackers can enumerate the domain (users, groups, SPNs, policy) without a single credential, accelerating every subsequent attack path: Kerberoasting, targeting, deprovisioned-account reuse.".into()),
                 remediation: "Reset the 16th dSHeuristics character to 0 unless the exclusion is justified.".into(),
             });
         }
@@ -142,6 +145,7 @@ impl Check for PreWindows2000Compat {
             weight_bonus: 0,
             affected: broad_members,
             detail: "Everyone / Authenticated Users in this group grants near-anonymous read of sensitive attributes across the domain.".into(),
+            impact: Some("Broad membership grants pre-auth anonymous read across the domain and can enable computer-account creation for RBCD chains.".into()),
             remediation: "Remove Everyone/Authenticated Users from Pre-Windows 2000 Compatible Access.".into(),
         }]
     }
@@ -180,6 +184,7 @@ impl Check for ProtectedUsersUnused {
             weight_bonus: 0,
             affected: vec!["Protected Users (0 members)".into()],
             detail: "Privileged accounts are not placed in Protected Users, so they remain exposed to credential theft (no RC4, no delegation, forced short TGT lifetime).".into(),
+            impact: Some("Protected Users hardens membership against most credential-theft (no RC4 TGT, no unconstrained delegation, no NTLM). Empty = Tier-0 accounts remain vulnerable to Kerberoasting, PtH, and delegation abuse.".into()),
             remediation: "Add Tier-0 accounts to Protected Users after validating compatibility.".into(),
         }]
     }
@@ -209,6 +214,7 @@ impl Check for GuestEnabled {
             detail:
                 "An enabled Guest account provides an anonymous foothold and is rarely required."
                     .into(),
+            impact: Some("Guest has no password and no auditing. An attacker with LAN access enumerates via SMB anonymous session, and any resource with Everyone/Authenticated permissions is reachable via a Guest logon.".into()),
             remediation: "Disable the Guest account.".into(),
         }]
     }

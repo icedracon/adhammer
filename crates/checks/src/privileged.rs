@@ -31,6 +31,7 @@ impl Check for AsrepRoastable {
             weight_bonus: hits.len() as u32 * 5,
             affected: hits,
             detail: "DONT_REQ_PREAUTH set: an unauthenticated attacker can request an AS-REP and crack it offline.".into(),
+            impact: Some("An unauthenticated attacker requests an AS-REP for the account, cracks the encrypted timestamp offline, and logs in as the user. Common initial foothold — with weak passwords this is minutes; combined with any downstream privesc it becomes domain compromise.".into()),
             remediation: "Remove the 'Do not require Kerberos preauthentication' flag; enforce AES; long passwords for any account that must keep it.".into(),
         }]
     }
@@ -63,6 +64,7 @@ impl Check for KerberoastableAdmin {
             weight_bonus: hits.len() as u32 * 10,
             affected: hits,
             detail: "Accounts holding an SPN can have a TGS requested by any authenticated user and cracked offline; these are also privileged.".into(),
+            impact: Some("Any domain user requests a TGS for the account, cracks the encrypted portion offline, recovers the admin's plaintext password. Direct tier-0 compromise — the account is already privileged, so no further privesc is needed.".into()),
             remediation: "Convert to gMSA, or set a 25+ char random password and force AES-only encryption.".into(),
         }]
     }
@@ -96,6 +98,7 @@ impl Check for UnconstrainedDelegation {
             weight_bonus: hits.len() as u32 * 10,
             affected: hits,
             detail: "TRUSTED_FOR_DELEGATION lets the host cache TGTs of any user that authenticates to it — coercible into DC compromise.".into(),
+            impact: Some("Attacker with control of this host coerces a DC to authenticate to it (via any RPC coercion vector), then extracts the DC's TGT from LSASS. That TGT does DCSync → krbtgt hash → golden ticket → indefinite domain persistence.".into()),
             remediation: "Remove unconstrained delegation; use constrained delegation with protocol transition only where required; add Tier-0 accounts to Protected Users.".into(),
         }]
     }
@@ -127,6 +130,7 @@ impl Check for DcsyncPath {
             weight_bonus: close.len() as u32 * 8,
             affected: close,
             detail: "Control-path graph found principals one dangerous ACL edge away from Domain/Enterprise Admins or the domain head (DCSync-capable).".into(),
+            impact: Some("Attacker as (or compromising) the listed principal writes the ACL, gains DCSync/GenericAll on Tier-0, extracts krbtgt hash → golden ticket → full domain compromise. Cost=1 means one action away, not one hop of pivoting.".into()),
             remediation: "Audit and remove the offending ACEs (WriteDacl/GenericAll/Replication rights); re-apply the AdminSDHolder template.".into(),
         }]
     }
@@ -156,6 +160,7 @@ impl Check for ShadowCredentialsPath {
             weight_bonus: hits.len() as u32 * 10,
             affected: hits,
             detail: "Write access to msDS-KeyCredentialLink on a Tier-0 object lets an attacker register a key and PKINIT as that principal.".into(),
+            impact: Some("Attacker writes msDS-KeyCredentialLink on the Tier-0 target, then PKINITs with the freshly-generated cert to obtain a TGT as that principal. Full impersonation of a Domain Admin without ever learning their password.".into()),
             remediation: "Remove WriteProperty on msDS-KeyCredentialLink for non-Tier-0 principals; audit AdminSDHolder inheritance on privileged accounts.".into(),
         }]
     }

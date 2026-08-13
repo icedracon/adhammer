@@ -301,6 +301,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
     match action {
         Action::Scan => scan(s.scan_args()).await,
         Action::Guided => {
+            // Ask up-front so the report layout matches the operator's intent.
+            // Default = include impact (the attack-chain narrative per finding).
+            let include_impact = Confirm::new()
+                .with_prompt("Include per-finding 'Impact' attack-chain narrative in the report?")
+                .default(true)
+                .interact()?;
             crate::guided::guided(crate::guided::GuidedArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
@@ -312,6 +318,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 kdc: Some(s.dc.clone()),
                 out: "adhammer-report.md".into(),
                 yes: false,
+                no_impact: !include_impact,
             })
             .await
         }

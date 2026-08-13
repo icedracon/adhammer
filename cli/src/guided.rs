@@ -27,6 +27,9 @@ pub struct GuidedArgs {
     pub out: String,
     /// Validate every finding without prompting (unattended runs).
     pub yes: bool,
+    /// Skip the per-finding **Impact:** attack-chain narrative in the Markdown report.
+    /// The interactive card still shows it either way.
+    pub no_impact: bool,
 }
 
 /// Everything a validator needs to build an attack invocation.
@@ -251,7 +254,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         ui::dim(&format!("◻ {d} declined")),
         ui::dim(&format!("◽ {p} potential"))
     );
-    let report = build_report(&snap, &results);
+    let report = build_report(&snap, &results, !a.no_impact);
     std::fs::write(&a.out, report).with_context(|| format!("write report {}", a.out))?;
     ui::ok(&format!("report written → {}", a.out));
     Ok(())
@@ -364,6 +367,7 @@ fn laps_finding() -> Finding {
         mitre: vec![adhammer_core::finding::mitre::VALID_ACCOUNTS],
         affected: vec![],
         detail: "A LAPS-managed local administrator password was readable with the current identity — instant local admin, reusable for lateral movement.".into(),
+        impact: None,
         remediation: "Restrict read access to ms-Mcs-AdmPwd / msLAPS-Password to tier-appropriate admins; deploy encrypted (DPAPI-NG) LAPS.".into(),
         weight_bonus: 0,
     }
@@ -379,6 +383,7 @@ fn esc8_finding() -> Finding {
         mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
         affected: vec![],
         detail: "A CA exposes HTTP web enrollment with NTLM over cleartext — a coerced machine's NTLM can be relayed to it for a cert, then PKINIT for that machine's TGT.".into(),
+        impact: None,
         remediation: "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); enforce SMB/LDAP signing to blunt the relay.".into(),
         weight_bonus: 0,
     }
@@ -483,11 +488,14 @@ fn print_card(f: &Finding) {
         ui::field("affected", &format!("{shown}{extra}"));
     }
     ui::field("why", &f.detail);
+    if let Some(imp) = &f.impact {
+        ui::field("impact", imp);
+    }
 }
 
 // ---- report ---------------------------------------------------------------------------
 
-fn build_report(snap: &Snapshot, results: &[(Finding, Outcome)]) -> String {
+fn build_report(snap: &Snapshot, results: &[(Finding, Outcome)], include_impact: bool) -> String {
     let (v, at, d, p) = tally(results);
     let mut s = String::new();
     s.push_str("# ADhammer — guided assessment report\n\n");
@@ -522,6 +530,11 @@ fn build_report(snap: &Snapshot, results: &[(Finding, Outcome)]) -> String {
             s.push_str(&format!("- **Affected:** {}\n", f.affected.join(", ")));
         }
         s.push_str(&format!("- **Why:** {}\n", f.detail));
+        if include_impact {
+            if let Some(imp) = &f.impact {
+                s.push_str(&format!("- **Impact:** {imp}\n"));
+            }
+        }
         s.push_str(&format!("- **Remediation:** {}\n\n", f.remediation));
         match o {
             Outcome::Validated { cmd, evidence } | Outcome::Attempted { cmd, evidence } => {
@@ -603,6 +616,7 @@ mod tests {
             mitre: vec![],
             affected: affected.iter().map(|s| s.to_string()).collect(),
             detail: "d".into(),
+            impact: None,
             remediation: "r".into(),
             weight_bonus: 0,
         }

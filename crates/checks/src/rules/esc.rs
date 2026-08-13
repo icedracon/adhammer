@@ -31,6 +31,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                  SAN-suppliable={spn_supplied}. Any principal that can enroll can request a cert \
                  for an arbitrary UPN and authenticate as that principal.",
             ),
+            impact: Some("Attacker requests a cert from this template with SAN=Administrator@corp.local, then PKINITs the resulting cert to get an Administrator TGT. Full domain compromise from any authenticated user, no password crack required.".into()),
             remediation: "Remove CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT/SAN, require manager approval, \
                           or restrict enrollment to a trusted group."
                 .into(),
@@ -46,6 +47,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             detail: "Template exposes Any-Purpose (or no) EKU — issued cert is usable for \
                      domain authentication."
                 .into(),
+            impact: Some("Attacker enrolls a cert whose Any-Purpose EKU covers Client-Auth, then PKINITs it. Same outcome as ESC1: DA TGT from any low-priv account.".into()),
             remediation: "Constrain EKU set; require approval; restrict enrollment.".into(),
             weight_bonus: 0,
         },
@@ -59,6 +61,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             detail: "Template carries Certificate-Request-Agent EKU — holders can enroll on \
                      behalf of arbitrary principals."
                 .into(),
+            impact: Some("Attacker enrolls an Enrollment-Agent cert, then uses it to request a Client-Auth cert on behalf of any target user (e.g. Administrator) and PKINITs the result.".into()),
             remediation: "Restrict enrollment-agent templates to a dedicated group; require \
                           approval; scope with application policies."
                 .into(),
@@ -83,6 +86,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                 "CA `{ca_name}` has EDITF_ATTRIBUTESUBJECTALTNAME2 set — every listed template \
                  becomes SAN-injectable regardless of its own name-flag."
             ),
+            impact: Some("The CA-wide flag forces every published template to honor caller-supplied SAN, effectively ESC1 on every enrollable template on this CA regardless of per-template config.".into()),
             remediation: "Clear EDITF_ATTRIBUTESUBJECTALTNAME2 on the CA (certutil -setreg \
                           policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2) and restart the CA."
                 .into(),
@@ -98,6 +102,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             detail: "CT_FLAG_NO_SECURITY_EXTENSION drops the SID binding — weak certificate \
                      mapping opens UPN-alias impersonation."
                 .into(),
+            impact: Some("Cert issued without the SID security extension pairs with any weak altSecurityIdentities mapping (ESC14) or works against pre-KB5014754 DCs to impersonate the target account.".into()),
             remediation:
                 "Clear the flag; enforce Full strong certificate mapping on DCs (KB5014754).".into(),
             weight_bonus: 0,
@@ -117,6 +122,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                  the certificate holder the linked group's rights.",
                 policy_oids.len()
             ),
+            impact: Some("Attacker enrolls the template, holds a cert whose issuance-policy OID grants membership in the linked (privileged) group at PKINIT time, obtaining a TGT that carries that group's rights.".into()),
             remediation: "Audit msPKI-Certificate-Policy OID→group links; restrict enrollment."
                 .into(),
             weight_bonus: 0,
@@ -131,6 +137,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             detail: "CVE-2024-49019: schema-v1 template lets the requester inject arbitrary \
                      application policies into the CSR."
                 .into(),
+            impact: Some("CVE-2024-49019 exploitation: attacker enrolls a v1 template requesting Client-Auth in the application policies, receives a cert usable for PKINIT, gets a TGT as any target account.".into()),
             remediation: "Upgrade v1 templates to v2+, require approval, apply CVE-2024-49019 \
                           patch."
                 .into(),

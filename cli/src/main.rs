@@ -162,6 +162,10 @@ struct AutoArgs {
     /// Validate every finding without prompting (unattended).
     #[arg(long)]
     yes: bool,
+    /// Skip the per-finding "Impact" attack-chain narrative in the Markdown report.
+    /// The interactive card still shows it either way.
+    #[arg(long)]
+    no_impact: bool,
 }
 
 #[derive(Subcommand)]
@@ -1053,6 +1057,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
                 kdc: a.kdc,
                 out: a.out,
                 yes: a.yes,
+                no_impact: a.no_impact,
             })
             .await
         }

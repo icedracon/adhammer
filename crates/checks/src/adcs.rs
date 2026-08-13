@@ -183,30 +183,39 @@ impl Check for VulnerableCertTemplates {
         let mut out = Vec::new();
         push(&mut out, "A-Esc1", "ESC1: enrollee-supplies-subject template with auth EKU, enrollable by low-priv", Severity::Critical, esc1,
             "The template lets the requester specify the SAN and issues a client-auth cert without approval — any low-priv user can request a cert as a Domain Admin.",
+            Some("Attacker requests a cert from this template with SAN = Administrator@corp.local, then PKINITs the resulting cert to get an Administrator TGT. Full domain compromise from any authenticated user, no password crack required."),
             "Remove CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT, require manager approval, or restrict enrollment to a trusted group.");
         push(&mut out, "A-Esc2", "ESC2: Any-Purpose / SubCA template enrollable by low-priv", Severity::Critical, esc2,
             "An Any-Purpose (or no-EKU) template without approval can issue a cert usable for any purpose, including authentication.",
+            Some("Attacker enrolls a cert whose Any-Purpose EKU covers Client-Auth, then PKINITs it. Equivalent to ESC1 outcome — DA TGT from any low-priv account."),
             "Constrain the EKU set and require approval; restrict enrollment.");
         push(&mut out, "A-Esc3", "ESC3: Enrollment Agent template enrollable by low-priv", Severity::High, esc3,
             "A Certificate Request Agent template lets the holder enroll on behalf of other users, escalating to any principal.",
+            Some("Attacker enrolls an Enrollment-Agent cert, then uses it to request a Client-Auth cert on behalf of any target user (e.g. Administrator) and PKINITs → target's TGT."),
             "Restrict enrollment-agent templates to a dedicated group and require approval.");
         push(&mut out, "A-Esc4", "ESC4: certificate template ACL writable by low-priv", Severity::Critical, esc4,
             "A low-privileged principal holds Write/WriteDacl/WriteOwner/GenericAll (or ownership) over the template and can reconfigure it into ESC1.",
+            Some("Attacker writes the template's flags to enable ENROLLEE_SUPPLIES_SUBJECT + Client-Auth EKU, self-enrolls with SAN=Administrator, PKINITs. ESC1 on demand."),
             "Remove the offending ACEs; template write access belongs to Tier-0 only.");
         push(&mut out, "A-Esc5", "ESC5: CA object ACL writable by low-priv", Severity::Critical, esc5,
             "A low-privileged principal can write/own the CA's AD object (pKIEnrollmentService / certificationAuthority) and can republish templates or reconfigure the PKI into an escalation.",
+            Some("Attacker publishes a rogue template on the CA (equivalent to ESC1 shape) or reconfigures the CA to accept any subject. Domain-wide escalation via any subsequent enrollment."),
             "Restrict Write/WriteDacl/WriteOwner on the Enrollment Services + CA objects to Tier-0.");
         push(&mut out, "A-Esc14", "ESC14: weak explicit certificate mapping (altSecurityIdentities)", Severity::High, esc14,
             "The account carries a weak X509 mapping (Subject-only / Issuer+Subject / RFC822) that a certificate the attacker can obtain will satisfy, allowing impersonation.",
+            Some("Attacker obtains ANY cert whose subject or RFC822 name matches the weak mapping (from any trusted issuer, including one they compromise or install) and PKINITs as the mapped account. Silent impersonation without the account's password."),
             "Use only strong mappings (Issuer+Serial, SKI, SHA1-PublicKey) and enforce Full strong certificate binding (KB5014754).");
         push(&mut out, "A-Esc15", "ESC15 / EKUwu: schema-v1 template enrollable by low-priv", Severity::Critical, esc15,
             "CVE-2024-49019: a version-1 template lets the enrollee inject arbitrary application policies (e.g. Client Authentication) in the request, so an enrollable v1 template yields an auth cert regardless of its own EKU.",
+            Some("Attacker enrolls a v1 template requesting Client-Auth in the application policies, receives a cert usable for PKINIT, gets a TGT as any target account (SAN-supplied). CVE-2024-49019 exploitation."),
             "Upgrade v1 templates to v2+, require manager approval, or restrict enrollment; apply the CVE-2024-49019 patch.");
         push(&mut out, "A-Esc9", "ESC9: no-security-extension template with auth EKU", Severity::High, esc9,
             "CT_FLAG_NO_SECURITY_EXTENSION disables the SID binding, enabling weak certificate mapping / impersonation.",
+            Some("Cert issued without the SID security extension can be paired with a weak altSecurityIdentities mapping (ESC14) or used against pre-KB5014754 DCs to impersonate the target account."),
             "Clear the flag and enforce strong (Full) certificate mapping on DCs (KB5014754).");
         push(&mut out, "A-Esc13", "ESC13: issuance-policy template linked to a privileged group", Severity::High, esc13,
             "The template carries an issuance policy OID that may be group-linked, granting the certificate holder the linked group's rights.",
+            Some("Attacker enrolls the template, holds a cert whose issuance-policy OID grants membership in the linked (privileged) group at PKINIT time, obtaining a TGT that carries that group's rights."),
             "Audit msPKI-Certificate-Policy OID-to-group links; restrict enrollment.");
         out
     }
@@ -298,6 +307,7 @@ fn push(
     severity: Severity,
     affected: Vec<String>,
     detail: &str,
+    impact: Option<&str>,
     remediation: &str,
 ) {
     if affected.is_empty() {
@@ -312,6 +322,7 @@ fn push(
         mitre: vec![mitre::CERT_ABUSE],
         affected,
         detail: detail.into(),
+        impact: impact.map(|s| s.to_string()),
         remediation: remediation.into(),
         weight_bonus: bonus,
     });

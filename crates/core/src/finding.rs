@@ -99,11 +99,26 @@ pub struct Finding {
     pub mitre: Vec<Mitre>,
     /// DNs / SIDs the finding points at.
     pub affected: Vec<String>,
+    /// What was observed (evidence-level: raw stat, matched attribute, etc.).
     pub detail: String,
+    /// Attack-chain narrative: if an attacker acted on this finding, what would happen?
+    /// 1-2 sentences. Optional so downstream Finding producers can leave it blank; UIs
+    /// render it under a distinct "Impact" heading and reports omit the section if `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<String>,
     pub remediation: String,
     /// Extra weight beyond the severity base (e.g. per-object scaling).
     #[serde(default)]
     pub weight_bonus: u32,
+}
+
+impl Finding {
+    /// Chainable setter for [`Self::impact`] — used by rule constructors that want to
+    /// annotate the attack-chain narrative alongside the raw evidence.
+    pub fn with_impact(mut self, impact: impl Into<String>) -> Self {
+        self.impact = Some(impact.into());
+        self
+    }
 }
 
 impl Finding {

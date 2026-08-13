@@ -32,6 +32,7 @@ impl Check for MachineAccountQuota {
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: vec![snap.domain.domain_dn.clone()],
             detail: "A non-zero quota lets any authenticated user create computer accounts — a prerequisite for RBCD and noPac (CVE-2021-42278/87) style attacks.".into(),
+            impact: Some("Any authenticated user can create up to that many computer objects, then abuse RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity) via the newly-created machine account to impersonate any user against any service the machine controls, including Tier-0.".into()),
             remediation: "Set ms-DS-MachineAccountQuota to 0 and delegate computer-join to a dedicated group.".into(),
             weight_bonus: 0,
         }]
@@ -62,6 +63,7 @@ impl Check for KrbtgtPasswordAge {
             mitre: vec![mitre::GOLDEN_TICKET],
             affected: vec![krbtgt.dn.clone()],
             detail: "A stale krbtgt key means any previously forged Golden Ticket remains valid; rotation invalidates them.".into(),
+            impact: Some("The krbtgt hash signs every Kerberos TGT. If an attacker recovered it more than one rotation ago (via DCSync or NTDS dump), all TGTs they forge remain valid: golden-ticket persistence that survives password resets.".into()),
             remediation: "Rotate the krbtgt password twice (with >10h between rotations) using the Microsoft reset script.".into(),
             weight_bonus: 0,
         }]
@@ -94,6 +96,7 @@ impl Check for ReversibleEncryption {
             weight_bonus: hits.len() as u32 * 5,
             affected: hits,
             detail: "Reversible encryption stores a recoverable cleartext-equivalent of the password in the directory.".into(),
+            impact: Some("The account's plaintext password is stored in NTDS.dit under a reversible AES/RC4 wrap. An attacker who dumps NTDS (via DCSync or NTDS.dit extract) recovers the plaintext directly: no cracking needed.".into()),
             remediation: "Clear the flag and force a password reset for affected accounts.".into(),
         }]
     }
@@ -127,6 +130,7 @@ impl Check for Rc4Kerberos {
             weight_bonus: 0,
             affected: hits,
             detail: "RC4 (etype 23) TGS tickets crack far faster than AES; missing msDS-SupportedEncryptionTypes falls back to RC4.".into(),
+            impact: Some("TGS tickets for these accounts are encrypted with RC4-HMAC (MD4 of NT hash). Kerberoasting cracks them ~10x faster than AES-encrypted tickets, and unpatched RC4 downgrade lets an attacker force RC4 for any account.".into()),
             remediation: "Set msDS-SupportedEncryptionTypes to AES128+AES256 (0x18) on service accounts and DCs.".into(),
         }]
     }
@@ -156,6 +160,7 @@ impl Check for BadSuccessor {
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: dmsas,
             detail: "Server 2025 dMSA objects can be abused (badSuccessor) when create/write over the containing OU is delegated to non-Tier-0 principals, yielding privilege takeover.".into(),
+            impact: Some("An account with CreateChild on any OU can create a dMSA pre-migrated from any target account (including Administrator). Requesting a TGT as the dMSA yields a ticket whose PAC carries the target's SIDs: instant impersonation.".into()),
             remediation: "Restrict CreateChild/Write on OUs that can host dMSA objects to Tier-0; audit msDS-ManagedAccountPrecededByLink.".into(),
             weight_bonus: 0,
         }]

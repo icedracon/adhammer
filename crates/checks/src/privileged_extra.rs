@@ -65,6 +65,7 @@ impl Check for SensitiveGroups {
             weight_bonus: affected.len() as u32 * 5,
             affected,
             detail: "Members of Account/Backup/Print/Server Operators and DnsAdmins can escalate to Domain Admin; Schema Admins should be empty outside schema changes.".into(),
+            impact: Some("Members of these groups (Backup Operators, Server Operators, Print Operators, Account Operators, DnsAdmins, etc.) can escalate to Domain Admin via well-documented paths (SeBackupPrivilege dumps SAM, DnsAdmin ServerLevelPluginDll, etc.). Any account here should be treated as Tier-0.".into()),
             remediation: "Empty these groups; use just-in-time membership for the rare legitimate operation.".into(),
         }]
     }
@@ -106,6 +107,7 @@ impl Check for GmsaReadableByBroad {
             weight_bonus: affected.len() as u32 * 8,
             affected,
             detail: "msDS-GroupMSAMembership grants password retrieval to a low-privilege group; any member can recover the gMSA's credentials.".into(),
+            impact: Some("The gMSA password is DPAPI-NG-wrapped and readable by any principal in msDS-GroupMSAMembership. A broad principal here means an unprivileged attacker recovers the gMSA's password, then impersonates the service, often a Tier-0 helper.".into()),
             remediation: "Restrict PrincipalsAllowedToRetrieveManagedPassword to specific hardened hosts.".into(),
         }]
     }
@@ -146,6 +148,7 @@ impl Check for SidHistory {
                 weight_bonus: privileged.len() as u32 * 10,
                 affected: privileged,
                 detail: "The account's sIDHistory injects a privileged RID (e.g. 512/519), granting that privilege transparently — a classic persistence / migration abuse.".into(),
+                impact: Some("The Kerberos PAC includes sIDHistory SIDs as group memberships. If the account is ever authenticated, it acts with the listed privileged group's rights: silent, permanent escalation invisible in memberOf.".into()),
                 remediation: "Remove privileged SIDs from sIDHistory; investigate how they were added.".into(),
             });
         }
@@ -159,6 +162,7 @@ impl Check for SidHistory {
                 weight_bonus: 0,
                 affected: any,
                 detail: "sIDHistory outside an active migration is unusual and expands effective access; review for legitimacy.".into(),
+                impact: Some("The Kerberos PAC includes sIDHistory SIDs as group memberships. If the account is ever authenticated, it acts with the listed privileged group's rights: silent, permanent escalation invisible in memberOf.".into()),
                 remediation: "Clear sIDHistory once migrations complete.".into(),
             });
         }
@@ -205,6 +209,7 @@ impl Check for RbcdConfigured {
             weight_bonus: low_priv.len() as u32 * 8,
             affected: low_priv,
             detail: "msDS-AllowedToActOnBehalfOfOtherIdentity grants a low-privilege principal S4U2Proxy rights, allowing impersonation of any user to the object.".into(),
+            impact: Some("The listed target's msDS-AllowedToActOnBehalfOfOtherIdentity grants a broad principal (or one they control) the ability to S4U2Self+S4U2Proxy as any user against the target's services: silent full impersonation.".into()),
             remediation: "Remove the RBCD entry or restrict it to a specific, trusted service account.".into(),
         }]
     }
@@ -239,6 +244,7 @@ impl Check for LapsCoverage {
             weight_bonus: 0,
             affected: vec![format!("{} computer objects", missing.len())],
             detail: "Machines with no LAPS-managed local administrator password are prone to shared/static local admin creds enabling lateral movement.".into(),
+            impact: Some("Local admin passwords are either shared across the fleet (lateral movement pivot in one hop) or unmanaged/weak. A single-machine compromise cascades domain-wide via reused local-admin credentials.".into()),
             remediation: "Deploy Windows LAPS domain-wide and confirm expiration attributes populate.".into(),
         }]
     }
@@ -268,6 +274,7 @@ impl Check for PasswordNotRequired {
             weight_bonus: hits.len() as u32 * 3,
             affected: hits,
             detail: "PASSWD_NOTREQD lets the account be set to (or keep) an empty password, bypassing the password policy.".into(),
+            impact: Some("The account can authenticate with an empty password. Any spray/enumeration script tries blank first: one authenticated shell inside the domain, often on a service account with more rights than expected.".into()),
             remediation: "Clear the flag and enforce a password reset.".into(),
         }]
     }

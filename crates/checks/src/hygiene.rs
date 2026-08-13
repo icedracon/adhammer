@@ -53,6 +53,7 @@ impl Check for PrivilegedPasswordNeverExpires {
             weight_bonus: hits.len() as u32 * 2,
             affected: hits,
             detail: "A privileged account with DONT_EXPIRE_PASSWORD keeps the same credential indefinitely — ideal for offline cracking, reuse, and breach persistence.".into(),
+            impact: Some("The password never rotates, so once cracked or captured (Kerberoast, NTDS dump, historical breach) it remains valid indefinitely. Privileged accounts are the highest-value targets; DONT_EXPIRE_PASSWORD on any is a persistence gift.".into()),
             remediation: "Remove DONT_EXPIRE_PASSWORD from privileged accounts; migrate service accounts to gMSA.".into(),
         }]
     }
@@ -83,6 +84,7 @@ impl Check for DesOnlyAccounts {
             weight_bonus: hits.len() as u32 * 3,
             affected: hits,
             detail: "USE_DES_KEY_ONLY forces 56-bit DES tickets, which are crackable in minutes and enable AS-REP/Kerberoast downgrade.".into(),
+            impact: Some("DES tickets are cracked in seconds on modern hardware. USE_DES_KEY_ONLY forces the KDC to issue DES-encrypted tickets: Kerberoast, offline crack, account password in trivial time.".into()),
             remediation: "Clear USE_DES_KEY_ONLY and enforce AES-only (msDS-SupportedEncryptionTypes).".into(),
         }]
     }
@@ -123,6 +125,7 @@ impl Check for ObsoleteFunctionalLevel {
             weight_bonus: 0,
             affected: vec![dom.dn.clone()],
             detail: "An older functional level blocks modern security features (PAM/shadow-principals, tighter Kerberos, native LAPS enforcement).".into(),
+            impact: Some("Pre-Server-2016 functional level is missing key security features: no Credential Guard-compatible ticket signing, no PAC signature enforcement improvements, no modern Kerberos armoring/FAST enforcement. Attacks that Server 2016+ mitigates work here.".into()),
             remediation: "Retire legacy DCs and raise the domain/forest functional level to 2016+.".into(),
         }]
     }
@@ -153,6 +156,7 @@ impl Check for DisabledPrivileged {
             weight_bonus: hits.len() as u32,
             affected: hits,
             detail: "A disabled but adminCount=1 account keeps its AdminSDHolder-protected ACL; anyone who can re-enable it (or its password) gains a Tier-0 identity.".into(),
+            impact: Some("adminCount=1 sticks even after the account is disabled: it keeps its AdminSDHolder-stamped ACLs and can be re-enabled without triggering a permission review. Re-enablement gives instant tier-0 access.".into()),
             remediation: "Remove stale privileged accounts, or clear adminCount and re-baseline the ACL after removing them from protected groups.".into(),
         }]
     }
@@ -186,6 +190,7 @@ impl Check for NeverLoggedOn {
             weight_bonus: 0,
             affected: vec![format!("{count} user objects")],
             detail: "Provisioned-but-unused accounts often keep their initial (weak/shared) password and are prime password-spray targets.".into(),
+            impact: Some("Never-logged-on old accounts are often abandoned service accounts with weak/default passwords, sitting in privileged groups. Password spray hits these first: an attacker gets in with a low-effort guess.".into()),
             remediation: "Disable or delete accounts that were never used within a grace window of creation.".into(),
         }]
     }
@@ -229,6 +234,7 @@ impl Check for PrimaryGroupPrivileged {
             weight_bonus: hits.len() as u32 * 5,
             affected: hits,
             detail: "Setting primaryGroupID to a privileged group grants that group's rights without appearing in its member attribute — a stealth Domain-Admin persistence technique.".into(),
+            impact: Some("primaryGroupID = 512 grants Domain Admins membership WITHOUT the SID appearing in memberOf: hidden from most audits. An attacker sets primaryGroupID on a controlled account for stealth persistence.".into()),
             remediation: "Reset primaryGroupID to 513 (Domain Users) and investigate how it was changed.".into(),
         }]
     }
@@ -261,6 +267,7 @@ impl Check for DormantPrivileged {
             weight_bonus: hits.len() as u32 * 3,
             affected: hits,
             detail: "An unused but privileged account draws no attention if compromised; dormant Tier-0 credentials are a favored persistence target.".into(),
+            impact: Some("Privileged accounts that haven't logged on in months are prime targets: no owner watching, old credentials, but full rights when authenticated. Kerberoasting is likely to succeed unnoticed.".into()),
             remediation: "Disable dormant privileged accounts; require just-in-time elevation for admin duties.".into(),
         }]
     }
@@ -290,6 +297,7 @@ impl Check for DefaultAdministratorActive {
             weight_bonus: 0,
             affected: vec![admin.dn.clone()],
             detail: "The built-in Administrator should be a sealed break-glass account; routine use means a shared credential with no individual attribution and full Tier-0 rights.".into(),
+            impact: Some("The built-in Administrator is exempt from lockout policy and often has DONT_EXPIRE_PASSWORD. Active use means the credential is being shared or captured on hosts: any LSASS dump captures it with tier-0 rights.".into()),
             remediation: "Reserve RID 500 for break-glass, use named admin accounts, and enable auditing/alerting on its logons.".into(),
         }]
     }

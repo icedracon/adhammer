@@ -85,6 +85,7 @@ impl Check for SidFilteringDisabled {
             weight_bonus: hits.len() as u32 * 8,
             affected: hits,
             detail: "Without quarantine (SID filtering), a compromised trusted domain can inject SID history for our privileged RIDs (e.g. 512) and authenticate as Domain Admin.".into(),
+            impact: Some("Trusted-domain admins can inject arbitrary SIDs (including Enterprise Admins of THIS domain) into their users' PAC. Cross-domain golden ticket, full compromise of your domain from a compromised trust partner.".into()),
             remediation: "Enable SID filtering: netdom trust /quarantine:Yes (external) or /enablesidhistory:No (forest); avoid TREAT_AS_EXTERNAL.".into(),
         }]
     }
@@ -116,6 +117,7 @@ impl Check for SelectiveAuthDisabled {
             weight_bonus: hits.len() as u32 * 3,
             affected: hits,
             detail: "Domain-wide (forest-wide) authentication lets every principal in the trusted domain authenticate to every resource, widening lateral movement.".into(),
+            impact: Some("Any user in the trusted domain can authenticate to any resource in your domain (default deny is off). Compromise of a low-priv user in the trusted domain gives them the same attack surface as a domestic user.".into()),
             remediation: "Enable selective authentication and grant 'Allowed to authenticate' only where required.".into(),
         }]
     }
@@ -147,6 +149,7 @@ impl Check for TgtDelegationAcrossTrust {
             weight_bonus: hits.len() as u32 * 5,
             affected: hits,
             detail: "The forest trust does not set the no-TGT-delegation flag; an unconstrained-delegation host in the trusted forest can capture forwarded TGTs of our users.".into(),
+            impact: Some("A user's TGT can be forwarded to services in the trusted domain. An attacker with a compromised service in the trusted domain can extract TGTs of visiting users from your domain and impersonate them.".into()),
             remediation: "Set the CROSS_ORGANIZATION_NO_TGT_DELEGATION flag on the trust (netdom trust /EnableTGTDelegation:No).".into(),
         }]
     }
@@ -177,6 +180,7 @@ impl Check for Rc4Trust {
             weight_bonus: 0,
             affected: hits,
             detail: "The trust key negotiates RC4; inter-realm TGTs are then RC4-encrypted and easier to forge/crack.".into(),
+            impact: Some("Trust tickets are encrypted with RC4-HMAC using the trust key. If the trust key is recovered (DCSync of the trust account, or Kerberoasting the inter-realm ticket), the attacker forges inter-domain tickets: cross-domain golden.".into()),
             remediation: "Enable AES on the trust and rotate the trust password.".into(),
         }]
     }
@@ -210,6 +214,7 @@ impl Check for TransitiveExternalTrust {
             weight_bonus: 0,
             affected: hits,
             detail: "A transitive external trust can chain implicit trust to domains beyond the direct partner, expanding the reachable attack surface.".into(),
+            impact: Some("Transitivity on an external trust means indirect trust chains: compromise of a distant trusted domain reaches into yours via the transitive edge.".into()),
             remediation: "Make external trusts non-transitive unless a transitive path is explicitly required.".into(),
         }]
     }
