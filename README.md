@@ -32,6 +32,28 @@
 
 <br/>
 
+## What's new in v1.3.5
+
+- **`adhammer auto` — per-finding Impact prompt.** After each finding is displayed in the
+  guided walk, adhammer asks *"want impact? (attack-chain narrative for this finding)"*. YES
+  prints the exploitation-chain narrative and adds a **Impact:** line to the Markdown report;
+  NO records the finding without it. Scripting: `--yes` auto-YES every prompt, `--no-impact`
+  auto-NO. Every one of the 41 checks + the 7 ESC sub-rules ships with a populated impact
+  string (50+ narratives total).
+- **`attack certipy` — live `\PIPE\cert` submit over `ms-icpr` network feature.** Was a
+  placeholder in prior releases; now performs an end-to-end ESC1/ESC11 enrollment against a
+  reachable CA and returns the issued cert as PEM.
+- **Friendlier posture-scan error path.** `enum posture` hitting `STATUS_ILLEGAL_FUNCTION`
+  (`0xC00000AC`, RemoteRegistry stopped) now prints an actionable hint instead of the raw
+  NTSTATUS.
+- **RC4-HMAC dedup.** `adhammer-kerberos::rc4` shrank from 149 LOC to a thin re-export over
+  [`ms-pac-forge::checksum`](https://crates.io/crates/ms-pac-forge) — one code path for
+  RC4-HMAC across the ecosystem.
+
+Full notes: [Releases → v1.3.5](https://github.com/icedracon/adhammer/releases/tag/v1.3.5).
+
+<br/>
+
 ## What's new in v1.3.3
 
 <table>
