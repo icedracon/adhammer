@@ -7,9 +7,9 @@
 
 An **Active Directory security-assessment** toolkit in Rust: a PingCastle-class auditor that maps
 a domain's attack paths — scored, graphed, and MITRE-tagged — then, for authorized red-team and
-research use, **proves** those paths end-to-end. One static binary, from Kali/Linux or Windows, on
-an embedded from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack (the "impacket for Rust" that
-didn't otherwise exist).
+research use, **proves** those paths end-to-end. One static binary, from Kali/Linux or Windows.
+
+> **Built on top of** [`dcerpc`](https://crates.io/crates/dcerpc) · [`ntlmssp`](https://crates.io/crates/ntlmssp) · [`smb2-client`](https://crates.io/crates/smb2-client) · [`windows-sddl`](https://crates.io/crates/windows-sddl) — the from-scratch Rust protocol stack we extracted into standalone crates so any Rust security tool can adopt them without cloning ADhammer.
 
 For **authorized engagements, red-team validation, and education** only.
 
