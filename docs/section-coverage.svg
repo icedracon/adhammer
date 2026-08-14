@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 70" width="1200" height="70">
+  <defs>
+    <linearGradient id="sc-line" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00ffd5;stop-opacity:0"/>
+      <stop offset="30%" style="stop-color:#00b4d8;stop-opacity:0.5"/>
+      <stop offset="70%" style="stop-color:#7b2ff7;stop-opacity:0.5"/>
+      <stop offset="100%" style="stop-color:#7b2ff7;stop-opacity:0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="67" width="1200" height="2" fill="url(#sc-line)" rx="1"/>
+  <text x="40" y="48" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="#00b4d8" letter-spacing="4" opacity="0.9">COVERAGE</text>
+  <text x="310" y="48" font-family="'Courier New', monospace" font-size="14" fill="#3a4557" letter-spacing="2">// audit + validated capabilities</text>
+</svg>

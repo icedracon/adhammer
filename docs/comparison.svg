@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="900" height="380">
+  <defs>
+    <linearGradient id="cmp-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0e17"/>
+      <stop offset="100%" style="stop-color:#0d1321"/>
+    </linearGradient>
+    <linearGradient id="cmp-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00ffd5"/>
+      <stop offset="100%" style="stop-color:#00b4d8"/>
+    </linearGradient>
+    <pattern id="cmp-grid" width="25" height="25" patternUnits="userSpaceOnUse">
+      <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#1a2332" stroke-width="0.3"/>
+    </pattern>
+    <filter id="cmp-glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="380" rx="8" fill="url(#cmp-bg)"/>
+  <rect width="900" height="380" rx="8" fill="url(#cmp-grid)" opacity="0.3"/>
+
+  <!-- Header -->
+  <text x="450" y="45" text-anchor="middle" font-family="'Courier New', monospace" font-size="20" font-weight="bold" fill="#00ffd5" letter-spacing="4">WHY ADhammer?</text>
+  <line x1="100" y1="60" x2="800" y2="60" stroke="#1a2332" stroke-width="1"/>
+
+  <!-- Column headers -->
+  <text x="270" y="90" text-anchor="middle" font-family="'Courier New', monospace" font-size="14" font-weight="bold" fill="#00ffd5" filter="url(#cmp-glow)">ADhammer</text>
+  <text x="450" y="90" text-anchor="middle" font-family="'Courier New', monospace" font-size="14" fill="#5a6577">PingCastle</text>
+  <text x="650" y="90" text-anchor="middle" font-family="'Courier New', monospace" font-size="14" fill="#5a6577">impacket</text>
+  <text x="810" y="90" text-anchor="middle" font-family="'Courier New', monospace" font-size="14" fill="#5a6577">Rubeus</text>
+
+  <line x1="50" y1="100" x2="860" y2="100" stroke="#1a2332" stroke-width="1"/>
+
+  <!-- Row labels and data -->
+  <g font-family="'Courier New', monospace" font-size="12">
+    <!-- Language -->
+    <text x="60" y="125" fill="#8892a4">Language</text>
+    <text x="270" y="125" text-anchor="middle" fill="#00ffd5">Rust</text>
+    <text x="450" y="125" text-anchor="middle" fill="#5a6577">C# (.NET)</text>
+    <text x="650" y="125" text-anchor="middle" fill="#5a6577">Python</text>
+    <text x="810" y="125" text-anchor="middle" fill="#5a6577">C#</text>
+
+    <line x1="50" y1="137" x2="860" y2="137" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Runs from -->
+    <text x="60" y="160" fill="#8892a4">Runs from</text>
+    <text x="270" y="160" text-anchor="middle" fill="#00ffd5">Linux + Win</text>
+    <text x="450" y="160" text-anchor="middle" fill="#5a6577">Windows</text>
+    <text x="650" y="160" text-anchor="middle" fill="#5a6577">Linux</text>
+    <text x="810" y="160" text-anchor="middle" fill="#5a6577">Windows</text>
+
+    <line x1="50" y1="172" x2="860" y2="172" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Passive audit -->
+    <text x="60" y="195" fill="#8892a4">AD Audit</text>
+    <text x="270" y="195" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+    <text x="450" y="195" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+    <text x="650" y="195" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+    <text x="810" y="195" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+
+    <line x1="50" y1="207" x2="860" y2="207" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Offense -->
+    <text x="60" y="230" fill="#8892a4">Offense</text>
+    <text x="270" y="230" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+    <text x="450" y="230" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+    <text x="650" y="230" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+    <text x="810" y="230" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+
+    <line x1="50" y1="242" x2="860" y2="242" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Protocol stack -->
+    <text x="60" y="265" fill="#8892a4">Own Stack</text>
+    <text x="270" y="265" text-anchor="middle" fill="#00ffd5">from scratch</text>
+    <text x="450" y="265" text-anchor="middle" fill="#5a6577">.NET libs</text>
+    <text x="650" y="265" text-anchor="middle" fill="#5a6577">mature</text>
+    <text x="810" y="265" text-anchor="middle" fill="#5a6577">.NET</text>
+
+    <line x1="50" y1="277" x2="860" y2="277" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Runtime -->
+    <text x="60" y="300" fill="#8892a4">Runtime</text>
+    <text x="270" y="300" text-anchor="middle" fill="#00ffd5">none</text>
+    <text x="450" y="300" text-anchor="middle" fill="#5a6577">.NET</text>
+    <text x="650" y="300" text-anchor="middle" fill="#5a6577">Python</text>
+    <text x="810" y="300" text-anchor="middle" fill="#5a6577">.NET</text>
+
+    <line x1="50" y1="312" x2="860" y2="312" stroke="#0d1321" stroke-width="1"/>
+
+    <!-- Static binary -->
+    <text x="60" y="335" fill="#8892a4">Static bin</text>
+    <text x="270" y="335" text-anchor="middle" fill="#00ff88" font-size="16">&#x2713;</text>
+    <text x="450" y="335" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+    <text x="650" y="335" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+    <text x="810" y="335" text-anchor="middle" fill="#ff4444" font-size="16">&#x2717;</text>
+  </g>
+
+  <!-- Highlight column -->
+  <rect x="200" y="70" width="140" height="280" rx="4" fill="#00ffd5" opacity="0.03" stroke="#00ffd5" stroke-width="0.5" opacity="0.15"/>
+
+  <!-- Footer -->
+  <text x="450" y="370" text-anchor="middle" font-family="'Courier New', monospace" font-size="10" fill="#3a4557" letter-spacing="1">audit + validation in one Linux-native binary</text>
+</svg>

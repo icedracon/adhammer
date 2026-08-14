@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 140" width="1200" height="140">
+  <defs>
+    <linearGradient id="sb-bg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#0a0e17"/>
+      <stop offset="100%" style="stop-color:#0d1321"/>
+    </linearGradient>
+    <linearGradient id="sb-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00ffd5"/>
+      <stop offset="100%" style="stop-color:#00b4d8"/>
+    </linearGradient>
+    <linearGradient id="sb-accent2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#ff6b35"/>
+      <stop offset="100%" style="stop-color:#f7c948"/>
+    </linearGradient>
+    <linearGradient id="sb-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7b2ff7"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <filter id="sb-glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="sb-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#1a2332" stroke-width="0.3"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="140" rx="8" fill="url(#sb-bg)"/>
+  <rect width="1200" height="140" rx="8" fill="url(#sb-grid)" opacity="0.4"/>
+  <rect x="0" y="0" width="1200" height="2" rx="1" fill="url(#sb-accent)" opacity="0.3"/>
+
+  <!-- Stat 1: Checks -->
+  <g transform="translate(120, 70)">
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent)" filter="url(#sb-glow)">41</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AUDIT CHECKS</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">+ MITRE tags</text>
+  </g>
+
+  <!-- Stat 2: ESC -->
+  <g transform="translate(330, 70)">
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">15/16</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AD CS ESC</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">classes covered</text>
+  </g>
+
+  <!-- Stat 3: Bench wins -->
+  <g transform="translate(540, 70)">
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="#00ffd5" filter="url(#sb-glow)">11/12</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">BENCH WINS</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">vs impacket &amp; co</text>
+  </g>
+
+  <!-- Stat 4: Speed -->
+  <g transform="translate(750, 70)">
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">144x</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">FASTEST WIN</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">Zerologon detect</text>
+  </g>
+
+  <!-- Stat 5: Crates -->
+  <g transform="translate(960, 70)">
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-purple)" filter="url(#sb-glow)">10</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">RUST CRATES</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">published on crates.io</text>
+  </g>
+
+  <!-- Dividers between stats -->
+  <line x1="225" y1="30" x2="225" y2="110" stroke="#1a2332" stroke-width="1"/>
+  <line x1="435" y1="30" x2="435" y2="110" stroke="#1a2332" stroke-width="1"/>
+  <line x1="645" y1="30" x2="645" y2="110" stroke="#1a2332" stroke-width="1"/>
+  <line x1="855" y1="30" x2="855" y2="110" stroke="#1a2332" stroke-width="1"/>
+</svg>
