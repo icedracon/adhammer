@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/logo.svg" alt="ADhammer logo" width="140"/>
+</p>
+
+<p align="center">
   <img src="docs/banner.svg" alt="ADhammer — Active Directory Security Toolkit" width="100%"/>
 </p>
 
