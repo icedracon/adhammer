@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ADhammer standalone mark — 512×512 square, scales cleanly to 16/32/64/128/256 px.
+    Usable for: crates.io crate icon, GitHub org avatar, favicon, OG social preview.
+    Palette matches banner.svg (cyan/purple accents on navy).
+  -->
+  <defs>
+    <radialGradient id="lg-bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" style="stop-color:#0d1321"/>
+      <stop offset="70%" style="stop-color:#0a0e17"/>
+      <stop offset="100%" style="stop-color:#050810"/>
+    </radialGradient>
+    <linearGradient id="lg-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffd5"/>
+      <stop offset="55%" style="stop-color:#00b4d8"/>
+      <stop offset="100%" style="stop-color:#7b2ff7"/>
+    </linearGradient>
+    <linearGradient id="lg-hex" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffd5;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#7b2ff7;stop-opacity:0.9"/>
+    </linearGradient>
+    <filter id="lg-glow-strong" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="lg-glow-soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Square background — rounded corners so it works as an app-icon too. -->
+  <rect width="512" height="512" rx="96" fill="url(#lg-bg)"/>
+
+  <!-- Subtle grid overlay for cyber texture (invisible at small sizes, adds depth at large). -->
+  <g opacity="0.12" stroke="#1a2332" stroke-width="1" fill="none">
+    <path d="M 0 128 L 512 128 M 0 256 L 512 256 M 0 384 L 512 384"/>
+    <path d="M 128 0 L 128 512 M 256 0 L 256 512 M 384 0 L 512 384"/>
+  </g>
+
+  <!-- Outer hexagon frame with cyan→purple gradient glow. -->
+  <g transform="translate(256, 256)" filter="url(#lg-glow-soft)">
+    <polygon
+      points="0,-180 156,-90 156,90 0,180 -156,90 -156,-90"
+      fill="none"
+      stroke="url(#lg-hex)"
+      stroke-width="10"
+      stroke-linejoin="round"/>
+  </g>
+
+  <!-- Inner hexagon (thinner, echoes outer — cyber signature). -->
+  <g transform="translate(256, 256)" opacity="0.35">
+    <polygon
+      points="0,-140 121,-70 121,70 0,140 -121,70 -121,-70"
+      fill="none"
+      stroke="#00ffd5"
+      stroke-width="1.5"
+      stroke-linejoin="round"/>
+  </g>
+
+  <!-- Corner accents (bracket-style, cyberpunk). -->
+  <g stroke="#00ffd5" stroke-width="3" fill="none" opacity="0.55">
+    <path d="M 40 40 L 40 82 M 40 40 L 82 40"/>
+    <path d="M 472 40 L 472 82 M 472 40 L 430 40"/>
+  </g>
+  <g stroke="#7b2ff7" stroke-width="3" fill="none" opacity="0.55">
+    <path d="M 40 472 L 40 430 M 40 472 L 82 472"/>
+    <path d="M 472 472 L 472 430 M 472 472 L 430 472"/>
+  </g>
+
+  <!-- The hammer — bolder than in the banner, legible at 16 px. -->
+  <g transform="translate(256, 236)" filter="url(#lg-glow-strong)">
+    <!-- Head (rounded rect, outlined + faint inner fill). -->
+    <rect x="-88" y="-46" width="176" height="92" rx="12"
+          fill="none" stroke="url(#lg-glow)" stroke-width="7" stroke-linejoin="round"/>
+    <rect x="-72" y="-32" width="144" height="64" rx="6"
+          fill="#00ffd5" opacity="0.12"/>
+    <!-- Center rivet (icon focal point at small sizes). -->
+    <circle cx="0" cy="0" r="9" fill="url(#lg-glow)"/>
+    <circle cx="0" cy="0" r="4" fill="#0a0e17"/>
+    <!-- Handle. -->
+    <rect x="-11" y="46" width="22" height="112" rx="5"
+          fill="none" stroke="url(#lg-glow)" stroke-width="6" stroke-linejoin="round"/>
+    <!-- Impact lines (asymmetric — cyan left, purple right, matches banner brand). -->
+    <line x1="-124" y1="-14" x2="-152" y2="-42" stroke="#00ffd5" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+    <line x1="-118" y1="14" x2="-148" y2="30" stroke="#00ffd5" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+    <line x1="124" y1="-14" x2="152" y2="-42" stroke="#7b2ff7" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+    <line x1="118" y1="14" x2="148" y2="30" stroke="#7b2ff7" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+  </g>
+</svg>

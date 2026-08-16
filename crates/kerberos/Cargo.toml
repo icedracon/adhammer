@@ -17,7 +17,7 @@ hmac = { workspace = true }
 # MS-PAC marshaling + Golden/Silver ticket forgery primitives were split out into
 # their own crate. The adapter in pac.rs re-exports the parse/build/forge API
 # and layers the picky-krb Tgt-based decrypt_ticket_pac on top of it.
-ms-pac-forge = "0.1.0-dev"
+ms-pac-forge = "0.1.2"
 
 # Kerberos roasting is built on picky-krb (Devolutions pure-Rust ASN.1 + KRB message
 # types) — no ASN.1 from scratch.

@@ -102,7 +102,7 @@ fn lsa_key(security: &Hive, bootkey: &[u8; 16]) -> Option<[u8; 32]> {
     lsa_key_from_polekl(&pol, bootkey)
 }
 
-/// [`lsa_key`] taking the raw `Policy\PolEKList` value bytes — for the RRP path.
+/// `lsa_key` taking the raw `Policy\PolEKList` value bytes — for the RRP path.
 pub fn lsa_key_from_polekl(pol: &[u8], bootkey: &[u8; 16]) -> Option<[u8; 32]> {
     let enc = pol.get(28..)?;
     let plain = decrypt_lsa_blob(bootkey, enc)?;
@@ -115,7 +115,7 @@ pub fn decrypt_secret_public(lsa_key: &[u8; 32], value: &[u8]) -> Option<Vec<u8>
     decrypt_secret(lsa_key, value)
 }
 
-/// Public wrapper for [`decrypt_cache`] — used by the RRP DCC2 path.
+/// Public wrapper for `decrypt_cache` — used by the RRP DCC2 path.
 pub fn decrypt_cache_public(nlkm: &[u8], rec: &[u8]) -> Option<CachedCred> {
     decrypt_cache(nlkm, rec)
 }

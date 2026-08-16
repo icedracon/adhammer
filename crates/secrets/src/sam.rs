@@ -72,7 +72,7 @@ fn hashed_bootkey(sam: &Hive, bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     hashed_bootkey_from_f(&f, bootkey)
 }
 
-/// [`hashed_bootkey`] taking the raw `F` value bytes — for callers that fetched it via RRP
+/// `hashed_bootkey` taking the raw `F` value bytes — for callers that fetched it via RRP
 /// (`crate::rrp::dump_sam_via_rrp`) instead of walking a hive.
 pub fn hashed_bootkey_from_f(f: &[u8], bootkey: &[u8; 16]) -> Option<HashedBootKey> {
     if f.len() < 0xA0 {

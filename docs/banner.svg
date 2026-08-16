@@ -10,10 +10,6 @@
       <stop offset="50%" style="stop-color:#00b4d8"/>
       <stop offset="100%" style="stop-color:#7b2ff7"/>
     </linearGradient>
-    <linearGradient id="glow2" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#ff6b35"/>
-      <stop offset="100%" style="stop-color:#f7c948"/>
-    </linearGradient>
     <linearGradient id="line-grad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#00ffd5;stop-opacity:0"/>
       <stop offset="50%" style="stop-color:#00ffd5;stop-opacity:0.6"/>
@@ -133,13 +129,13 @@
     </g>
   </g>
 
-  <!-- Version tag -->
+  <!-- STATIC badge (top-right; evergreen, replaces per-release version tag) -->
   <g transform="translate(1130, 55)">
-    <rect x="-35" y="-12" width="70" height="24" rx="4" fill="#ff6b35" opacity="0.15" stroke="#ff6b35" stroke-width="1" opacity="0.4"/>
-    <text text-anchor="middle" y="5" font-family="'Courier New', monospace" font-size="13" fill="#f7c948" font-weight="bold">v1.3.3</text>
+    <rect x="-35" y="-12" width="70" height="24" rx="4" fill="#00ffd5" opacity="0.12" stroke="#00ffd5" stroke-width="0.6" opacity="0.4"/>
+    <text text-anchor="middle" y="5" font-family="'Courier New', monospace" font-size="12" fill="#00ffd5" font-weight="bold" letter-spacing="2">STATIC</text>
   </g>
 
-  <!-- Rust badge -->
+  <!-- Rust badge (top-left; evergreen) -->
   <g transform="translate(70, 55)">
     <rect x="-30" y="-12" width="60" height="24" rx="4" fill="#ff6b35" opacity="0.1" stroke="#ff6b35" stroke-width="0.5"/>
     <text text-anchor="middle" y="5" font-family="'Courier New', monospace" font-size="12" fill="#ff6b35" opacity="0.7">Rust</text>
