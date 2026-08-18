@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "serde",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "anyhow",
  "ntlmssp",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -153,7 +153,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "aes",
  "cbc",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.3.7"
+version = "1.3.8"
 dependencies = [
  "adhammer-core",
  "aes",
@@ -663,9 +663,9 @@ dependencies = [
 
 [[package]]
 name = "dcerpc"
-version = "0.2.1"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "733c2dc668de728c727a5fef1c57807002866e5a0b402acb62e2483642a1280e"
+checksum = "18b512d10cb24855e806cc51e3f834d9fb8afb217fa540dfee4e688830dc39c8"
 dependencies = [
  "aes",
  "des",

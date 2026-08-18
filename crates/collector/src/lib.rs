@@ -650,6 +650,17 @@ impl Collector {
         Ok(())
     }
 
+    /// Delete an LDAP object by DN. Callers that want idempotent delete
+    /// (DCShadow cleanup) must swallow NoSuchObject themselves.
+    pub async fn delete_object(&mut self, dn: &str) -> Result<()> {
+        self.ldap
+            .delete(dn)
+            .await?
+            .success()
+            .with_context(|| format!("LDAP delete of {dn} failed"))?;
+        Ok(())
+    }
+
     /// Force-set an account password (ForceChangePassword / GenericAll abuse). unicodePwd
     /// is a quoted UTF-16LE string; the DC requires the connection to be encrypted (LDAPS).
     pub async fn set_password(&mut self, dn: &str, password: &str) -> Result<()> {

@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.3.7"
+version = "1.3.8"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -35,7 +35,7 @@ ntlmssp      = "0.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
-dcerpc       = "0.2"
+dcerpc       = "0.2.4"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack certipy` (ms-icpr),
 # and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
@@ -44,16 +44,16 @@ ms-crtd      = "0.1.0-dev"
 ms-icpr      = "0.1.2"
 ms-gkdi      = "0.1.0-dev"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.3.7" }
-adhammer-collector = { path = "crates/collector", version = "1.3.7", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.3.7" }
-adhammer-graph     = { path = "crates/graph",     version = "1.3.7" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.3.7" }
-adhammer-report    = { path = "crates/report",    version = "1.3.7" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.3.7" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.3.7" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.3.7" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.3.7" }
+adhammer-core      = { path = "crates/core",      version = "1.3.8" }
+adhammer-collector = { path = "crates/collector", version = "1.3.8", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.3.8" }
+adhammer-graph     = { path = "crates/graph",     version = "1.3.8" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.3.8" }
+adhammer-report    = { path = "crates/report",    version = "1.3.8" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.3.8" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.3.8" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.3.8" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.3.8" }
 
 # external
 serde       = { version = "1", features = ["derive"] }
@@ -91,9 +91,3 @@ codegen-units = 1
 # commented due to the ms-nrpc cycle. If local dev needs sibling repos again, add
 # entries back locally but do NOT commit — GitHub runners lack sibling dirs.
 #
-# Local-dev only: patch to sibling paths for the 4 crates being bumped for v1.3.7.
-# REMOVE these lines before the v1.3.7 push (otherwise CI + downstream users get
-# a resolver error because the versions don't yet exist on crates.io).
-# [patch.crates-io]
-# ms-icpr      = { path = "../ms-icpr" }
-# ms-pac-forge = { path = "../ms-pac-forge" }

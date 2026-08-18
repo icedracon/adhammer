@@ -870,7 +870,17 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::Unconstrained => unconstrained(s.scan_args()).await,
-        Action::Dcshadow => dcshadow(s.scan_args()).await,
+        Action::Dcshadow => {
+            // Interactive menu currently only exposes the detector — not prep/cleanup, which
+            // require an extra --dc-name arg the setup wizard doesn't collect.
+            dcshadow(crate::DcshadowArgs {
+                scan: s.scan_args(),
+                prep: None,
+                cleanup: None,
+                site: "Default-First-Site-Name".to_string(),
+            })
+            .await
+        }
         Action::Shadowcred => {
             let target: String = Input::new()
                 .with_prompt("Target sAMAccountName (plant KeyCredentialLink)")
