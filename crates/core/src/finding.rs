@@ -126,3 +126,12 @@ impl Finding {
         self.severity.base_weight() + self.weight_bonus
     }
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AttackResult {
+    pub command: String,
+    pub success: bool,
+    pub evidence: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_id: Option<String>,
+}

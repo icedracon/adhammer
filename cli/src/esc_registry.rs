@@ -172,6 +172,96 @@ pub fn esc7(sd_bytes: &[u8]) -> Vec<EscHit> {
     }
 }
 
+impl EscHit {
+    pub fn into_finding(self) -> adhammer_core::Finding {
+        adhammer_core::Finding {
+            id: self.id.to_string(),
+            title: self.title.to_string(),
+            category: adhammer_core::finding::Category::Anomalies,
+            severity: match self.id {
+                "A-Esc6" | "A-Esc7" => adhammer_core::finding::Severity::Critical,
+                "A-Esc10" | "A-Esc11" | "A-Esc16" => adhammer_core::finding::Severity::High,
+                _ => adhammer_core::finding::Severity::High,
+            },
+            mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
+            affected: vec![],
+            detail: self.detail,
+            impact: None,
+            remediation: String::new(),
+            weight_bonus: 20,
+        }
+    }
+}
+
+/// Run all ESC registry probes over an already-connected RegistryClient.
+/// Returns findings for ESC6/7/10/11/16 based on registry state.
+pub async fn probe_esc_registry(
+    reg: &mut dcerpc::rrp::RegistryClient<'_>,
+    ca_name: &str,
+) -> Vec<adhammer_core::Finding> {
+    let ca = format!("SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{ca_name}");
+    let mut hits: Vec<EscHit> = Vec::new();
+
+    let iflags = reg
+        .read_value(&ca, "InterfaceFlags")
+        .await
+        .ok()
+        .and_then(|v| v.as_dword())
+        .unwrap_or(0);
+    hits.extend(esc11(iflags));
+
+    let pm_root = format!("{ca}\\PolicyModules");
+    let policy = reg
+        .read_value(&pm_root, "Active")
+        .await
+        .map(|v| v.as_string())
+        .unwrap_or_else(|_| "CertificateAuthority_MicrosoftDefault.Policy".into());
+    let policy_key = format!("{pm_root}\\{policy}");
+    if let Ok(v) = reg.read_value(&policy_key, "EditFlags").await {
+        if let Some(d) = v.as_dword() {
+            hits.extend(esc6(d));
+        }
+    }
+    if let Ok(v) = reg.read_value(&policy_key, "DisableExtensionList").await {
+        hits.extend(esc16(&v.as_string()));
+    }
+    if let Ok(v) = reg.read_value(&ca, "Security").await {
+        hits.extend(esc7(&v.data));
+    }
+
+    let is_dc = reg
+        .read_value(
+            "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+            "DSA Working Directory",
+        )
+        .await
+        .is_ok()
+        || reg
+            .read_value(
+                "SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+                "Machine DN Name",
+            )
+            .await
+            .is_ok();
+    if is_dc {
+        match reg
+            .read_value(
+                "SYSTEM\\CurrentControlSet\\Services\\Kdc",
+                "StrongCertificateBindingEnforcement",
+            )
+            .await
+        {
+            Ok(v) => match v.as_dword() {
+                Some(d) => hits.extend(esc10(d)),
+                None => hits.push(esc10_absent()),
+            },
+            Err(_) => hits.push(esc10_absent()),
+        }
+    }
+
+    hits.into_iter().map(|h| h.into_finding()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

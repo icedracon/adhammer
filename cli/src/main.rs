@@ -38,6 +38,11 @@ struct Cli {
     #[arg(long, global = true, value_name = "[user:pass@]host:port")]
     socks: Option<String>,
 
+    /// Emit structured JSON output (AttackResult envelope) instead of human-readable text.
+    /// Applies to attack/enum/dump subcommands. Scan already emits JSON by default.
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     cmd: Option<Command>,
 }
@@ -1051,7 +1056,82 @@ async fn main() -> Result<()> {
 
     match cli.cmd {
         None => interactive::run(cli.old, cli.no_save).await,
-        Some(cmd) => dispatch(cmd).await,
+        Some(cmd) => {
+            if cli.json {
+                dispatch_json(cmd).await
+            } else {
+                dispatch(cmd).await
+            }
+        }
+    }
+}
+
+async fn dispatch_json(cmd: Command) -> Result<()> {
+    let cmd_str = format!("adhammer {}", cmd_label(&cmd));
+    let result = dispatch(cmd).await;
+    let ar = adhammer_core::AttackResult {
+        command: cmd_str,
+        success: result.is_ok(),
+        evidence: match &result {
+            Ok(()) => String::new(),
+            Err(e) => format!("{e:#}"),
+        },
+        finding_id: None,
+    };
+    println!("{}", serde_json::to_string_pretty(&ar).unwrap_or_default());
+    result
+}
+
+fn cmd_label(cmd: &Command) -> &'static str {
+    match cmd {
+        Command::Scan(_) => "scan",
+        Command::Enum(e) => match e {
+            EnumCmd::Samr(_) => "enum samr",
+            EnumCmd::Lsa(_) => "enum lsa",
+            EnumCmd::Net(_) => "enum net",
+            EnumCmd::Dns(_) => "enum dns",
+            EnumCmd::Adcs(_) => "enum adcs",
+            EnumCmd::Esc(_) => "enum esc",
+            EnumCmd::Posture(_) => "enum posture",
+            EnumCmd::Sessions(_) => "enum sessions",
+        },
+        Command::Attack(a) => match a {
+            AttackCmd::Roast(_) => "attack roast",
+            AttackCmd::Spray(_) => "attack spray",
+            AttackCmd::Abuse(_) => "attack abuse",
+            AttackCmd::Coerce(_) => "attack coerce",
+            AttackCmd::Zerologon(_) => "attack zerologon",
+            AttackCmd::Rbcd(_) => "attack rbcd",
+            AttackCmd::Constrained(_) => "attack constrained",
+            AttackCmd::Asktgt(_) => "attack asktgt",
+            AttackCmd::Dcsync(_) => "attack dcsync",
+            AttackCmd::Capture(_) => "attack capture",
+            AttackCmd::Poison(_) => "attack poison",
+            AttackCmd::Relay(_) => "attack relay",
+            AttackCmd::Exec(_) => "attack exec",
+            AttackCmd::Atexec(_) => "attack atexec",
+            AttackCmd::Wmiexec(_) => "attack wmiexec",
+            AttackCmd::Secretsdump(_) => "attack secretsdump",
+            AttackCmd::Gmsa(_) => "attack gmsa",
+            AttackCmd::Laps(_) => "attack laps",
+            AttackCmd::Winrm(_) => "attack winrm",
+            AttackCmd::Esc1(_) => "attack esc1",
+            AttackCmd::Certipy(_) => "attack certipy",
+            AttackCmd::Golden(_) => "attack golden",
+            AttackCmd::Silver(_) => "attack silver",
+            AttackCmd::Pth(_) => "attack pth",
+            AttackCmd::Unconstrained(_) => "attack unconstrained",
+            AttackCmd::Badsuccessor(_) => "attack badsuccessor",
+            AttackCmd::Esc4(_) => "attack esc4",
+            AttackCmd::Shadowcred(_) => "attack shadowcred",
+            AttackCmd::Dcshadow(_) => "attack dcshadow",
+        },
+        Command::Check(_) => "check adcs",
+        Command::Dump(d) => match d {
+            DumpCmd::Laps(_) => "dump laps",
+            DumpCmd::Gmsa(_) => "dump gmsa",
+        },
+        Command::Auto(_) => "auto",
     }
 }
 
@@ -4343,6 +4423,28 @@ fn expand_targets(spec: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+async fn esc_registry_probe(
+    host: &str,
+    domain: &str,
+    user: &str,
+    password: &str,
+    ca_names: &[String],
+) -> Result<Vec<adhammer_core::Finding>> {
+    use dcerpc::rrp::RegistryClient;
+    use smb2_client::SmbClient;
+
+    let mut smb = SmbClient::connect(host).await?;
+    smb.login(host, domain, user, password).await?;
+    smb.tree_connect(&format!("\\\\{host}\\IPC$")).await?;
+    let mut reg = RegistryClient::connect(&mut smb, domain, user, password, host).await?;
+
+    let mut all = Vec::new();
+    for ca in ca_names {
+        all.extend(esc_registry::probe_esc_registry(&mut reg, ca).await);
+    }
+    Ok(all)
+}
+
 fn config(a: &ScanArgs) -> LdapConfig {
     LdapConfig {
         url: a.url.clone(),
@@ -4394,6 +4496,112 @@ async fn scan(a: ScanArgs) -> Result<()> {
         let p = std::path::Path::new(path);
         let n = adhammer_bloodhound::export_zip(&snap, p)?;
         eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+    }
+
+    // ESC registry probe: ESC6/7/10/11/16 via MS-RRP over the DC's Remote Registry.
+    // Runs automatically when a CA is discovered in the LDAP snapshot. Best-effort — if the
+    // Remote Registry service is stopped the scan still completes with passive findings only.
+    {
+        let ca_names: Vec<String> = snap
+            .iter_class("pKIEnrollmentService")
+            .filter_map(|o| o.one("cn").or_else(|| o.one("name")).map(|s| s.to_string()))
+            .collect();
+        if !ca_names.is_empty() {
+            let host = a
+                .url
+                .split("://")
+                .nth(1)
+                .unwrap_or(&a.url)
+                .split('/')
+                .next()
+                .unwrap_or("")
+                .split(':')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let domain = snap.domain.netbios.clone().unwrap_or_else(|| {
+                snap.domain
+                    .domain_dn
+                    .split(',')
+                    .find_map(|p| {
+                        p.trim()
+                            .strip_prefix("DC=")
+                            .or_else(|| p.trim().strip_prefix("dc="))
+                    })
+                    .unwrap_or("")
+                    .to_uppercase()
+            });
+            let user = a
+                .user
+                .split('@')
+                .next()
+                .and_then(|s| s.split('\\').last())
+                .unwrap_or(&a.user)
+                .to_string();
+            let sp = ui::Spinner::start("ESC registry probe (MS-RRP)");
+            match esc_registry_probe(&host, &domain, &user, &a.password, &ca_names).await {
+                Ok(esc_findings) => {
+                    let n = esc_findings.len();
+                    findings.extend(esc_findings);
+                    if n > 0 {
+                        sp.done(&format!(
+                            "{n} registry-based ESC finding(s) (ESC6/7/10/11/16)"
+                        ));
+                    } else {
+                        sp.done("no registry-based ESC exposure");
+                    }
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("0xc00000ac") || msg.contains("winreg") {
+                        sp.done_warn(
+                            "Remote Registry unavailable — ESC6/7/10/11/16 skipped (passive checks unaffected)",
+                        );
+                    } else {
+                        sp.done_warn(&format!("ESC registry probe failed: {e:#}"));
+                    }
+                }
+            }
+        }
+    }
+
+    // ESC8 web-enrollment probe: check each CA host for HTTP NTLM relay exposure.
+    {
+        let ca_hosts: Vec<String> = snap
+            .iter_class("pKIEnrollmentService")
+            .filter_map(|o| o.one("dNSHostName").map(|s| s.to_string()))
+            .filter(|h| !h.is_empty())
+            .collect();
+        for host in &ca_hosts {
+            if let Some(_detail) = esc8_probe(host).await {
+                findings.push(adhammer_core::Finding {
+                    id: "A-Esc8".into(),
+                    title: format!(
+                        "ESC8: web enrollment at http://{host}/certsrv exposes NTLM (relayable)"
+                    ),
+                    category: adhammer_core::finding::Category::Anomalies,
+                    severity: adhammer_core::finding::Severity::Critical,
+                    mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
+                    affected: vec![host.clone()],
+                    detail: format!(
+                        "The CA at {host} exposes HTTP web enrollment with NTLM authentication \
+                         over cleartext — a coerced machine's NTLM can be relayed for a cert, \
+                         then PKINIT'd for that machine's TGT."
+                    ),
+                    impact: Some(
+                        "Attacker coerces a DC (PetitPotam/PrinterBug), relays its NTLM to \
+                         the web enrollment endpoint, obtains a machine cert, PKINITs for the \
+                         DC's TGT, then DCSync. Full domain compromise from any authenticated user."
+                            .into(),
+                    ),
+                    remediation:
+                        "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); \
+                         enforce SMB/LDAP signing to blunt the relay."
+                            .into(),
+                    weight_bonus: 30,
+                });
+            }
+        }
     }
 
     // Optional SYSVOL sweep: GPP cpasswords (MS14-025) + default-policy signing/NTLM.

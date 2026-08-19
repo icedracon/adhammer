@@ -1,4 +1,6 @@
 //! Saved engagement profile — written on first `adhammer` run, reused with `--old`.
+//! On Windows the session file is DPAPI-encrypted (CryptProtectData) so creds at rest
+//! are bound to the current user's login session. On Unix it's chmod 600.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -74,13 +76,14 @@ fn config_path() -> Result<PathBuf> {
 
 pub fn load() -> Result<Session> {
     let path = config_path()?;
-    let data = std::fs::read_to_string(&path).with_context(|| {
+    let raw = std::fs::read(&path).with_context(|| {
         format!(
             "no saved session at {} — run `adhammer` first",
             path.display()
         )
     })?;
-    serde_json::from_str(&data).context("parse saved session")
+    let json = dpapi::decrypt_if_wrapped(&raw)?;
+    serde_json::from_slice(&json).context("parse saved session")
 }
 
 pub fn save(session: &Session) -> Result<()> {
@@ -88,8 +91,9 @@ pub fn save(session: &Session) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let data = serde_json::to_string_pretty(session)?;
-    std::fs::write(&path, &data)?;
+    let json = serde_json::to_string_pretty(session)?;
+    let blob = dpapi::encrypt(json.as_bytes())?;
+    std::fs::write(&path, &blob)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -114,4 +118,139 @@ pub fn wipe() -> Result<()> {
         Err(e) => return Err(e).context("wipe session"),
     }
     Ok(())
+}
+
+mod dpapi {
+    use anyhow::{Context, Result};
+
+    const MAGIC: &[u8; 4] = b"ADHS";
+
+    #[cfg(windows)]
+    mod win {
+        use std::ptr;
+
+        #[repr(C)]
+        struct DataBlob {
+            cb_data: u32,
+            pb_data: *mut u8,
+        }
+
+        extern "system" {
+            fn CryptProtectData(
+                data_in: *const DataBlob,
+                description: *const u16,
+                entropy: *const DataBlob,
+                reserved: *mut u8,
+                prompt: *mut u8,
+                flags: u32,
+                data_out: *mut DataBlob,
+            ) -> i32;
+
+            fn CryptUnprotectData(
+                data_in: *const DataBlob,
+                description: *mut *mut u16,
+                entropy: *const DataBlob,
+                reserved: *mut u8,
+                prompt: *mut u8,
+                flags: u32,
+                data_out: *mut DataBlob,
+            ) -> i32;
+
+            fn LocalFree(mem: *mut u8) -> *mut u8;
+        }
+
+        pub fn protect(plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
+            let input = DataBlob {
+                cb_data: plaintext.len() as u32,
+                pb_data: plaintext.as_ptr() as *mut u8,
+            };
+            let mut output = DataBlob {
+                cb_data: 0,
+                pb_data: ptr::null_mut(),
+            };
+            let ok = unsafe {
+                CryptProtectData(
+                    &input,
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    0,
+                    &mut output,
+                )
+            };
+            if ok == 0 {
+                anyhow::bail!("CryptProtectData failed (GetLastError)");
+            }
+            let enc =
+                unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize) }
+                    .to_vec();
+            unsafe { LocalFree(output.pb_data) };
+            Ok(enc)
+        }
+
+        pub fn unprotect(ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
+            let input = DataBlob {
+                cb_data: ciphertext.len() as u32,
+                pb_data: ciphertext.as_ptr() as *mut u8,
+            };
+            let mut output = DataBlob {
+                cb_data: 0,
+                pb_data: ptr::null_mut(),
+            };
+            let ok = unsafe {
+                CryptUnprotectData(
+                    &input,
+                    ptr::null_mut(),
+                    ptr::null(),
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    0,
+                    &mut output,
+                )
+            };
+            if ok == 0 {
+                anyhow::bail!(
+                    "CryptUnprotectData failed — session file may belong to another user"
+                );
+            }
+            let dec =
+                unsafe { std::slice::from_raw_parts(output.pb_data, output.cb_data as usize) }
+                    .to_vec();
+            unsafe { LocalFree(output.pb_data) };
+            Ok(dec)
+        }
+    }
+
+    pub fn encrypt(plaintext: &[u8]) -> Result<Vec<u8>> {
+        #[cfg(windows)]
+        {
+            let enc = win::protect(plaintext).context("DPAPI encrypt")?;
+            let mut out = Vec::with_capacity(4 + enc.len());
+            out.extend_from_slice(MAGIC);
+            out.extend_from_slice(&enc);
+            Ok(out)
+        }
+        #[cfg(not(windows))]
+        {
+            eprintln!("[!] session creds stored unencrypted (DPAPI unavailable on this OS)");
+            Ok(plaintext.to_vec())
+        }
+    }
+
+    pub fn decrypt_if_wrapped(data: &[u8]) -> Result<Vec<u8>> {
+        if data.starts_with(MAGIC) {
+            #[cfg(windows)]
+            {
+                return win::unprotect(&data[4..]).context("DPAPI decrypt");
+            }
+            #[cfg(not(windows))]
+            {
+                anyhow::bail!(
+                    "session file is DPAPI-encrypted (created on Windows) — cannot decrypt on this OS"
+                );
+            }
+        }
+        Ok(data.to_vec())
+    }
 }
