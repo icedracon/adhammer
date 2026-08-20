@@ -6,8 +6,23 @@
   <img src="docs/banner.svg" alt="ADhammer — Active Directory Security Toolkit" width="100%"/>
 </p>
 
-<h3 align="center">The Active Directory offensive stack in pure Rust.</h3>
-<p align="center"><sub>One static binary. Kali or Windows. Audits a domain in under a second, then <b>proves</b> every finding with a live PoC.</sub></p>
+<h3 align="center">Active Directory Security Engineering in Rust</h3>
+
+<p align="center">
+  <code>AUDIT</code> &nbsp;→&nbsp; <code>GRAPH</code> &nbsp;→&nbsp; <code>VALIDATE</code> &nbsp;→&nbsp; <code>REPORT</code>
+</p>
+
+<p align="center"><b>Find the path. Prove the path. Report the proof.</b></p>
+
+<p align="center"><sub>One static binary for AD assessment and live attack-path validation.</sub></p>
+
+<p align="center">
+  <a href="https://crates.io/crates/adhammer"><b>&nbsp;INSTALL&nbsp;</b></a>
+  &nbsp;·&nbsp;
+  <a href="#try-it-in-30-seconds"><b>&nbsp;DEMO&nbsp;</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5"><b>&nbsp;WRITE-UP&nbsp;</b></a>
+</p>
 
 <p align="center">
   <a href="https://github.com/icedracon/adhammer/actions/workflows/ci.yml"><img src="https://github.com/icedracon/adhammer/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
@@ -18,6 +33,10 @@
   <a href="https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5"><img src="https://img.shields.io/badge/write--up-dev.to-0A0A0A?style=flat-square&logo=devdotto" alt="Write-up"/></a>
 </p>
 
+<p align="center">
+  <sub><b>61 icedracon crates</b> · <b>18k+ downloads</b> · <b>Server 2025 live-validated</b> · MIT · zero external protocol deps</sub>
+</p>
+
 <br/>
 
 <p align="center">
@@ -25,7 +44,7 @@
 </p>
 
 <p align="center">
-  <sub>One binary. From Kali. Live against a hardened Server 2025 DC. Audit → detect → DCSync → golden ticket → SYSTEM.</sub>
+  <sub>The reference DA kill-chain demo, live against a hardened Server 2025 DC — under a minute on the lab environment.</sub>
 </p>
 
 <br/>
@@ -36,6 +55,87 @@
 
 <p align="center">
   <sub>Or the 30-second capability tour — audit, posture, Kerberoast, ADCS rule pack.</sub>
+</p>
+
+<br/>
+
+## 🎯 Detect ≠ Validate
+
+Most AD security tools stop at *"potential attack path detected."*
+
+ADhammer keeps going.
+
+```text
+Finding detected
+      ↓
+Attack path constructed
+      ↓
+Validation requested
+      ↓
+Live PoC executed
+      ↓
+Proof obtained
+      ↓
+Report generated
+```
+
+The difference matters:
+
+| Not | But |
+|:---:|:---:|
+| *"probably exploitable"* | ***"validated against this DC"*** |
+
+Every finding in the report is either an unvalidated audit hit or an evidence-backed proof — real `$krb5tgs$` hash, real replicated `krbtgt` secret, real `ISSUED` cert. Defenders know which paths are theoretical and which have actually been walked.
+
+<br/>
+
+## ✨ What's new in 1.3.9
+
+- **Session hunting three ways** — `enum sessions` (SRVSVC) · `enum wkssvc` (WKSSVC) · `enum hku` (MS-RRP). Dedup + machine-account filter on by default; `--include-machine` shows the count marker.
+- **`--json` envelope** on every subcommand — `AttackResult` wrapper pipes cleanly into `jq` and CI.
+- **DPAPI-encrypted sessions** at rest on Windows (CryptProtectData). `--old` reuses cached creds, `--no-save` keeps them off disk.
+- **ADCS scan pack** — ESC6/7/8/10/11/16 wired into `scan`. Registry probes over MS-RRP, HTTP probe for ESC8 web enrollment.
+- **`dcerpc 0.2.5` — bounded-alloc audit across the wire.** Every attacker-controlled `u32` that fed `Vec::with_capacity` is now preflighted. No more OOM on `entries_read = 0xFFFFFFFF`. Live-validated vs Server 2022 + 2025.
+- **New `wkssvc` + `rrp::logged_on_sids` protocol modules** shipped in `dcerpc 0.2.5` — MS-WKST `NetrWkstaUserEnum` and HKU registry walk, both live-validated.
+
+Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+
+<br/>
+
+## 👥 Who is this for?
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**🔴 Red team operators**
+
+One binary, no Python, no runtime deps. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated across Server 2022 and Server 2025, with version-specific limitations called out explicitly (e.g. LDAP-path DCShadow on 2019+).
+
+</td>
+<td width="33%" valign="top">
+
+**🛡️ AD auditors / defenders**
+
+41 hygiene checks across four categories, MITRE ATT&CK-tagged, low-priv collection via `SD_FLAGS`. Reports as JSON, HTML, or a BloodHound-CE ingest bundle. Every finding has a matching PoC — the audit tool ships the exploit.
+
+</td>
+<td width="33%" valign="top">
+
+**🦀 Rust developers**
+
+61 standalone protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS-v2 blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+<p align="center">
+  <a href="https://github.com/icedracon/adhammer/stargazers">⭐ Star the repo</a> &nbsp;·&nbsp;
+  <a href="https://crates.io/crates/adhammer">📦 <code>cargo install adhammer</code></a> &nbsp;·&nbsp;
+  <a href="https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5">📖 Read the write-up</a>
 </p>
 
 <br/>
@@ -79,7 +179,38 @@ Under 100 ms per operation, JSON + HTML report, BloodHound-compatible graph bund
 
 <br/>
 
-**Two commands. One binary. Everything else is a subcommand.**
+**One product philosophy: detect the path, then prove it.**
+
+```text
+                     ADHAMMER
+                        │
+                        ▼
+    ┌─────────────────────────────────────────┐
+    │                 AUDIT                   │
+    │   LDAP + SD_FLAGS  →  Snapshot          │
+    │   41 hygiene checks + 15/16 ADCS ESC    │
+    └─────────────────────┬───────────────────┘
+                          ▼
+    ┌─────────────────────────────────────────┐
+    │                 GRAPH                   │
+    │   petgraph control-path graph           │
+    │   cheapest chain to Tier-0 (Dijkstra)   │
+    └─────────────────────┬───────────────────┘
+                          ▼
+    ┌─────────────────────────────────────────┐
+    │              VALIDATE                   │
+    │   Live PoC per finding — real hash,     │
+    │   real cert, real replicated secret     │
+    └─────────────────────┬───────────────────┘
+                          ▼
+    ┌─────────────────────────────────────────┐
+    │               REPORT                    │
+    │   JSON · HTML · BloodHound-CE bundle    │
+    │   MITRE ATT&CK per finding + evidence   │
+    └─────────────────────────────────────────┘
+```
+
+Two commands drive the whole flow. Everything else is a subcommand.
 
 ### 1 &mdash; `adhammer scan` &nbsp;·&nbsp; audit a domain
 
@@ -354,7 +485,18 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 
 ## 🧱 Built on a from-scratch Rust ecosystem
 
-ADhammer is one binary on top of **40+ standalone crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone.
+<p align="center">
+  <img src="docs/ecosystem.svg" alt="ADhammer application on top of icedracon — 61 standalone pure-Rust MS protocol crates" width="100%"/>
+</p>
+
+<br/>
+
+ADhammer is one binary on top of **61 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **18k+** and climbing.
+
+**Two brands, one project:**
+
+- **ADhammer** — the application. AD security assessment + live attack-path validation.
+- **icedracon** — the ecosystem. Pure-Rust implementations of Microsoft security protocols. Adopt one crate (`cargo add dcerpc`) without adopting the whole toolkit.
 
 <details open>
 <summary><b>The load-bearing crates</b></summary>
@@ -384,6 +526,8 @@ Full crate list on **[crates.io/users/zevs](https://crates.io/users/zevs)**.
 <br/>
 
 ## 📚 Deep dives
+
+> **Featured on dev.to** — a detailed write-up of how the from-scratch Rust protocol stack came together.
 
 - **Write-up** — *[I built a full Active Directory pentest + audit tool in Rust on a from-scratch protocol stack](https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5)* (dev.to)
 - **Changelog** — per-release notes live in **[GitHub Releases](https://github.com/icedracon/adhammer/releases)** and [CHANGELOG.md](CHANGELOG.md)

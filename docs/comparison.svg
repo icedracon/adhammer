@@ -1,96 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" width="900" height="460">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="900" height="620">
   <defs>
-    <linearGradient id="cap-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="am-bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#0a0e17"/>
       <stop offset="100%" style="stop-color:#0d1321"/>
     </linearGradient>
-    <linearGradient id="cap-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="am-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#00ffd5"/>
       <stop offset="100%" style="stop-color:#00b4d8"/>
     </linearGradient>
-    <linearGradient id="cap-purple" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#7b2ff7"/>
-      <stop offset="100%" style="stop-color:#a259ff"/>
-    </linearGradient>
-    <linearGradient id="cap-chain" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="am-chain" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" style="stop-color:#00ffd5"/>
-      <stop offset="50%" style="stop-color:#00b4d8"/>
+      <stop offset="55%" style="stop-color:#00b4d8"/>
       <stop offset="100%" style="stop-color:#7b2ff7"/>
     </linearGradient>
-    <pattern id="cap-grid" width="25" height="25" patternUnits="userSpaceOnUse">
-      <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#1a2332" stroke-width="0.3"/>
+    <pattern id="am-grid" width="25" height="25" patternUnits="userSpaceOnUse">
+      <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#1a2332" stroke-width="0.35"/>
     </pattern>
-    <filter id="cap-glow">
+    <filter id="am-glow">
       <feGaussianBlur stdDeviation="2.5" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <marker id="am-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#00ffd5"/>
+    </marker>
   </defs>
 
-  <rect width="900" height="460" rx="10" fill="url(#cap-bg)"/>
-  <rect width="900" height="460" rx="10" fill="url(#cap-grid)" opacity="0.35"/>
+  <rect width="900" height="620" rx="10" fill="url(#am-bg)"/>
+  <rect width="900" height="620" rx="10" fill="url(#am-grid)" opacity="0.4"/>
 
-  <!-- Corner brackets: cyan top, purple bottom -->
+  <!-- Corner brackets -->
   <path d="M 20 20 L 20 48 M 20 20 L 48 20" stroke="#00ffd5" stroke-width="2" fill="none" opacity="0.85"/>
   <path d="M 880 20 L 880 48 M 880 20 L 852 20" stroke="#00ffd5" stroke-width="2" fill="none" opacity="0.85"/>
-  <path d="M 20 440 L 20 412 M 20 440 L 48 440" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.85"/>
-  <path d="M 880 440 L 880 412 M 880 440 L 852 440" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.85"/>
+  <path d="M 20 600 L 20 572 M 20 600 L 48 600" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.85"/>
+  <path d="M 880 600 L 880 572 M 880 600 L 852 600" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.85"/>
 
   <!-- Header -->
-  <text x="450" y="52" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="22" font-weight="bold" fill="#00ffd5" letter-spacing="6" filter="url(#cap-glow)">CAPABILITY OVERVIEW</text>
-  <text x="450" y="76" text-anchor="middle" font-family="'Courier New', monospace" font-size="11" fill="#8892a4" letter-spacing="3">one static binary — from Kali or Windows — audit + prove in under a second</text>
-  <line x1="120" y1="92" x2="780" y2="92" stroke="url(#cap-cyan)" stroke-width="1" opacity="0.5"/>
+  <text x="450" y="50" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="22" font-weight="bold" fill="#00ffd5" letter-spacing="5" filter="url(#am-glow)">ADHAMMER · SYSTEM MAP</text>
+  <text x="450" y="72" text-anchor="middle" font-family="'Courier New', monospace" font-size="11" fill="#8892a4" letter-spacing="3">audit → graph → validate → report — one binary, one philosophy</text>
 
-  <!-- 4 quadrants: 2×2 grid -->
+  <!-- Root node -->
   <g font-family="'Courier New', monospace">
+    <rect x="380" y="98" width="140" height="42" rx="6" fill="#0f1420" stroke="url(#am-cyan)" stroke-width="1.6"/>
+    <text x="450" y="124" text-anchor="middle" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="4">ADHAMMER</text>
 
-    <!-- AUDIT (top-left) -->
-    <rect x="40" y="112" width="400" height="128" rx="6" fill="#0f1420" stroke="#00ffd5" stroke-width="1" fill-opacity="0.4" stroke-opacity="0.4"/>
-    <text x="60" y="136" font-size="13" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ AUDIT</text>
-    <text x="60" y="158" font-size="11" fill="#e8ecf1">41 hygiene checks · 4 categories · MITRE ATT&amp;CK</text>
-    <text x="60" y="176" font-size="11" fill="#e8ecf1">Control-path graph → cheapest chain to Tier-0</text>
-    <text x="60" y="194" font-size="11" fill="#e8ecf1">ADCS templates: ESC1–15 rule pack (15/16 classes)</text>
-    <text x="60" y="212" font-size="11" fill="#e8ecf1">SD_FLAGS low-priv collection · SharpHound-CE export</text>
-    <text x="60" y="230" font-size="11" fill="#f7c948">≈ 800 ms scan on a 500-user forest</text>
+    <!-- Root → 2 pillars -->
+    <line x1="450" y1="140" x2="230" y2="170" stroke="#00ffd5" stroke-width="1.4" opacity="0.7"/>
+    <line x1="450" y1="140" x2="670" y2="170" stroke="#7b2ff7" stroke-width="1.4" opacity="0.7"/>
 
-    <!-- ATTACK (top-right) -->
-    <rect x="460" y="112" width="400" height="128" rx="6" fill="#0f1420" stroke="#7b2ff7" stroke-width="1" fill-opacity="0.4" stroke-opacity="0.4"/>
-    <text x="480" y="136" font-size="13" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ ATTACK</text>
-    <text x="480" y="158" font-size="11" fill="#e8ecf1">Kerberos — Kerberoast · AS-REP · Golden · Silver</text>
-    <text x="480" y="176" font-size="11" fill="#e8ecf1">Diamond · Sapphire · PKINIT · Shadow Cred · S4U/RBCD</text>
-    <text x="480" y="194" font-size="11" fill="#e8ecf1">DCSync · WMI exec · PtH · Zerologon safe-detect</text>
-    <text x="480" y="212" font-size="11" fill="#e8ecf1">ADCS attack pack: --esc esc1/esc3/esc6/esc15 (EKUwu)</text>
-    <text x="480" y="230" font-size="11" fill="#e8ecf1">NTLM relay (SMB · HTTP · certsrv) · coerce · BadSuccessor</text>
+    <!-- Pillar: AUDIT -->
+    <rect x="60" y="170" width="340" height="180" rx="8" fill="#0f1420" stroke="#00ffd5" stroke-width="1.3" fill-opacity="0.5" stroke-opacity="0.6"/>
+    <text x="80" y="196" font-size="14" font-weight="bold" fill="#00ffd5" letter-spacing="4">▸ AUDIT</text>
+    <text x="80" y="218" font-size="11" fill="#e8ecf1">LDAP + SD_FLAGS   ·   low-priv collect</text>
+    <text x="80" y="236" font-size="11" fill="#e8ecf1">41 hygiene checks · 4 categories</text>
+    <text x="80" y="254" font-size="11" fill="#e8ecf1">ADCS ESC1-15 rule pack (15/16)</text>
+    <text x="80" y="272" font-size="11" fill="#e8ecf1">ADIDNS · SYSVOL · trusts · gMSA</text>
+    <text x="80" y="290" font-size="11" fill="#e8ecf1">MITRE ATT&amp;CK tag per finding</text>
+    <text x="80" y="308" font-size="11" fill="#8892a4">├─ privileged accounts</text>
+    <text x="80" y="324" font-size="11" fill="#8892a4">├─ trusts</text>
+    <text x="80" y="340" font-size="11" fill="#8892a4">├─ stale objects · anomalies</text>
 
-    <!-- WIRE (bottom-left) -->
-    <rect x="40" y="252" width="400" height="128" rx="6" fill="#0f1420" stroke="#00ffd5" stroke-width="1" fill-opacity="0.4" stroke-opacity="0.4"/>
-    <text x="60" y="276" font-size="13" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ WIRE — FROM SCRATCH</text>
-    <text x="60" y="298" font-size="11" fill="#e8ecf1">DCE/RPC · NDR · NTLM · SMB2 · Kerberos · SASL</text>
-    <text x="60" y="316" font-size="11" fill="#e8ecf1">DRSUAPI · MS-PAC · MS-CRTD · MS-ICPR · MS-GKDI</text>
-    <text x="60" y="334" font-size="11" fill="#e8ecf1">DPAPI-NG · MS-RRP · MS-WKST · MS-SRVS · MS-EVEN6</text>
-    <text x="60" y="352" font-size="11" fill="#e8ecf1">Bounded-alloc preflight on every wire decoder</text>
-    <text x="60" y="370" font-size="11" fill="#f7c948">61 icedracon crates on crates.io — every layer reusable</text>
+    <!-- Pillar: ATTACK -->
+    <rect x="500" y="170" width="340" height="180" rx="8" fill="#0f1420" stroke="#7b2ff7" stroke-width="1.3" fill-opacity="0.5" stroke-opacity="0.6"/>
+    <text x="520" y="196" font-size="14" font-weight="bold" fill="#a259ff" letter-spacing="4">▸ ATTACK</text>
+    <text x="520" y="218" font-size="11" fill="#e8ecf1">Kerberos — roast · golden · silver</text>
+    <text x="520" y="236" font-size="11" fill="#e8ecf1">Diamond · Sapphire · PKINIT · S4U</text>
+    <text x="520" y="254" font-size="11" fill="#e8ecf1">DCSync · WMI exec · PtH · asktgt</text>
+    <text x="520" y="272" font-size="11" fill="#e8ecf1">ADCS — esc1 · esc3 · esc6 · esc15</text>
+    <text x="520" y="290" font-size="11" fill="#e8ecf1">RBCD · Shadow Cred · BadSuccessor</text>
+    <text x="520" y="308" font-size="11" fill="#8892a4">├─ NTLM relay (SMB · HTTP · certsrv)</text>
+    <text x="520" y="324" font-size="11" fill="#8892a4">├─ coerce (RPRN · EFSR · DFSNM)</text>
+    <text x="520" y="340" font-size="11" fill="#8892a4">├─ session hunt (SRVSVC · WKSSVC · HKU)</text>
 
-    <!-- REPORT (bottom-right) -->
-    <rect x="460" y="252" width="400" height="128" rx="6" fill="#0f1420" stroke="#7b2ff7" stroke-width="1" fill-opacity="0.4" stroke-opacity="0.4"/>
-    <text x="480" y="276" font-size="13" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ REPORT</text>
-    <text x="480" y="298" font-size="11" fill="#e8ecf1">JSON envelope per subcommand · pipe into jq or CI</text>
-    <text x="480" y="316" font-size="11" fill="#e8ecf1">HTML report — findings, ATT&amp;CK map, attack chains</text>
-    <text x="480" y="334" font-size="11" fill="#e8ecf1">Per-finding remediation + impact statement</text>
-    <text x="480" y="352" font-size="11" fill="#e8ecf1">BloodHound Community Edition ingest .zip</text>
-    <text x="480" y="370" font-size="11" fill="#f7c948">Interactive per-finding "want impact? (y/n)" prompt</text>
+    <!-- 2 pillars → WIRE -->
+    <line x1="230" y1="350" x2="450" y2="390" stroke="#00b4d8" stroke-width="1.4" opacity="0.7"/>
+    <line x1="670" y1="350" x2="450" y2="390" stroke="#00b4d8" stroke-width="1.4" opacity="0.7"/>
 
-    <!-- Kill-chain banner (bottom) -->
-    <rect x="40" y="398" width="820" height="42" rx="6" fill="#0d1321" stroke="url(#cap-chain)" stroke-width="1.2" stroke-opacity="0.9"/>
-    <text x="60" y="424" font-size="11" font-weight="bold" fill="#00ffd5" letter-spacing="2">KILL CHAIN</text>
-    <text x="180" y="424" font-size="11" fill="#e8ecf1">scan</text>
-    <text x="238" y="424" font-size="11" fill="#5a6577">→</text>
-    <text x="258" y="424" font-size="11" fill="#e8ecf1">DCSync krbtgt</text>
-    <text x="360" y="424" font-size="11" fill="#5a6577">→</text>
-    <text x="380" y="424" font-size="11" fill="#e8ecf1">forge Golden Ticket</text>
-    <text x="510" y="424" font-size="11" fill="#5a6577">→</text>
-    <text x="530" y="424" font-size="11" fill="#e8ecf1">pass-the-ticket</text>
-    <text x="640" y="424" font-size="11" fill="#5a6577">→</text>
-    <text x="660" y="424" font-size="11" font-weight="bold" fill="#f7c948">SYSTEM on the DC</text>
-    <text x="810" y="424" font-size="10" fill="#7b2ff7">live vs 2025</text>
+    <!-- WIRE -->
+    <rect x="220" y="390" width="460" height="76" rx="8" fill="#0d1a24" stroke="url(#am-chain)" stroke-width="1.4" stroke-opacity="0.85"/>
+    <text x="240" y="416" font-size="13" font-weight="bold" fill="#00ffd5" letter-spacing="4">▸ WIRE — from-scratch pure Rust</text>
+    <text x="240" y="438" font-size="11" fill="#e8ecf1">DCE/RPC · NDR · NTLM · SMB2 · Kerberos · SASL · SSPI</text>
+    <text x="240" y="456" font-size="11" fill="#f7c948">61 icedracon crates on crates.io  ·  18k+ downloads</text>
+
+    <!-- WIRE → REPORT -->
+    <line x1="450" y1="466" x2="450" y2="498" stroke="#7b2ff7" stroke-width="1.6" opacity="0.85" marker-end="url(#am-arrow)"/>
+
+    <!-- REPORT -->
+    <rect x="220" y="500" width="460" height="60" rx="8" fill="#0f1420" stroke="#7b2ff7" stroke-width="1.3" fill-opacity="0.5" stroke-opacity="0.65"/>
+    <text x="240" y="526" font-size="13" font-weight="bold" fill="#a259ff" letter-spacing="4">▸ REPORT</text>
+    <text x="240" y="548" font-size="11" fill="#e8ecf1">JSON envelope  ·  HTML  ·  BloodHound-CE bundle  ·  MITRE map</text>
+
+    <!-- Kill-chain footer -->
+    <rect x="60" y="578" width="780" height="26" rx="6" fill="#0d1321" stroke="url(#am-chain)" stroke-width="1" stroke-opacity="0.7"/>
+    <text x="82" y="596" font-size="10" font-weight="bold" fill="#00ffd5" letter-spacing="2">KILL CHAIN</text>
+    <text x="180" y="596" font-size="10" fill="#e8ecf1">scan  →  DCSync krbtgt  →  Golden Ticket  →  pass-the-ticket  →</text>
+    <text x="720" y="596" font-size="10" font-weight="bold" fill="#f7c948">SYSTEM · Server 2025 live</text>
   </g>
 </svg>
