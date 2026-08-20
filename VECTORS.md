@@ -184,7 +184,12 @@ is out of scope).
 | Silver ticket forge | ✅ | `attack silver` — service-key TGS; live SYSTEM RCE via `attack pth` |
 | RC4 golden/silver forge | ✅ | `--rc4` on golden/silver/pth — KERB_CHECKSUM_HMAC_MD5 PAC sigs; forge byte-verified (offline round-trip); live golden→TGS needs an RC4-service DC (≤2022) |
 | DCSync Kerberos keys | ✅ | `attack dcsync` dumps AES256/128 + RC4 from supplementalCredentials (incl. RFC 8009 AES-SHA2) |
-| noPac (CVE-2021-42278/87) | Medium | MAQ check exists; no samAccountName rename chain |
+| noPac (CVE-2021-42278/87) | Medium | MAQ check exists; no samAccountName rename chain (target: 1.4.2 WS-A1) |
+| Zerologon (CVE-2020-1472) | Medium | Netlogon AES-CFB8 zero-IV auth bypass (target: 1.4.2 WS-A2) |
+| UnPAC-the-hash (PKINIT → NT hash) | Medium | Post-PKINIT TGT decrypt → recover NT hash from PAC (target: 1.4.3) |
+| Golden gMSA (KDS RootKey forge) | Medium | Extract RootKey → forge gMSA passwords cross-forest / beyond time window (target: 1.4.3) |
+| KeyList attack (MS-KILE) | Low | `KERB-KEY-LIST-REQ` — Server 2016+ optional feature (target: 1.4.3) |
+| Legacy DCC1 (MSCACHEV1) offline decrypt | Low | Pre-Vista credential cache format (target: 1.4.3) |
 | AS-REP roast AES-only accounts | Low | Bails on non-RC4 AS-REP (`kerberos/lib.rs`) |
 
 ### LDAP / AD object abuse
@@ -208,6 +213,11 @@ is out of scope).
 | SMB → LDAPS relay (EPA/channel binding bypass) | Medium | Relay targets LDAP :389 only |
 | IPv6 DNS takeover | Low | Poison is IPv4 LLMNR/NBT-NS only |
 | DCOM / WMI coercion | Low | No DCOM stack |
+| DFSCoerce (MS-DFSNM) | Medium | Coerce family completion (target: 1.4.3) |
+| ShadowCoerce (MS-FSRVP) | Medium | VSS-based coerce variant (target: 1.4.3) |
+| MITM6 / DHCPv6 spoof | Medium | IPv6 auto-config takeover — Windows resolves IPv6 first when advertised (target: 1.4.4) |
+| KrbRelay family | Medium | Cross-protocol Kerberos AP-REQ relay (SMB → LDAP via ticket rewriting) (target: 1.4.4) |
+| Enterprise WiFi (EAP) RADIUS relay | Low | User cred capture via 802.1X mis-config (target: 1.4.4) |
 
 ### RPC / remote execution (detected via EPM, not exploited)
 
@@ -256,6 +266,7 @@ is out of scope).
 | Cross-domain / forest trust paths | 🔶 | Trust *checks* exist; graph is single-domain |
 | Tier model customization | ❌ | Hardcoded Tier-0 RIDs |
 | BloodHound export (JSON) | ✅ | `scan --bloodhound out.zip` (BloodHound CE v5 ingest format) |
+| BloodHound OpenGraph custom edges | Low | Custom node types + shipped Cypher queries for adhammer-specific findings (post-1.4.6, standalone crate) |
 | Historical diff (scan over time) | ❌ | |
 
 ### UX / product
@@ -269,18 +280,62 @@ is out of scope).
 | HTML report polish | 🔶 | Basic template in `report/` |
 | MITRE mapping completeness | 🔶 | Per-finding tags; no ATT&CK navigator export |
 
+### Persistence (post-DA)
+
+| Vector | Priority | Notes |
+|--------|----------|-------|
+| DPAPI backup key extraction | Medium | One DA moment → domain-wide DPAPI decryption capability (target: 1.4.5) |
+| SID history injection | Medium | Cross-forest DA stealth (target: 1.4.5) |
+| Skeleton Key (LSASS patch on DC) | Low | Universal-password memory-resident patch; trivially detected (target: 1.4.5) |
+| DSRM sync backdoor | Low | DSRM password → local admin on DC (target: 1.4.5) |
+| msDS-KeyCredentialLink implant tracker | Low | Track planted shadow creds as audit + persistence primitive (target: 1.4.5) |
+
+### Post-DA product pivot
+
+| Vector | Priority | Notes |
+|--------|----------|-------|
+| MSSQL impersonation chain (deep) | Medium | Beyond basic exec — `EXECUTE AS`, linked-server, `xp_cmdshell`, cross-DB ownership chains (target: 1.4.6). Basic MSSQL exec in 1.4.1 WS-1. |
+| Exchange RPC-over-HTTP pillage | Low | Autodiscover secret leak + mailbox enum (target: 1.4.6) |
+| Group Policy full-decrypt pack | Low | Beyond `cpassword` — `Registry.xml` / `Drives.xml` / full `Groups.xml` (target: 1.4.6) |
+
+### Standalone tools (outside adhammer scope, separate crates)
+
+| Vector | Priority | Notes |
+|--------|----------|-------|
+| `icedracon/ntds-parse` — offline `NTDS.dit` + `SYSTEM` hive parser | Medium | Ese-parser + hive decrypt → dump domain from a stolen backup. Standalone binary + library. |
+| BloodHound OpenGraph plugin | Low | Custom node types + Cypher queries for adhammer findings. |
+
+### Explicitly out of scope (won't ship in adhammer)
+
+- **Entra ID / hybrid AD** (PRT abuse, AAD Connect MSOL_ extract, Seamless SSO abuse, Cross-Tenant Sync) — cloud-hybrid attack surface belongs in a separate tool.
+- **AD FS Golden SAML** — federation-side attack, out of on-prem AD scope.
+- **Azure / GCP resource enumeration**.
+- **vSphere / hypervisor Directory attacks** — data-center pivot, not AD.
+- **Non-AD post-exploit** (screenshot / clipboard capture, C2 primitives).
+
 ---
 
 ## Close order (roadmap)
 
 Pass-the-ticket, constrained delegation, GMSA read, SVCCTL exec, cert enrollment (ESC1) and
-full-domain DCSync from the original list are **shipped in v1.0.0**. The remaining backlog is
-sequenced into releases in **[ROADMAP.md](ROADMAP.md)**:
+full-domain DCSync from the original list are **shipped in v1.0.0**. Everything previously
+slotted for v1.5.x has been absorbed into the **1.4.x family** — the entire remaining
+backlog ships as 1.4.1 → 1.4.6 with no 1.5.x milestone. Full slotting in
+[.agents/adhammer-future.md](.agents/adhammer-future.md).
 
-1. **v1.1** — LAPS read · WinRM exec · WMI exec · session hygiene (provable on the 2025 lab).
-2. **v1.2** — ESC8/ESC11 relay→CA→PKINIT · ESC4 · ExtraSids-golden · LDAPS object-create plumbing.
-3. **v1.3** — legacy-DC matrix (2008 R2 →) · noPac · unconstrained-deleg TGT capture · cross-forest.
-4. **v1.4+** — mitm6/relay→SMB · GPO write · MSSQL · DCShadow · golden cert · remaining ESC.
+- **v1.0** (shipped) — from-scratch DCE/RPC · Kerberos · SMB2 · NTLM stack · roasting, DCSync,
+  golden/silver tickets, PtH/PtT/OtH, shadow creds/PKINIT, ADCS ESC1, SVCCTL exec, coerce.
+- **v1.1–v1.3** (shipped) — LAPS · WinRM · WMI · atexec · session-hunting · BadSuccessor
+  (Server 2025 dMSA) · ADCS ESC1/3/4/6/15 · DCShadow-prep (LDAP path — dead on 2019+) · fuzz.
+- **v1.4.1** *(planned — "grandiozno")* — MSSQL/Exchange/SCCM lateral · DCShadow-modern
+  (DRSUAPI) · cross-forest Kerberos · sealed dcerpc bind · DACL Attacks II · bulk `GetNCChanges`.
+- **v1.4.2** *(planned — "completion + fortress")* — noPac · Zerologon · forest-trust chain
+  (trust-key extract → cross-forest golden) · LDAP CB + SMB3 encryption probes · `krb-listen`
+  standalone crate · legacy DC validation matrix (2016/2019/2022).
+- **v1.4.3** *(planned)* — UnPAC-the-hash · DFSCoerce · ShadowCoerce · Golden gMSA · KeyList · DCC1.
+- **v1.4.4** *(planned)* — MITM6 / DHCPv6 · KrbRelay · EAP relay · poison-at-scale.
+- **v1.4.5** *(planned)* — DPAPI backup key · SID history · Skeleton Key · DSRM · shadowcred tracker.
+- **v1.4.6** *(planned)* — MSSQL deep · Exchange pillage · GPP full-decrypt.
 
 ---
 
