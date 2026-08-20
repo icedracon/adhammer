@@ -1,7 +1,7 @@
-//! Hygiene checks — cheap, pure-LDAP rules over already-collected attributes, closing the
-//! coverage gap against PingCastle's StaleObjects/Anomalies buckets. High signal, no new protocol
-//! work: privileged-account hygiene (never-expiring / dormant / default-admin / stealth-primary-
-//! group), weak crypto (DES-only), disabled-but-privileged residue, and obsolete functional level.
+//! Hygiene checks — cheap, pure-LDAP rules over already-collected attributes, covering the
+//! StaleObjects and Anomalies categories. High signal, no new protocol work: privileged-account
+//! hygiene (never-expiring / dormant / default-admin / stealth-primary-group), weak crypto
+//! (DES-only), disabled-but-privileged residue, and obsolete functional level.
 
 use super::Check;
 use adhammer_core::finding::{mitre, Category, Severity};

@@ -35,7 +35,7 @@ ntlmssp      = "0.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
-dcerpc       = "0.2.4"
+dcerpc       = "0.2.5"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack certipy` (ms-icpr),
 # and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`

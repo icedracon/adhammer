@@ -866,6 +866,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user: s.username.clone(),
                 password: s.password.clone(),
                 nt_hash: s.nt_hash.clone(),
+                include_machine: false,
             })
             .await
         }

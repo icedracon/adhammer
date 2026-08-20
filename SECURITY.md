@@ -5,7 +5,8 @@
 ADhammer is an offensive-security **and** audit toolkit for Active Directory. It implements
 working attack primitives — Kerberos roasting, DCSync, golden/silver ticket forging,
 pass-the-ticket, NTLM relay, ADCS abuse, and remote code execution — alongside a passive
-PingCastle-style auditor.
+audit engine that maps common misconfigurations (privileged accounts, trusts, stale objects,
+anomalies) to MITRE ATT&CK techniques.
 
 It is published for **authorized security testing, research, and education only**:
 
@@ -18,9 +19,8 @@ Using these capabilities against systems you do not own or are not explicitly au
 test is illegal in most jurisdictions. The authors accept no liability for misuse. If you are
 not certain you are authorized, you are not authorized.
 
-This is the same dual-use posture as impacket, Rubeus, mimikatz, and PingCastle: the
-techniques are already public and used by real adversaries; a clear, auditable open
-implementation helps defenders reproduce, detect, and mitigate them.
+The techniques ADhammer implements are already public and used by real adversaries — a
+clear, auditable open implementation helps defenders reproduce, detect, and mitigate them.
 
 ## Reporting a vulnerability
 

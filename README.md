@@ -30,6 +30,16 @@
 
 <br/>
 
+<p align="center">
+  <img src="docs/tour.gif" alt="ADhammer 30-second capability tour — help, scan, posture, roast, ADCS" width="88%"/>
+</p>
+
+<p align="center">
+  <sub>Or the 30-second capability tour — audit, posture, Kerberoast, ADCS rule pack.</sub>
+</p>
+
+<br/>
+
 ## 🚀 Try it in 30 seconds
 
 ```sh
@@ -51,6 +61,12 @@ Under 100 ms per operation, JSON + HTML report, BloodHound-compatible graph bund
 
 <p align="center">
   <img src="docs/stats-banner.svg" alt="ADhammer at a glance" width="100%"/>
+</p>
+
+<br/>
+
+<p align="center">
+  <img src="docs/comparison.svg" alt="ADhammer capability overview — audit, attack, wire, report + DA kill chain" width="100%"/>
 </p>
 
 <br/>
@@ -168,6 +184,20 @@ Run `adhammer` with **no arguments** for the **guided interactive menu** — ask
 
 <p align="center">
   <img src="docs/interactive.gif" alt="ADhammer setup wizard and guided menu" width="88%"/>
+</p>
+
+<br/>
+
+### Session hunting — three complementary primitives
+
+`enum sessions` (SRVSVC), `enum wkssvc` (WKSSVC), and `enum hku` (HKU registry walk) each answer the *who is on this box* question from a different angle — different auth requirements, different result granularity. Dedup + machine-account filtering are on by default (`--include-machine` shows the count marker for what was hidden).
+
+<p align="center">
+  <img src="docs/sessions.gif" alt="ADhammer 1.3.9 session hunting — SRVSVC, WKSSVC, HKU, and --json envelope" width="88%"/>
+</p>
+
+<p align="center">
+  <sub>SRVSVC + WKSSVC + HKU registry — one target, three angles. <code>--json</code> pipes cleanly into <code>jq</code>.</sub>
 </p>
 
 <br/>

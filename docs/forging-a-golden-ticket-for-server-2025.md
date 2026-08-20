@@ -92,10 +92,10 @@ me and is easy to misread as a forge bug when it's KDC policy.
 
 ## Why build it from scratch
 
-Everything above is implemented in Rust with no Mimikatz/Rubeus/impacket dependency — a from-scratch
-PAC marshaler, AES-checksum signing, and Kerberos exchange — as part of an
+Everything above is implemented in Rust from scratch — a hand-rolled PAC marshaler, AES-checksum
+signing, and Kerberos exchange — as part of an
 [open-source AD security-assessment tool](https://github.com/icedracon/adhammer) that both *finds*
-the paths (a PingCastle-class auditor) and *proves* them. Reimplementing the PAC from the MS-PAC
+the paths and *proves* them with a live PoC per finding. Reimplementing the PAC from the MS-PAC
 spec is how you actually learn where the enforcement lives — and it produced a reusable Rust
 Kerberos/PAC layer that didn't exist before.
 

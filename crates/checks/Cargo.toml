@@ -3,7 +3,7 @@ name = "adhammer-checks"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ADhammer check engine — PingCastle-class AD misconfiguration rules with MITRE tags."
+description = "ADhammer check engine — Active Directory misconfiguration rules across privileged accounts, trusts, stale objects, and anomalies, tagged with MITRE ATT&CK techniques."
 repository.workspace = true
 
 [dependencies]

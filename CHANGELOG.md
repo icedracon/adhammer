@@ -13,8 +13,8 @@ All notable changes to ADhammer are documented here. Format loosely follows
   `IWbemLevel1Login::NTLMLogin` → `IWbemServices::ExecMethod Win32_Process.Create`. Runs an arbitrary
   command detached under WmiPrvSE, captures output over C$; **password or pass-the-hash**. No service
   or scheduled task (distinct host telemetry from `exec`/`atexec`). Live-verified vs a Windows DC.
-- **Hygiene checks → 41 total** — privileged-account, stale-object and password-policy rules on top of
-  the PingCastle-class set.
+- **Hygiene checks → 41 total** — privileged-account, stale-object and password-policy rules
+  extending the base hygiene rule set.
 - **`enum esc`** — AD CS ESC6/7/10/11/16 over a from-scratch MS-RRP remote-registry client (takes ESC
   coverage to 15/16); **`enum posture`** — LDAP signing / channel binding / Spooler relay-enablers.
 - **`attack zerologon`** — CVE-2020-1472 **safe detection** (never resets the machine password).
@@ -106,7 +106,8 @@ and **exploits** it, on a from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack
 capability below is live-validated end-to-end against a fully-patched **Windows Server 2025** DC.
 
 ### Audit
-- 33 checks across the four PingCastle categories, with per-finding MITRE ATT&CK mapping.
+- 33 checks across four AD hygiene categories (privileged accounts, trusts, stale objects,
+  anomalies), with per-finding MITRE ATT&CK mapping.
 - In-process BloodHound-style control-path graph (reverse-Dijkstra to Tier-0); works as a
   low-privileged user via the LDAP `SD_FLAGS` control.
 - SharpHound-compatible BloodHound export (`scan --bloodhound`).

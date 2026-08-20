@@ -1,4 +1,4 @@
-//! ADhammer — passive Active Directory security assessment (PingCastle-class), in Rust.
+//! ADhammer — Active Directory security assessment and offensive tradecraft in Rust.
 //! Pipeline: LDAP collect → build control-path graph → run checks → score → report.
 
 use adhammer_collector::{Collector, LdapConfig};
@@ -192,6 +192,10 @@ enum EnumCmd {
     Posture(PostureArgs),
     /// Enumerate a host's logon sessions over SRVSVC (\srvsvc) — session hunting (HasSession).
     Sessions(SessionsArgs),
+    /// Enumerate logged-on users via WKSSVC (\wkssvc) — NetrWkstaUserEnum level 1 (needs local admin).
+    Wkssvc(SessionsArgs),
+    /// Enumerate logged-on SIDs via HKU registry enumeration over MS-RRP (often works without local admin).
+    Hku(SessionsArgs),
 }
 
 #[derive(Parser)]
@@ -199,8 +203,10 @@ struct SessionsArgs {
     /// Target host or IP whose logon sessions to enumerate.
     #[arg(long)]
     host: String,
+    /// Domain the bind identity belongs to (NetBIOS or DNS form, e.g. `CORP` or `corp.local`).
     #[arg(long)]
     domain: String,
+    /// Bind username — sAMAccountName, `DOMAIN\user`, or `user@realm`.
     #[arg(long)]
     user: String,
     #[arg(long, default_value = "")]
@@ -208,6 +214,10 @@ struct SessionsArgs {
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
     nt_hash: Option<String>,
+    /// Include machine-account (`$`-suffixed) principals in the output. Default is off —
+    /// on a DC these flood the list with the DC's own machine-account service sessions.
+    #[arg(long)]
+    include_machine: bool,
 }
 
 #[derive(Parser)]
@@ -1094,6 +1104,8 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Esc(_) => "enum esc",
             EnumCmd::Posture(_) => "enum posture",
             EnumCmd::Sessions(_) => "enum sessions",
+            EnumCmd::Wkssvc(_) => "enum wkssvc",
+            EnumCmd::Hku(_) => "enum hku",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -1146,6 +1158,8 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Esc(a)) => esc_registry_scan(a).await,
         Command::Enum(EnumCmd::Posture(a)) => posture_scan(a).await,
         Command::Enum(EnumCmd::Sessions(a)) => sessions(a).await,
+        Command::Enum(EnumCmd::Wkssvc(a)) => wkssvc_enum(a).await,
+        Command::Enum(EnumCmd::Hku(a)) => hku_enum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
@@ -1302,6 +1316,117 @@ async fn sessions(a: SessionsArgs) -> Result<()> {
         for s in &list {
             let from = if s.client.is_empty() { "?" } else { &s.client };
             println!("    {:<24} from {from}", s.user);
+        }
+    }
+    Ok(())
+}
+
+async fn wkssvc_enum(a: SessionsArgs) -> Result<()> {
+    use dcerpc::wkssvc::WkstaUserClient;
+    use smb2_client::SmbClient;
+    use std::collections::BTreeMap;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let pipe = smb.open_pipe("wkssvc").await?;
+    let mut wks = WkstaUserClient::bind(&mut smb, pipe).await?;
+    let (list, ret) = wks.enum_users().await?;
+    if ret != 0 {
+        eprintln!("[!] NetrWkstaUserEnum returned {ret} (need local admin)");
+    }
+    let raw = list.len();
+    // Dedup on (user, domain, logon_server) — one Windows box typically emits many LSA
+    // sessions per principal (one per service / logon type), which for HasSession-style
+    // graph building is noise. Machine accounts (`$`-suffixed) are filtered unless
+    // --include-machine, since on a DC they're the flood.
+    let mut grouped: BTreeMap<(String, String, String), usize> = BTreeMap::new();
+    let mut machine_hidden = 0usize;
+    for u in &list {
+        if !a.include_machine && u.username.ends_with('$') {
+            machine_hidden += 1;
+            continue;
+        }
+        *grouped
+            .entry((
+                u.username.clone(),
+                u.logon_domain.clone(),
+                u.logon_server.clone(),
+            ))
+            .or_default() += 1;
+    }
+    if grouped.is_empty() {
+        eprintln!(
+            "[-] no logged-on users on {} (raw={raw}, machine-hidden={machine_hidden})",
+            a.host
+        );
+        if machine_hidden > 0 && !a.include_machine {
+            eprintln!("    pass --include-machine to show machine-account sessions");
+        }
+    } else {
+        eprintln!(
+            "[+] {} unique principal(s) on {} (raw={raw}, machine-hidden={machine_hidden}):",
+            grouped.len(),
+            a.host
+        );
+        for ((user, domain, server), count) in &grouped {
+            let mark = if *count > 1 {
+                format!(" ×{count}")
+            } else {
+                String::new()
+            };
+            let srv = if server.is_empty() { "(none)" } else { server };
+            println!("    {domain}\\{user:<24} server={srv}{mark}");
+        }
+    }
+    Ok(())
+}
+
+async fn hku_enum(a: SessionsArgs) -> Result<()> {
+    use dcerpc::rrp::RegistryClient;
+    use smb2_client::SmbClient;
+
+    let mut smb = SmbClient::connect(&a.host).await?;
+    smb_login(
+        &mut smb,
+        &a.host,
+        &a.domain,
+        &a.user,
+        &a.password,
+        &a.nt_hash,
+    )
+    .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let mut reg = match RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("0xc00000ac") || msg.contains("open \\winreg") {
+                anyhow::bail!(
+                    "Remote Registry service is stopped on {} — start it or use `enum wkssvc` / `enum sessions` instead",
+                    a.host
+                );
+            }
+            return Err(e.into());
+        }
+    };
+    let sids = reg.logged_on_sids().await?;
+    if sids.is_empty() {
+        eprintln!("[-] no logged-on SIDs via HKU on {}", a.host);
+    } else {
+        eprintln!("[+] {} logged-on SID(s) via HKU on {}:", sids.len(), a.host);
+        for s in &sids {
+            println!("    {}", s.sid);
         }
     }
     Ok(())

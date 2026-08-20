@@ -289,6 +289,6 @@ sequenced into releases in **[ROADMAP.md](ROADMAP.md)**:
 - [README.md](README.md) — build, architecture, live-validated flows
 - [lab/README.md](lab/README.md) — WS2025 lab setup
 - SpecterOps AD CS ESC definitions
-- PingCastle rule categories (parity target for audit)
+- MS-ADTS / MITRE ATT&CK for the hygiene rule taxonomy
 
 Authorized research / authorized-engagement use only.

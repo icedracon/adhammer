@@ -8,7 +8,7 @@
 //! The subsystems, bottom-up:
 //! - [`types`] — core types (`Sid`, `Guid`, `Snapshot`, `Finding`).  *(the `adhammer-core` crate)*
 //! - [`collector`] — LDAP collection into a `Snapshot` (TLS backend via crate features).
-//! - [`checks`] — the PingCastle-class audit rules.
+//! - [`checks`] — the AD hygiene audit rules (privileged accounts, trusts, stale objects, anomalies).
 //! - [`graph`] — the control-path graph and executable attack chains ([`graph::AttackPath`]).
 //! - [`kerberos`] — AS-REP/Kerberoast, S4U/RBCD, PKINIT, ticket forging.
 //! - [`ldap`] — the raw LDAP client (NTLM/SASL) used for writes and relay.

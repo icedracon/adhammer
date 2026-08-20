@@ -1,9 +1,9 @@
-//! The output vocabulary: a Finding is one rule firing, tagged with a PingCastle-style
+//! The output vocabulary: a Finding is one rule firing, tagged with a hygiene
 //! category, a severity, and one or more MITRE ATT&CK techniques.
 
 use serde::Serialize;
 
-/// The four PingCastle top-level categories.
+/// The four top-level AD hygiene categories a Finding rolls up under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum Category {
     PrivilegedAccounts,
