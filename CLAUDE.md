@@ -52,11 +52,32 @@ crates/sdk/              — adhammer-sdk facade re-exporting all 10 sub-crates
 ```
 
 ## External protocol crates (sibling repos)
-These are standalone published crates under `icedracon`, consumed via crates.io:
-`dcerpc`, `smb2-client`, `ntlmssp`, `windows-sddl`, `ms-ndr`, `ms-drsr`,
-`ms-pac-forge`, `ms-icpr`, `ms-csra`, `ms-crtd`, `ms-gkdi`, `ms-pkca`,
-`ad-acl`, `dpapi-ng`, `gpo-forge`, `preg`, `ms-dnsp`, `credssp`, `winrm-pentest`,
-`ntlm-relay`, `samr`, `ms-coerce`, `llmnr-poison`, `ms-tsch`, etc.
+43 standalone published crates under `icedracon`, consumed via crates.io. Grouped:
+
+**Wire / RPC foundation (5):**
+`dcerpc`, `ntlmssp`, `smb2-client`, `windows-sddl`, `ms-ndr`
+
+**MS-* protocol clients (18):**
+`ms-drsr`, `ms-icpr`, `ms-crtd`, `ms-csra`, `ms-gkdi`, `ms-pkca`, `ms-pac-forge`,
+`ms-dnsp`, `ms-tsch`, `ms-lsat`, `ms-coerce`, `samr`, `ms-nrpc`, `ms-tds`,
+`ms-kile-fast`, `ms-even6`, `ms-fve`, `ms-rodc`
+
+**Auth / crypto / ACL (5):**
+`credssp`, `dpapi-ng`, `dpapi-offline`, `ad-acl`, `msldap-ext`
+
+**Offensive extras (5):**
+`gpo-forge`, `preg`, `llmnr-poison`, `ntlm-relay`, `winrm-pentest`
+
+**Offline / DFIR (3):**
+`ese-parser`, `ntds-parse`, `lsass-parse`
+
+**Windows platform wrappers (6):**
+`windows-token`, `windows-scm`, `windows-lsa`, `windows-wmi-com`,
+`windows-sspi-shim`, `windows-eventlog-native`
+
+**BH-CE standalone (1):**
+`bloodhound-export` (separate from workspace `adhammer-bloodhound`)
+
 Do NOT move protocol logic into adhammer — it stays in standalone crates.
 
 ## Lab (live validation)
@@ -77,7 +98,10 @@ All workspace members share `workspace.package.version`. Bump in ONE place (root
 `Cargo.lock` updates automatically — commit it with the version bump.
 
 ## What NOT to do
-- Don't extract more crates. 61 is enough. New features go into existing crates.
+- **Rule for new crates:** extract only when the primitive has genuine **dual-use** appeal
+  (used by defensive / admin / DFIR tools too, not just offensive). Attacker-only compositions
+  stay inside adhammer CLI. As of 2026-08-21 the count is 43 external protocol crates + 12
+  workspace + 4 legacy stubs (superseded) + 2 unrelated (`whenparse`, `hashglass`) = 61 total.
 - Don't add `adhammer-ntlm`, `adhammer-dcerpc`, `adhammer-smb`, `adhammer-sddl` —
   these are legacy 0.0.1 stubs on crates.io, superseded by standalone protocol crates.
 - Don't create docs/README files unless explicitly asked.
