@@ -10,7 +10,7 @@
 //! - `SAM\SAM\Domains\Account\{F, Users\<RID>\V}` — SAM users, one query per RID.
 //! - `SECURITY\Policy\PolEKList` + enum `Policy\Secrets\<name>\CurrVal` — LSA secrets.
 //!
-//! Matches impacket-secretsdump's approach and speed.
+//! Read-only WINREG path — no hive save, no SMB `C$` hive download.
 
 use crate::{lsa, sam};
 use dcerpc::rrp::{Hkey, RegistryClient};
@@ -66,8 +66,8 @@ pub async fn bootkey_via_rrp_hklm(reg: &mut RegistryClient<'_>, hklm: &Hkey) -> 
     Ok(bk)
 }
 
-/// Full SAM secretsdump via WINREG — no hive files, no `reg save`. Matches
-/// impacket-secretsdump's `-sam SYSTEM` mode step by step.
+/// Full SAM secretsdump via WINREG — no hive files, no `reg save`. The `-sam SYSTEM`
+/// equivalent, executed step by step over the WINREG API.
 pub async fn dump_sam_via_rrp(
     reg: &mut RegistryClient<'_>,
     bootkey: &[u8; 16],

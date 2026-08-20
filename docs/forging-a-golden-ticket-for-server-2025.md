@@ -7,7 +7,7 @@ Conventional wisdom says golden tickets are a "solved" problem on patched domain
 aren't — a *correctly* forged ticket is still accepted by a fully-patched **Windows Server 2025**
 KDC. What changed is the bar: the ticket's PAC now has to satisfy validation that older forgers
 (and a lot of copy-pasted PAC code) simply don't produce. This post walks the exact structure that
-makes a 2025 KDC say yes, built without Mimikatz or Rubeus — a pure-Rust implementation in
+makes a 2025 KDC say yes, implemented from scratch in pure Rust in
 [ADhammer](https://github.com/icedracon/adhammer) — and ends with the defensive read.
 
 ## What a golden ticket actually is

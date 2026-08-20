@@ -1,7 +1,7 @@
 //! Offline SAM secrets: derive the system bootkey from the SYSTEM hive, then decrypt the local
 //! account NT hashes out of the SAM hive. Implements both the legacy RC4 path and the modern
-//! (Windows 10 / Server 2016+, incl. Server 2025) AES-128-CBC path, mirroring impacket's
-//! secretsdump LOCAL logic.
+//! (Windows 10 / Server 2016+, incl. Server 2025) AES-128-CBC path — the LOCAL secretsdump
+//! behavior against saved SYSTEM+SAM hives.
 
 use crate::hive::Hive;
 use aes::cipher::{BlockDecrypt, KeyInit};

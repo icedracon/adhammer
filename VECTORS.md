@@ -223,7 +223,7 @@ is out of scope).
 
 | Vector | Priority | Notes |
 |--------|----------|-------|
-| Cert enrollment (ESC1/2/3) | High | Certipy-class |
+| Cert enrollment (ESC1/2/3) | High | AD CS abuse via `ms-icpr` |
 | ESC6 EDITF_ATTRIBUTESUBJECTALTNAME2 | Medium | CA flag + request |
 | ESC7 ManageCertificates takeover | Medium | |
 | ESC10 certificate mapping bypass | Medium | DC-side |
@@ -255,7 +255,7 @@ is out of scope).
 | Deny-ACE aware pathing | ❌ | Allow-only model (`graph/lib.rs` comment) |
 | Cross-domain / forest trust paths | 🔶 | Trust *checks* exist; graph is single-domain |
 | Tier model customization | ❌ | Hardcoded Tier-0 RIDs |
-| BloodHound export (JSON) | ✅ | `scan --bloodhound out.zip` (SharpHound v5) |
+| BloodHound export (JSON) | ✅ | `scan --bloodhound out.zip` (BloodHound CE v5 ingest format) |
 | Historical diff (scan over time) | ❌ | |
 
 ### UX / product

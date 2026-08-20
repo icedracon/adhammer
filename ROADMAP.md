@@ -17,8 +17,7 @@ cargo build --release            # ./target/release/adhammer
 # or grab the prebuilt Linux binary from the v1.0.0 GitHub release
 ```
 Interactive for exploration (`adhammer`), subcommands for the high-stakes actions. **Wipe the
-saved session after** (`rm ~/.config/adhammer/session.json` — it stores creds). Keep
-impacket/netexec/certipy as proven backup.
+saved session after** (`rm ~/.config/adhammer/session.json` — it stores creds).
 
 ---
 

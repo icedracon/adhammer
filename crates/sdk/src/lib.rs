@@ -13,7 +13,7 @@
 //! - [`kerberos`] — AS-REP/Kerberoast, S4U/RBCD, PKINIT, ticket forging.
 //! - [`ldap`] — the raw LDAP client (NTLM/SASL) used for writes and relay.
 //! - [`sysvol`] — GPP cpassword + GptTmpl.inf analysis.
-//! - [`bloodhound`] — SharpHound-compatible BloodHound CE export.
+//! - [`bloodhound`] — BloodHound CE v5 ingest export.
 //! - [`secrets`] — offline SAM/LSA/DCC2 secret decryption.
 //! - [`report`] — JSON/HTML reporting.
 //!

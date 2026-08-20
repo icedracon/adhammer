@@ -1,6 +1,6 @@
-//! BloodHound export — turn a collected [`Snapshot`] into SharpHound-compatible JSON that the
+//! BloodHound export — turn a collected [`Snapshot`] into BloodHound CE v5 ingest JSON that the
 //! BloodHound UI ingests, so the in-process control-path graph becomes explorable in the tool
-//! every AD team already uses. Targets the BloodHound Community Edition v5 format: one file per
+//! every AD team already uses. Targets the BloodHound Community Edition v5 ingest format: one file per
 //! node type (`users`/`computers`/`groups`/`domains`/`ous`/`gpos`/`containers`), each a
 //! `{"data":[…],"meta":{…}}` document, packaged into a single `.zip`.
 //!

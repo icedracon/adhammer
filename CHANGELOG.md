@@ -108,9 +108,9 @@ capability below is live-validated end-to-end against a fully-patched **Windows 
 ### Audit
 - 33 checks across four AD hygiene categories (privileged accounts, trusts, stale objects,
   anomalies), with per-finding MITRE ATT&CK mapping.
-- In-process BloodHound-style control-path graph (reverse-Dijkstra to Tier-0); works as a
+- In-process control-path graph (reverse-Dijkstra to Tier-0); works as a
   low-privileged user via the LDAP `SD_FLAGS` control.
-- SharpHound-compatible BloodHound export (`scan --bloodhound`).
+- BloodHound CE ingest bundle export (`scan --bloodhound`).
 - SYSVOL / GPP cpassword (MS14-025) and GptTmpl.inf policy analysis.
 
 ### Offense (live-validated vs Server 2025)
@@ -121,7 +121,7 @@ capability below is live-validated end-to-end against a fully-patched **Windows 
   (`msDS-KeyCredentialLink`).
 - **RBCD** and **constrained delegation** — full S4U2Self → S4U2Proxy chains.
 - **Shadow Credentials PKINIT** — key-trust TGT, incl. the Server 2025 `paChecksum2`
-  (SHA-256 over the KDC-REQ-BODY) requirement that breaks Rubeus/PKINITtools there.
+  (SHA-256 over the KDC-REQ-BODY) requirement.
 - **Coercion** — PetitPotam / MS-EFSR and PrinterBug / MS-RPRN.
 - **DCSync** — single-object and full-domain, over sealed DRSUAPI; extracts NT hashes **and**
   Kerberos keys (AES256/128, RC4, and Server 2025's RFC 8009 AES-SHA2 etypes 19/20).
@@ -140,7 +140,7 @@ capability below is live-validated end-to-end against a fully-patched **Windows 
   (NTLMv2 → hashcat, LLMNR/NBT-NS).
 
 ### Protocol stack — published as standalone crates
-Extracted from this repo (the "impacket for Rust" that didn't exist):
+Extracted from this repo as reusable MS-* protocol crates:
 [`windows-sddl`](https://crates.io/crates/windows-sddl),
 [`ntlmssp`](https://crates.io/crates/ntlmssp),
 [`smb2-client`](https://crates.io/crates/smb2-client),

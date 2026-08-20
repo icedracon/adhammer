@@ -3,7 +3,7 @@ name = "adhammer-graph"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ADhammer control-path graph — BloodHound-style attack paths to Tier-0 (petgraph)."
+description = "ADhammer control-path graph — cheapest-path attack chains to Tier-0 (petgraph)."
 repository.workspace = true
 
 [dependencies]

@@ -5,8 +5,8 @@
 //!
 //! LIVE-VALIDATED vs Server 2025: `$MACHINE.ACC` decrypts to the machine-account NT hash that
 //! matches DCSync of `DC01$` byte-for-byte, plus `DPAPI_SYSTEM`. The one non-obvious detail
-//! (which the earlier blind attempt missed) is that impacket's `decryptAES` RE-INITIALIZES the
-//! CBC cipher per 16-byte block when the IV is zero — i.e. the LSA key/secret unwrap is AES-256
+//! (which the earlier blind attempt missed) is that when the IV is all-zero the CBC cipher is
+//! effectively re-initialized per 16-byte block — i.e. the LSA key/secret unwrap is AES-256
 //! **ECB** (no chaining), not chained CBC. Cached DCC2 creds use AES-128-CBC with the record IV
 //! (a DC has none; that path needs a domain-joined member to exercise).
 
@@ -129,8 +129,8 @@ fn decrypt_secret(lsa_key: &[u8; 32], value: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// The Vista+ LSA unwrap: key' = SHA-256(key, data[..32] ×1000), then AES-256 of data[32..] with
-/// a ZERO IV. impacket re-initializes the CBC cipher per 16-byte block when the IV is zero, which
-/// is exactly ECB (no chaining) — the crucial detail; chained CBC yields garbage after block 1.
+/// a ZERO IV. Re-initializing the CBC cipher per 16-byte block on a zero IV is exactly ECB
+/// (no chaining) — the crucial detail; chained CBC yields garbage after block 1.
 fn decrypt_lsa_blob(key: &[u8], enc: &[u8]) -> Option<Vec<u8>> {
     if enc.len() < 32 {
         return None;
@@ -169,7 +169,7 @@ fn decrypt_cache(nlkm: &[u8], rec: &[u8]) -> Option<CachedCred> {
     if enc.is_empty() {
         return None;
     }
-    // Vista+: AES-128-CBC with the record IV. impacket keys with the raw NL$KM blob's [16:32],
+    // Vista+: AES-128-CBC with the record IV. Key is the raw NL$KM blob's [16:32],
     // which is the unwrapped Secret's first 16 bytes (the blob header is 16 bytes).
     let key = nlkm.get(0..16)?;
     let plain = aes_cbc_decrypt(key, &iv, enc);

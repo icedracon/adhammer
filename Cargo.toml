@@ -37,7 +37,7 @@ smb2-client  = "0.2"
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
 dcerpc       = "0.2.5"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
-# tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack certipy` (ms-icpr),
+# tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack icpr-esc1` (ms-icpr),
 # and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
 # transport via SMB2 + dcerpc) is ON by default after the dcerpc 0.2.3 cycle fix.
 ms-crtd      = "0.1.0-dev"

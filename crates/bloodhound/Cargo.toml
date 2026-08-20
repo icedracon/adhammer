@@ -3,7 +3,7 @@ name = "adhammer-bloodhound"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ADhammer BloodHound export — SharpHound-compatible JSON (users/computers/groups/domains) + ACE edges."
+description = "ADhammer BloodHound export — BloodHound CE v5 ingest JSON (users/computers/groups/domains) + ACE edges."
 repository.workspace = true
 
 [dependencies]
