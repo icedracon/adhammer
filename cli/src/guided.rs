@@ -152,7 +152,13 @@ mod redact_tests {
 
     #[test]
     fn leaves_non_sensitive_flags_alone() {
-        let got = redacted_cmd(&v(&["scan", "--url", "ldaps://dc.corp:636", "--user", "alice"]));
+        let got = redacted_cmd(&v(&[
+            "scan",
+            "--url",
+            "ldaps://dc.corp:636",
+            "--user",
+            "alice",
+        ]));
         assert!(got.contains("--url ldaps://dc.corp:636"));
         assert!(got.contains("--user alice"));
     }

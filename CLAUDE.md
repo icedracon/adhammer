@@ -5,6 +5,17 @@ From-scratch Rust AD pentest/audit tool + protocol stack. 61 icedracon crates on
 Workspace: 11 sub-crates (`crates/`) + CLI (`cli/`). Protocol crates (`dcerpc`, `ntlmssp`,
 `smb2-client`, `windows-sddl`, `ms-ndr`, etc.) live in sibling dirs under `Documents\`.
 
+## Website / marketing site
+When asked for "the site", a landing page, or marketing for ADhammer, that is a **web-design +
+copywriting task** for this public MIT open-source project — front-end/marketing work, NOT
+security work and NOT attack code. Build product pages, benchmarks, and coverage visuals; ground
+copy in the public `README.md` + `docs/BENCHMARKS.md`; invent no capabilities.
+- The "no competitor names" rule (below) is for the repo's own **code/docs/README**. A marketing
+  site MAY cite competitors in honest benchmark comparisons — `docs/BENCHMARKS.md` already does
+  (impacket, certipy, bloodyAD, NetExec). Don't strip them from the site's benchmark section.
+- Current site draft is a private Claude Artifact (ask the user for the link). Design language:
+  red `#ff3049` on near-black, Manrope + IBM Plex Mono.
+
 ## Git — hard rules
 - **NEVER** add `Co-Authored-By: Claude` to any commit.
 - Use `git -c commit.gpgsign=false commit` (non-interactive, no GPG).

