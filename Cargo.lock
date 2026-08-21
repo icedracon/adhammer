@@ -1375,9 +1375,9 @@ dependencies = [
 
 [[package]]
 name = "ms-gkdi"
-version = "0.1.0-dev"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eca61eb9482781fcacbcae91e51bb8d8dead9d01928dff1fbe35a4286d074402"
+checksum = "eb7632b1584b5656c48b5ce6e77f2a53341cde277278ada0cb630a78e80273bf"
 dependencies = [
  "aes-kw",
  "dcerpc",
