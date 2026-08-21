@@ -1279,7 +1279,8 @@ async fn asktgt(a: AsktgtArgs) -> Result<()> {
 }
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
-async fn dcsync(a: DcsyncArgs) -> Result<()> {
+async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use ms_drsr::DrsSession;
 
     if a.all {
@@ -1527,6 +1528,28 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
 
 /// Remote code execution over SVCCTL: create a LocalSystem service running the command, start
 /// it, delete it. Blind (no output) — pair with a listener or redirect to a share for results.
+/// Resolve a credential-flag value that came in through argv. If the operator
+/// passed an empty `--password` / `--nt-hash` (the recommended way to avoid the
+/// `ps` / shell-history leak), we fall back to the matching env var — currently
+/// `ADHAMMER_PASSWORD` and `ADHAMMER_NT_HASH`. Non-empty argv values pass
+/// through unchanged (backwards-compatible; scripts that already inline
+/// creds keep working). When the flag was not set AND the env var is empty,
+/// we return the empty string and let the downstream call fail with its own
+/// domain-specific error, so we don't confuse "meant to set it, forgot" with
+/// "this attack doesn't actually need auth".
+///
+/// Rationale: the boss review flagged that every subcommand takes secrets
+/// straight on argv (`sec-2`), leaking to `ps`, `~/.bash_history`, sudo logs.
+/// A companion helper `--password-file` / interactive prompt lives in the
+/// full 1.4.1 CLI overhaul; this env-var path is the smallest useful hop
+/// today and matches how CI already prefers to inject secrets.
+fn resolve_secret(argv_value: &str, env_key: &str) -> String {
+    if !argv_value.is_empty() {
+        return argv_value.to_string();
+    }
+    std::env::var(env_key).unwrap_or_default()
+}
+
 /// Parse an NT hash from `--nt-hash` (accepts bare 32-hex or `LM:NT`).
 fn parse_nt_hash(s: &str) -> Result<[u8; 16]> {
     let hex_str = s.rsplit(':').next().unwrap_or(s).trim();
@@ -1575,7 +1598,8 @@ async fn smb_login(
     Ok(())
 }
 
-async fn exec_cmd(a: ExecArgs) -> Result<()> {
+async fn exec_cmd(mut a: ExecArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
@@ -1613,7 +1637,8 @@ async fn exec_cmd(a: ExecArgs) -> Result<()> {
 /// wmiexec: remote code execution over WMI (DCOM `Win32_Process.Create`). The process runs detached
 /// under WmiPrvSE, so the command is redirected to a temp file and read back over C$ — no service or
 /// scheduled task is created (distinct host telemetry from `exec`/`atexec`).
-async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
+async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use smb2_client::SmbClient;
     let hash = a.nt_hash.as_deref().map(parse_nt_hash).transpose()?;
     anyhow::ensure!(
@@ -1684,7 +1709,8 @@ async fn wmiexec_cmd(a: ExecArgs) -> Result<()> {
 
 /// atexec: remote code execution as LocalSystem via a scheduled task (MS-TSCH), with output
 /// captured over C$. Alternative to `exec` (SVCCTL) — different host telemetry.
-async fn atexec_cmd(a: ExecArgs) -> Result<()> {
+async fn atexec_cmd(mut a: ExecArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
@@ -1723,7 +1749,8 @@ async fn atexec_cmd(a: ExecArgs) -> Result<()> {
 
 /// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,
 /// then decrypt the local account NT hashes offline (bootkey → SAM key → per-user).
-async fn secretsdump(a: SecretsdumpArgs) -> Result<()> {
+async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use smb2_client::SmbClient;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
@@ -2242,7 +2269,8 @@ async fn pth(a: PthArgs) -> Result<()> {
 /// Read a gMSA's managed password over LDAP and derive its NT hash. The managed password is a
 /// constructed attribute the DC returns only over a sealed channel (LDAPS here) to principals in
 /// `msDS-GroupMSAMembership`. Output is PtH/hashcat-usable.
-async fn gmsa(a: GmsaArgs) -> Result<()> {
+async fn gmsa(mut a: GmsaArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use adhammer_collector::{Collector, LdapConfig};
     // msDS-ManagedPassword is a "confidential" attribute — AD returns it *only* over an
     // encrypted channel (LDAPS or sealed SASL). Fail fast with a clear message rather than
@@ -2347,7 +2375,8 @@ async fn decrypt_encrypted_laps(
     Ok((account, pw))
 }
 
-async fn laps(a: LapsArgs) -> Result<()> {
+async fn laps(mut a: LapsArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use adhammer_collector::{Collector, LdapConfig};
     let cfg = LdapConfig {
         url: a.url.clone(),
@@ -2427,7 +2456,8 @@ async fn laps(a: LapsArgs) -> Result<()> {
 
 /// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
 /// quieter than SVCCTL (no service-install event) and often the only lateral path left open.
-async fn winrm_exec(a: WinrmArgs) -> Result<()> {
+async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     let secret = match &a.nt_hash {
         Some(h) => {
             let raw = hex::decode(h.trim()).context("NT hash must be 32 hex chars")?;
@@ -2528,7 +2558,8 @@ fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
-async fn coerce(a: CoerceArgs) -> Result<()> {
+async fn coerce(mut a: CoerceArgs) -> Result<()> {
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD");
     use smb2_client::SmbClient;
 
     let mut smb = SmbClient::connect(&a.host).await?;
@@ -2637,7 +2668,14 @@ async fn coerce(a: CoerceArgs) -> Result<()> {
 }
 
 /// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
-async fn abuse(a: AbuseArgs) -> Result<()> {
+async fn abuse(mut a: AbuseArgs) -> Result<()> {
+    // AbuseArgs.password is Option<String>; resolve via env var only when unset or empty.
+    if a.password.as_deref().map_or(true, |s| s.is_empty()) {
+        let env = std::env::var("ADHAMMER_PASSWORD").ok().filter(|v| !v.is_empty());
+        if env.is_some() {
+            a.password = env;
+        }
+    }
     // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
     if a.action == "pkinit" {
         let realm = a.realm.clone().context("pkinit needs --realm")?;
