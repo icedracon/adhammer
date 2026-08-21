@@ -5,6 +5,96 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.3.10] — 2026-08-23
+
+Hardening + UX pass driven by an outside multi-agent code review that
+surfaced 37 findings; 33 landed in this release (P0 + P1 + most P2). No
+new attack surface, no wire-format changes — a "trust me on the wire"
+maintenance release.
+
+### Added
+- **`--password @file:/path/to/pw`** — read the password from a file
+  (trailing `\r\n` trimmed) instead of passing it on argv. Applies to
+  every subcommand that takes `--password`.
+- **Interactive password prompt** — when `--password` is omitted, no
+  `$ADHAMMER_PASSWORD` env var is set, and stdin is a TTY, the CLI now
+  prompts for the password with echo off (via the existing dialoguer
+  dep — no new dependency).
+- **`scan --out <path>`** — write the report to a file with format
+  inferred from the extension (`.json`, `.html`), instead of only stdout.
+- **`--yes` on bulk destructive actions** — `attack dcsync --all` and
+  `attack samr --dump-secrets` now require `--yes` (or a non-TTY stdin)
+  to run non-interactively. `--limit N` also added to `dcsync --all` to
+  bound blast radius during a run.
+
+### Changed
+- **`attack pth` → `attack ptt`** — the subcommand does pass-the-ticket
+  (S4U-based), not pass-the-hash. `pth` remains as a hidden alias so
+  existing scripts keep working; it just doesn't show in `--help`.
+- **Typed value_enums on three CLI flags** — `attack coerce --pipe`,
+  `attack abuse --action`, and `attack relay --target` now reject
+  unknown values at parse time with the accepted set instead of
+  running past an LDAP/SMB connect only to bail late. `--help` now
+  renders per-value docstrings under each flag.
+- **Cleartext session refuse-by-default** — on non-Windows hosts where
+  DPAPI is unavailable the session file would previously silently write
+  in cleartext. It now refuses unless `ADHAMMER_ALLOW_PLAIN_SESSION=1`
+  is explicitly set (lab use). Windows behaviour is unchanged
+  (CryptProtectData wrapping stays default).
+- **Session file created 0600 atomically on Unix** (`O_CREAT|O_EXCL`
+  + mode 0600) — closes the TOCTOU window where the file briefly
+  existed at umask default before permissions were tightened.
+
+### Fixed
+- **DRSUAPI wire hardening** — three bounded-alloc preflights
+  (`ptmc`/`amc`/`vmc`) against the remaining stub with 12/12/8-byte
+  per-entry sizes, plus a panic-safety fix in `read_dsname_rid`
+  (SubAuthorityCount validated to 1..=5, buffer read uses
+  `.get(off..off+4).ok_or_else(...)` instead of unchecked slice +
+  `unwrap`). Regression tests cover zero-count and oversized-count
+  inputs and assert no panic.
+- **Registry hive `ri` recursion** — the subkey walker was
+  recursive with no cycle guard, so a crafted hive could stack-overflow
+  or spin forever on a cyclic `ri` list. Rewritten as an iterative BFS
+  with a `HashSet<u32>` visited set and a `MAX_VISITED = 65_536` cap.
+- **Kerberos non-ASCII inputs no longer panic** — `krb_string`,
+  `principal`, `build_as_req`, `build_as_req_etype`, and `build_tgs_req`
+  all return `Result` and reject non-IA5String (non-ASCII) input at the
+  boundary instead of panicking inside `picky-asn1`. RFC 4120 requires
+  IA5String for principal components. Regression tests cover Cyrillic
+  and Chinese input.
+- **Guided-mode credential leak in reports** — the "here's the exact
+  command I ran" line printed in `adhammer` guided mode was leaking
+  `--password`/`--nt-hash`/`--*-aes256` values into the on-disk
+  transcript. `redacted_cmd()` now redacts 13 sensitive flag names
+  before rendering. 4 unit tests cover the redaction.
+
+### Security
+- **`$ADHAMMER_PASSWORD` env-var fallback** on every attack handler
+  when `--password` is unset — CI can now inject the credential
+  without writing it to argv. Applies to the 9 attack handlers that
+  take a `--password` field and to the `abuse` handler's optional
+  variant.
+- **`@file:PATH` password refs + TTY prompt** (see Added) close the
+  argv-leak vector completely for interactive use.
+
+### Refactor (internal — no CLI change)
+- ADCS ESC registry decision layer (~230 LOC) moved from
+  `cli/src/esc_registry.rs` into the reusable
+  `adhammer_checks::esc_registry` module; the CLI file is now a thin
+  transport wrapper. Enables downstream consumers of the checks crate
+  to reuse the ESC6/7/10/11/16 decision code.
+
+### CI
+- Clippy is now gated as `-D warnings` (was `|| true`).
+- Test matrix expanded to Ubuntu + Windows + macOS.
+- MSRV verify job reads `rust-version` from `Cargo.toml` and pins the
+  toolchain accordingly.
+
+### Docs
+- CHANGELOG backfilled with entries for 1.3.1 through 1.3.9 (previously
+  only the most-recent release was documented).
+
 ## [1.3.9] — 2026-08-20
 
 ### Added
