@@ -7,6 +7,7 @@ use adhammer_graph::ControlGraph;
 
 pub mod adcs;
 pub mod anomalies;
+pub mod esc_registry;
 pub mod anomalies_extra;
 pub mod hygiene;
 pub mod privileged;
