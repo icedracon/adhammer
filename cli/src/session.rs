@@ -54,6 +54,7 @@ impl Session {
             insecure: self.insecure,
             gssapi: false,
             bloodhound: None,
+            out: None,
         }
     }
 }

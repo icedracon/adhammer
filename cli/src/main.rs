@@ -1040,9 +1040,17 @@ struct ScanArgs {
     /// Base DN (defaults to RootDSE defaultNamingContext)
     #[arg(long)]
     base_dn: Option<String>,
-    /// Output format for `scan`: `json` (default) or `html`.
+    /// Output format for `scan`: `json` (default) or `html`. When `--out <path>` is
+    /// set the format is auto-inferred from the file extension (`.json` / `.html` /
+    /// `.zip` → BloodHound-CE bundle); this flag overrides that inference.
     #[arg(long, default_value = "json", value_parser = ["json", "html"])]
     format: String,
+    /// Write the report to `<path>` instead of stdout. Format is inferred from the
+    /// extension: `.json` → JSON, `.html` → HTML, `.zip` → BloodHound-CE ingest
+    /// bundle. Pass `--format` to override the inference. Tracing / diagnostics
+    /// still go to stderr, so stdout stays capture-clean for scripting.
+    #[arg(long)]
+    out: Option<String>,
     /// KDC `host[:port]` for `roast` to actually AS-REP roast (omit = list candidates only)
     #[arg(long)]
     kdc: Option<String>,
@@ -1055,7 +1063,9 @@ struct ScanArgs {
     /// SASL GSSAPI bind (signed LDAP over 389 via ambient Kerberos; needs `--features gssapi`)
     #[arg(long)]
     gssapi: bool,
-    /// Also export the collected domain as a BloodHound .zip at this path (BloodHound CE v5 ingest JSON)
+    /// **Deprecated in favour of `--out <path.zip>`.** Also export the collected
+    /// domain as a BloodHound .zip at this path (BloodHound CE v5 ingest JSON).
+    /// Will be removed in 1.5.0.
     #[arg(long)]
     bloodhound: Option<String>,
 }
@@ -4702,10 +4712,31 @@ async fn scan(a: ScanArgs) -> Result<()> {
     }
 
     // Optional BloodHound export (BloodHound CE v5 ingest .zip) alongside the report.
+    // Two paths: the DEPRECATED --bloodhound flag (kept working through 1.4.x for one
+    // release cycle) and the new --out=<path>.zip auto-inference. --bloodhound wins if
+    // both are set so scripts that already know their zip path don't silently overwrite.
     if let Some(path) = &a.bloodhound {
+        eprintln!(
+            "[!] `--bloodhound <path>` is DEPRECATED and will be removed in 1.5.0. Use \
+             `--out <path.zip>` instead — the .zip extension routes to the BloodHound-CE bundle \
+             writer automatically."
+        );
         let p = std::path::Path::new(path);
         let n = adhammer_bloodhound::export_zip(&snap, p)?;
         eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+    } else if let Some(path) = &a.out {
+        // --out routing: infer BloodHound bundle from a .zip extension. Non-.zip
+        // extensions defer to the report-render path below (json / html).
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if ext == "zip" {
+            let p = std::path::Path::new(path);
+            let n = adhammer_bloodhound::export_zip(&snap, p)?;
+            eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+        }
     }
 
     // ESC registry probe: ESC6/7/10/11/16 via MS-RRP over the DC's Remote Registry.
@@ -4834,9 +4865,50 @@ async fn scan(a: ScanArgs) -> Result<()> {
         &RiskConfig::default(),
     );
 
-    match a.format.as_str() {
-        "html" => println!("{}", report.to_html()),
-        _ => println!("{}", report.to_json()),
+    // Resolve output format + destination.
+    //
+    // Order of precedence:
+    //   1. --format explicit                        → wins over any inference
+    //   2. --out=<path>.{json,html,zip} inference   → picks format from extension
+    //   3. default --format json                    → stdout
+    //
+    // .zip via --out is already handled above (BloodHound-CE bundle). Here we only
+    // route the JSON/HTML report body.
+    let explicit_format = std::env::args().any(|a| a == "--format");
+    let format = if explicit_format {
+        a.format.clone()
+    } else if let Some(path) = &a.out {
+        match std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("html") => "html".to_string(),
+            Some("zip") => {
+                // .zip already written; nothing to serialise here.
+                return Ok(());
+            }
+            _ => "json".to_string(),
+        }
+    } else {
+        a.format.clone()
+    };
+
+    let body = match format.as_str() {
+        "html" => report.to_html(),
+        _ => report.to_json(),
+    };
+
+    match &a.out {
+        Some(path) if path != "-" => {
+            std::fs::write(path, &body)
+                .with_context(|| format!("write scan report → {path}"))?;
+            eprintln!("[+] {} report written → {} ({} bytes)", format, path, body.len());
+        }
+        _ => {
+            println!("{body}");
+        }
     }
     Ok(())
 }
