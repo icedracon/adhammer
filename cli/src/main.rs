@@ -364,9 +364,14 @@ enum AttackCmd {
     Golden(GoldenArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
     Silver(SilverArgs),
-    /// Pass-the-ticket: forge golden/silver → get a service ticket → Kerberos AP-REQ over SMB →
-    /// authenticate (and optionally run a command as the impersonated identity).
-    Pth(PthArgs),
+    /// Pass-the-ticket (PtT): forge golden/silver → get a service ticket → Kerberos AP-REQ over
+    /// SMB → authenticate (and optionally run a command as the impersonated identity).
+    ///
+    /// **Rename from `pth`.** The `pth` subcommand still resolves as an alias for one release
+    /// but emits a deprecation warning at runtime. The industry PTH acronym means
+    /// *pass-the-hash*; `attack ptt` describes what this actually is.
+    #[command(name = "ptt", visible_alias = "pth")]
+    Ptt(PthArgs),
     /// Find `TRUSTED_FOR_DELEGATION` hosts (non-DC) — unconstrained-delegation abuse targets.
     Unconstrained(ScanArgs),
     /// BadSuccessor (Server 2025 dMSA) — create a delegated MSA that succeeds a chosen victim.
@@ -1141,7 +1146,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::IcprEsc1(_) => "attack icpr-esc1",
             AttackCmd::Golden(_) => "attack golden",
             AttackCmd::Silver(_) => "attack silver",
-            AttackCmd::Pth(_) => "attack pth",
+            AttackCmd::Ptt(_) => "attack ptt",
             AttackCmd::Unconstrained(_) => "attack unconstrained",
             AttackCmd::Badsuccessor(_) => "attack badsuccessor",
             AttackCmd::Esc4(_) => "attack esc4",
@@ -1195,7 +1200,16 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::IcprEsc1(a)) => icpr_esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
-        Command::Attack(AttackCmd::Pth(a)) => pth(a).await,
+        Command::Attack(AttackCmd::Ptt(a)) => {
+            // Emit the deprecation notice when the operator reached us through the `pth` alias.
+            if std::env::args().any(|a| a == "pth") {
+                eprintln!(
+                    "[!] `attack pth` is deprecated (industry PTH = pass-the-hash); \
+                     use `attack ptt` (pass-the-ticket). Alias will be removed in 1.5.0."
+                );
+            }
+            pth(a).await
+        }
         Command::Attack(AttackCmd::Unconstrained(a)) => unconstrained(a).await,
         Command::Attack(AttackCmd::Badsuccessor(a)) => badsuccessor(a).await,
         Command::Attack(AttackCmd::Esc4(a)) => esc4(a).await,
@@ -4693,7 +4707,7 @@ async fn scan(a: ScanArgs) -> Result<()> {
                 .user
                 .split('@')
                 .next()
-                .and_then(|s| s.split('\\').last())
+                .and_then(|s| s.split('\\').next_back())
                 .unwrap_or(&a.user)
                 .to_string();
             let sp = ui::Spinner::start("ESC registry probe (MS-RRP)");
@@ -5086,9 +5100,9 @@ async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
 /// prints a hint and defers to the mature `attack laps` code path.
 async fn dump_laps(a: DumpLapsArgs) -> Result<()> {
     eprintln!(
-        "[i] dump laps: ms-gkdi wire path (parse-header → derive-L2 offline) is available in \
-         `adhammer_collector::sources::gkdi`, but the sealed ISDKey RPC caller in this build \
-         still ships through `attack laps` (dpapi-ng). Running that path now."
+        "[!] `dump laps` is DEPRECATED and will be removed in 1.5.0 — use `attack laps` (same \
+         functionality, one command per capability). The GKDI-first offline-derive path lives in \
+         `adhammer_collector::sources::gkdi` for callers who want the library primitive."
     );
     let _ = a.dc; // reserved for the ms-gkdi path
     laps(LapsArgs {
@@ -5107,9 +5121,8 @@ async fn dump_laps(a: DumpLapsArgs) -> Result<()> {
 /// `attack gmsa` (`msDS-ManagedPassword` over a sealed LDAP channel).
 async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
     eprintln!(
-        "[i] dump gmsa: `msDS-ManagedPassword` is delivered as an MSDS-MANAGEDPASSWORD_BLOB \
-         over sealed LDAP (no GKDI RPC needed for the current-password read). Forwarding to \
-         `attack gmsa`."
+        "[!] `dump gmsa` is DEPRECATED and will be removed in 1.5.0 — use `attack gmsa` (same \
+         functionality, one command per capability)."
     );
     gmsa(GmsaArgs {
         url: a.url,
