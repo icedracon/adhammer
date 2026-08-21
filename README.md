@@ -34,7 +34,7 @@
 </p>
 
 <p align="center">
-  <sub><b>61 icedracon crates</b> · <b>18k+ downloads</b> · <b>Server 2025 live-validated</b> · MIT · zero external protocol deps</sub>
+  <sub><b>43 standalone protocol crates + 12-crate workspace</b> · <b>Server 2025 live-validated</b> · MIT · zero external protocol deps</sub>
 </p>
 
 <br/>
@@ -124,7 +124,7 @@ One binary, no Python, no runtime deps. The reference DA kill chain (scan → DC
 
 **🦀 Rust developers**
 
-61 standalone protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS-v2 blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
+43 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS-v2 blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
 
 </td>
 </tr>
@@ -143,14 +143,14 @@ One binary, no Python, no runtime deps. The reference DA kill chain (scan → DC
 ## 🚀 Try it in 30 seconds
 
 ```sh
-cargo install adhammer
+cargo install --locked adhammer
 
 adhammer scan  --url ldaps://dc.corp.local:636 \
                --user 'CORP\svc' --password ... \
                --insecure --bloodhound out.zip
 ```
 
-Under 100 ms per operation, JSON + HTML report, BloodHound-compatible graph bundle — from a low-privileged domain user account. See the [full command list](#usage) below or grab prebuilt binaries (musl / glibc / macOS / Windows) from **[Releases](https://github.com/icedracon/adhammer/releases)**.
+Fast per-operation timings (see [BENCHMARKS.md](docs/BENCHMARKS.md) for the recorded matrix), JSON + HTML report, BloodHound-compatible graph bundle — from a low-privileged domain user account. See the [full command list](#usage) below or grab prebuilt binaries (musl / glibc / macOS / Windows) from **[Releases](https://github.com/icedracon/adhammer/releases)**.
 
 <br/>
 
@@ -276,7 +276,7 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 **From crates.io** — always latest:
 
 ```sh
-cargo install adhammer
+cargo install --locked adhammer
 ```
 
 **As a library** — every module importable:
@@ -422,7 +422,7 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 - Pass-the-ticket over sealed SMB2 + AP-REQ
 - Golden ticket (RC4 + AES256, PAC KB5020805-compliant)
 - Silver ticket (per-service)
-- **Diamond ticket** — identity-swap on a real TGT envelope (detection evasion)
+- **Diamond ticket** *(library only, via [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) — no CLI subcommand yet)* — identity-swap on a real TGT envelope (detection evasion)
 - FAST armor (RFC 6113)
 - PKINIT + Shadow Credentials
 
@@ -471,7 +471,7 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 - NTLM relay → LDAP / SMB / AD CS Web (ESC8)
 - LLMNR + NBT-NS poison → NetNTLMv2 capture
 - Remote exec: SVCCTL · TSCH (atexec) · WMI (DCOM) · WinRM
-- Zerologon **safe-detect** (never modifies)
+- Zerologon **safe-detect** by default (`attack zerologon` runs read-only detection); a destructive `--exploit` path exists and requires explicit runtime confirmation
 - DCShadow (rights enumeration; push not implemented)
 - Server 2025 **BadSuccessor** (dMSA)
 

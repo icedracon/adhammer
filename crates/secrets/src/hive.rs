@@ -78,43 +78,63 @@ impl Hive {
 
     /// All subkey nk offsets referenced by a subkey-list cell (lf/lh/li/ri).
     fn subkey_offsets(&self, list_off: u32) -> Vec<u32> {
+        // Iterative walk with a work-queue + visited-set. The original recursive
+        // implementation stack-overflowed on a hostile hive whose `ri` cells
+        // pointed back at each other (cycle) or nested past ~1000 levels.
+        // Caps: 65 536 total processed cells (well above any legitimate SAM /
+        // SYSTEM subtree) and short-circuits on any already-seen offset.
+        use std::collections::{HashSet, VecDeque};
+        const MAX_VISITED: usize = 65_536;
+
         let mut out = Vec::new();
-        let Some(cell) = self.cell(list_off) else {
-            return out;
-        };
-        if cell.len() < 4 {
-            return out;
-        }
-        let sig = &cell[0..2];
-        let count = le16(cell, 2) as usize;
-        match sig {
-            b"lf" | b"lh" => {
-                // pairs of (key offset, name hint) — 8 bytes each.
-                for i in 0..count {
-                    let base = 4 + i * 8;
-                    if base + 4 <= cell.len() {
-                        out.push(le32(cell, base));
+        let mut visited: HashSet<u32> = HashSet::new();
+        let mut queue: VecDeque<u32> = VecDeque::new();
+        queue.push_back(list_off);
+
+        while let Some(off) = queue.pop_front() {
+            if !visited.insert(off) {
+                continue; // cycle guard
+            }
+            if visited.len() > MAX_VISITED {
+                break; // hostile hive — bail out cleanly, take what we have
+            }
+            let Some(cell) = self.cell(off) else {
+                continue;
+            };
+            if cell.len() < 4 {
+                continue;
+            }
+            let sig = &cell[0..2];
+            let count = le16(cell, 2) as usize;
+            match sig {
+                b"lf" | b"lh" => {
+                    // pairs of (key offset, name hint) — 8 bytes each.
+                    for i in 0..count {
+                        let base = 4 + i * 8;
+                        if base + 4 <= cell.len() {
+                            out.push(le32(cell, base));
+                        }
                     }
                 }
-            }
-            b"li" => {
-                for i in 0..count {
-                    let base = 4 + i * 4;
-                    if base + 4 <= cell.len() {
-                        out.push(le32(cell, base));
+                b"li" => {
+                    for i in 0..count {
+                        let base = 4 + i * 4;
+                        if base + 4 <= cell.len() {
+                            out.push(le32(cell, base));
+                        }
                     }
                 }
-            }
-            b"ri" => {
-                // list of sublists — recurse.
-                for i in 0..count {
-                    let base = 4 + i * 4;
-                    if base + 4 <= cell.len() {
-                        out.extend(self.subkey_offsets(le32(cell, base)));
+                b"ri" => {
+                    // List of sublists — enqueue each child instead of recursing.
+                    for i in 0..count {
+                        let base = 4 + i * 4;
+                        if base + 4 <= cell.len() {
+                            queue.push_back(le32(cell, base));
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
         out
     }

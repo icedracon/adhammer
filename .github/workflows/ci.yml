@@ -10,8 +10,9 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    name: build · test · fuzz-lite
+  # Format + clippy — single-OS gate, cheapest.
+  lint:
+    name: fmt · clippy (deny warnings)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +22,49 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: format check
         run: cargo fmt --all --check
-      - name: clippy (advisory)
-        run: cargo clippy --workspace --all-targets || true
+      - name: clippy (deny warnings — enforces CLAUDE.md "zero new warnings")
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Build + test across every platform we ship a release binary for.
+  # A red build on any of these three blocks merge to main.
+  test:
+    name: build · test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: build
         run: cargo build --workspace --release
       - name: test (unit + fuzz-lite parsers)
         run: cargo test --workspace
 
+  # MSRV verification — declared in workspace.package.rust-version. If this
+  # breaks, either the code drifted past the claimed MSRV or the manifest is stale.
+  msrv:
+    name: MSRV verify (rust-version from Cargo.toml)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: read MSRV
+        id: msrv
+        run: |
+          version=$(grep '^rust-version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "MSRV=$version"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - name: build with pinned MSRV
+        run: cargo build --workspace --release
+
+  # Fuzz is slow — run it separately on a schedule so PR checks stay fast.
+  # Left on push/pull_request too, but continue-on-error so it never blocks merge.
   fuzz:
     name: cargo-fuzz (nightly, short)
     runs-on: ubuntu-latest

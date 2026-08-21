@@ -5,6 +5,134 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.3.9] — 2026-08-20
+
+### Added
+- **Session-hunt trio** — three complementary "who is on this box" primitives:
+  `enum sessions` (MS-SRVS `NetrSessionEnum`, incoming SMB sessions),
+  `enum wkssvc` (MS-WKST `NetrWkstaUserEnum` level 1, logged-on users — needs
+  local admin), `enum hku` (MS-RRP registry walk over `\winreg` returning the
+  S-1-5-21 SIDs of loaded profile hives — often works without local admin).
+  Dedup + machine-account filter on by default.
+- **Global `--json` envelope** on every `attack`/`enum`/`dump` subcommand — output
+  wraps in an `AttackResult` envelope that pipes cleanly into `jq` and CI.
+- **DPAPI-encrypted saved sessions on Windows** — `~/.config/adhammer/session.json`
+  uses `CryptProtectData` with an `ADHS` magic header; `--old` reuses cached creds,
+  `--no-save` keeps them off disk.
+- **ADCS scan pack** — `scan` now runs ESC6, ESC7, ESC8, ESC10, ESC11, ESC16 as
+  part of the default sweep via MS-RRP `\winreg` probes plus an HTTP probe for
+  ESC8 web enrollment.
+- New `dcerpc` modules: `wkssvc` (`NetrWkstaUserEnum`) and `rrp::logged_on_sids`
+  (HKU walk).
+
+### Fixed
+- **Wire-stack bounded-alloc audit** — every attacker-controlled `u32` that fed
+  `Vec::with_capacity` in the wire decoders is now preflighted against the
+  remaining stub:
+  - `srvsvc::decode_session_enum` — `entries_read × 16` preflight.
+  - `rrp::decode_query_info_class` — `actual × 2` preflight.
+  - `rrp::decode_enum_key` — `actual × 2` preflight.
+  - `wkssvc::decode_wksta_user_enum` — `entries_read × 16` preflight.
+  Regression tests feed `0xFFFFFFFF` and assert `RpcError::Protocol`. Requires
+  `dcerpc 0.2.5`.
+
+### Live-validated
+Full stack against Windows Server 2022 and Server 2025 DCs.
+
+## [1.3.8] — 2026-08-18
+
+### Added
+- **DCShadow phase-1 prep** — `attack dcshadow --prep <name>` registers a rogue
+  `nTDSDSA` object under Configuration NC (idempotent; safe to re-run after
+  partial failure). `attack dcshadow --cleanup <name>` removes it. Full push
+  (phase 2) is not yet implemented. **Note:** the LDAP path is blocked by
+  Server 2019+ "system-owned attribute" hardening; the docstring on the
+  subcommand carries that caveat. Server 2016 and older accept the LDAP path.
+- `Collector::delete_object` — LDAP delete primitive that DCShadow cleanup
+  uses; also fills a general-purpose gap in the collector.
+
+### Fixed
+- Requires `dcerpc 0.2.4` — wire stack hardened against three bounded-alloc
+  vectors uncovered in review of the incoming external PR (srvsvc + two rrp
+  sites).
+
+## [1.3.7] — 2026-08-16
+
+### Added
+- **AD CS active pack extension** — `attack certipy` (renamed to
+  `attack icpr-esc1` in 1.3.10) gains `--esc` switch:
+  - ESC6 — EDITF_ATTRIBUTESUBJECTALTNAME2 SAN injection (live-validated).
+  - ESC15 — EKUwu / CVE-2024-49019 Application Policies (live-validated).
+  - ESC3 — Enrollment Agent → on-behalf-of (offline test passes; live needs
+    EA cert setup).
+
+### Fixed
+- **4 library security patches** ship as pinned deps:
+  - `ms-icpr 0.1.2` — fix `esc3.rs` PKIData `[0]` IMPLICIT vs EXPLICIT tagging
+    (Windows CAs were rejecting the request shape).
+  - `ms-pac-forge 0.1.2` — bounded-alloc preflight in `parse_pac` (caps
+    attacker-controlled `c_buffers u32` at `(pac.len() - 8) / 16`).
+  - `ntlm-relay 0.1.2` — drop duplicate `Host` / `Connection` / `Content-Length`
+    headers on `certsrv` send sites.
+  - `ms-csra 0.1.1` — delete broken `GetCAProperty` path (opnum 3 was
+    `SetExtension`, not `GetCAProperty`); expose only `GetConfigEntry` on
+    `ICertAdminD2` opnum 44.
+
+### Pulled
+- `enum ca-config` command — `ICertAdminD2` UUID + opnum 44 rejected by live
+  DC01; needs Wireshark trace of a real `certutil -config` before re-adding.
+
+## [1.3.6] — 2026-08-15
+
+### Fixed
+- Fix #3 (assorted patches rolled in).
+
+## [1.3.5] — 2026-08-15
+
+### Changed
+- Workspace version bump + README refresh — no user-visible functional change;
+  clears drift after the pre-1.4.0 revert.
+
+## [1.4.0] — 2026-08-13 (YANKED)
+
+Yanked on crates.io. Version number **retired**; the next major bump will be
+`1.4.1`. Content was rolled back by commits `219a415` + `e5a8163` before
+downstream users saw a working release.
+
+## [1.3.4] — 2026-08-13
+
+### Fixed
+- `check adcs` returned 0 templates because `Collector` `ATTRS` missed the
+  `msPKI-Cert-Template-OID` required by `ms-crtd`. Live-validated fix.
+
+## [1.3.3] — 2026-08-09
+
+### Added
+- Wire ADhammer onto `ms-crtd` + `ms-icpr` + `ms-gkdi` — the AD CS ESC rule
+  pack + `dump laps` / `dump gmsa` / `attack certipy` land in the CLI.
+
+### Fixed
+- CI fix for `[patch.crates-io]` — CI was picking up path-deps that don't
+  exist for CI users.
+
+## [1.3.2] — 2026-08-09
+
+### Changed
+- Consume `ms-pac-forge 0.1.1` from crates.io + wire onto the 17-crate
+  icedracon foundation set (all extracted from adhammer, now published
+  standalone). Adhammer is now a workspace on top of published protocol
+  crates, not a monorepo.
+
+## [1.3.1] — 2026-08-06
+
+### Fixed
+- BadSuccessor (Server 2025 dMSA) bug fix.
+
+### Changed
+- Consume `smb2-client 0.2.1` — brings `TCP_NODELAY` win on the SMB transport;
+  measurable latency drop on many-small-PDU workloads (RPC-heavy scans).
+- Benchmarks refreshed against the new transport perf.
+
 ## [1.2.0] — 2026-08-02
 
 ### Added

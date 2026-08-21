@@ -12,7 +12,9 @@ Numbers like "144×" invite fair scrutiny. Here is exactly what was measured and
 
 **What "wall-clock" means.** `time <cmd>` from process spawn to exit. Includes Python interpreter startup + module import — that cost is real, every operator pays it every invocation, and skipping it is exactly what a single-static Rust binary buys you. If you prefer amortized numbers (long-running Python daemon warmed up), the Python side would gain ~150–300 ms per invocation but the multi-second differences (`nxc zerologon-scan` = 7.8 s wall-clock) do not close.
 
-**Tool versions.** impacket 0.13.1, certipy 4.8.2, bloodyAD 2.1.11, NetExec 1.4.0, ADhammer 1.3.3, Python 3.11.9 in Kali WSL, cargo 1.95. Recorded in `bench/full.log` per invocation.
+**Tool versions.** impacket 0.13.1, certipy 4.8.2, bloodyAD 2.1.11, NetExec 1.4.0, **ADhammer 1.3.3** (last full-matrix regeneration; refresh against 1.3.9 pending — see [issue tracker](https://github.com/icedracon/adhammer/issues)), Python 3.11.9 in Kali WSL, cargo 1.95. Recorded in `bench/full.log` per invocation.
+
+> **Currency note.** The numbers below were recorded against ADhammer **1.3.3**. Wire-level primitives have not changed shape between 1.3.3 and 1.3.9 (only bounded-alloc hardening + new subcommands), so the per-op timings should hold within measurement noise, but a fresh regeneration is on the roadmap and this file will be re-tagged when it lands.
 
 **Auth.** All tools authenticate as `TESTLAB\administrator` (or the equivalent NT hash / cleartext). Same target account, same host, same DC.
 

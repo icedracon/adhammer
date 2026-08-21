@@ -67,6 +67,97 @@ enum Outcome {
     Potential,
 }
 
+/// Flags whose value is credential material — value is replaced with
+/// `<redacted>` before the argv shows up in the Markdown report the operator
+/// hands to the client. Both `--flag value` and `--flag=value` forms handled.
+const REDACT_FLAGS: &[&str] = &[
+    "--password",
+    "--nt-hash",
+    "--account-password",
+    "--krbtgt-aes256",
+    "--service-aes256",
+    "--aes256",
+    "--aes128",
+    "--restore",
+    "--restore-password",
+    "--rc4",
+    "--ccache-password",
+    "--key",
+    "--key-pem",
+];
+
+/// Build a redacted `adhammer <argv>` display string safe to write into the
+/// report. The real argv is still passed intact to the child process; only the
+/// human-readable copy is scrubbed.
+fn redacted_cmd(argv: &[String]) -> String {
+    let mut out: Vec<String> = Vec::with_capacity(argv.len());
+    let mut skip_next = false;
+    for a in argv {
+        if skip_next {
+            out.push("<redacted>".to_string());
+            skip_next = false;
+            continue;
+        }
+        if let Some((flag, _)) = a.split_once('=') {
+            if REDACT_FLAGS.contains(&flag) {
+                out.push(format!("{flag}=<redacted>"));
+                continue;
+            }
+        }
+        if REDACT_FLAGS.contains(&a.as_str()) {
+            out.push(a.clone());
+            skip_next = true;
+            continue;
+        }
+        out.push(a.clone());
+    }
+    format!("adhammer {}", out.join(" "))
+}
+
+#[cfg(test)]
+mod redact_tests {
+    use super::redacted_cmd;
+
+    fn v(s: &[&str]) -> Vec<String> {
+        s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn redacts_password_value_token() {
+        let got = redacted_cmd(&v(&["attack", "spray", "--password", "Hunter2!"]));
+        assert!(!got.contains("Hunter2!"));
+        assert!(got.contains("--password <redacted>"));
+    }
+
+    #[test]
+    fn redacts_inline_equals_form() {
+        let got = redacted_cmd(&v(&["attack", "dcsync", "--nt-hash=aad3b435b51404ee"]));
+        assert!(!got.contains("aad3b435b51404ee"));
+        assert!(got.contains("--nt-hash=<redacted>"));
+    }
+
+    #[test]
+    fn redacts_aes256_and_krbtgt_material() {
+        let got = redacted_cmd(&v(&[
+            "attack",
+            "golden",
+            "--krbtgt-aes256",
+            "8a8415e2a4b4a89bda80b458c4d73da2",
+            "--user",
+            "Administrator",
+        ]));
+        assert!(!got.contains("8a8415e2"));
+        assert!(got.contains("--user Administrator"));
+    }
+
+    #[test]
+    fn leaves_non_sensitive_flags_alone() {
+        let got = redacted_cmd(&v(&["scan", "--url", "ldaps://dc.corp:636", "--user", "alice"]));
+        assert!(got.contains("--url ldaps://dc.corp:636"));
+        assert!(got.contains("--user alice"));
+    }
+}
+
 pub async fn guided(a: GuidedArgs) -> Result<()> {
     let cfg = LdapConfig {
         url: a.url.clone(),
@@ -176,7 +267,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                     Outcome::Declined
                 } else {
                     let sp = ui::Spinner::start(format!("running {label}"));
-                    let cmd = format!("adhammer {}", argv.join(" "));
+                    let cmd = redacted_cmd(&argv);
                     match Command::new(&exe).args(&argv).output() {
                         Ok(o) => {
                             // Confirm the *specific* proof is present, not just exit 0 — e.g. an
@@ -219,7 +310,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         argv.extend(ldap_args(&ctx));
         if a.yes || confirm("read LAPS local-admin passwords across the estate?") {
             let sp = ui::Spinner::start("LAPS local-admin read");
-            let cmd = format!("adhammer {}", argv.join(" "));
+            let cmd = redacted_cmd(&argv);
             match Command::new(&exe).args(&argv).output() {
                 Ok(o) => {
                     let full = full_out(&o.stdout, &o.stderr);
@@ -250,7 +341,7 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         argv.extend(ldap_args(&ctx));
         if a.yes || confirm("probe the CA(s) for ESC8 web-enrollment relay exposure?") {
             let sp = ui::Spinner::start("ADCS ESC8 web-enrollment probe");
-            let cmd = format!("adhammer {}", argv.join(" "));
+            let cmd = redacted_cmd(&argv);
             match Command::new(&exe).args(&argv).output() {
                 Ok(o) => {
                     let full = full_out(&o.stdout, &o.stderr);

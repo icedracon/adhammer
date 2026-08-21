@@ -93,11 +93,44 @@ pub fn save(session: &Session) -> Result<()> {
     }
     let json = serde_json::to_string_pretty(session)?;
     let blob = dpapi::encrypt(json.as_bytes())?;
-    std::fs::write(&path, &blob)?;
+
+    // Refuse-by-default when the payload came through the cleartext DPAPI
+    // fallback (non-Windows, non-keyring host). Silent plaintext writes of
+    // credential material are the exact opposite of what an operator expects
+    // from a "DPAPI-encrypted session" flag. Override via env for lab work.
+    if dpapi::is_cleartext_wrapper() && std::env::var_os("ADHAMMER_ALLOW_PLAIN_SESSION").is_none() {
+        anyhow::bail!(
+            "session save refused: DPAPI is unavailable on this platform so the file would \
+             be written in cleartext. Set ADHAMMER_ALLOW_PLAIN_SESSION=1 to allow it (lab only), \
+             or use --no-save to keep credentials off disk."
+        );
+    }
+
+    // Atomic 0600 create: `open` with mode 0600 + O_CREAT|O_EXCL on Unix
+    // closes the TOCTOU window between `write` and `set_permissions` where
+    // the file existed at 0644 (umask default) and another local user could
+    // read the ciphertext (DPAPI or otherwise). On Windows the DPAPI blob is
+    // already user-bound so mode bits are irrelevant; on non-Windows we get
+    // proper 0600 from the outset.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        // Remove any pre-existing file so create_new() succeeds; this ensures we
+        // never inherit a file another user could have created at 0666.
+        let _ = std::fs::remove_file(&path);
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .with_context(|| format!("open {} 0600", path.display()))?;
+        f.write_all(&blob)?;
+        f.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, &blob)?;
     }
     eprintln!("[*] session saved to {}", path.display());
     Ok(())
@@ -252,5 +285,20 @@ mod dpapi {
             }
         }
         Ok(data.to_vec())
+    }
+
+    /// `true` when this build's `encrypt()` would write cleartext (no real
+    /// key-wrapping backend). Consumed by `session::save()` to refuse-by-default
+    /// on hosts where "DPAPI-encrypted" is a marketing lie. Set
+    /// `ADHAMMER_ALLOW_PLAIN_SESSION=1` to opt in anyway (lab use).
+    pub fn is_cleartext_wrapper() -> bool {
+        #[cfg(windows)]
+        {
+            false
+        }
+        #[cfg(not(windows))]
+        {
+            true
+        }
     }
 }

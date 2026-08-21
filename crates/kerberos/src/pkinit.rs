@@ -410,12 +410,12 @@ pub async fn pkinit_with_cert(
         cname: Optional::from(Some(ExplicitContextTag1::from(principal(
             NT_PRINCIPAL,
             &[user],
-        )))),
-        realm: ExplicitContextTag2::from(krb_string(&realm)),
+        )?))),
+        realm: ExplicitContextTag2::from(krb_string(&realm)?),
         sname: Optional::from(Some(ExplicitContextTag3::from(principal(
             NT_SRV_INST,
             &["krbtgt", &realm],
-        )))),
+        )?))),
         from: Optional::from(None),
         till: ExplicitContextTag5::from(far_future_time()),
         rtime: Optional::from(None),

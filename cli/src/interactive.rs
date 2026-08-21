@@ -570,6 +570,10 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     Some(target)
                 },
                 all,
+                // Interactive-mode users just clicked "run" — treat it as explicit consent
+                // rather than double-prompting them.
+                yes: true,
+                limit: None,
             })
             .await
         }
