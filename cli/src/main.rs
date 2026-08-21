@@ -1382,10 +1382,11 @@ async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
 /// `enum sessions` — enumerate a host's logon sessions over SRVSVC (session hunting). Each row is
 /// a (user, client computer) pair; a privileged user here marks the host as a credential-theft
 /// target, i.e. a `HasSession` edge into that user.
-async fn sessions(a: SessionsArgs) -> Result<()> {
+async fn sessions(mut a: SessionsArgs) -> Result<()> {
     use dcerpc::srvsvc::SrvsvcClient;
     use smb2_client::SmbClient;
 
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,
@@ -1415,11 +1416,12 @@ async fn sessions(a: SessionsArgs) -> Result<()> {
     Ok(())
 }
 
-async fn wkssvc_enum(a: SessionsArgs) -> Result<()> {
+async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
     use dcerpc::wkssvc::WkstaUserClient;
     use smb2_client::SmbClient;
     use std::collections::BTreeMap;
 
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,
@@ -1484,10 +1486,11 @@ async fn wkssvc_enum(a: SessionsArgs) -> Result<()> {
     Ok(())
 }
 
-async fn hku_enum(a: SessionsArgs) -> Result<()> {
+async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
     use dcerpc::rrp::RegistryClient;
     use smb2_client::SmbClient;
 
+    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb_login(
         &mut smb,

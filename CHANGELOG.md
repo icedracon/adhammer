@@ -70,13 +70,15 @@ maintenance release.
   before rendering. 4 unit tests cover the redaction.
 
 ### Security
-- **`$ADHAMMER_PASSWORD` env-var fallback** on every attack handler
-  when `--password` is unset — CI can now inject the credential
-  without writing it to argv. Applies to the 9 attack handlers that
-  take a `--password` field and to the `abuse` handler's optional
-  variant.
+- **`$ADHAMMER_PASSWORD` env-var fallback** on every `attack` handler
+  and on the three `enum sessions|wkssvc|hku` handlers when
+  `--password` is unset — CI can now inject the credential without
+  writing it to argv. Also threaded through the `abuse` handler's
+  `Option<String>` variant.
 - **`@file:PATH` password refs + TTY prompt** (see Added) close the
-  argv-leak vector completely for interactive use.
+  argv-leak vector completely for interactive use. Live-validated
+  against Windows Server 2025 with a real DA credential on
+  `attack dcsync`, `attack coerce`, and `enum sessions`.
 
 ### Refactor (internal — no CLI change)
 - ADCS ESC registry decision layer (~230 LOC) moved from
