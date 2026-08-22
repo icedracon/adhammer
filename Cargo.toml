@@ -22,7 +22,7 @@ version = "1.3.10"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
-rust-version = "1.80"
+rust-version = "1.85"
 description = "ADhammer — Active Directory security assessment and offensive tradecraft in Rust, with a from-scratch DCE/RPC · NTLM · SMB2 · Kerberos stack."
 repository = "https://github.com/icedracon/adhammer"
 

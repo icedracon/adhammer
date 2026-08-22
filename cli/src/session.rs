@@ -155,7 +155,11 @@ pub fn wipe() -> Result<()> {
 }
 
 mod dpapi {
-    use anyhow::{Context, Result};
+    use anyhow::Result;
+    // `Context` is only used by the Windows CryptProtectData / CryptUnprotectData path;
+    // importing it unconditionally trips `-D unused-imports` on non-Windows CI hosts.
+    #[cfg(windows)]
+    use anyhow::Context as _;
 
     const MAGIC: &[u8; 4] = b"ADHS";
 
