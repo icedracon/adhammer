@@ -6,15 +6,19 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, adcsenum, asktgt, badsuccessor, coerce, dcshadow, dcsync, dnsenum, esc1, esc4,
-    esc_registry_scan, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd,
-    relay, roast, samr, scan, secretsdump, sessions, shadowcred, silver, spray, unconstrained,
-    winrm_exec, wmiexec_cmd, AbuseAction, AbuseArgs, AsktgtArgs, BadsuccessorArgs, CoerceArgs,
-    CoercePipe, DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
+    abuse, adcsenum, coerce, dcshadow, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
+    golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
+    secretsdump, sessions, shadowcred, silver, winrm_exec, wmiexec_cmd, AbuseAction, AbuseArgs,
+    CoerceArgs, CoercePipe, DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
     LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, RelayTarget, SamrArgs,
-    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs,
+    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, WinrmArgs,
 };
 
+use crate::attacks::asktgt::{asktgt, AsktgtArgs};
+use crate::attacks::badsuccessor::{badsuccessor, BadsuccessorArgs};
+use crate::attacks::esc4::{esc4, Esc4Args};
+use crate::attacks::spray::{spray, SprayArgs};
+use crate::attacks::unconstrained::unconstrained;
 use crate::attacks::zerologon::{zerologon, ZerologonArgs};
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
