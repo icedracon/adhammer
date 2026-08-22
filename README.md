@@ -95,14 +95,18 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 <br/>
 
-## ✨ What's new in 1.3.9
+## ✨ What's new in 1.3.10
 
-- **Session hunting three ways** — `enum sessions` (SRVSVC) · `enum wkssvc` (WKSSVC) · `enum hku` (MS-RRP). Dedup + machine-account filter on by default; `--include-machine` shows the count marker.
-- **`--json` envelope** on every subcommand — `AttackResult` wrapper pipes cleanly into `jq` and CI.
-- **DPAPI-encrypted sessions** at rest on Windows (CryptProtectData). `--old` reuses cached creds, `--no-save` keeps them off disk.
-- **ADCS scan pack** — ESC6/7/8/10/11/16 wired into `scan`. Registry probes over MS-RRP, HTTP probe for ESC8 web enrollment.
-- **`dcerpc 0.2.5` — bounded-alloc audit across the wire.** Every attacker-controlled `u32` that fed `Vec::with_capacity` is now preflighted. No more OOM on `entries_read = 0xFFFFFFFF`. Live-validated vs Server 2022 + 2025.
-- **New `wkssvc` + `rrp::logged_on_sids` protocol modules** shipped in `dcerpc 0.2.5` — MS-WKST `NetrWkstaUserEnum` and HKU registry walk, both live-validated.
+Hardening + UX pass driven by an outside multi-agent code review — 33 of 37 findings closed. No new attack surface, no wire-format changes; a *"trust me on the wire"* maintenance release.
+
+- **`--password @file:/path/to/pw`** — read the password from a file (trailing `\r\n` trimmed) instead of putting it on argv. Applies to every attack + enum handler that takes `--password`.
+- **Interactive password prompt** — when `--password` is omitted and stdin is a TTY, adhammer prompts with echo off. Zero new deps (reuses `dialoguer`).
+- **DRSUAPI wire hardening** — three bounded-alloc preflights (`ptmc` / `amc` / `vmc`) + a panic-safety fix in `read_dsname_rid` (SubAuthorityCount validated 1..=5, no more unchecked slice + `unwrap`). Live-validated against Server 2022 + 2025.
+- **Kerberos non-ASCII → `Result`** — `krb_string`, `principal`, `build_as_req`, `build_tgs_req` now reject non-IA5String input at the boundary (RFC 4120) instead of panicking inside `picky-asn1`.
+- **Registry hive walker rewritten iterative** — cyclic `ri` subkey lists could stack-overflow the recursive path. Now BFS with `HashSet<u32>` cycle guard + `MAX_VISITED = 65_536` cap.
+- **Typed CLI value_enums** — `attack coerce --pipe`, `attack abuse --action`, `attack relay --target` reject unknown values at parse time with a listed set instead of running past an SMB/DCERPC connect only to bail late.
+- **Session file `O_EXCL` + 0600 atomic** on Unix; refuses to write in cleartext on non-Windows hosts without `ADHAMMER_ALLOW_PLAIN_SESSION=1`.
+- **CI gated on `clippy -D warnings`** + ubuntu/windows/macos test matrix + MSRV verify. CHANGELOG backfilled 1.3.1 → 1.3.9.
 
 Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
 
@@ -330,7 +334,7 @@ Run `adhammer` with **no arguments** for the **guided interactive menu** — ask
 `enum sessions` (SRVSVC), `enum wkssvc` (WKSSVC), and `enum hku` (HKU registry walk) each answer the *who is on this box* question from a different angle — different auth requirements, different result granularity. Dedup + machine-account filtering are on by default (`--include-machine` shows the count marker for what was hidden).
 
 <p align="center">
-  <img src="docs/sessions.gif" alt="ADhammer 1.3.9 session hunting — SRVSVC, WKSSVC, HKU, and --json envelope" width="88%"/>
+  <img src="docs/sessions.gif" alt="ADhammer session hunting — SRVSVC, WKSSVC, HKU, and --json envelope" width="88%"/>
 </p>
 
 <p align="center">
