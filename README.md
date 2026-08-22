@@ -550,6 +550,18 @@ cargo test --workspace
 
 PRs welcome — especially for new AD CS ESC variants, additional coerce endpoints, and cross-forest trust auditing. Open an issue first for anything larger than a bug fix.
 
+## ☕ Support
+
+ADhammer is MIT-licensed and independently developed. Every contribution funds another wire primitive, another live-validation session against a real DC, another release.
+
+**USDT (TRC20 / Tron)** — instant, low-fee, no gatekeepers:
+
+```
+TDKrs1rjiUaB1JnvWRDaoxM7o1jjVuDTDW
+```
+
+<sub>GitHub Sponsors + Ko-fi channels coming as Stripe onboarding clears. Until then, the address above is the fastest path.</sub>
+
 ## 🛡️ Security
 
 Vulnerabilities: report privately per [SECURITY.md](SECURITY.md). ADhammer contains working offensive techniques — use only against systems you own or are explicitly authorized to test.
