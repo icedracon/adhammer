@@ -92,12 +92,15 @@
     @keyframes ep-flap-r { 0%,100% { transform: scaleX(1) rotate(0deg); } 50% { transform: scaleX(.9) rotate(-2deg); } }
     @keyframes ep-ember { 0% { transform: translateY(0); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(-11px); opacity: 0; } }
     .ah-logo.ep-paused svg *, .hero-dragon.ep-paused svg * { animation-play-state: paused !important; }
-    .hero-dragon { position: absolute; z-index: 0; right: -6%; top: 50%; transform: translateY(-50%); width: min(780px, 70%); aspect-ratio: 1 / 1; opacity: .22; pointer-events: none; filter: drop-shadow(0 0 48px rgba(46,168,255,.4)); }
+    .hero-dragon { position: absolute; z-index: 0; right: -6%; top: 50%; transform: translateY(-50%); width: min(780px, 70%); aspect-ratio: 1 / 1; opacity: .28; pointer-events: none; filter: drop-shadow(0 0 52px rgba(46,168,255,.46)); }
     .hero-dragon svg { width: 100%; height: 100%; display: block; overflow: visible; }
     @media (max-width: 1050px) { .hero-dragon { right: 50%; transform: translate(50%, -46%); width: min(560px, 92%); opacity: .14; } }
     .hero-aurora { position: absolute; z-index: 0; inset: 0 0 auto; height: 62%; pointer-events: none; opacity: .5; mix-blend-mode: screen; background: radial-gradient(ellipse 45% 58% at 28% 6%, rgba(64,224,164,.42), transparent 62%), radial-gradient(ellipse 42% 62% at 68% 2%, rgba(130,96,224,.32), transparent 60%), radial-gradient(ellipse 60% 52% at 50% 0%, rgba(90,200,255,.3), transparent 66%); animation: aurora-drift 15s ease-in-out infinite alternate; }
     @keyframes aurora-drift { 0% { transform: translateX(-3%) skewX(-3deg); opacity: .38; } 100% { transform: translateX(3%) skewX(3deg); opacity: .58; } }
-    .ah-logo--lg { display: block; width: clamp(150px, 22vw, 232px); height: clamp(150px, 22vw, 232px); margin: 0 auto 26px; filter: drop-shadow(0 0 36px rgba(46,168,255,.34)); animation: logo-glow-lg 4.2s ease-in-out infinite; }
+    .hero-snow { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; pointer-events: none; }
+    .ah-logo--lg { display: block; position: relative; z-index: 0; width: clamp(150px, 22vw, 232px); height: clamp(150px, 22vw, 232px); margin: 0 auto 26px; filter: drop-shadow(0 0 36px rgba(46,168,255,.34)); animation: logo-glow-lg 4.2s ease-in-out infinite; }
+    .ah-logo--lg::before { content: ""; position: absolute; inset: -16%; z-index: -1; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0%, rgba(46,168,255,.4) 12%, transparent 28%, rgba(255,90,42,.28) 48%, transparent 62%, rgba(120,96,224,.32) 80%, transparent 96%); filter: blur(7px); opacity: .75; animation: logo-ring 9s linear infinite; }
+    @keyframes logo-ring { to { transform: rotate(360deg); } }
     .final-sign { margin-top: 30px; color: var(--faint); font: 500 10px/1.6 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .final-sign b { color: var(--red-2); font-weight: 500; }
     .nav-links { display: flex; align-items: center; gap: 26px; margin-left: auto; }
@@ -489,6 +492,7 @@
       <canvas class="hero-canvas" id="hero-model" aria-hidden="true"></canvas>
       <canvas class="hero-storm" id="hero-storm" aria-hidden="true"></canvas>
       <div class="hero-vignette" aria-hidden="true"></div>
+      <canvas class="hero-snow" id="hero-snow" aria-hidden="true"></canvas>
       <div class="shell hero-grid">
         <div class="hero-copy reveal">
           <span class="eyebrow">Open-source Rust · Active Directory pentest tool</span>
@@ -1105,6 +1109,25 @@
         resize(); window.addEventListener("resize", function(){ resize(); if (reduced) drawStatic(); }, { passive: true });
         if ("ResizeObserver" in window){ new ResizeObserver(function(){ resize(); if (reduced) drawStatic(); }).observe(canvas); }
         if (reduced){ drawStatic(); }
+        else if ("IntersectionObserver" in window){ var io = new IntersectionObserver(function(es){ es.forEach(function(e){ e.isIntersecting ? start() : stop(); }); }, { threshold: 0 }); io.observe(canvas); }
+        else start();
+      })();
+
+      (function heroSnow(){
+        var canvas = document.getElementById("hero-snow");
+        if (!canvas) return;
+        var ctx = canvas.getContext("2d");
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var w = 0, h = 0, flakes = [];
+        function build(){ var n = Math.round(Math.min(72, w / 15)); flakes = []; for (var i = 0; i < n; i++) flakes.push({ x: Math.random() * w, y: Math.random() * h, r: 0.6 + Math.random() * 1.9, sp: 0.2 + Math.random() * 0.7, sw: Math.random() * Math.PI * 2, sa: 0.18 + Math.random() * 0.5 }); }
+        function resize(){ var r = canvas.getBoundingClientRect(); w = r.width; h = r.height; canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); build(); }
+        function paint(move){ ctx.clearRect(0, 0, w, h); for (var i = 0; i < flakes.length; i++){ var f = flakes[i]; if (move){ f.y += f.sp; f.sw += 0.01; f.x += Math.sin(f.sw) * 0.3; if (f.y > h + 4){ f.y = -4; f.x = Math.random() * w; } } ctx.beginPath(); ctx.fillStyle = "rgba(214,240,255," + f.sa + ")"; ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill(); } }
+        var running = false, raf = null;
+        function step(){ paint(true); if (running) raf = window.requestAnimationFrame(step); }
+        function start(){ if (running) return; resize(); running = true; raf = window.requestAnimationFrame(step); }
+        function stop(){ running = false; if (raf) window.cancelAnimationFrame(raf); }
+        resize(); window.addEventListener("resize", function(){ resize(); if (reduced) paint(false); }, { passive: true });
+        if (reduced){ paint(false); }
         else if ("IntersectionObserver" in window){ var io = new IntersectionObserver(function(es){ es.forEach(function(e){ e.isIntersecting ? start() : stop(); }); }, { threshold: 0 }); io.observe(canvas); }
         else start();
       })();
