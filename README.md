@@ -1,41 +1,47 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="ADhammer logo" width="140"/>
+  <img src="docs/logo.svg" alt="AD//HAMMER logo" width="140"/>
 </p>
 
 <p align="center">
-  <img src="docs/banner.svg" alt="ADhammer — Active Directory Security Toolkit" width="100%"/>
+  <img src="docs/banner.svg" alt="AD//HAMMER — See the domain. Understand the proof." width="100%"/>
 </p>
 
-<h3 align="center">Active Directory Security Engineering in Rust</h3>
+<h3 align="center">Open-source Rust · Active Directory pentest tool</h3>
+
+<p align="center"><b>See the domain. Understand the proof.</b></p>
+
+<p align="center"><sub>One static binary. 43 standalone protocol crates. Live evidence, not dashboard theatre.</sub></p>
 
 <p align="center">
-  <code>AUDIT</code> &nbsp;→&nbsp; <code>GRAPH</code> &nbsp;→&nbsp; <code>VALIDATE</code> &nbsp;→&nbsp; <code>REPORT</code>
-</p>
-
-<p align="center"><b>Find the path. Prove the path. Report the proof.</b></p>
-
-<p align="center"><sub>One static binary for AD assessment and live attack-path validation.</sub></p>
-
-<p align="center">
+  <a href="https://icedracon.github.io/adhammer/"><b>&nbsp;SITE&nbsp;</b></a>
+  &nbsp;·&nbsp;
   <a href="https://crates.io/crates/adhammer"><b>&nbsp;INSTALL&nbsp;</b></a>
   &nbsp;·&nbsp;
-  <a href="#try-it-in-30-seconds"><b>&nbsp;DEMO&nbsp;</b></a>
+  <a href="#-try-it-in-30-seconds"><b>&nbsp;DEMO&nbsp;</b></a>
   &nbsp;·&nbsp;
-  <a href="https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5"><b>&nbsp;WRITE-UP&nbsp;</b></a>
+  <a href="docs/BENCHMARKS.md"><b>&nbsp;BENCHMARKS&nbsp;</b></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/icedracon/adhammer/actions/workflows/ci.yml"><img src="https://github.com/icedracon/adhammer/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
-  <a href="https://github.com/icedracon/adhammer/releases"><img src="https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver&color=00ffd5&style=flat-square" alt="Release"/></a>
-  <a href="https://crates.io/crates/adhammer"><img src="https://img.shields.io/crates/v/adhammer.svg?color=f7c948&style=flat-square" alt="crates.io"/></a>
-  <a href="https://github.com/icedracon/adhammer/stargazers"><img src="https://img.shields.io/github/stars/icedracon/adhammer?style=flat-square&color=ffd166" alt="stars"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7b2ff7?style=flat-square" alt="License: MIT"/></a>
-  <a href="https://dev.to/pumadracon/i-built-a-full-active-directory-pentest-audit-tool-in-rust-on-a-protocol-stack-i-wrote-from-fl5"><img src="https://img.shields.io/badge/write--up-dev.to-0A0A0A?style=flat-square&logo=devdotto" alt="Write-up"/></a>
+  <a href="https://github.com/icedracon/adhammer/releases"><img src="https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver&color=2ea8ff&style=flat-square" alt="Release"/></a>
+  <a href="https://crates.io/crates/adhammer"><img src="https://img.shields.io/crates/v/adhammer.svg?color=2ea8ff&style=flat-square" alt="crates.io"/></a>
+  <a href="https://github.com/icedracon/adhammer/stargazers"><img src="https://img.shields.io/github/stars/icedracon/adhammer?style=flat-square&color=2ea8ff" alt="stars"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea8ff?style=flat-square" alt="License: MIT"/></a>
+  <a href="https://icedracon.github.io/adhammer/"><img src="https://img.shields.io/badge/site-icedracon.github.io-05070d?style=flat-square&labelColor=2ea8ff" alt="Site"/></a>
 </p>
 
 <p align="center">
-  <sub><b>43 standalone protocol crates + 12-crate workspace</b> · <b>Server 2025 live-validated</b> · MIT · zero external protocol deps</sub>
+  <sub><b>43 standalone protocol crates + 12-crate workspace</b> · <b>Server 2022 + 2025 live-validated</b> · MIT · zero external protocol deps</sub>
 </p>
+
+<br/>
+
+## The idea
+
+> **Evidence over assumption.** No dashboard theatre. No vague alerts. Just the system, explained.
+
+ADhammer collects the domain, graphs every control path that ends at Tier-0, then *proves* the interesting ones with the same protocol code the attacker would use. One continuous session from LDAP recon to a signed AS-REP on disk. Findings you can hand to a customer with the exact byte sequence that produced them.
 
 <br/>
 

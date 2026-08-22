@@ -1,143 +1,80 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <!--
+    ADhammer README banner — 1200×400, blue-cyan single-hue.
+    Palette + typography match https://icedracon.github.io/adhammer/
+    (accent #2ea8ff on near-black #05070d, Manrope + IBM Plex Mono).
+  -->
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0a0e17"/>
-      <stop offset="50%" style="stop-color:#0d1321"/>
-      <stop offset="100%" style="stop-color:#0a0e17"/>
+    <radialGradient id="bnr-bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" style="stop-color:#0a1626"/>
+      <stop offset="70%" style="stop-color:#06101c"/>
+      <stop offset="100%" style="stop-color:#05070d"/>
+    </radialGradient>
+    <linearGradient id="bnr-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#8fd4ff"/>
+      <stop offset="50%" style="stop-color:#2ea8ff"/>
+      <stop offset="100%" style="stop-color:#0a3d80"/>
     </linearGradient>
-    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#00ffd5"/>
-      <stop offset="50%" style="stop-color:#00b4d8"/>
-      <stop offset="100%" style="stop-color:#7b2ff7"/>
+    <linearGradient id="bnr-sep" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
+      <stop offset="50%" style="stop-color:#2ea8ff;stop-opacity:0.7"/>
+      <stop offset="100%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
     </linearGradient>
-    <linearGradient id="line-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#00ffd5;stop-opacity:0"/>
-      <stop offset="50%" style="stop-color:#00ffd5;stop-opacity:0.6"/>
-      <stop offset="100%" style="stop-color:#00ffd5;stop-opacity:0"/>
-    </linearGradient>
-    <linearGradient id="line-grad2" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#7b2ff7;stop-opacity:0"/>
-      <stop offset="50%" style="stop-color:#7b2ff7;stop-opacity:0.4"/>
-      <stop offset="100%" style="stop-color:#7b2ff7;stop-opacity:0"/>
-    </linearGradient>
-    <filter id="glow-filter">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
+    <filter id="bnr-glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
-    <filter id="glow-strong">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a2332" stroke-width="0.5"/>
-    </pattern>
-    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
-      <circle cx="10" cy="10" r="0.5" fill="#1a2332"/>
-    </pattern>
   </defs>
 
-  <!-- Background -->
-  <rect width="1200" height="400" fill="url(#bg)"/>
-  <rect width="1200" height="400" fill="url(#grid)" opacity="0.5"/>
-  <rect width="1200" height="400" fill="url(#dots)" opacity="0.3"/>
+  <rect width="1200" height="400" fill="url(#bnr-bg)"/>
 
-  <!-- Decorative circuit lines -->
-  <line x1="0" y1="80" x2="1200" y2="80" stroke="url(#line-grad)" stroke-width="1" opacity="0.3"/>
-  <line x1="0" y1="320" x2="1200" y2="320" stroke="url(#line-grad)" stroke-width="1" opacity="0.3"/>
-  <line x1="0" y1="200" x2="200" y2="200" stroke="url(#line-grad2)" stroke-width="1" opacity="0.2"/>
-  <line x1="1000" y1="200" x2="1200" y2="200" stroke="url(#line-grad2)" stroke-width="1" opacity="0.2"/>
-
-  <!-- Corner accents -->
-  <path d="M 30 30 L 30 60 M 30 30 L 60 30" stroke="#00ffd5" stroke-width="2" fill="none" opacity="0.5"/>
-  <path d="M 1170 30 L 1170 60 M 1170 30 L 1140 30" stroke="#00ffd5" stroke-width="2" fill="none" opacity="0.5"/>
-  <path d="M 30 370 L 30 340 M 30 370 L 60 370" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.5"/>
-  <path d="M 1170 370 L 1170 340 M 1170 370 L 1140 370" stroke="#7b2ff7" stroke-width="2" fill="none" opacity="0.5"/>
-
-  <!-- Hex decoration left -->
-  <g transform="translate(80, 200)" opacity="0.15">
-    <polygon points="0,-30 26,-15 26,15 0,30 -26,15 -26,-15" fill="none" stroke="#00ffd5" stroke-width="1"/>
-    <polygon points="0,-20 17,-10 17,10 0,20 -17,10 -17,-10" fill="none" stroke="#00ffd5" stroke-width="0.5"/>
-  </g>
-  <g transform="translate(130, 160)" opacity="0.1">
-    <polygon points="0,-20 17,-10 17,10 0,20 -17,10 -17,-10" fill="none" stroke="#7b2ff7" stroke-width="1"/>
+  <!-- Faint grid. -->
+  <g opacity="0.08" stroke="#2ea8ff" stroke-width="1" fill="none">
+    <path d="M 0 100 L 1200 100 M 0 200 L 1200 200 M 0 300 L 1200 300"/>
+    <path d="M 200 0 L 200 400 M 400 0 L 400 400 M 600 0 L 600 400 M 800 0 L 800 400 M 1000 0 L 1000 400"/>
   </g>
 
-  <!-- Hex decoration right -->
-  <g transform="translate(1120, 200)" opacity="0.15">
-    <polygon points="0,-30 26,-15 26,15 0,30 -26,15 -26,-15" fill="none" stroke="#7b2ff7" stroke-width="1"/>
-    <polygon points="0,-20 17,-10 17,10 0,20 -17,10 -17,-10" fill="none" stroke="#7b2ff7" stroke-width="0.5"/>
+  <!-- Left decorative bracket. -->
+  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
+    <path d="M 60 60 L 60 100 M 60 60 L 100 60"/>
+    <path d="M 60 340 L 60 300 M 60 340 L 100 340"/>
   </g>
-  <g transform="translate(1070, 240)" opacity="0.1">
-    <polygon points="0,-20 17,-10 17,10 0,20 -17,10 -17,-10" fill="none" stroke="#00ffd5" stroke-width="1"/>
-  </g>
-
-  <!-- Hammer icon -->
-  <g transform="translate(600, 115)" filter="url(#glow-filter)">
-    <!-- Hammer head -->
-    <rect x="-35" y="-18" width="70" height="36" rx="4" fill="none" stroke="url(#glow)" stroke-width="2.5"/>
-    <rect x="-30" y="-13" width="60" height="26" rx="2" fill="#00ffd5" opacity="0.08"/>
-    <!-- Handle -->
-    <rect x="-4" y="18" width="8" height="40" rx="2" fill="none" stroke="url(#glow)" stroke-width="2"/>
-    <!-- Impact lines -->
-    <line x1="-50" y1="-5" x2="-60" y2="-15" stroke="#00ffd5" stroke-width="1.5" opacity="0.5"/>
-    <line x1="-48" y1="5" x2="-58" y2="10" stroke="#00ffd5" stroke-width="1" opacity="0.3"/>
-    <line x1="50" y1="-5" x2="60" y2="-15" stroke="#7b2ff7" stroke-width="1.5" opacity="0.5"/>
-    <line x1="48" y1="5" x2="58" y2="10" stroke="#7b2ff7" stroke-width="1" opacity="0.3"/>
+  <!-- Right decorative bracket. -->
+  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
+    <path d="M 1140 60 L 1140 100 M 1140 60 L 1100 60"/>
+    <path d="M 1140 340 L 1140 300 M 1140 340 L 1100 340"/>
   </g>
 
-  <!-- Main title -->
-  <text x="600" y="225" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="72" font-weight="bold" fill="url(#glow)" filter="url(#glow-strong)" letter-spacing="8">ADhammer</text>
-
-  <!-- Subtitle -->
-  <text x="600" y="265" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="16" fill="#8892a4" letter-spacing="6">ACTIVE DIRECTORY SECURITY TOOLKIT</text>
-
-  <!-- Tagline -->
-  <text x="600" y="300" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="14" fill="#5a6577" letter-spacing="2">audit . validate . exploit &#8212; one Rust binary, from Kali or Windows</text>
-
-  <!-- Protocol badges -->
-  <g transform="translate(600, 340)" font-family="'Courier New', monospace" font-size="11">
-    <g transform="translate(-250, 0)">
-      <rect x="-35" y="-10" width="70" height="20" rx="3" fill="#00ffd5" fill-opacity="0.1" stroke="#00ffd5" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#00ffd5" opacity="0.7">DCE/RPC</text>
-    </g>
-    <g transform="translate(-150, 0)">
-      <rect x="-28" y="-10" width="56" height="20" rx="3" fill="#00ffd5" fill-opacity="0.1" stroke="#00ffd5" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#00ffd5" opacity="0.7">NTLM</text>
-    </g>
-    <g transform="translate(-60, 0)">
-      <rect x="-25" y="-10" width="50" height="20" rx="3" fill="#00b4d8" fill-opacity="0.1" stroke="#00b4d8" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#00b4d8" opacity="0.7">SMB2</text>
-    </g>
-    <g transform="translate(35, 0)">
-      <rect x="-40" y="-10" width="80" height="20" rx="3" fill="#00b4d8" fill-opacity="0.1" stroke="#00b4d8" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#00b4d8" opacity="0.7">Kerberos</text>
-    </g>
-    <g transform="translate(140, 0)">
-      <rect x="-30" y="-10" width="60" height="20" rx="3" fill="#7b2ff7" fill-opacity="0.1" stroke="#7b2ff7" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#7b2ff7" opacity="0.7">LDAP</text>
-    </g>
-    <g transform="translate(230, 0)">
-      <rect x="-35" y="-10" width="70" height="20" rx="3" fill="#7b2ff7" fill-opacity="0.1" stroke="#7b2ff7" stroke-width="0.5" stroke-opacity="0.3"/>
-      <text text-anchor="middle" y="4" fill="#7b2ff7" opacity="0.7">PKINIT</text>
-    </g>
+  <!-- Wordmark AD // HAMMER (visual '//' separator matches site). -->
+  <g filter="url(#bnr-glow)">
+    <text x="600" y="215" text-anchor="middle"
+          font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
+          font-weight="800"
+          font-size="118"
+          letter-spacing="6"
+          fill="url(#bnr-accent)">AD<tspan fill="#2ea8ff" font-weight="300" opacity="0.55">//</tspan>HAMMER</text>
   </g>
 
-  <!-- STATIC badge (top-right; evergreen, replaces per-release version tag) -->
-  <g transform="translate(1130, 55)">
-    <rect x="-35" y="-12" width="70" height="24" rx="4" fill="#00ffd5" fill-opacity="0.12" stroke="#00ffd5" stroke-width="0.6" stroke-opacity="0.4"/>
-    <text text-anchor="middle" y="5" font-family="'Courier New', monospace" font-size="12" fill="#00ffd5" font-weight="bold" letter-spacing="2">STATIC</text>
-  </g>
+  <!-- Underline stroke — echoes site's evidence/trace metaphor. -->
+  <line x1="380" y1="248" x2="820" y2="248" stroke="url(#bnr-sep)" stroke-width="1.5"/>
 
-  <!-- Rust badge (top-left; evergreen) -->
-  <g transform="translate(70, 55)">
-    <rect x="-30" y="-12" width="60" height="24" rx="4" fill="#ff6b35" opacity="0.1" stroke="#ff6b35" stroke-width="0.5"/>
-    <text text-anchor="middle" y="5" font-family="'Courier New', monospace" font-size="12" fill="#ff6b35" opacity="0.7">Rust</text>
-  </g>
+  <!-- Tagline. -->
+  <text x="600" y="295" text-anchor="middle"
+        font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
+        font-weight="500"
+        font-size="26"
+        letter-spacing="1"
+        fill="#e6f2ff"
+        opacity="0.88">See the domain. Understand the proof.</text>
+
+  <!-- Sub-caption. -->
+  <text x="600" y="335" text-anchor="middle"
+        font-family="'IBM Plex Mono', 'Courier New', ui-monospace, monospace"
+        font-size="14"
+        letter-spacing="4"
+        fill="#2ea8ff"
+        opacity="0.7">ONE BINARY · 61 PROTOCOL CRATES · LIVE EVIDENCE</text>
 </svg>
