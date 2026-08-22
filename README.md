@@ -556,9 +556,20 @@ ADhammer is MIT-licensed and independently developed. Every contribution funds a
 
 **USDT (TRC20 / Tron)** — instant, low-fee, no gatekeepers:
 
+<table>
+<tr>
+<td width="200"><img src="docs/support-usdt-trc20.png" alt="USDT-TRC20 QR" width="180"/></td>
+<td>
+
 ```
 TDKrs1rjiUaB1JnvWRDaoxM7o1jjVuDTDW
 ```
+
+Scan from any wallet, or copy-paste the address. Tron network, minimum ~1 USDT to cover network fee.
+
+</td>
+</tr>
+</table>
 
 <sub>GitHub Sponsors + Ko-fi channels coming as Stripe onboarding clears. Until then, the address above is the fastest path.</sub>
 
