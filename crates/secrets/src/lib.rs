@@ -4,6 +4,12 @@
 //! the bootkey and returns each local account's NT hash in secretsdump format. LSA secrets and
 //! cached domain credentials (DCC2) from the `SECURITY` hive are a planned follow-on.
 
+// `chunks_exact(N)` reads clearly next to the wire-format constants (2 for UTF-16 code units,
+// 16 for AES blocks, etc.). The clippy 1.98 suggestion `as_chunks::<N>()` needs Rust 1.98 —
+// higher than our 1.80 MSRV floor. `unknown_lints` allow makes this compile clean on
+// clippy < 1.98 too (they simply don't have the lint yet).
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+
 pub mod hive;
 pub mod lsa;
 pub mod rrp;
