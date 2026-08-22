@@ -13,8 +13,9 @@ copy in the public `README.md` + `docs/BENCHMARKS.md`; invent no capabilities.
 - The "no competitor names" rule (below) is for the repo's own **code/docs/README**. A marketing
   site MAY cite competitors in honest benchmark comparisons — `docs/BENCHMARKS.md` already does
   (impacket, certipy, bloodyAD, NetExec). Don't strip them from the site's benchmark section.
-- Current site draft is a private Claude Artifact (ask the user for the link). Design language:
-  red `#ff3049` on near-black, Manrope + IBM Plex Mono.
+- Live site: https://icedracon.github.io/adhammer/ (source in `site/index.html`).
+  Design language: blue-cyan `#2ea8ff` accent on near-black `#05070d` ground,
+  Manrope (display) + IBM Plex Mono (mono). Wordmark: `AD//HAMMER`.
 
 ## Git — hard rules
 - **NEVER** add `Co-Authored-By: Claude` to any commit.
