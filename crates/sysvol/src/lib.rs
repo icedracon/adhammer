@@ -6,6 +6,10 @@
 //! Microsoft *published*, making every such password trivially recoverable. We decrypt it
 //! and report the file, the target account, and the plaintext.
 
+// clippy 1.98 wants `as_chunks::<N>()` — Rust 1.98+; we hold MSRV 1.80. See rationale in
+// [`adhammer_secrets`]'s crate doc.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+
 use adhammer_core::finding::{mitre, Category, Severity};
 use adhammer_core::Finding;
 use std::path::{Path, PathBuf};

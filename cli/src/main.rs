@@ -1,6 +1,10 @@
 //! ADhammer — Active Directory security assessment and offensive tradecraft in Rust.
 //! Pipeline: LDAP collect → build control-path graph → run checks → score → report.
 
+// clippy 1.98 wants `as_chunks::<N>()` — Rust 1.98+; we hold MSRV 1.80. See rationale in
+// [`adhammer_secrets`]'s crate doc.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+
 use adhammer_collector::{Collector, LdapConfig};
 use adhammer_graph::ControlGraph;
 use adhammer_report::{Report, RiskConfig};
