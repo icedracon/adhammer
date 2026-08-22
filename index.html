@@ -69,8 +69,10 @@
     header.scrolled { border-bottom-color: var(--line); background: rgba(5,5,6,.88); }
     .nav { height: 72px; display: flex; align-items: center; gap: 30px; }
     .brand { display: inline-flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 800; letter-spacing: -.045em; }
-    .ah-logo { display: inline-block; flex: 0 0 auto; width: 42px; height: 42px; background: var(--logo-img) center/contain no-repeat; animation: logo-glow 3.4s ease-in-out infinite; }
+    .ah-logo { position: relative; display: inline-block; flex: 0 0 auto; width: 42px; height: 42px; background: var(--logo-img) center/contain no-repeat; animation: logo-glow 3.4s ease-in-out infinite; }
     .ah-logo svg { width: 100%; height: 100%; display: block; overflow: visible; }
+    .ah-logo::after { content: ""; position: absolute; inset: 0; pointer-events: none; -webkit-mask: var(--logo-img) center/contain no-repeat; mask: var(--logo-img) center/contain no-repeat; background: linear-gradient(115deg, transparent 44%, rgba(150,225,255,.5) 49%, rgba(255,255,255,.9) 51%, rgba(150,225,255,.5) 53%, transparent 58%); background-size: 250% 100%; background-repeat: no-repeat; mix-blend-mode: screen; animation: logo-shine 4.6s ease-in-out infinite; }
+    @keyframes logo-shine { 0%, 16% { background-position: 190% 0; } 60%, 100% { background-position: -110% 0; } }
     @keyframes logo-glow { 0%,100% { filter: drop-shadow(0 0 8px rgba(46,168,255,.3)) drop-shadow(0 0 3px rgba(255,90,42,.25)); transform: translateY(0); } 50% { filter: drop-shadow(0 0 18px rgba(46,168,255,.6)) drop-shadow(0 0 7px rgba(255,90,42,.4)); transform: translateY(-2px); } }
     @keyframes logo-glow-lg { 0%,100% { filter: drop-shadow(0 0 26px rgba(46,168,255,.3)); transform: translateY(0) scale(1); } 50% { filter: drop-shadow(0 0 48px rgba(46,168,255,.55)) drop-shadow(0 0 14px rgba(255,90,42,.3)); transform: translateY(-5px) scale(1.012); } }
     .brand .ah-logo { filter: drop-shadow(0 0 10px rgba(46,168,255,.34)); }
@@ -90,9 +92,11 @@
     @keyframes ep-flap-r { 0%,100% { transform: scaleX(1) rotate(0deg); } 50% { transform: scaleX(.9) rotate(-2deg); } }
     @keyframes ep-ember { 0% { transform: translateY(0); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(-11px); opacity: 0; } }
     .ah-logo.ep-paused svg *, .hero-dragon.ep-paused svg * { animation-play-state: paused !important; }
-    .hero-dragon { position: absolute; z-index: 0; right: -6%; top: 50%; transform: translateY(-50%); width: min(720px, 66%); aspect-ratio: 1 / 1; opacity: .14; pointer-events: none; filter: drop-shadow(0 0 44px rgba(46,168,255,.32)); }
+    .hero-dragon { position: absolute; z-index: 0; right: -6%; top: 50%; transform: translateY(-50%); width: min(780px, 70%); aspect-ratio: 1 / 1; opacity: .22; pointer-events: none; filter: drop-shadow(0 0 48px rgba(46,168,255,.4)); }
     .hero-dragon svg { width: 100%; height: 100%; display: block; overflow: visible; }
-    @media (max-width: 1050px) { .hero-dragon { right: 50%; transform: translate(50%, -46%); width: min(560px, 92%); opacity: .1; } }
+    @media (max-width: 1050px) { .hero-dragon { right: 50%; transform: translate(50%, -46%); width: min(560px, 92%); opacity: .14; } }
+    .hero-aurora { position: absolute; z-index: 0; inset: 0 0 auto; height: 62%; pointer-events: none; opacity: .5; mix-blend-mode: screen; background: radial-gradient(ellipse 45% 58% at 28% 6%, rgba(64,224,164,.42), transparent 62%), radial-gradient(ellipse 42% 62% at 68% 2%, rgba(130,96,224,.32), transparent 60%), radial-gradient(ellipse 60% 52% at 50% 0%, rgba(90,200,255,.3), transparent 66%); animation: aurora-drift 15s ease-in-out infinite alternate; }
+    @keyframes aurora-drift { 0% { transform: translateX(-3%) skewX(-3deg); opacity: .38; } 100% { transform: translateX(3%) skewX(3deg); opacity: .58; } }
     .ah-logo--lg { display: block; width: clamp(150px, 22vw, 232px); height: clamp(150px, 22vw, 232px); margin: 0 auto 26px; filter: drop-shadow(0 0 36px rgba(46,168,255,.34)); animation: logo-glow-lg 4.2s ease-in-out infinite; }
     .final-sign { margin-top: 30px; color: var(--faint); font: 500 10px/1.6 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .final-sign b { color: var(--red-2); font-weight: 500; }
@@ -480,6 +484,7 @@
 
   <main id="top">
     <section class="hero" id="hero">
+      <div class="hero-aurora" aria-hidden="true"></div>
       <div class="hero-dragon" id="hero-dragon" aria-hidden="true"></div>
       <canvas class="hero-canvas" id="hero-model" aria-hidden="true"></canvas>
       <canvas class="hero-storm" id="hero-storm" aria-hidden="true"></canvas>
