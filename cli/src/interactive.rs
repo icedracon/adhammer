@@ -9,12 +9,13 @@ use crate::{
     abuse, adcsenum, asktgt, badsuccessor, coerce, dcshadow, dcsync, dnsenum, esc1, esc4,
     esc_registry_scan, exec_cmd, gmsa, golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd,
     relay, roast, samr, scan, secretsdump, sessions, shadowcred, silver, spray, unconstrained,
-    winrm_exec, wmiexec_cmd, zerologon, AbuseAction, AbuseArgs, AsktgtArgs, BadsuccessorArgs,
-    CoerceArgs, CoercePipe, DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs,
-    GoldenArgs, LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, RelayTarget,
-    SamrArgs, SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs,
-    ZerologonArgs,
+    winrm_exec, wmiexec_cmd, AbuseAction, AbuseArgs, AsktgtArgs, BadsuccessorArgs, CoerceArgs,
+    CoercePipe, DcsyncArgs, DnsArgs, Esc1Args, Esc4Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
+    LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, RelayTarget, SamrArgs,
+    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, SprayArgs, WinrmArgs,
 };
+
+use crate::attacks::zerologon::{zerologon, ZerologonArgs};
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
 const DA_GROUPS: &[u32] = &[513, 512, 520, 518, 519];

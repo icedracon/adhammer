@@ -1,0 +1,11 @@
+//! Active attack handlers — one file per subcommand.
+//!
+//! Each module owns its `Args` struct (referenced from the top-level `Cli`
+//! enum in `main.rs` via `attacks::<name>::<Name>Args`) and its `async fn`
+//! entry point (dispatched from the same enum's match arm). Interactive-mode
+//! callers in `crate::interactive` reference these directly.
+//!
+//! The split from `main.rs` landed in arch-0 (post-1.3.10) to keep each
+//! handler independently reviewable. See `.agents/arch-0-plan.md`.
+
+pub(crate) mod zerologon;
