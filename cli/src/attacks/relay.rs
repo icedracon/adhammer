@@ -5,7 +5,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use crate::adcs_relay;
 
 /// Post-relay write action for `attack relay`.
 ///
@@ -240,7 +239,7 @@ async fn relay_esc8(
     template: &str,
     insecure: bool,
 ) -> Result<()> {
-    use adcs_relay::{
+    use crate::attacks::adcs_relay::{
         base64_decode, base64_encode, cert_request_form, parse_ntlm_challenge, parse_request_id,
         HttpsClient,
     };
@@ -402,7 +401,7 @@ async fn relay_icpr(
 
 /// Wrap raw DER as PEM with the given label.
 fn pem_wrap(label: &str, der: &[u8]) -> String {
-    use adcs_relay::base64_encode;
+    use crate::attacks::adcs_relay::base64_encode;
     let b64 = base64_encode(der);
     let mut out = format!("-----BEGIN {label}-----\n");
     for line in b64.as_bytes().chunks(64) {

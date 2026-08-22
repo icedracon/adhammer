@@ -9,7 +9,7 @@ use adhammer_collector::Collector;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-mod adcs_relay;
+// adcs_relay moved to attacks::adcs_relay in arch-1
 mod attacks;
 mod checks;
 mod dcshadow;

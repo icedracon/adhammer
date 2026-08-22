@@ -9,6 +9,7 @@
 //! handler independently reviewable. See `.agents/arch-0-plan.md`.
 
 pub(crate) mod abuse;
+pub(crate) mod adcs_relay;
 pub(crate) mod asktgt;
 pub(crate) mod badsuccessor;
 pub(crate) mod coerce;
