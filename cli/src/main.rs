@@ -21,6 +21,7 @@ mod host_posture;
 mod interactive;
 mod poison;
 mod session;
+mod shared_args;
 mod ui;
 mod winrm;
 

@@ -14,15 +14,8 @@ use crate::{esc_registry, ui};
 
 #[derive(Parser)]
 pub(crate) struct ScanArgs {
-    /// LDAP URL, e.g. ldap://dc.corp.local:389 or ldaps://dc.corp.local:636
-    #[arg(long)]
-    pub url: String,
-    /// Bind identity: user@realm, DOMAIN\\user, or full DN
-    #[arg(long)]
-    pub user: String,
-    /// Bind password
-    #[arg(long)]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::LdapAuth,
     /// Base DN (defaults to RootDSE defaultNamingContext)
     #[arg(long)]
     pub base_dn: Option<String>,
@@ -43,9 +36,6 @@ pub(crate) struct ScanArgs {
     /// SYSVOL path for `scan` to hunt GPP cpasswords, e.g. \\corp.local\SYSVOL
     #[arg(long)]
     pub sysvol: Option<String>,
-    /// Skip TLS certificate verification (LDAPS against a self-signed / lab DC)
-    #[arg(long)]
-    pub insecure: bool,
     /// SASL GSSAPI bind (signed LDAP over 389 via ambient Kerberos; needs `--features gssapi`)
     #[arg(long)]
     pub gssapi: bool,
@@ -58,11 +48,11 @@ pub(crate) struct ScanArgs {
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
     LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
+        url: a.auth.url.clone(),
+        bind_dn: a.auth.user.clone(),
+        password: a.auth.password.clone(),
         base_dn: a.base_dn.clone(),
-        insecure: a.insecure,
+        insecure: a.auth.insecure,
         gssapi: a.gssapi,
     }
 }
@@ -162,10 +152,11 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
             .collect();
         if !ca_names.is_empty() {
             let host = a
+                .auth
                 .url
                 .split("://")
                 .nth(1)
-                .unwrap_or(&a.url)
+                .unwrap_or(&a.auth.url)
                 .split('/')
                 .next()
                 .unwrap_or("")
@@ -186,14 +177,15 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
                     .to_uppercase()
             });
             let user = a
+                .auth
                 .user
                 .split('@')
                 .next()
                 .and_then(|s| s.split('\\').next_back())
-                .unwrap_or(&a.user)
+                .unwrap_or(&a.auth.user)
                 .to_string();
             let sp = ui::Spinner::start("ESC registry probe (MS-RRP)");
-            match esc_registry_probe(&host, &domain, &user, &a.password, &ca_names).await {
+            match esc_registry_probe(&host, &domain, &user, &a.auth.password, &ca_names).await {
                 Ok(esc_findings) => {
                     let n = esc_findings.len();
                     findings.extend(esc_findings);

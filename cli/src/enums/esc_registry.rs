@@ -14,16 +14,8 @@ use crate::ui;
 
 #[derive(Parser)]
 pub(crate) struct EscArgs {
-    /// CA host. ESC10 is read from this host's Kdc key too, so point it at a DC-hosted CA.
-    #[arg(long)]
-    pub host: String,
-    /// NetBIOS domain, e.g. CORP.
-    #[arg(long)]
-    pub domain: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// CA name (the `Configuration\<CA>` registry key), e.g. corp-CA.
     #[arg(long)]
     pub ca: String,
@@ -37,29 +29,37 @@ pub(crate) async fn esc_registry_scan(a: EscArgs) -> Result<()> {
     use dcerpc::rrp::RegistryClient;
     use smb2_client::SmbClient;
 
-    let sp = ui::Spinner::start(format!("{} — SMB auth + \\winreg", a.host));
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let mut reg = RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host)
-        .await
-        .map_err(|e| {
-            // 0xC00000AC = STATUS_ILLEGAL_FUNCTION → \winreg pipe not exposed, i.e. the
-            // Remote Registry service is stopped/disabled. Very common on hardened DCs.
-            let msg = e.to_string();
-            if msg.contains("0xc00000ac") || msg.contains("open \\winreg") {
-                anyhow::anyhow!(
-                    "\\winreg unreachable on {} — the Remote Registry service is stopped or \
-                     disabled (STATUS_ILLEGAL_FUNCTION 0xC00000AC). Start it on the CA host \
-                     (`Set-Service RemoteRegistry -StartupType Automatic; Start-Service RemoteRegistry`) \
-                     then rerun. ESC1/2/3/4/9/13 don't need this — only ESC6/10/11/16 read \
-                     registry state.",
-                    a.host
-                )
-            } else {
-                e.into()
-            }
-        })?;
+    let sp = ui::Spinner::start(format!("{} — SMB auth + \\winreg", a.auth.host));
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
+    smb.login(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password)
+        .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
+    let mut reg = RegistryClient::connect(
+        &mut smb,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
+        &a.auth.host,
+    )
+    .await
+    .map_err(|e| {
+        // 0xC00000AC = STATUS_ILLEGAL_FUNCTION → \winreg pipe not exposed, i.e. the
+        // Remote Registry service is stopped/disabled. Very common on hardened DCs.
+        let msg = e.to_string();
+        if msg.contains("0xc00000ac") || msg.contains("open \\winreg") {
+            anyhow::anyhow!(
+                "\\winreg unreachable on {} — the Remote Registry service is stopped or \
+                 disabled (STATUS_ILLEGAL_FUNCTION 0xC00000AC). Start it on the CA host \
+                 (`Set-Service RemoteRegistry -StartupType Automatic; Start-Service RemoteRegistry`) \
+                 then rerun. ESC1/2/3/4/9/13 don't need this — only ESC6/10/11/16 read \
+                 registry state.",
+                a.auth.host
+            )
+        } else {
+            e.into()
+        }
+    })?;
     sp.done("Remote Registry reachable");
 
     ui::header(&format!("AD CS registry ESC checks — CA {}", a.ca));
@@ -143,7 +143,7 @@ pub(crate) async fn esc_registry_scan(a: EscArgs) -> Result<()> {
         ui::warn(&format!(
             "{} registry-based ESC exposure(s) on {}",
             hits.len(),
-            a.host
+            a.auth.host
         ));
     }
     Ok(())

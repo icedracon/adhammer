@@ -362,10 +362,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         }
         Action::EnumSamr => {
             samr(SamrArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: sess_hash(s),
             })
             .await
@@ -376,10 +378,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text("Administrator")
                 .interact_text()?;
             lsa(LsaArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: sess_hash(s),
                 name,
             })
@@ -447,20 +451,24 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("CA name (the Configuration\\<CA> key, e.g. corp-CA)")
                 .interact_text()?;
             esc_registry_scan(EscArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 ca,
             })
             .await
         }
         Action::EnumPosture => {
             posture_scan(PostureArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
             })
             .await
         }
@@ -514,10 +522,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .allow_empty(true)
                 .interact_text()?;
             abuse(AbuseArgs {
-                url: Some(s.ldap_url()),
-                user: Some(s.username.clone()),
-                password: Some(s.password.clone()),
-                insecure: s.insecure,
+                auth: crate::shared_args::OptAuth {
+                    url: Some(s.ldap_url()),
+                    user: Some(s.username.clone()),
+                    password: Some(s.password.clone()),
+                    insecure: s.insecure,
+                },
                 action: actions[ai],
                 target,
                 value,
@@ -544,10 +554,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 _ => CoercePipe::Lsarpc,
             };
             coerce(CoerceArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 listener,
                 pipe,
                 target: None,
@@ -592,10 +604,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     .interact_text()?
             };
             dcsync(DcsyncArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 target: if target.is_empty() {
                     None
                 } else {
@@ -653,10 +667,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text("whoami")
                 .interact_text()?;
             exec_cmd(ExecArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: sess_hash(s),
                 command,
             })
@@ -668,10 +684,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text("whoami")
                 .interact_text()?;
             wmiexec_cmd(ExecArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: sess_hash(s),
                 command,
             })
@@ -687,11 +705,13 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text("whoami")
                 .interact_text()?;
             winrm_exec(WinrmArgs {
-                host,
+                auth: crate::shared_args::SmbAuth {
+                    host,
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 port: 5985,
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
                 nt_hash: sess_hash(s),
                 command,
             })
@@ -699,10 +719,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         }
         Action::Secretsdump => {
             secretsdump(SecretsdumpArgs {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: sess_hash(s),
             })
             .await
@@ -752,10 +774,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .default(false)
                 .interact()?;
             esc1(Esc1Args {
-                host: s.dc.clone(),
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host: s.dc.clone(),
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 ca,
                 template,
                 upn,
@@ -897,10 +921,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text(&s.dc)
                 .interact_text()?;
             sessions(SessionsArgs {
-                host,
-                domain: s.netbios(),
-                user: s.username.clone(),
-                password: s.password.clone(),
+                auth: crate::shared_args::SmbAuth {
+                    host,
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
                 nt_hash: s.nt_hash.clone(),
                 include_machine: false,
             })

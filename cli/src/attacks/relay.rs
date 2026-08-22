@@ -5,7 +5,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
-
 /// Post-relay write action for `attack relay`.
 ///
 /// This is the *CLI selector* for what to do with the relayed victim's

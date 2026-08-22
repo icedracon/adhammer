@@ -6,14 +6,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct LsaArgs {
-    #[arg(long)]
-    pub host: String,
-    #[arg(long)]
-    pub domain: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long, default_value = "")]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
     pub nt_hash: Option<String>,
@@ -27,17 +21,18 @@ pub(crate) async fn lsa(a: LsaArgs) -> Result<()> {
     use dcerpc::lsat::LsatClient;
     use smb2_client::SmbClient;
 
-    let mut smb = SmbClient::connect(&a.host).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     crate::smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
     let pipe = smb.open_pipe("lsarpc").await?;
 
     let mut client = LsatClient::bind(&mut smb, pipe).await?;

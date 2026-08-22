@@ -29,15 +29,8 @@ pub(crate) enum AbuseAction {
 
 #[derive(Parser)]
 pub(crate) struct AbuseArgs {
-    /// LDAP URL (required for the LDAP-write actions; unused by `pkinit`)
-    #[arg(long)]
-    pub url: Option<String>,
-    #[arg(long)]
-    pub user: Option<String>,
-    #[arg(long)]
-    pub password: Option<String>,
-    #[arg(long)]
-    pub insecure: bool,
+    #[command(flatten)]
+    pub auth: crate::shared_args::OptAuth,
     /// Which abuse to perform.
     #[arg(long)]
     pub action: AbuseAction,
@@ -65,15 +58,15 @@ pub(crate) struct AbuseArgs {
 
 /// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
 pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
-    // AbuseArgs.password is Option<String>; resolve through the same @file: / env /
+    // AbuseArgs.auth.password is Option<String>; resolve through the same @file: / env /
     // TTY-prompt cascade as every other subcommand. `resolve_secret` returns "" when
     // nothing is available; downstream code turns that into a "needs --password" error
     // for the actions that require one (pkinit branches on the key .pem instead).
     {
-        let cur = a.password.as_deref().unwrap_or("");
+        let cur = a.auth.password.as_deref().unwrap_or("");
         let resolved = crate::resolve_secret(cur, "ADHAMMER_PASSWORD")?;
         if !resolved.is_empty() {
-            a.password = Some(resolved);
+            a.auth.password = Some(resolved);
         }
     }
     // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
@@ -105,8 +98,12 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
     if a.ldap389 {
         let host = a.host.clone().context("--ldap389 needs --host")?;
         let realm = a.realm.clone().context("--ldap389 needs --realm")?;
-        let user = a.user.clone().context("--ldap389 needs --user")?;
-        let password = a.password.clone().context("--ldap389 needs --password")?;
+        let user = a.auth.user.clone().context("--ldap389 needs --user")?;
+        let password = a
+            .auth
+            .password
+            .clone()
+            .context("--ldap389 needs --password")?;
         let bare = user
             .split('@')
             .next()
@@ -136,11 +133,15 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
     }
 
     let cfg = LdapConfig {
-        url: a.url.clone().context("this action needs --url")?,
-        bind_dn: a.user.clone().context("this action needs --user")?,
-        password: a.password.clone().context("this action needs --password")?,
+        url: a.auth.url.clone().context("this action needs --url")?,
+        bind_dn: a.auth.user.clone().context("this action needs --user")?,
+        password: a
+            .auth
+            .password
+            .clone()
+            .context("this action needs --password")?,
         base_dn: None,
-        insecure: a.insecure,
+        insecure: a.auth.insecure,
         gssapi: false,
     };
     let mut c = Collector::connect(&cfg).await?;
@@ -163,7 +164,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         AbuseAction::SetPassword => {
             // AD refuses `unicodePwd` writes on an unencrypted channel — save the user a
             // WILL_NOT_PERFORM roundtrip by front-checking the URL and telling them why.
-            let url = a.url.as_deref().unwrap_or("");
+            let url = a.auth.url.as_deref().unwrap_or("");
             if url.starts_with("ldap://") {
                 anyhow::bail!(
                     "set-password requires an encrypted LDAP channel — use `ldaps://` \

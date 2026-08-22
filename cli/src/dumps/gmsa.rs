@@ -10,18 +10,11 @@ use crate::attacks;
 
 #[derive(Parser)]
 pub(crate) struct DumpGmsaArgs {
+    #[command(flatten)]
+    pub auth: crate::shared_args::LdapAuth,
     /// gMSA sAMAccountName (e.g. `gmsa_web$`).
     #[arg(long)]
     pub target: String,
-    /// LDAP URL (LDAPS required).
-    #[arg(long)]
-    pub url: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
-    #[arg(long)]
-    pub insecure: bool,
 }
 
 /// `dump gmsa` — read a gMSA's `msDS-ManagedPassword` blob. Same status as
@@ -34,10 +27,10 @@ pub(crate) async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
          functionality, one command per capability)."
     );
     attacks::gmsa::gmsa(attacks::gmsa::GmsaArgs {
-        url: a.url,
-        user: a.user,
-        password: a.password,
-        insecure: a.insecure,
+        url: a.auth.url,
+        user: a.auth.user,
+        password: a.auth.password,
+        insecure: a.auth.insecure,
         target: a.target,
     })
     .await

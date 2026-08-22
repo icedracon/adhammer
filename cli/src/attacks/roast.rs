@@ -28,7 +28,7 @@ pub(crate) async fn roast(a: ScanArgs) -> Result<()> {
         }
         Some(kdc) if !kerberoast.is_empty() => {
             // One authenticated TGT, then a TGS-REQ per SPN.
-            match adhammer_kerberos::get_tgt(&a.user, &a.password, &realm, kdc).await {
+            match adhammer_kerberos::get_tgt(&a.auth.user, &a.auth.password, &realm, kdc).await {
                 Err(e) => eprintln!("  TGT acquisition failed: {e}"),
                 Ok(tgt) => {
                     for c in &kerberoast {

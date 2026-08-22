@@ -44,14 +44,16 @@ impl Session {
 
     pub fn scan_args(&self) -> ScanArgs {
         ScanArgs {
-            url: self.ldap_url(),
-            user: self.username.clone(),
-            password: self.password.clone(),
+            auth: crate::shared_args::LdapAuth {
+                url: self.ldap_url(),
+                user: self.username.clone(),
+                password: self.password.clone(),
+                insecure: self.insecure,
+            },
             base_dn: None,
             format: "json".to_string(),
             kdc: Some(self.dc.clone()),
             sysvol: None,
-            insecure: self.insecure,
             gssapi: false,
             bloodhound: None,
             out: None,

@@ -8,15 +8,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct CheckAdcsArgs {
-    /// LDAP URL, e.g. ldaps://dc.corp.local:636
-    #[arg(long)]
-    pub url: String,
-    #[arg(long)]
-    pub user: String,
-    #[arg(long)]
-    pub password: String,
-    #[arg(long)]
-    pub insecure: bool,
+    #[command(flatten)]
+    pub auth: crate::shared_args::LdapAuth,
     /// Emit findings as JSON (default: human-readable).
     #[arg(long)]
     pub json: bool,
@@ -29,11 +22,11 @@ pub(crate) struct CheckAdcsArgs {
 /// `A-AdcsEsc` rule alongside the graph-based paths).
 pub(crate) async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
     let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
+        url: a.auth.url.clone(),
+        bind_dn: a.auth.user.clone(),
+        password: a.auth.password.clone(),
         base_dn: None,
-        insecure: a.insecure,
+        insecure: a.auth.insecure,
         gssapi: false,
     };
     let snap = Collector::connect(&cfg).await?.collect().await?;

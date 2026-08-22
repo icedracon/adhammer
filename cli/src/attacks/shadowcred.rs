@@ -34,10 +34,12 @@ pub(crate) struct ShadowcredArgs {
 pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
     // Phase 1: plant the KeyCredential.
     abuse(AbuseArgs {
-        url: Some(a.url.clone()),
-        user: Some(a.user.clone()),
-        password: Some(a.password.clone()),
-        insecure: a.insecure,
+        auth: crate::shared_args::OptAuth {
+            url: Some(a.url.clone()),
+            user: Some(a.user.clone()),
+            password: Some(a.password.clone()),
+            insecure: a.insecure,
+        },
         action: AbuseAction::AddKeycred,
         target: a.target.clone(),
         value: String::new(),
@@ -54,10 +56,12 @@ pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
         };
         // Phase 2: PKINIT with the freshly-planted key to obtain a TGT as the target.
         abuse(AbuseArgs {
-            url: Some(a.url),
-            user: Some(a.user),
-            password: Some(a.password),
-            insecure: a.insecure,
+            auth: crate::shared_args::OptAuth {
+                url: Some(a.url),
+                user: Some(a.user),
+                password: Some(a.password),
+                insecure: a.insecure,
+            },
             action: AbuseAction::Pkinit,
             target: a.target,
             value: String::new(),

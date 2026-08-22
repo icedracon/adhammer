@@ -6,18 +6,8 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub(crate) struct SamrArgs {
-    /// DC host or IP
-    #[arg(long)]
-    pub host: String,
-    /// NetBIOS domain, e.g. CORP
-    #[arg(long)]
-    pub domain: String,
-    /// Username (sAMAccountName)
-    #[arg(long)]
-    pub user: String,
-    /// Password
-    #[arg(long, default_value = "")]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
     pub nt_hash: Option<String>,
@@ -29,24 +19,25 @@ pub(crate) async fn samr(a: SamrArgs) -> Result<()> {
     use dcerpc::samr::SamrClient;
     use smb2_client::SmbClient;
 
-    let mut smb = SmbClient::connect(&a.host).await?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     crate::smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
     tracing::info!("SMB session established");
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
     let pipe = smb.open_pipe("samr").await?;
     tracing::info!("\\samr pipe open");
 
     let mut client = SamrClient::bind(&mut smb, pipe).await?;
     let users = client
-        .enumerate_all_users(&format!("\\\\{}", a.host))
+        .enumerate_all_users(&format!("\\\\{}", a.auth.host))
         .await?;
     println!("== SAMR users ({}) ==", users.len());
     for (rid, name) in users {

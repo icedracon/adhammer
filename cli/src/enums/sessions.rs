@@ -7,17 +7,8 @@ use crate::{resolve_secret, smb_login};
 
 #[derive(Parser)]
 pub(crate) struct SessionsArgs {
-    /// Target host or IP whose logon sessions to enumerate.
-    #[arg(long)]
-    pub host: String,
-    /// Domain the bind identity belongs to (NetBIOS or DNS form, e.g. `CORP` or `corp.local`).
-    #[arg(long)]
-    pub domain: String,
-    /// Bind username — sAMAccountName, `DOMAIN\user`, or `user@realm`.
-    #[arg(long)]
-    pub user: String,
-    #[arg(long, default_value = "")]
-    pub password: String,
+    #[command(flatten)]
+    pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
     pub nt_hash: Option<String>,
@@ -34,18 +25,19 @@ pub(crate) async fn sessions(mut a: SessionsArgs) -> Result<()> {
     use dcerpc::srvsvc::SrvsvcClient;
     use smb2_client::SmbClient;
 
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    let mut smb = SmbClient::connect(&a.host).await?;
+    a.auth.password = resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
     let pipe = smb.open_pipe("srvsvc").await?;
     let mut srv = SrvsvcClient::bind(&mut smb, pipe).await?;
     let (list, ret) = srv.enum_sessions().await?;
@@ -53,9 +45,9 @@ pub(crate) async fn sessions(mut a: SessionsArgs) -> Result<()> {
         eprintln!("[!] NetrSessionEnum returned 0x{ret:08x} (access denied? need local admin on many hosts)");
     }
     if list.is_empty() {
-        eprintln!("[-] no sessions returned on {}", a.host);
+        eprintln!("[-] no sessions returned on {}", a.auth.host);
     } else {
-        eprintln!("[+] {} session(s) on {}:", list.len(), a.host);
+        eprintln!("[+] {} session(s) on {}:", list.len(), a.auth.host);
         for s in &list {
             let from = if s.client.is_empty() { "?" } else { &s.client };
             println!("    {:<24} from {from}", s.user);
@@ -69,18 +61,19 @@ pub(crate) async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
     use smb2_client::SmbClient;
     use std::collections::BTreeMap;
 
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    let mut smb = SmbClient::connect(&a.host).await?;
+    a.auth.password = resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
     let pipe = smb.open_pipe("wkssvc").await?;
     let mut wks = WkstaUserClient::bind(&mut smb, pipe).await?;
     let (list, ret) = wks.enum_users().await?;
@@ -110,7 +103,7 @@ pub(crate) async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
     if grouped.is_empty() {
         eprintln!(
             "[-] no logged-on users on {} (raw={raw}, machine-hidden={machine_hidden})",
-            a.host
+            a.auth.host
         );
         if machine_hidden > 0 && !a.include_machine {
             eprintln!("    pass --include-machine to show machine-account sessions");
@@ -119,7 +112,7 @@ pub(crate) async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
         eprintln!(
             "[+] {} unique principal(s) on {} (raw={raw}, machine-hidden={machine_hidden}):",
             grouped.len(),
-            a.host
+            a.auth.host
         );
         for ((user, domain, server), count) in &grouped {
             let mark = if *count > 1 {
@@ -138,20 +131,27 @@ pub(crate) async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
     use dcerpc::rrp::RegistryClient;
     use smb2_client::SmbClient;
 
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    let mut smb = SmbClient::connect(&a.host).await?;
+    a.auth.password = resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+    let mut smb = SmbClient::connect(&a.auth.host).await?;
     smb_login(
         &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
+        &a.auth.host,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
         &a.nt_hash,
     )
     .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let mut reg = match RegistryClient::connect(&mut smb, &a.domain, &a.user, &a.password, &a.host)
-        .await
+    smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
+        .await?;
+    let mut reg = match RegistryClient::connect(
+        &mut smb,
+        &a.auth.domain,
+        &a.auth.user,
+        &a.auth.password,
+        &a.auth.host,
+    )
+    .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -159,7 +159,7 @@ pub(crate) async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
             if msg.contains("0xc00000ac") || msg.contains("open \\winreg") {
                 anyhow::bail!(
                     "Remote Registry service is stopped on {} — start it or use `enum wkssvc` / `enum sessions` instead",
-                    a.host
+                    a.auth.host
                 );
             }
             return Err(e.into());
@@ -167,9 +167,13 @@ pub(crate) async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
     };
     let sids = reg.logged_on_sids().await?;
     if sids.is_empty() {
-        eprintln!("[-] no logged-on SIDs via HKU on {}", a.host);
+        eprintln!("[-] no logged-on SIDs via HKU on {}", a.auth.host);
     } else {
-        eprintln!("[+] {} logged-on SID(s) via HKU on {}:", sids.len(), a.host);
+        eprintln!(
+            "[+] {} logged-on SID(s) via HKU on {}:",
+            sids.len(),
+            a.auth.host
+        );
         for s in &sids {
             println!("    {}", s.sid);
         }
