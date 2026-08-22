@@ -6,27 +6,32 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    adcsenum, dcshadow, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, netenum, poison,
-    posture_scan, pth, relay, roast, scan, secretsdump, sessions, winrm_exec, wmiexec_cmd,
-    DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, NetArgs, PostureArgs, PthArgs, RelayArgs,
-    RelayTarget, SecretsdumpArgs, SessionsArgs, WinrmArgs,
+    adcsenum, dcshadow, dnsenum, esc_registry_scan, netenum, poison, posture_scan, roast, scan,
+    sessions, DnsArgs, EscArgs, NetArgs, PostureArgs, SessionsArgs,
 };
 
 use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
 use crate::attacks::asktgt::{asktgt, AsktgtArgs};
 use crate::attacks::badsuccessor::{badsuccessor, BadsuccessorArgs};
 use crate::attacks::coerce::{coerce, CoerceArgs, CoercePipe};
+use crate::attacks::dcsync::{dcsync, DcsyncArgs};
+use crate::attacks::esc1::{esc1, Esc1Args};
 use crate::attacks::esc4::{esc4, Esc4Args};
+use crate::attacks::exec_pack::{exec_cmd, wmiexec_cmd, ExecArgs};
 use crate::attacks::gmsa::{gmsa, GmsaArgs};
 use crate::attacks::golden::{golden, GoldenArgs};
 use crate::attacks::laps::{laps, LapsArgs};
 use crate::attacks::lsa::{lsa, LsaArgs};
+use crate::attacks::ptt::{pth, PthArgs};
 use crate::attacks::rbcd::{rbcd, RbcdArgs};
+use crate::attacks::relay::{relay, RelayArgs, RelayTarget};
 use crate::attacks::samr::{samr, SamrArgs};
+use crate::attacks::secretsdump::{secretsdump, SecretsdumpArgs};
 use crate::attacks::shadowcred::{shadowcred, ShadowcredArgs};
 use crate::attacks::silver::{silver, SilverArgs};
 use crate::attacks::spray::{spray, SprayArgs};
 use crate::attacks::unconstrained::unconstrained;
+use crate::attacks::winrm_exec::{winrm_exec, WinrmArgs};
 use crate::attacks::zerologon::{zerologon, ZerologonArgs};
 
 /// Default Domain-Admin group RID set embedded in forged tickets.

