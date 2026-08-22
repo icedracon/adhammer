@@ -5,10 +5,7 @@ use anyhow::{Context, Result};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
-use crate::{
-    adcsenum, dcshadow, dnsenum, esc_registry_scan, netenum, poison, posture_scan, roast, scan,
-    sessions, DnsArgs, EscArgs, NetArgs, PostureArgs, SessionsArgs,
-};
+use crate::{dcshadow, poison};
 
 use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
 use crate::attacks::asktgt::{asktgt, AsktgtArgs};
@@ -25,7 +22,9 @@ use crate::attacks::lsa::{lsa, LsaArgs};
 use crate::attacks::ptt::{pth, PthArgs};
 use crate::attacks::rbcd::{rbcd, RbcdArgs};
 use crate::attacks::relay::{relay, RelayArgs, RelayTarget};
+use crate::attacks::roast::roast;
 use crate::attacks::samr::{samr, SamrArgs};
+use crate::attacks::scan::scan;
 use crate::attacks::secretsdump::{secretsdump, SecretsdumpArgs};
 use crate::attacks::shadowcred::{shadowcred, ShadowcredArgs};
 use crate::attacks::silver::{silver, SilverArgs};
@@ -33,6 +32,12 @@ use crate::attacks::spray::{spray, SprayArgs};
 use crate::attacks::unconstrained::unconstrained;
 use crate::attacks::winrm_exec::{winrm_exec, WinrmArgs};
 use crate::attacks::zerologon::{zerologon, ZerologonArgs};
+use crate::enums::adcs::adcsenum;
+use crate::enums::dns::{dnsenum, DnsArgs};
+use crate::enums::esc_registry::{esc_registry_scan, EscArgs};
+use crate::enums::net::{netenum, NetArgs};
+use crate::enums::posture::{posture_scan, PostureArgs};
+use crate::enums::sessions::{sessions, SessionsArgs};
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
 const DA_GROUPS: &[u32] = &[513, 512, 520, 518, 519];

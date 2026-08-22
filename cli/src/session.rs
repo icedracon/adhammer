@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::ScanArgs;
+use crate::attacks::scan::ScanArgs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {

@@ -1,11 +1,13 @@
 //! Unconstrained-delegation recon — LDAP-only sweep for hosts carrying the
 //! `TRUSTED_FOR_DELEGATION` UAC bit (0x80000). Also surfaces constrained-with-
-//! protocol-transition accounts. Reuses `crate::ScanArgs` since the collector
-//! bind is identical to `scan`.
+//! protocol-transition accounts. Reuses `crate::attacks::scan::ScanArgs` since
+//! the collector bind is identical to `scan`.
 
 use anyhow::Result;
 
 use adhammer_collector::Collector;
+
+use crate::attacks::scan::{config, ScanArgs};
 
 /// `attack unconstrained` — locate hosts running with `TRUSTED_FOR_DELEGATION` (UAC bit 0x80000)
 /// and print the abuse recipe for each. A domain controller carrying the bit is expected
@@ -14,13 +16,13 @@ use adhammer_collector::Collector;
 ///
 /// LDAP-only recon; no host is contacted. The exploit chain itself runs in later commands
 /// (`attack coerce` for the trigger, capture/extraction to walk off with the TGT).
-pub(crate) async fn unconstrained(a: crate::ScanArgs) -> Result<()> {
+pub(crate) async fn unconstrained(a: ScanArgs) -> Result<()> {
     use adhammer_core::object::uac;
     /// SERVER_TRUST_ACCOUNT — the UAC bit that marks a computer as a domain controller.
     /// A DC's own delegation bit is not the abuse: it's inherent to being a DC.
     const SERVER_TRUST_ACCOUNT: u32 = 0x0000_2000;
 
-    let snap = Collector::connect(&crate::config(&a)).await?.collect().await?;
+    let snap = Collector::connect(&config(&a)).await?.collect().await?;
     let mut risky: Vec<(&str, &str)> = Vec::new(); // (sAM, DN) of non-DC hosts w/ the bit
     let mut dc_baseline = 0usize;
     let mut proto_transition: Vec<(&str, &str)> = Vec::new(); // constrained w/ protocol transition
