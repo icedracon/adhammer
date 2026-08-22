@@ -6,17 +6,25 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::session::{self, Session};
 use crate::{
-    abuse, adcsenum, coerce, dcshadow, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, gmsa,
-    golden, laps, lsa, netenum, poison, posture_scan, pth, rbcd, relay, roast, samr, scan,
-    secretsdump, sessions, shadowcred, silver, winrm_exec, wmiexec_cmd, AbuseAction, AbuseArgs,
-    CoerceArgs, CoercePipe, DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, GmsaArgs, GoldenArgs,
-    LapsArgs, LsaArgs, NetArgs, PostureArgs, PthArgs, RbcdArgs, RelayArgs, RelayTarget, SamrArgs,
-    SecretsdumpArgs, SessionsArgs, ShadowcredArgs, SilverArgs, WinrmArgs,
+    adcsenum, dcshadow, dcsync, dnsenum, esc1, esc_registry_scan, exec_cmd, netenum, poison,
+    posture_scan, pth, relay, roast, scan, secretsdump, sessions, winrm_exec, wmiexec_cmd,
+    DcsyncArgs, DnsArgs, Esc1Args, EscArgs, ExecArgs, NetArgs, PostureArgs, PthArgs, RelayArgs,
+    RelayTarget, SecretsdumpArgs, SessionsArgs, WinrmArgs,
 };
 
+use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
 use crate::attacks::asktgt::{asktgt, AsktgtArgs};
 use crate::attacks::badsuccessor::{badsuccessor, BadsuccessorArgs};
+use crate::attacks::coerce::{coerce, CoerceArgs, CoercePipe};
 use crate::attacks::esc4::{esc4, Esc4Args};
+use crate::attacks::gmsa::{gmsa, GmsaArgs};
+use crate::attacks::golden::{golden, GoldenArgs};
+use crate::attacks::laps::{laps, LapsArgs};
+use crate::attacks::lsa::{lsa, LsaArgs};
+use crate::attacks::rbcd::{rbcd, RbcdArgs};
+use crate::attacks::samr::{samr, SamrArgs};
+use crate::attacks::shadowcred::{shadowcred, ShadowcredArgs};
+use crate::attacks::silver::{silver, SilverArgs};
 use crate::attacks::spray::{spray, SprayArgs};
 use crate::attacks::unconstrained::unconstrained;
 use crate::attacks::zerologon::{zerologon, ZerologonArgs};

