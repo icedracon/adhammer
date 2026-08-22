@@ -844,6 +844,7 @@
 
       (function ahLogo(){
         function mir(inner){ return inner + '<g transform="translate(64,0) scale(-1,1)">' + inner + '</g>'; }
+        function mk(epic){
         var s = '<svg viewBox="0 0 64 64" class="epic" role="img" aria-label="ADhammer — an icedracon project">';
         // 1. energy rays
         var rays = "", i, a, lng;
@@ -857,6 +858,12 @@
         // 3. hexagon frame
         s += '<polygon points="32,4 56.25,18 56.25,46 32,60 7.75,46 7.75,18" fill="rgba(46,168,255,.05)" stroke="url(#hornGrad)" stroke-width="2.4" stroke-linejoin="round" filter="url(#epicGlow)"/>';
         s += '<polygon points="32,9 51.9,20.5 51.9,43.5 32,55 12.1,43.5 12.1,20.5" fill="none" stroke="rgba(46,168,255,.28)" stroke-width="0.8"/>';
+        if (epic) s += '<g stroke="rgba(46,168,255,.82)" stroke-width="1.1" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#epicGlow)">'
+          + '<path d="M13 15 L17.5 20 L14.5 22.5 L20 28"/>'
+          + '<path d="M51 15 L46.5 20 L49.5 22.5 L44 28"/>'
+          + '<path d="M12.5 49 L17.5 44 L14.5 41 L21 37"/>'
+          + '<path d="M51.5 49 L46.5 44 L49.5 41 L43 37"/>'
+          + '</g>';
         // 4. wings (arm + fingers + scalloped membrane + claw)
         var wingL = '<path d="M21 33 L6 21 L3 15 Q4 20 1.6 22 Q5 27 2.6 30 Q6.5 35 7 39 Q13 43 21 42 Z" fill="url(#wingGrad)" stroke="rgba(46,168,255,.62)" stroke-width="0.8" stroke-linejoin="round"/>'
           + '<path d="M21 37 L6 21 M6 21 L3 15 M6 21 L1.6 22 M6 21 L2.6 30 M6 21 L7 39" stroke="rgba(150,215,255,.5)" stroke-width="0.7" fill="none"/>'
@@ -891,13 +898,14 @@
         // 15. chin barbels
         s += mir('<path d="M30 47.5 C 28.5 50, 27.5 52, 28 54.5" stroke="url(#hornGrad)" stroke-width="1.1" fill="none" stroke-linecap="round"/>');
         // 16. forged red-hot hammer, gripped at base
-        s += '<ellipse cx="32" cy="51.2" rx="8.5" ry="4.4" fill="rgba(255,96,36,.4)" filter="url(#epicSoft)"/>';
-        s += '<g filter="url(#epicGlow)">'
+        s += '<ellipse cx="32" cy="51.2" rx="' + (epic ? 11.5 : 8.5) + '" ry="' + (epic ? 5.8 : 4.4) + '" fill="rgba(255,96,36,.42)" filter="url(#epicSoft)"/>';
+        s += '<g filter="url(#epicGlow)"' + (epic ? ' transform="translate(32 53) scale(1.34) translate(-32 -53)"' : '') + '>'
           + '<rect x="30.7" y="49.5" width="2.6" height="9" rx="0.7" fill="url(#steelGrad)"/>'
           + '<rect x="26.5" y="49" width="11" height="4.4" rx="1.1" fill="url(#steelGrad)" stroke="#241f16" stroke-width="0.4"/>'
           + '<rect x="26.5" y="49" width="2.5" height="4.4" rx="0.6" fill="rgba(255,124,48,.95)"/>'
           + '<rect x="35" y="49" width="2.5" height="4.4" rx="0.6" fill="rgba(255,124,48,.95)"/>'
           + '<path d="M26.9 51.2 L37.1 51.2" stroke="rgba(255,170,90,.75)" stroke-width="0.5"/>'
+          + (epic ? '<path d="M32 49.6 l-1.7 2.1 l1.7 1.5 l1.7 -1.5 z" fill="rgba(46,168,255,.95)"/>' : '')
           + '</g>';
         // 17. core blaze
         s += '<circle cx="32" cy="43" r="8.4" fill="url(#coreGrad)" filter="url(#epicSoft)" opacity=".5"/>';
@@ -905,8 +913,11 @@
         s += '<circle class="ep-core2" cx="32" cy="43" r="1.7" fill="#f0fbff"/>';
         s += '<circle class="ep-ember e1" cx="30.2" cy="40.5" r="0.75" fill="#5cc8ff"/><circle class="ep-ember e2" cx="34" cy="41.5" r="0.65" fill="#bfe6ff"/><circle class="ep-ember e3" cx="32" cy="39" r="0.6" fill="#5cc8ff"/>';
         s += '</svg>';
+        return s;
+        }
+        var compact = mk(false), grand = mk(true);
         var marks = Array.prototype.slice.call(document.querySelectorAll(".ah-logo"));
-        marks.forEach(function(el){ el.innerHTML = s; });
+        marks.forEach(function(el){ el.innerHTML = el.classList.contains("ah-logo--lg") ? grand : compact; });
         if (!reduced && "IntersectionObserver" in window) {
           var lio = new IntersectionObserver(function(es){ es.forEach(function(e){ e.target.classList.toggle("ep-paused", !e.isIntersecting); }); }, { threshold: 0 });
           marks.forEach(function(el){ lio.observe(el); });
