@@ -1,0 +1,27 @@
+# ADhammer
+
+> ADhammer is an open-source (MIT) Rust tool for Active Directory penetration testing and security auditing. It collects a domain over LDAP, builds a control-path graph to Tier-0, validates the path with real on-the-wire evidence, and reports findings as JSON, HTML, Markdown, and BloodHound-CE. It ships as one static binary and is also usable as a Rust library.
+
+## What it is
+- Language: Rust. Single static binary; install with `cargo install adhammer`.
+- Author / org: zevs / icedracon — https://crates.io/users/zevs
+- License: MIT. Source: https://github.com/icedracon/adhammer
+
+## Capabilities
+- Collect: LDAP objects, ACEs, trusts, AD CS, delegation, and security posture into one typed in-memory model.
+- Graph: directional control edges; resolves the cheapest viable path to Tier-0; exports BloodHound-CE.
+- Attack / validate: AD CS ESC coverage (15 of 16 classes), Kerberoasting, DCSync, RBCD, Zerologon safe-detect, and more — each hop is promoted from POSSIBLE to PROVEN only on concrete evidence.
+- Report: JSON, HTML, Markdown, and BloodHound-CE; finding, path, proof, command, and MITRE technique stay linked across every export.
+
+## Who it is for
+- Penetration testers, red teamers, and Active Directory security specialists.
+- Built on the icedracon ecosystem of 61 standalone Rust crates implementing Microsoft security protocols.
+
+## Links
+- Install: `cargo install adhammer` — https://crates.io/crates/adhammer
+- Library: `cargo add adhammer-sdk`
+- Source: https://github.com/icedracon/adhammer
+- Crates by author: https://crates.io/users/zevs
+
+## Authorized use only
+ADhammer implements working offensive security techniques. Use it exclusively against systems you own or are explicitly authorized to test.
