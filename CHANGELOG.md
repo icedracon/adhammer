@@ -5,8 +5,138 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
-### Added
-- **WS-5 (1.4.1): DACL Attacks II** — five new `attack abuse` actions
+## [1.4.1] — 2026-08-24
+
+The **"grandiozno"** feature release. 12 workstreams + 5 refactor passes.
+Skips permanently-yanked 1.4.0 slot on crates.io. Live-validated against
+Windows Server 2022 + 2025 DCs (both `testlab.local` forests).
+
+### Added — feature workstreams
+
+**WS-1 MSSQL** — `attack mssql` subcommand: TDS 7.4 over NTLM, `--query`,
+comma-separated `--execute-as` chain (LIFO push, REVERT unwind on both
+paths), `--database`, `--port`, `--tsv`. Requires `ms-tds 0.1.1`
+(new `run_query` / `impersonate` / `revert_to_self` + SQL builders).
+Row-content rendering waits on ms-tds ROW decoder.
+
+**WS-2 DCShadow modern (DRSUAPI path)** — bypasses 2019+ LDAP
+"system-owned attribute" hardening. `attack dcshadow --drsuapi
+--prep <rogue-dsa>` (IDL_DRSAddEntry opnum 17), `--drsuapi --push
+--target <sam> --attr <name> --value <val>` (IDL_DRSReplicaAdd
+opnum 5 + AddEntry modify), `--drsuapi --cleanup`. LDAP-path prep
+retained with "≤ Server 2016 only" doc note. Requires `ms-drsr 0.2.0`.
+
+**WS-3 cross-forest `--foreign-sid`** — `attack golden --foreign-sid
+<SID>[,<SID>…]` injects foreign SIDs into PAC's KERB_SID_AND_ATTRIBUTES
+(MS-PAC 2.5, Attributes = 0x7). On a trusting forest with SID filtering
+DISABLED, the KDC accepts the injected principal. Requires
+`ms-pac-forge 0.1.3`.
+
+**WS-4 Kerberos sealed bind primitives (Phase 1 only)** — dcerpc now
+exposes `RPC_C_AUTHN_GSS_KERBEROS` (0x10), PDU framers
+(`build_bind_auth_kerberos` / `build_auth3_kerberos` /
+`build_request_sealed_krb`), an RFC 4121 `WrapToken` header codec,
+and a `KrbSealer` trait. Phase 2 concrete `AesCtsHmacSha1KrbSealer`
++ `RpcTcp::bind_sealed_kerberos` wire deferred to 1.4.2. dcerpc 0.3.0
+primitives stay unpublished until Phase 2 lands.
+
+**WS-5 DACL Attacks II** — 5 new `attack abuse` actions extending the
+DACL chapter to full CAPE coverage: `write-owner`, `write-dacl`,
+`set-primary-group`, `gpo-link-modify`, `allowed-to-act` (alias of
+write-rbcd). All Collector::read/write helpers hand-rolled without a
+windows-sddl bump.
+
+**WS-6 Shadow Credentials management** — `attack shadowcred --list`
+(parse KEYCREDENTIALLINK_BLOB entries — DeviceId + created + usage +
+source columns), `--remove <DeviceId>`, `--clear` (with `--yes` gate).
+
+**WS-7 Password spray lockout protection** — `attack spray
+--lockout-threshold N` + `--lockout-window <secs>`. Per-user sliding-
+window failure counter; skip users that trip the guard; final tally
+on run end.
+
+**WS-8 UAC flag management** — new `AbuseAction::SetUacFlags`.
+Comma-separated `--value` OR's bits into `userAccountControl`
+(DONT_REQUIRE_PREAUTH / TRUSTED_FOR_DELEGATION /
+TRUSTED_TO_AUTH_FOR_DELEGATION / DONT_EXPIRE_PASSWORD /
+ACCOUNTDISABLE / PASSWD_NOTREQD). Live-verified on DC01:
+`0x00010200 → 0x00410200` with DONT_REQUIRE_PREAUTH. PFX export
+deferred to 1.4.2.
+
+**WS-9 Multi-format report output** — `scan --out <path>` now infers
+`.md` / `.txt` formats. New `--out-all <dir>` writes all four
+(`report.json` / `report.md` / `report.html` / `report-summary.txt`)
+in one pass. Markdown has TOC + per-severity sections; plaintext
+summary shows top-N findings (default 10). Zero new deps
+(no chrono — hand-rolled Hinnant civil-from-days).
+
+**WS-10 Composite attack-chain narrative** — new
+`crates/report/src/composite.rs` cross-references findings post-scan
+to emit English composite chains. 4 chains ship in 1.4.1
+(Coercion + ESC8 → DA cert / ESC1 → PKINIT / MAQ + ESC8 → full relay /
+DCSync + Shadow Cred → replicate). Rendered in JSON
+(`composite_chains` array), HTML (top section), MD (`## Attack chains`),
+and TXT summary. Extend as more checks land (SMB-signing check needed
+for the other 6 chains).
+
+**WS-11 Anonymous fingerprint mode** — `scan --anonymous` skips the
+authenticated collection and runs port scan (12 ports) + null-session
+SMB negotiate + raw UDP SRV query for `_ldap._tcp.dc._msdcs.<domain>`
++ RootDSE anonymous fingerprint. Live-verified against DC01
+(4 findings across 4 sources; all 4 report files written).
+
+**WS-12 `adhammer setup krb5` — interactive krb5.conf generator.**
+`adhammer setup krb5 --realm <REALM> --dc <IP>` (both optional; prompts
+via dialoguer if missing; discovers DC via SRV if `--dc` not given).
+Emits a working krb5.conf to `~/.krb5.conf` (Unix) or
+`%APPDATA%\krb5.conf` (Windows). Prints the `KRB5_CONFIG=…` export line.
+
+### Added — helper prep (CLI wiring in 1.4.2)
+
+**WS-13 prep — `adhammer_collector::dns_record`** — public
+`build_a_record()` DNS_RPC_RECORD builder (MS-DNSP 2.2.2.2.1) so
+downstream users can build their own ADIDNS write tooling on it.
+Full `attack dns` CLI (add-a / modify-a / tombstone / delete)
+lands in 1.4.2.
+
+### Changed — internal refactor (no CLI surface change)
+
+- **arch-0** — `cli/src/main.rs` 5670 → 832 lines (−85%). 35 handlers
+  extracted into `cli/src/{attacks,enums,dumps,checks}/` subtrees
+  across 4 batches. Zero behavior change.
+- **arch-1** — `cli/src/adcs_relay.rs` → `cli/src/attacks/adcs_relay.rs`
+  for subtree consistency.
+- **ux-0** — `SmbAuth` / `LdapAuth` / `OptAuth` `#[derive(clap::Args)]`
+  structs flattened into 16 subcommand Args via `#[command(flatten)]`.
+  Removes ~300 LOC dedup; `--help` surface byte-for-byte identical.
+- **ux-2** — unified `--target` classifier + resolver helpers in
+  `cli/src/target.rs`.
+- **ux-7** — grouped interactive menu (Recon / Creds / Lateral /
+  Persist / Session) with two-level Select + `← Back`.
+
+### Compatibility notes
+
+- **1.4.0 is permanently yanked on crates.io.** Numbering skips to 1.4.1.
+- **MSRV stays at 1.87** (bumped in 1.3.10; no further bump in 1.4.1).
+- **Sibling crate bumps required by 1.4.1:** `ms-pac-forge 0.1.3`,
+  `ms-drsr 0.2.0`, `ms-tds 0.1.1` (all published on crates.io).
+- **`dcerpc` stays at 0.2.x on crates.io for 1.4.1.** The 0.3.0
+  Kerberos sealed-bind primitives (WS-4 Phase 1) ship together with
+  Phase 2 concrete crypto in 1.4.2.
+
+### Deferred to 1.4.2
+
+- WS-1 Phase 3 live query (needs MSSQL Express install on 2025server1)
+- WS-2 Phase 3 live DCShadow push (needs benign-attr capture-then-restore)
+- WS-3 cross-forest positive validation (needs inter-realm trust — 1.4.2 WS-E lab)
+- WS-4 Phase 2 (concrete AES-CTS-HMAC-SHA1-96 sealer + rpc bind wire)
+- WS-8 Phase 2 (PFX export on shadowcred — real PKCS#12 out of scope)
+- WS-13 `attack dns` CLI (helper prepped; CLI in 1.4.2)
+- WS-14 `--allow-cross-trust` on `attack constrained` (needs cross-realm TGS plumbing)
+- dcerpc 17 pre-existing clippy warnings cleanup (blocks dcerpc 0.3.0 publish)
+- WS-F SCCM + SCOM enum, WS-G ADIDNS DELETE, WS-H krb5.conf enhancements
+
+## [1.3.10] — 2026-08-23
   extending the DACL-write chapter to full CAPE coverage:
   - `write-owner` — rewrite Owner SID in `nTSecurityDescriptor`
     (SD_FLAGS-controlled read, in-place owner splice, write-back).

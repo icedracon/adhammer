@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.3.10"
+version = "1.4.1"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -45,18 +45,18 @@ ms-icpr      = "0.1.2"
 ms-gkdi      = "0.1"
 # TDS 7.4 client (MSSQL). Used by `attack mssql` (WS-1, 1.4.1) — xp_cmdshell
 # and EXECUTE AS impersonation chains over an NTLM-authenticated session.
-ms-tds       = "0.1"
+ms-tds       = "0.1.1"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.3.10" }
-adhammer-collector = { path = "crates/collector", version = "1.3.10", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.3.10" }
-adhammer-graph     = { path = "crates/graph",     version = "1.3.10" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.3.10" }
-adhammer-report    = { path = "crates/report",    version = "1.3.10" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.3.10" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.3.10" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.3.10" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.3.10" }
+adhammer-core      = { path = "crates/core",      version = "1.4.1" }
+adhammer-collector = { path = "crates/collector", version = "1.4.1", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.4.1" }
+adhammer-graph     = { path = "crates/graph",     version = "1.4.1" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.1" }
+adhammer-report    = { path = "crates/report",    version = "1.4.1" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.1" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.4.1" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.1" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.4.1" }
 
 # external
 serde       = { version = "1", features = ["derive"] }
@@ -89,23 +89,5 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-# [patch.crates-io] entries removed 2026-08-09: ms-ndr 0.1.0 and smb2-client 0.2.1
-# are both published on crates.io, no local patching needed. dcerpc was already
-# commented due to the ms-nrpc cycle. If local dev needs sibling repos again, add
-# entries back locally but do NOT commit — GitHub runners lack sibling dirs.
-#
-# 1.4.1 WS-3: ms-pac-forge 0.1.3 (cross-forest ExtraSids) is stay-local per
-# directive — not published to crates.io. This local patch pins the CLI + kerberos
-# crate to the sibling repo so `--foreign-sid` on `attack golden` reaches the
-# 0.1.3 marshaler.
-#
-# 1.4.1 WS-2: ms-drsr 0.2.0 (IDL_DRSAddEntry + IDL_DRSReplicaAdd) is stay-local
-# per directive. Powers the DRSUAPI-path DCShadow prep+push. MUST be reverted
-# before any push — GitHub runners lack the ../ms-drsr sibling.
-#
-# 1.4.1 WS-1: ms-tds 0.1.1 (run_query + impersonate + revert_to_self) is
-# stay-local per directive. Powers `attack mssql` (xp_cmdshell + EXECUTE AS).
-[patch.crates-io]
-ms-pac-forge = { path = "../ms-pac-forge" }
-ms-drsr = { path = "../ms-drsr" }
-ms-tds = { path = "../ms-tds" }
+# [patch.crates-io] removed for 1.4.1 ship — ms-pac-forge 0.1.3,
+# ms-drsr 0.2.0, ms-tds 0.1.1 published (currently YANKED; un-yank before push).
