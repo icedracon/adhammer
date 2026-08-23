@@ -21,6 +21,7 @@ mod host_posture;
 mod interactive;
 mod poison;
 mod session;
+mod setup;
 mod shared_args;
 mod target;
 mod ui;
@@ -73,6 +74,9 @@ enum Command {
     Dump(DumpCmd),
     /// Guided: scan → correlate → confirm each weakness → validate + PoC → report.
     Auto(AutoArgs),
+    /// One-shot onboarding helpers: `setup krb5` writes a working krb5.conf.
+    #[command(subcommand)]
+    Setup(setup::SetupCmd),
 }
 
 #[derive(Subcommand)]
@@ -476,6 +480,9 @@ fn cmd_label(cmd: &Command) -> &'static str {
             DumpCmd::Gmsa(_) => "dump gmsa",
         },
         Command::Auto(_) => "auto",
+        Command::Setup(s) => match s {
+            setup::SetupCmd::Krb5(_) => "setup krb5",
+        },
     }
 }
 
@@ -538,6 +545,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,
+        Command::Setup(setup::SetupCmd::Krb5(a)) => setup::krb5::run(a).await,
         Command::Auto(a) => {
             guided::guided(guided::GuidedArgs {
                 url: a.url,
@@ -844,7 +852,10 @@ async fn dcshadow(mut a: DcshadowArgs) -> Result<()> {
                 "DRSUAPI (IDL_DRSAddEntry opnum 17)",
             )
         } else {
-            (dcshadow::prep(&mut coll, name, &a.site).await?, "LDAP (≤2016)")
+            (
+                dcshadow::prep(&mut coll, name, &a.site).await?,
+                "LDAP (≤2016)",
+            )
         };
         println!("[+] DCShadow prep registered rogue nTDSDSA via {path}");
         println!("    Server : {}", dns.server_dn);

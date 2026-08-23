@@ -218,7 +218,13 @@ async fn port_scan(host: &str) -> Vec<(u16, &'static str)> {
 
 /// Raw UDP DNS SRV query — no dep. Returns `(priority, weight, port, target)`
 /// tuples, or None if the request failed or was refused.
-async fn dns_srv(dns_host: &str, qname: &str) -> Option<Vec<(u16, u16, u16, String)>> {
+///
+/// Also consumed by `adhammer setup krb5` (WS-12, 1.4.1) to auto-discover the
+/// KDC via `_kerberos._tcp.<realm>` before writing the krb5.conf.
+pub(crate) async fn dns_srv(
+    dns_host: &str,
+    qname: &str,
+) -> Option<Vec<(u16, u16, u16, String)>> {
     let sock = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
     sock.connect((dns_host, 53)).await.ok()?;
     let mut q: Vec<u8> = vec![0x13, 0x39, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
