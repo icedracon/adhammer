@@ -85,104 +85,131 @@ enum Action {
     Exit,
 }
 
-const MENU: &[(&str, Action)] = &[
-    ("Scan — passive audit (41 checks + graph)", Action::Scan),
+/// Two-level grouped menu (ux-7). First Select picks a category; second Select
+/// picks an action inside it (plus a `← Back` option to return to categories).
+/// Categories are ordered by attacker workflow: Recon → Creds → Lateral →
+/// Persist → Session (housekeeping).
+const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
     (
-        "Guided — scan → confirm each weakness → validate + PoC report",
-        Action::Guided,
-    ),
-    ("Roast — Kerberoast + AS-REP", Action::Roast),
-    ("Spray — password spray", Action::Spray),
-    ("Enum SAMR — list domain users", Action::EnumSamr),
-    ("Enum LSA — name to SID", Action::EnumLsa),
-    ("Net — network sweep", Action::NetSweep),
-    ("DNS — enumerate ADIDNS zones/records", Action::DnsEnum),
-    (
-        "AD CS — enumerate CAs + ESC8 web-enrollment check",
-        Action::AdcsEnum,
-    ),
-    (
-        "ESC (registry) — ESC6/7/10/11/16 over MS-RRP",
-        Action::EnumEsc,
-    ),
-    (
-        "Posture — LDAP signing / channel binding + Spooler (relay enablers)",
-        Action::EnumPosture,
-    ),
-    ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
-    ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
-    (
-        "Zerologon — CVE-2020-1472 SAFE detection (no reset)",
-        Action::Zerologon,
-    ),
-    ("RBCD — impersonation chain", Action::Rbcd),
-    ("DCSync — replicate secrets", Action::Dcsync),
-    ("Capture — NTLM listener", Action::Capture),
-    ("Poison — LLMNR / NBT-NS", Action::Poison),
-    ("Relay — NTLM → LDAP shadow cred", Action::Relay),
-    (
-        "Exec — SVCCTL command as LocalSystem (psexec)",
-        Action::Exec,
-    ),
-    (
-        "WMIexec — DCOM Win32_Process.Create (output over C$)",
-        Action::Wmiexec,
-    ),
-    ("WinRM — run a command over WS-Man (5985)", Action::Winrm),
-    (
-        "Secretsdump — local SAM hashes (reg save + C$)",
-        Action::Secretsdump,
-    ),
-    ("gMSA — read managed password → NT hash", Action::Gmsa),
-    ("LAPS — read local-admin passwords", Action::Laps),
-    ("ESC1 — AD CS cert enroll (spoofed UPN SAN)", Action::Esc1),
-    ("AskTGT — password → Kerberos ccache", Action::Asktgt),
-    ("Golden — forge a TGT (krbtgt key)", Action::Golden),
-    (
-        "Silver — forge a service ticket (service key)",
-        Action::Silver,
+        "Recon — passive enumeration + safe probes",
+        &[
+            ("Scan — passive audit (41 checks + graph)", Action::Scan),
+            (
+                "Guided — scan → confirm each weakness → validate + PoC report",
+                Action::Guided,
+            ),
+            ("Enum SAMR — list domain users", Action::EnumSamr),
+            ("Enum LSA — name to SID", Action::EnumLsa),
+            (
+                "Enum sessions — SRVSVC NetrSessionEnum (session hunting)",
+                Action::EnumSessions,
+            ),
+            ("Net — network sweep", Action::NetSweep),
+            ("DNS — enumerate ADIDNS zones/records", Action::DnsEnum),
+            (
+                "AD CS — enumerate CAs + ESC8 web-enrollment check",
+                Action::AdcsEnum,
+            ),
+            (
+                "ESC (registry) — ESC6/7/10/11/16 over MS-RRP",
+                Action::EnumEsc,
+            ),
+            (
+                "Posture — LDAP signing / channel binding + Spooler (relay enablers)",
+                Action::EnumPosture,
+            ),
+            (
+                "Unconstrained delegation — list TRUSTED_FOR_DELEGATION hosts",
+                Action::Unconstrained,
+            ),
+            (
+                "DCShadow — enumerate accounts holding DCSync rights",
+                Action::Dcshadow,
+            ),
+            (
+                "Zerologon — CVE-2020-1472 SAFE detection (no reset)",
+                Action::Zerologon,
+            ),
+        ],
     ),
     (
-        "Pass-the-ticket — forge → Kerberos SMB → run as SYSTEM",
-        Action::Pth,
+        "Creds — obtain hashes, tickets, or forged material",
+        &[
+            ("Roast — Kerberoast + AS-REP", Action::Roast),
+            ("Spray — password spray", Action::Spray),
+            ("DCSync — replicate secrets", Action::Dcsync),
+            (
+                "Secretsdump — local SAM hashes (reg save + C$)",
+                Action::Secretsdump,
+            ),
+            ("gMSA — read managed password → NT hash", Action::Gmsa),
+            ("LAPS — read local-admin passwords", Action::Laps),
+            ("AskTGT — password → Kerberos ccache", Action::Asktgt),
+            ("Golden — forge a TGT (krbtgt key)", Action::Golden),
+            (
+                "Silver — forge a service ticket (service key)",
+                Action::Silver,
+            ),
+        ],
     ),
     (
-        "Enum sessions — SRVSVC NetrSessionEnum (session hunting)",
-        Action::EnumSessions,
+        "Lateral — active attack primitives",
+        &[
+            ("Abuse — LDAP write (SPN / keycred / RBCD …)", Action::Abuse),
+            ("Coerce — PetitPotam / PrinterBug", Action::Coerce),
+            ("Capture — NTLM listener", Action::Capture),
+            ("Poison — LLMNR / NBT-NS", Action::Poison),
+            ("Relay — NTLM → LDAP / AD CS / ICPR", Action::Relay),
+            (
+                "Pass-the-ticket — forge → Kerberos SMB → run as SYSTEM",
+                Action::Pth,
+            ),
+            (
+                "Constrained delegation — S4U2Self+S4U2Proxy via AllowedToDelegateTo",
+                Action::Constrained,
+            ),
+            ("RBCD — impersonation chain", Action::Rbcd),
+            (
+                "Exec — SVCCTL command as LocalSystem (psexec)",
+                Action::Exec,
+            ),
+            (
+                "WMIexec — DCOM Win32_Process.Create (output over C$)",
+                Action::Wmiexec,
+            ),
+            ("WinRM — run a command over WS-Man (5985)", Action::Winrm),
+            ("ESC1 — AD CS cert enroll (spoofed UPN SAN)", Action::Esc1),
+            (
+                "ESC4 — flip a cert template's flags → ESC1-vulnerable",
+                Action::Esc4,
+            ),
+            (
+                "BadSuccessor (2025) — dMSA that succeeds a Domain Admin",
+                Action::Badsuccessor,
+            ),
+        ],
     ),
     (
-        "Unconstrained delegation — list TRUSTED_FOR_DELEGATION hosts",
-        Action::Unconstrained,
+        "Persist — implants + shadow accounts",
+        &[(
+            "Shadow Credentials — plant KeyCredentialLink (+ PKINIT chain)",
+            Action::Shadowcred,
+        )],
     ),
     (
-        "Shadow Credentials — plant KeyCredentialLink (+ PKINIT chain)",
-        Action::Shadowcred,
+        "Session — roadmap, wipe creds, exit",
+        &[
+            (
+                "Show open vectors (VECTORS.md summary)",
+                Action::ShowRoadmap,
+            ),
+            (
+                "Wipe saved session (delete creds from disk)",
+                Action::WipeSession,
+            ),
+            ("Exit", Action::Exit),
+        ],
     ),
-    (
-        "ESC4 — flip a cert template's flags → ESC1-vulnerable",
-        Action::Esc4,
-    ),
-    (
-        "BadSuccessor (2025) — dMSA that succeeds a Domain Admin",
-        Action::Badsuccessor,
-    ),
-    (
-        "DCShadow — enumerate accounts holding DCSync rights",
-        Action::Dcshadow,
-    ),
-    (
-        "Constrained delegation — S4U2Self+S4U2Proxy via AllowedToDelegateTo",
-        Action::Constrained,
-    ),
-    (
-        "Show open vectors (VECTORS.md summary)",
-        Action::ShowRoadmap,
-    ),
-    (
-        "Wipe saved session (delete creds from disk)",
-        Action::WipeSession,
-    ),
-    ("Exit", Action::Exit),
 ];
 
 /// Colored boxed banner + session line shown above the interactive menu.
@@ -226,18 +253,33 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
     };
 
     let theme = ColorfulTheme::default();
-    loop {
+    'outer: loop {
         banner(&sess);
 
-        let labels: Vec<&str> = MENU.iter().map(|(l, _)| *l).collect();
-        let idx = Select::with_theme(&theme)
-            .with_prompt("Choose action")
-            .items(&labels)
+        // First level: pick a category.
+        let cat_labels: Vec<&str> = CATEGORIES.iter().map(|(l, _)| *l).collect();
+        let ci = Select::with_theme(&theme)
+            .with_prompt("Category")
+            .items(&cat_labels)
             .default(0)
             .interact()
-            .context("menu cancelled")?;
+            .context("category cancelled")?;
 
-        match &MENU[idx].1 {
+        // Second level: pick an action in that category, or ← Back to categories.
+        let actions = CATEGORIES[ci].1;
+        let mut action_labels: Vec<String> = actions.iter().map(|(l, _)| (*l).to_string()).collect();
+        action_labels.push("← Back to categories".to_string());
+        let ai = Select::with_theme(&theme)
+            .with_prompt(cat_labels[ci])
+            .items(&action_labels)
+            .default(0)
+            .interact()
+            .context("action cancelled")?;
+        if ai == actions.len() {
+            continue 'outer; // Back
+        }
+
+        match &actions[ai].1 {
             Action::Exit => break,
             Action::ShowRoadmap => {
                 print_roadmap_summary();
