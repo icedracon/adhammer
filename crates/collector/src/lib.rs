@@ -798,8 +798,94 @@ impl Collector {
     }
 }
 
+/// Result of an anonymous RootDSE fingerprint (`scan --anonymous`). All strings
+/// come from RootDSE attributes that AD returns without a bound identity.
+#[derive(Debug, Clone, Default)]
+pub struct RootDseAnon {
+    pub default_nc: String,
+    pub dns_host: String,
+    pub server_name: String,
+    pub controls_count: usize,
+    pub sasl: Vec<String>,
+    /// Non-zero only on legacy 2003/2008 DCs with dSHeuristics permitting
+    /// anonymous subtree read — modern AD returns access-denied here.
+    pub anon_subtree_hit: usize,
+}
+
+/// Anonymous simple_bind + RootDSE read + opportunistic subtree probe. Never
+/// touches `--user` / `--password`. Fails fast if the DC refuses the anonymous
+/// bind (rare on AD; RootDSE is anonymously readable by design).
+pub async fn read_rootdse_anonymous(url: &str, insecure: bool) -> Result<RootDseAnon> {
+    let (conn, mut ldap) = if insecure {
+        LdapConnAsync::with_settings(insecure_settings()?, url).await
+    } else {
+        LdapConnAsync::new(url).await
+    }
+    .context("anonymous ldap connect")?;
+    ldap3::drive!(conn);
+    // Empty bind_dn + empty password = anonymous simple_bind.
+    ldap.simple_bind("", "").await.context("anonymous bind")?;
+    let (rs, _) = ldap
+        .search(
+            "",
+            Scope::Base,
+            "(objectClass=*)",
+            vec![
+                "defaultNamingContext",
+                "dnsHostName",
+                "serverName",
+                "supportedControl",
+                "supportedSASLMechanisms",
+            ],
+        )
+        .await
+        .context("RootDSE search")?
+        .success()
+        .context("RootDSE result")?;
+    let e = rs.into_iter().next().context("empty RootDSE")?;
+    let se = SearchEntry::construct(e);
+    let one = |k: &str| se.attrs.get(k).and_then(|v| v.first()).cloned();
+
+    let mut out = RootDseAnon {
+        default_nc: one("defaultNamingContext").unwrap_or_default(),
+        dns_host: one("dnsHostName").unwrap_or_default(),
+        server_name: one("serverName").unwrap_or_default(),
+        controls_count: se
+            .attrs
+            .get("supportedControl")
+            .map(|v| v.len())
+            .unwrap_or(0),
+        sasl: se
+            .attrs
+            .get("supportedSASLMechanisms")
+            .cloned()
+            .unwrap_or_default(),
+        anon_subtree_hit: 0,
+    };
+
+    // Legacy exposure probe: on 2003/2008 the anonymous simple_bind can still
+    // subtree-read the domain if dSHeuristics allowed it. Modern DCs return an
+    // empty result set or access-denied; both leave anon_subtree_hit = 0.
+    if !out.default_nc.is_empty() {
+        if let Ok(res) = ldap
+            .search(
+                &out.default_nc,
+                Scope::Subtree,
+                "(objectClass=*)",
+                vec!["dn"],
+            )
+            .await
+        {
+            if let Ok((rs, _)) = res.success() {
+                out.anon_subtree_hit = rs.len();
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Derive the DNS domain from a naming context DN: `DC=testlab,DC=local` → `testlab.local`.
-fn dns_from_nc(nc: &str) -> String {
+pub fn dns_from_nc(nc: &str) -> String {
     nc.split(',')
         .filter_map(|p| {
             let p = p.trim();

@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "dcerpc"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "aes",
  "des",
@@ -1395,7 +1395,7 @@ dependencies = [
 name = "ms-drsr"
 version = "0.2.0"
 dependencies = [
- "dcerpc 0.2.6",
+ "dcerpc 0.3.0",
  "des",
  "hex",
  "md-5",

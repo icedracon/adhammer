@@ -25,13 +25,17 @@ pub(crate) struct SmbAuth {
 }
 
 /// LDAPS-based auth — for `scan`, `check adcs`, `dump laps/gmsa`.
+///
+/// `user` defaults to `""` so `scan --anonymous` (WS-11, 1.4.1) parses without
+/// requiring the bind identity. Authenticated subcommands still fail loudly at
+/// bind time if the caller forgot to pass `--user`.
 #[derive(Args, Clone, Debug)]
 pub(crate) struct LdapAuth {
     /// LDAP URL, e.g. `ldaps://dc.corp.local:636`.
     #[arg(long)]
     pub url: String,
-    /// Bind username.
-    #[arg(long)]
+    /// Bind username. Optional in anonymous-mode subcommands.
+    #[arg(long, default_value = "")]
     pub user: String,
     /// Bind password. Prefer `@file:/path/to/pw` or `$ADHAMMER_PASSWORD`.
     #[arg(long, default_value = "")]

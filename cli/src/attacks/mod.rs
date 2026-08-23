@@ -29,6 +29,7 @@ pub(crate) mod relay;
 pub(crate) mod roast;
 pub(crate) mod samr;
 pub(crate) mod scan;
+pub(crate) mod scan_anonymous;
 pub(crate) mod secretsdump;
 pub(crate) mod shadowcred;
 pub(crate) mod silver;
