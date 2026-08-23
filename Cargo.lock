@@ -1419,9 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "ms-pac-forge"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b4f1989c1b555cbc99e9987f2ec416bcf8b2cfd5048ea941fcdb5bfc4e9f470"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "hex",

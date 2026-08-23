@@ -58,6 +58,7 @@ pub(crate) async fn silver(a: SilverArgs) -> Result<()> {
         domain_subauths: subs,
         logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
         logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+        extra_sids: vec![],
     };
     let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn, a.rc4)?;
     println!(

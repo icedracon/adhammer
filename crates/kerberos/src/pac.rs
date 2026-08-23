@@ -47,6 +47,7 @@ mod wired {
             domain_subauths: vec![21, 1111111111, 2222222222, 3333333333],
             logon_server: "DC01".into(),
             logon_domain: "CORP".into(),
+            extra_sids: vec![],
         }
     }
 
@@ -182,6 +183,7 @@ mod live {
             domain_subauths: subs,
             logon_server: "DC01".into(),
             logon_domain: realm.split('.').next().unwrap_or("CORP").to_uppercase(),
+            extra_sids: vec![],
         };
         let tgt = crate::forge_golden_tgt(&id, &realm, &key, false).expect("forge golden");
         let hash = crate::roast_spn(&tgt, "Administrator", &spn, &kdc)

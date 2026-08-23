@@ -83,6 +83,7 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
         domain_subauths: subs,
         logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
         logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+        extra_sids: vec![],
     };
 
     // Build the service ticket: golden → TGS-REQ; silver → forged directly.

@@ -91,3 +91,9 @@ codegen-units = 1
 # commented due to the ms-nrpc cycle. If local dev needs sibling repos again, add
 # entries back locally but do NOT commit — GitHub runners lack sibling dirs.
 #
+# 1.4.1 WS-3: ms-pac-forge 0.1.3 (cross-forest ExtraSids) is stay-local per
+# directive — not published to crates.io. This local patch pins the CLI + kerberos
+# crate to the sibling repo so `--foreign-sid` on `attack golden` reaches the
+# 0.1.3 marshaler.
+[patch.crates-io]
+ms-pac-forge = { path = "../ms-pac-forge" }
