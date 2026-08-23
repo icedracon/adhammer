@@ -405,6 +405,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 realm: s.realm(),
                 users,
                 password,
+                lockout_threshold: 0,
+                lockout_window: 300,
             })
             .await
         }

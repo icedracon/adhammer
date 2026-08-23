@@ -3,6 +3,8 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Parser)]
 pub(crate) struct SprayArgs {
@@ -18,6 +20,14 @@ pub(crate) struct SprayArgs {
     /// Single password to spray across all users
     #[arg(long)]
     pub password: String,
+    /// Stop targeting a user after N failed attempts within --lockout-window.
+    /// Prevents accidentally locking accounts on a domain with an aggressive
+    /// lockout policy. 0 = no lockout guard (default).
+    #[arg(long, default_value_t = 0)]
+    pub lockout_threshold: u32,
+    /// Sliding window in seconds for --lockout-threshold. Ignored if threshold=0.
+    #[arg(long, default_value_t = 300)]
+    pub lockout_window: u64,
 }
 
 /// Kerberos password spray: one password across a user list, classified by KDC response.
@@ -56,7 +66,25 @@ pub(crate) async fn spray(a: SprayArgs) -> Result<()> {
         a.kdc
     );
     let (mut valid, mut asrep, mut disabled, mut other) = (0u32, 0u32, 0u32, 0u32);
+    // Lockout guard: per-user failure timestamps, purged on each attempt.
+    let window = std::time::Duration::from_secs(a.lockout_window);
+    let mut failures: HashMap<String, Vec<Instant>> = HashMap::new();
+    let mut guarded: u32 = 0;
     for u in &users {
+        if a.lockout_threshold > 0 {
+            let hits = failures.entry(u.clone()).or_default();
+            let now = Instant::now();
+            hits.retain(|t| now.duration_since(*t) < window);
+            if hits.len() as u32 >= a.lockout_threshold {
+                guarded += 1;
+                eprintln!(
+                    "[!] skipping {u} — hit lockout guard ({} failures in last {}s)",
+                    hits.len(),
+                    a.lockout_window
+                );
+                continue;
+            }
+        }
         match check_credential(u, &a.password, &a.realm, &a.kdc).await {
             Ok(CredResult::Valid) => {
                 valid += 1;
@@ -74,7 +102,13 @@ pub(crate) async fn spray(a: SprayArgs) -> Result<()> {
                 asrep += 1;
                 println!("[*] AS-REP roastable {u} (no pre-auth)");
             }
-            Ok(CredResult::Invalid) | Ok(CredResult::NoSuchUser) => {} // quiet — the norm
+            Ok(CredResult::Invalid) => {
+                if a.lockout_threshold > 0 {
+                    failures.entry(u.clone()).or_default().push(Instant::now());
+                }
+                // still quiet — the norm
+            }
+            Ok(CredResult::NoSuchUser) => {} // quiet — the norm
             Ok(CredResult::Other(c)) => {
                 other += 1;
                 eprintln!("    {u}: KDC error {c}");
@@ -93,5 +127,11 @@ pub(crate) async fn spray(a: SprayArgs) -> Result<()> {
         disabled,
         other
     );
+    if a.lockout_threshold > 0 && guarded > 0 {
+        eprintln!(
+            "[*] lockout guard triggered on {guarded} user(s) ({}/{}s threshold)",
+            a.lockout_threshold, a.lockout_window
+        );
+    }
     Ok(())
 }
