@@ -655,6 +655,51 @@ impl Collector {
         Ok(())
     }
 
+    /// Read all values of a multi-valued text attribute — `msDS-KeyCredentialLink`
+    /// entries (DN-Binary syntax, ASCII), `servicePrincipalName`, `member`, etc.
+    /// Returns an empty `Vec` when the attribute is absent.
+    pub async fn read_multi_text(&mut self, dn: &str, attr: &str) -> Result<Vec<String>> {
+        let (rs, _) = self
+            .ldap
+            .search(dn, Scope::Base, "(objectClass=*)", vec![attr])
+            .await?
+            .success()?;
+        let Some(entry) = rs.into_iter().next() else {
+            return Ok(Vec::new());
+        };
+        let se = SearchEntry::construct(entry);
+        if let Some(v) = se.attrs.get(attr) {
+            return Ok(v.clone());
+        }
+        // ldap3 sometimes classifies mixed-ASCII values as bin_attrs; fall back.
+        if let Some(v) = se.bin_attrs.get(attr) {
+            return Ok(v
+                .iter()
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .collect());
+        }
+        Ok(Vec::new())
+    }
+
+    /// Replace a multi-valued attribute with the given text values. An empty slice
+    /// clears the attribute entirely (LDAP `Replace` with no values = delete all).
+    pub async fn replace_multi_text(
+        &mut self,
+        dn: &str,
+        attr: &str,
+        values: &[String],
+    ) -> Result<()> {
+        use ldap3::Mod;
+        let set: HashSet<Vec<u8>> = values.iter().map(|v| v.as_bytes().to_vec()).collect();
+        let m: Mod<Vec<u8>> = Mod::Replace(attr.as_bytes().to_vec(), set);
+        self.ldap
+            .modify(dn, vec![m])
+            .await?
+            .success()
+            .context("modify (replace multi) failed")?;
+        Ok(())
+    }
+
     /// The base DN this collector is bound at (root of the domain NC).
     pub fn base_dn(&self) -> &str {
         &self.base_dn

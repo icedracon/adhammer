@@ -1020,6 +1020,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 pkinit,
                 kdc: if pkinit { Some(s.dc.clone()) } else { None },
                 realm: if pkinit { Some(s.realm()) } else { None },
+                list: false,
+                remove: None,
+                clear: false,
+                yes: false,
+                pfx_password: "adhammer".into(),
+                dry_run: false,
             })
             .await
         }
