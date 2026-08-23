@@ -30,7 +30,7 @@ Untracked (harmless — planning docs + site + patches, none critical): `.agents
 - **ms-pac-forge** — 5f1904c local (0.1.3, WS-3 ExtraSids), unpublished
 - **ms-drsr** — d765d05 local (0.2.0, WS-2 opnums 17+5), unpublished
 - **ms-tds** — 5dffba8 local (0.1.1, WS-1 run_query/impersonate/revert), unpublished
-- **dcerpc** — WS-4 agent still running; uncommitted changes to CHANGELOG.md, Cargo.toml, src/lib.rs, src/pdu.rs + new file src/krb_seal.rs
+- **dcerpc** — 13f68f0 local (0.3.0, WS-4 Phase 1: RPC_C_AUTHN_GSS_KERBEROS + WrapToken codec + KrbSealer trait + 12 new tests), unpublished. Phase 2 (concrete AES-CTS crypto + rpc bind wire) deferred to Kerberos-crate session.
 
 ## `[patch.crates-io]` pins in adhammer/Cargo.toml (MUST revert before ship)
 
@@ -49,7 +49,7 @@ Plus dcerpc if WS-4 agent adds one.
 - ✅ WS-5 DACL Attacks II — local, offline+CLI complete, live-`--dry-run` verified on DC01
 - ⚠️ WS-2 DCShadow modern — local, Phase 1+2 complete, Phase 3 live-push deferred
 - ⚠️ WS-1 MSSQL — local, Phase 1+2 complete, Phase 3 live-query deferred (needs MSSQL Express install on 2025server1)
-- ⏳ WS-4 Kerberos sealed bind — agent in flight at snapshot time
+- ⚠️ WS-4 Kerberos sealed bind — dcerpc 0.3.0 Phase 1 primitives landed (WrapToken codec + PDU framers + KrbSealer trait). Phase 2 (concrete AesCtsHmacSha1KrbSealer + `RpcTcp::bind_sealed_kerberos`/`call_sealed_kerberos`) needs live TGT — deferred to Kerberos-crate session.
 
 ## Live-test baseline (from Saturday, both DCs reachable)
 
@@ -62,6 +62,7 @@ krbtgt hashes captured earlier this session — DC01 NT `1a9037d7160bf3c935f3cd9
 
 - WS-2 Phase 3 — live DCShadow push against 2019+/2022/2025 DC (pick benign attribute, capture original, verify readback)
 - WS-1 Phase 3 — MSSQL Express install on 2025server1 (Microsoft one-liner), then live smoke tests
-- WS-4 Phase 2 (if not done by agent) — live Kerberos sealed bind against DC01 samr/dcsync
+- WS-4 Phase 2 — concrete `AesCtsHmacSha1KrbSealer` in `crates/kerberos` (borrow `picky-krb::CipherSuite::Aes256CtsHmacSha196`) + `RpcTcp::bind_sealed_kerberos` / `call_sealed_kerberos` wire in dcerpc → live-test sealed bind to DC01 samr
 - WS-3 cross-forest positive validation — needs a two-forest trust (1.4.2 WS-E scope)
-- Coordinated batch publish for 1.4.1 ship: strip `[patch.crates-io]` → publish ms-pac-forge 0.1.3 + ms-drsr 0.2.0 + ms-tds 0.1.1 (+ dcerpc if bumped) → bump adhammer 1.3.10 → 1.4.1 → publish → tag → push
+- Coordinated batch publish for 1.4.1 ship: strip `[patch.crates-io]` → publish ms-pac-forge 0.1.3 + ms-drsr 0.2.0 + ms-tds 0.1.1 + dcerpc 0.3.0 → bump adhammer 1.3.10 → 1.4.1 → publish → tag → push
+- Fix 17 pre-existing dcerpc clippy warnings before dcerpc 0.3.0 publish (WS-4 agent flagged: deprecated drsuapi tests, 8-arg builder, hex casing, doc formatting, dead `deferred_len`)
