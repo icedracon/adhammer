@@ -248,6 +248,11 @@ enum AttackCmd {
     /// on 2019+). `--cleanup <name>` removes it (works on any version). `--drsuapi --push` fires
     /// the full DCShadow modify against a target object.
     Dcshadow(Box<DcshadowArgs>),
+    /// MSSQL — TDS 7.4 client over NTLM. Runs an arbitrary SQL statement (common:
+    /// `EXEC xp_cmdshell 'whoami'`), optionally after a comma-separated `--execute-as`
+    /// chain that pushes `EXECUTE AS LOGIN='<name>'` frames (LIFO) and unwinds them
+    /// with `REVERT` on both success and error paths.
+    Mssql(attacks::mssql::MssqlArgs),
 }
 
 #[derive(Parser)]
@@ -463,6 +468,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Esc4(_) => "attack esc4",
             AttackCmd::Shadowcred(_) => "attack shadowcred",
             AttackCmd::Dcshadow(_) => "attack dcshadow",
+            AttackCmd::Mssql(_) => "attack mssql",
         },
         Command::Check(_) => "check adcs",
         Command::Dump(d) => match d {
@@ -528,6 +534,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Esc4(a)) => attacks::esc4::esc4(a).await,
         Command::Attack(AttackCmd::Shadowcred(a)) => attacks::shadowcred::shadowcred(a).await,
         Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(*a).await,
+        Command::Attack(AttackCmd::Mssql(a)) => attacks::mssql::mssql(a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,

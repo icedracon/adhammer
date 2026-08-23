@@ -43,6 +43,9 @@ dcerpc       = "0.2.5"
 ms-crtd      = "0.1"
 ms-icpr      = "0.1.2"
 ms-gkdi      = "0.1"
+# TDS 7.4 client (MSSQL). Used by `attack mssql` (WS-1, 1.4.1) — xp_cmdshell
+# and EXECUTE AS impersonation chains over an NTLM-authenticated session.
+ms-tds       = "0.1"
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "1.3.10" }
 adhammer-collector = { path = "crates/collector", version = "1.3.10", default-features = false }
@@ -99,6 +102,10 @@ codegen-units = 1
 # 1.4.1 WS-2: ms-drsr 0.2.0 (IDL_DRSAddEntry + IDL_DRSReplicaAdd) is stay-local
 # per directive. Powers the DRSUAPI-path DCShadow prep+push. MUST be reverted
 # before any push — GitHub runners lack the ../ms-drsr sibling.
+#
+# 1.4.1 WS-1: ms-tds 0.1.1 (run_query + impersonate + revert_to_self) is
+# stay-local per directive. Powers `attack mssql` (xp_cmdshell + EXECUTE AS).
 [patch.crates-io]
 ms-pac-forge = { path = "../ms-pac-forge" }
 ms-drsr = { path = "../ms-drsr" }
+ms-tds = { path = "../ms-tds" }

@@ -22,6 +22,7 @@ pub(crate) mod golden;
 pub(crate) mod icpr_esc1;
 pub(crate) mod laps;
 pub(crate) mod lsa;
+pub(crate) mod mssql;
 pub(crate) mod ptt;
 pub(crate) mod rbcd;
 pub(crate) mod relay;

