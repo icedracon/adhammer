@@ -95,5 +95,10 @@ codegen-units = 1
 # directive — not published to crates.io. This local patch pins the CLI + kerberos
 # crate to the sibling repo so `--foreign-sid` on `attack golden` reaches the
 # 0.1.3 marshaler.
+#
+# 1.4.1 WS-2: ms-drsr 0.2.0 (IDL_DRSAddEntry + IDL_DRSReplicaAdd) is stay-local
+# per directive. Powers the DRSUAPI-path DCShadow prep+push. MUST be reverted
+# before any push — GitHub runners lack the ../ms-drsr sibling.
 [patch.crates-io]
 ms-pac-forge = { path = "../ms-pac-forge" }
+ms-drsr = { path = "../ms-drsr" }

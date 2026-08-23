@@ -985,6 +985,15 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 prep: None,
                 cleanup: None,
                 site: "Default-First-Site-Name".to_string(),
+                drsuapi: false,
+                push: false,
+                drs_host: None,
+                drs_domain: None,
+                target: None,
+                attr: None,
+                value: None,
+                value_hex: None,
+                rogue_dsa: None,
             })
             .await
         }

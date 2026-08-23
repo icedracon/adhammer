@@ -39,7 +39,7 @@ adhammer-sysvol = { workspace = true }
 smb2-client = { workspace = true }
 adhammer-ldap = { workspace = true }
 dcerpc = { workspace = true }
-ms-drsr = "0.1"
+ms-drsr = "0.2"
 dpapi-ng = { version = "0.1", features = ["rpc"] }
 # ESC1-15 static analysis (`check adcs`) + MS-ICPR CSR construction
 # (`attack icpr-esc1`) + LAPS-v2 / gMSA seed-key derivation (`dump laps`/`dump gmsa`).
