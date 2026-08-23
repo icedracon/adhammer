@@ -20,6 +20,9 @@
 | WS-3 | Cross-forest / trust — `--foreign-sid`, `--allow-cross-trust` | S-M (2-3d) | needs 2nd forest DC (or trust between existing pair) |
 | WS-4 | Kerberos sealed bind in dcerpc | L (5-6d) | rabbit-hole risk; timebox strictly |
 | WS-5 | DACL Attacks II (write-owner, write-dacl, primary-group, gpo-link-modify, allowed-to-act) | M (4d) | none |
+| WS-6 | Shadow Credentials management — `--list` / `--remove <DeviceId>` / `--clear` on `attack shadowcred` (currently only ADD; competitive gap w/ IronEye) | S (1-2d) | none |
+| WS-7 | Password spray lockout protection — `--lockout-threshold` / `--lockout-window` on `attack spray` (competitive gap w/ IronEye) | S (~1d) | none |
+| WS-8 | UAC flag management + PFX export — new `AbuseAction::SetUacFlags` on `attack abuse` (DONT_REQUIRE_PREAUTH / TRUSTED_FOR_DELEGATION / DONT_EXPIRE_PASSWORD etc.) + PFX alongside `.key.pem` on `attack shadowcred` add (usable with cert tooling) | S (~1d) | none |
 
 **Tier 2 — boss-review arch/UX carryover from 1.3.10** (refactors, no user-visible change — the invisible-but-necessary work):
 
