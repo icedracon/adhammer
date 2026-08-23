@@ -22,6 +22,7 @@ mod interactive;
 mod poison;
 mod session;
 mod shared_args;
+mod target;
 mod ui;
 mod winrm;
 

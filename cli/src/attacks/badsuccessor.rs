@@ -49,7 +49,8 @@ pub(crate) async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
         gssapi: false,
     };
     let mut c = Collector::connect(&cfg).await?;
-    let victim_dn = c.resolve_dn(&a.target).await?;
+    // ux-2: accept SID / sAMAccountName / DN via unified classifier.
+    let victim_dn = crate::target::to_dn(&mut c, &a.target).await?;
     let base = c.base_dn().to_string();
     let container = a
         .container

