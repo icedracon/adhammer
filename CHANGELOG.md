@@ -5,6 +5,29 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **WS-5 (1.4.1): DACL Attacks II** — five new `attack abuse` actions
+  extending the DACL-write chapter to full CAPE coverage:
+  - `write-owner` — rewrite Owner SID in `nTSecurityDescriptor`
+    (SD_FLAGS-controlled read, in-place owner splice, write-back).
+  - `write-dacl` — prepend a GENERIC_ALL allow-ACE for `--value` at DACL
+    position 0. Hand-rolled ACE builder + DACL splice (no `windows-sddl`
+    change needed).
+  - `set-primary-group` — write `primaryGroupID` to a RID (numeric) or
+    a group's `objectSid` last sub-authority (sAMAccountName resolution).
+  - `gpo-link-modify` — append `[LDAP://cn={GUID},cn=policies,cn=system,
+    <base>;0]` to an OU's `gPLink`.
+  - `allowed-to-act` — alias of `write-rbcd` (same
+    `msDS-AllowedToActOnBehalfOfOtherIdentity` attribute, red-team naming).
+- **Global `--dry-run` on `attack abuse`** — every write action (new + existing)
+  now gates on `--dry-run`, printing `[dry-run] would write attribute=… target=…
+  value=…` (SDs as hex) and returning before any `Collector::modify_*` /
+  `write_binary` call. Safe against a live DC.
+- **`Collector::read_binary` / `read_text` / `modify_replace`** — read a
+  single binary attribute (SD_FLAGS-controlled base read for
+  `nTSecurityDescriptor`), read a text attribute, and Replace a single-value
+  text attribute — supporting the new DACL / `primaryGroupID` / `gPLink` flows.
+
 ## [1.3.10] — 2026-08-23
 
 Hardening + UX pass driven by an outside multi-agent code review that

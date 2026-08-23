@@ -177,7 +177,9 @@ enum AttackCmd {
     Roast(attacks::scan::ScanArgs),
     /// Kerberos password spray / user enumeration.
     Spray(attacks::spray::SprayArgs),
-    /// LDAP abuse: add-spn / add-member / set-password / write-rbcd.
+    /// LDAP abuse: add-spn / add-member / set-password / add-keycred / write-rbcd /
+    /// write-owner / write-dacl / set-primary-group / gpo-link-modify / allowed-to-act.
+    /// Every write gates on `--dry-run` (prints payload, no LDAP modify).
     Abuse(attacks::abuse::AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
     Coerce(attacks::coerce::CoerceArgs),

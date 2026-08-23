@@ -47,6 +47,7 @@ pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
         realm: a.realm.clone(),
         ldap389: false,
         host: None,
+        dry_run: false,
     })
     .await?;
     if a.pkinit {
@@ -69,6 +70,7 @@ pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
             realm: Some(realm),
             ldap389: false,
             host: None,
+            dry_run: false,
         })
         .await?;
     }

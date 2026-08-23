@@ -577,6 +577,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 kdc: Some(s.dc.clone()),
                 ldap389: false,
                 host: Some(s.dc.clone()),
+                dry_run: false,
             })
             .await
         }

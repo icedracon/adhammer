@@ -595,6 +595,66 @@ impl Collector {
         Ok(())
     }
 
+    /// Read a single binary attribute off `dn` (base scope). Uses SD_FLAGS so
+    /// `nTSecurityDescriptor` comes back with OWNER|GROUP|DACL populated for
+    /// callers that need to round-trip an SD (WriteOwner / WriteDacl).
+    pub async fn read_binary(&mut self, dn: &str, attr: &str) -> Result<Option<Vec<u8>>> {
+        self.ldap.with_controls(sd_flags_control());
+        let (rs, _) = self
+            .ldap
+            .search(dn, Scope::Base, "(objectClass=*)", vec![attr])
+            .await?
+            .success()?;
+        let Some(entry) = rs.into_iter().next() else {
+            return Ok(None);
+        };
+        let se = SearchEntry::construct(entry);
+        Ok(se
+            .bin_attrs
+            .get(attr)
+            .and_then(|v| v.first())
+            .cloned()
+            .or_else(|| {
+                // Some servers echo text-encoded values (e.g. gPLink) via `attrs`
+                // rather than `bin_attrs`; fall back to that path.
+                se.attrs
+                    .get(attr)
+                    .and_then(|v| v.first())
+                    .map(|s| s.as_bytes().to_vec())
+            }))
+    }
+
+    /// Read a single text attribute off `dn` (base scope). Returns `None` when
+    /// the attribute is absent.
+    pub async fn read_text(&mut self, dn: &str, attr: &str) -> Result<Option<String>> {
+        let (rs, _) = self
+            .ldap
+            .search(dn, Scope::Base, "(objectClass=*)", vec![attr])
+            .await?
+            .success()?;
+        let Some(entry) = rs.into_iter().next() else {
+            return Ok(None);
+        };
+        let se = SearchEntry::construct(entry);
+        Ok(se.attrs.get(attr).and_then(|v| v.first()).cloned())
+    }
+
+    /// Replace a text (single-value string) attribute — the counterpart of
+    /// [`write_binary`] used for scalar attrs like `primaryGroupID` or `gPLink`.
+    pub async fn modify_replace(&mut self, dn: &str, attr: &str, value: &str) -> Result<()> {
+        use ldap3::Mod;
+        let m: Mod<Vec<u8>> = Mod::Replace(
+            attr.as_bytes().to_vec(),
+            HashSet::from([value.as_bytes().to_vec()]),
+        );
+        self.ldap
+            .modify(dn, vec![m])
+            .await?
+            .success()
+            .context("modify (replace) failed")?;
+        Ok(())
+    }
+
     /// The base DN this collector is bound at (root of the domain NC).
     pub fn base_dn(&self) -> &str {
         &self.base_dn
