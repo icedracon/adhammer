@@ -15,24 +15,27 @@
 
 | WS | What | Effort | Blocks |
 |---|---|---|---|
-| WS-1 | MSSQL / Exchange / SCCM attacks (CAPE module) | L (5-7d) | none — WS-1 can start day 1 |
-| WS-2 | DCShadow via DRSUAPI (replaces dead LDAP-path on 2019+) | XL (8-10d) | needs live 2019+2022+2025 DC (already have 2022+2025) |
-| WS-3 | Cross-forest / trust — `--foreign-sid`, `--allow-cross-trust` | S-M (2-3d) | needs 2nd forest DC (or trust between existing pair) |
-| WS-4 | Kerberos sealed bind in dcerpc | L (5-6d) | rabbit-hole risk; timebox strictly |
-| WS-5 | DACL Attacks II (write-owner, write-dacl, primary-group, gpo-link-modify, allowed-to-act) | M (4d) | none |
-| WS-6 | Shadow Credentials management — `--list` / `--remove <DeviceId>` / `--clear` on `attack shadowcred` (currently only ADD; competitive gap w/ IronEye) | S (1-2d) | none |
-| WS-7 | Password spray lockout protection — `--lockout-threshold` / `--lockout-window` on `attack spray` (competitive gap w/ IronEye) | S (~1d) | none |
-| WS-8 | UAC flag management + PFX export — new `AbuseAction::SetUacFlags` on `attack abuse` (DONT_REQUIRE_PREAUTH / TRUSTED_FOR_DELEGATION / DONT_EXPIRE_PASSWORD etc.) + PFX alongside `.key.pem` on `attack shadowcred` add (usable with cert tooling) | S (~1d) | none |
+| WS-1 | MSSQL / Exchange / SCCM attacks (CAPE module) | L (5-7d) | ✅ Phase 1+2 LANDED — b5c3950 adhammer + 5dffba8 ms-tds 0.1.1. Phase 3 live-query DEFERRED to 1.4.2 (needs MSSQL Express install on 2025server1). |
+| WS-2 | DCShadow via DRSUAPI (replaces dead LDAP-path on 2019+) | XL (8-10d) | ✅ Phase 1+2 LANDED — 1bdcf6b adhammer + d765d05 ms-drsr 0.2.0. Phase 3 live-push DEFERRED to 1.4.2 (needs benign-attr live push with capture-then-restore). |
+| WS-3 | Cross-forest / trust — `--foreign-sid`, `--allow-cross-trust` | S-M (2-3d) | ✅ `--foreign-sid` LANDED — be886a5 adhammer + 5f1904c ms-pac-forge 0.1.3. Cross-forest positive validation DEFERRED to 1.4.2 WS-E (needs inter-realm trust — no lab). `--allow-cross-trust` on constrained NOT STARTED. |
+| WS-4 | Kerberos sealed bind in dcerpc | L (5-6d) | ⚠️ Phase 1 primitives LANDED — 13f68f0 dcerpc 0.3.0 (WrapToken codec + PDU framers + KrbSealer trait). Phase 2 (concrete AesCtsHmacSha1KrbSealer + RpcTcp wire) DEFERRED to 1.4.2 (agent hit session limit). |
+| WS-5 | DACL Attacks II (write-owner, write-dacl, primary-group, gpo-link-modify, allowed-to-act) | M (4d) | ✅ LANDED — 7798d90. Live `--dry-run` verified on DC01, no writes made. |
+| WS-6 | Shadow Credentials management — `--list` / `--remove <DeviceId>` / `--clear` on `attack shadowcred` | S (1-2d) | ✅ LANDED — bf02e7a. Live `--list` verified on DC01. |
+| WS-7 | Password spray lockout protection — `--lockout-threshold` / `--lockout-window` | S (~1d) | ✅ LANDED — 1a67168. |
+| WS-8 | UAC flag management + PFX export | S (~1d) | ✅ UAC flags LANDED — 7ac79a9 (live `--dry-run` on Administrator: 0x00010200 → 0x00410200 with DONT_REQUIRE_PREAUTH). PFX export DEFERRED to 1.4.2 (PKCS#12 = full DER + PBE-SHA1-3KEY + HMAC-SHA1 — rabbit hole). |
+| WS-9 | Multi-format report — MD + plaintext summary alongside JSON/HTML (AyDee absorb) | S (~1d) | ✅ LANDED — 2055372 + 8bd0e5f. `--out-all <dir>` writes all 4 formats; extension inference on `.md` / `.txt`. |
+| WS-10 | Composite attack-chain narrative in reports (AyDee absorb) | M (2-3d) | ✅ LANDED — 2055372. 4 chains ship (Coercion + ESC8, ESC1→PKINIT, MAQ+ESC8, DCSync+ShadowCred). Rendered in all 4 formats. More chains DEFERRED until SMB-signing / other checks land. |
+| WS-11 | Anonymous fingerprint mode — `scan --anonymous` (AyDee absorb) | S (~1d) | ✅ LANDED — 3213669. Live-verified anonymous scan against DC01 (4 findings across 4 sources; all 4 report files written). |
 
 **Tier 2 — boss-review arch/UX carryover from 1.3.10** (refactors, no user-visible change — the invisible-but-necessary work):
 
 | ID | What | Effort | Rationale |
 |---|---|---|---|
-| arch-0 | Split `cli/src/main.rs` (5564 lines) into `crates/attacks/` sub-crate | XL (5-7d) | Every new WS above adds 200-500 lines to main.rs. Split first or drown. |
-| arch-1 | Extract `cli/src/adcs_relay.rs` → new `icedracon/adcs-relay` crate (dual-use: ADCS admin tooling could reuse) | M (2-3d) | Follows the dual-use extraction rule. Sibling of existing `ntlm-relay`. |
-| ux-0 | `SmbAuth` / `LdapAuth` / `OptAuth` shape-family flatten across ~20 subcommand Args | M (2-3d) | Removes ~300 LOC duplication. Adds `--nt-hash` to every subcommand for free (currently only 4). |
-| ux-2 | Unified `--target` selector (SID / sAMAccountName / DN auto-detect) via shared `resolve_target()` | S (1d) | Removes 3× duplicated resolver logic. |
-| ux-7 | Grouped interactive menu (Recon / Creds / Lateral / Persist categories) | M (2d) | Currently a 20-item flat list. UX pain point in demos. |
+| arch-0 | Split `cli/src/main.rs` (5670 → 832 lines, -85%) | XL (5-7d) | ✅ LANDED across 4 batches: 2ff0062 + 26ce550 + e2af597 + feaa03d. |
+| arch-1 | Extract `cli/src/adcs_relay.rs` → `cli/src/attacks/adcs_relay.rs` | M (2-3d) | ✅ LANDED — a68f637. Scope collapsed from "new sibling crate" to internal move (dual-use rule failed). |
+| ux-0 | `SmbAuth` / `LdapAuth` / `OptAuth` shape-family flatten across 16 subcommand Args | M (2-3d) | ✅ LANDED — f47d4d5. 300 LOC dedup. |
+| ux-2 | Unified `--target` classifier + resolver helpers | S (1d) | ✅ LANDED — 2ec7b78. |
+| ux-7 | Grouped interactive menu (Recon / Creds / Lateral / Persist / Session) | M (2d) | ✅ LANDED — e5203bb. Two-level Select with `← Back`. |
 
 **Tier 3 — cross-cutting** (touch across the workstream boundary):
 

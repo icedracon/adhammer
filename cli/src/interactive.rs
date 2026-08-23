@@ -273,7 +273,8 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
 
         // Second level: pick an action in that category, or ← Back to categories.
         let actions = CATEGORIES[ci].1;
-        let mut action_labels: Vec<String> = actions.iter().map(|(l, _)| (*l).to_string()).collect();
+        let mut action_labels: Vec<String> =
+            actions.iter().map(|(l, _)| (*l).to_string()).collect();
         action_labels.push("← Back to categories".to_string());
         let ai = Select::with_theme(&theme)
             .with_prompt(cat_labels[ci])

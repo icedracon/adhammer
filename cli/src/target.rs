@@ -9,8 +9,8 @@
 //! ad-hoc. This module centralises the classification and the two common
 //! resolutions we need (→ SID, → DN) so a single fix updates every attack.
 
-use adhammer_core::sid::Sid;
 use adhammer_collector::Collector;
+use adhammer_core::sid::Sid;
 use anyhow::{Context, Result};
 
 /// Which kind of principal identifier a raw `--target` string represents.
@@ -89,7 +89,10 @@ mod tests {
             classify("CN=Alice,OU=Users,DC=corp,DC=local"),
             TargetKind::Dn
         );
-        assert_eq!(classify("CN=DC01$,OU=Domain Controllers,DC=lab,DC=local"), TargetKind::Dn);
+        assert_eq!(
+            classify("CN=DC01$,OU=Domain Controllers,DC=lab,DC=local"),
+            TargetKind::Dn
+        );
     }
 
     #[test]

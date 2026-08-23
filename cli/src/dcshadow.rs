@@ -257,9 +257,7 @@ pub async fn drsuapi_prep(
         if let Err(e) = r {
             let _ = coll.delete_object(&dns.ntds_dn).await;
             let _ = coll.delete_object(&dns.server_dn).await;
-            anyhow::bail!(
-                "IDL_DRSAddEntry rejected entry {i}: {e} — rolled back any partial adds"
-            );
+            anyhow::bail!("IDL_DRSAddEntry rejected entry {i}: {e} — rolled back any partial adds");
         }
     }
     if reply.results.is_empty() {

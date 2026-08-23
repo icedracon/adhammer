@@ -15,6 +15,21 @@ Three closing chapters:
 
 Tagline: **"The completion release."**
 
+## Scope — 8 workstreams + 6 carryover items from 1.4.1
+
+**1.4.2 = "the completion release."** Ships 1.4.1's deferred Phase 3 live-tests, WS-4 concrete Kerberos crypto, and the IronEye/AyDee gaps that didn't fit 1.4.1.
+
+### Carryover from 1.4.1 (Phase 3 completions + PFX + dcerpc cleanup)
+
+| ID | What | Effort | From |
+|---|---|---|---|
+| WS-1-P3 | MSSQL live query — install MSSQL Express on 2025server1 (~30 min PS one-liner), then live smoke tests (`SELECT @@VERSION` / `EXEC xp_cmdshell 'whoami'` / `EXECUTE AS sa`) | S (~1d) | 1.4.1 WS-1 deferred |
+| WS-2-P3 | DCShadow live push — pick benign attribute (e.g. `description` on `lowuser`), capture original via `ldapsearch`, `attack dcshadow --drsuapi --push`, verify via `Get-ADUser`, restore | S-M (2d) | 1.4.1 WS-2 deferred |
+| WS-3-P3 | Cross-forest positive validation — depends on WS-E lab (inter-realm trust between the 2 testlab.local forests). Once trust exists, `attack golden --foreign-sid <target-forest-SID>` should authorize as target-forest DA | S (1d after WS-E) | 1.4.1 WS-3 deferred |
+| WS-4-P2 | Concrete `AesCtsHmacSha1KrbSealer` in `adhammer-kerberos::rpc_seal` (RFC 4121 + MS-KILE §3.4.5.4.1 DCE-style WRAP) + `RpcTcp::bind_sealed_kerberos` / `call_sealed_kerberos` wire in dcerpc + live-test sealed bind against DC01 samr | L (5-6d) | 1.4.1 WS-4 Phase 2 deferred (agent hit session limit); dcerpc 0.3.0 primitives sit local, awaiting concrete crypto |
+| WS-8-P2 | PFX export on `attack shadowcred` — real PKCS#12 (self-signed cert + PBE-SHA1-3KEY key-bag + HMAC-SHA1 MAC + DER encoder). Consider `p12` crate vs hand-roll | M (2-3d) | 1.4.1 WS-8 punted (rabbit hole) |
+| DCERPC-CLEAN | Fix 17 pre-existing clippy warnings in dcerpc before 0.3.0 publish (deprecated drsuapi tests, 8-arg builder, hex casing, doc formatting, dead `deferred_len`) | S (~1d) | flagged by WS-4 Phase 1 agent 2026-08-23; blocks dcerpc 0.3.0 publish |
+
 ## Scope — 8 workstreams (WS-A..E + WS-F/G/H absorbed from IronEye competitive scan 2026-08-23)
 
 ### WS-A — Classic AD CVE pack (noPac + Zerologon)

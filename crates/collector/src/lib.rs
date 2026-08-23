@@ -13,6 +13,7 @@ use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use std::collections::{HashMap, HashSet};
 
 pub mod sources;
+pub mod dns_record;
 
 /// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of
 /// nTSecurityDescriptor (0x7), omitting the SACL. Without this, a non-admin bind gets an

@@ -841,7 +841,10 @@ mod tests {
         // Empty → error (don't silently write UAC=0)
         assert!(parse_uac_flags("").is_err());
         // Case-insensitive
-        assert_eq!(parse_uac_flags("dont_require_preauth").unwrap(), 0x0040_0000);
+        assert_eq!(
+            parse_uac_flags("dont_require_preauth").unwrap(),
+            0x0040_0000
+        );
         // Unknown flag rejected
         assert!(parse_uac_flags("FROBNICATE").is_err());
     }

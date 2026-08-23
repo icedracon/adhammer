@@ -85,9 +85,7 @@ pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
     // dep + LOC cost (self-signed cert + PBE + MAC); skip with a hint until
     // the p12 crate lands. Password param preserved for future use.
     let _ = &a.pfx_password;
-    println!(
-        "[i] .pfx export skipped — needs the p12 crate; see docs/pfx-export.md"
-    );
+    println!("[i] .pfx export skipped — needs the p12 crate; see docs/pfx-export.md");
     if a.pkinit {
         let (kdc, realm) = match (a.kdc.as_ref(), a.realm.as_ref()) {
             (Some(k), Some(r)) => (k.clone(), r.clone()),
@@ -320,11 +318,22 @@ fn format_guid(b: &[u8; 16]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-\
          {:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[3], b[2], b[1], b[0],
-        b[5], b[4],
-        b[7], b[6],
-        b[8], b[9],
-        b[10], b[11], b[12], b[13], b[14], b[15]
+        b[3],
+        b[2],
+        b[1],
+        b[0],
+        b[5],
+        b[4],
+        b[7],
+        b[6],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
     )
 }
 
@@ -426,9 +435,8 @@ mod tests {
 
     #[test]
     fn parses_our_own_key_credential_blob() {
-        let kc =
-            adhammer_kerberos::shadowcred::build_key_credential("CN=victim,DC=corp,DC=local")
-                .unwrap();
+        let kc = adhammer_kerberos::shadowcred::build_key_credential("CN=victim,DC=corp,DC=local")
+            .unwrap();
         let blob = parse_dn_binary(&kc.dn_binary).expect("dn-binary decode");
         let parsed = parse_key_credential_blob(&blob).expect("blob parse");
         assert_eq!(parsed.key_usage, 0x01, "we plant NGC");
