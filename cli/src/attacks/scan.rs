@@ -19,17 +19,36 @@ pub(crate) struct ScanArgs {
     /// Base DN (defaults to RootDSE defaultNamingContext)
     #[arg(long)]
     pub base_dn: Option<String>,
-    /// Output format for `scan`: `json` (default) or `html`. When `--out <path>` is
-    /// set the format is auto-inferred from the file extension (`.json` / `.html` /
-    /// `.zip` → BloodHound-CE bundle); this flag overrides that inference.
-    #[arg(long, default_value = "json", value_parser = ["json", "html"])]
+    /// Output format for `scan`: `json` (default), `html`, `md`, or `txt`.
+    /// When `--out <path>` is set the format is auto-inferred from the file
+    /// extension (`.json` / `.html` / `.md` / `.txt` / `.zip` → BloodHound-CE
+    /// bundle); this flag overrides that inference.
+    #[arg(long, default_value = "json", value_parser = ["json", "html", "md", "txt"])]
     pub format: String,
-    /// Write the report to `<path>` instead of stdout. Format is inferred from the
-    /// extension: `.json` → JSON, `.html` → HTML, `.zip` → BloodHound-CE ingest
-    /// bundle. Pass `--format` to override the inference. Tracing / diagnostics
-    /// still go to stderr, so stdout stays capture-clean for scripting.
+    /// Write the report to `<path>` instead of stdout. Format is inferred from
+    /// the extension: `.json` → JSON, `.html` → HTML, `.md` → Markdown,
+    /// `.txt` → plaintext summary, `.zip` → BloodHound-CE ingest bundle. Pass
+    /// `--format` to override the inference. Tracing / diagnostics still go
+    /// to stderr, so stdout stays capture-clean for scripting.
     #[arg(long)]
     pub out: Option<String>,
+    /// Write ALL four report formats (json + md + html + txt summary) into
+    /// `<dir>` in a single pass: `report.json`, `report.md`, `report.html`,
+    /// `report-summary.txt`. Complements `--out <path>` (single-file); pass
+    /// only one of the two.
+    #[arg(long, value_name = "DIR")]
+    pub out_all: Option<String>,
+    /// Number of findings included in the plaintext `report-summary.txt`
+    /// (highest-scored first). Only affects the plaintext emitter.
+    #[arg(long, default_value_t = 10)]
+    pub top_n: usize,
+    /// Anonymous fingerprint mode — skip the authenticated LDAP collection and
+    /// run port scan + RootDSE fingerprint + null-session SMB probe + SRV
+    /// enumeration against the target. Useful as the first-touch step in an
+    /// engagement before creds are available. No `--user` / `--password` is
+    /// consulted; `--url` still selects the target host.
+    #[arg(long)]
+    pub anonymous: bool,
     /// KDC `host[:port]` for `roast` to actually AS-REP roast (omit = list candidates only)
     #[arg(long)]
     pub kdc: Option<String>,
@@ -80,6 +99,10 @@ async fn esc_registry_probe(
 }
 
 pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
+    if a.anonymous {
+        return scan_anonymous(a).await;
+    }
+
     let sp = ui::Spinner::start("collecting AD objects over LDAP");
     let snap = Collector::connect(&config(&a)).await?.collect().await?;
     sp.done(&format!("{} AD object(s) collected", snap.objects.len()));
@@ -270,15 +293,22 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         &RiskConfig::default(),
     );
 
+    // WS-9 (1.4.1): --out-all writes all four report formats into a directory,
+    // in one pass. Preserves --out (single-file) semantics; the two flags are
+    // mutually exclusive at runtime — --out-all wins if both are given.
+    if let Some(dir) = &a.out_all {
+        return write_out_all(&report, dir, a.top_n);
+    }
+
     // Resolve output format + destination.
     //
     // Order of precedence:
-    //   1. --format explicit                        → wins over any inference
-    //   2. --out=<path>.{json,html,zip} inference   → picks format from extension
-    //   3. default --format json                    → stdout
+    //   1. --format explicit                              → wins over any inference
+    //   2. --out=<path>.{json,html,md,txt,zip} inference  → picks format from extension
+    //   3. default --format json                          → stdout
     //
-    // .zip via --out is already handled above (BloodHound-CE bundle). Here we only
-    // route the JSON/HTML report body.
+    // .zip via --out is already handled above (BloodHound-CE bundle). Here we route
+    // the JSON / HTML / Markdown / plaintext report bodies.
     let explicit_format = std::env::args().any(|a| a == "--format");
     let format = if explicit_format {
         a.format.clone()
@@ -290,6 +320,8 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
             .as_deref()
         {
             Some("html") => "html".to_string(),
+            Some("md") | Some("markdown") => "md".to_string(),
+            Some("txt") | Some("text") => "txt".to_string(),
             Some("zip") => {
                 // .zip already written; nothing to serialise here.
                 return Ok(());
@@ -302,6 +334,8 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
 
     let body = match format.as_str() {
         "html" => report.to_html(),
+        "md" => report.to_markdown(),
+        "txt" => report.to_text_summary(a.top_n),
         _ => report.to_json(),
     };
 
@@ -310,6 +344,99 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
             std::fs::write(path, &body).with_context(|| format!("write scan report → {path}"))?;
             eprintln!(
                 "[+] {} report written → {} ({} bytes)",
+                format,
+                path,
+                body.len()
+            );
+        }
+        _ => {
+            println!("{body}");
+        }
+    }
+    Ok(())
+}
+
+/// WS-9: dump all four formats into `dir`. Filenames match AyDee's convention:
+/// `report.{json,md,html}` + `report-summary.txt`.
+fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<()> {
+    let d = std::path::Path::new(dir);
+    std::fs::create_dir_all(d).with_context(|| format!("create --out-all dir {dir}"))?;
+    let quads = [
+        ("report.json", report.to_json()),
+        ("report.md", report.to_markdown()),
+        ("report.html", report.to_html()),
+        ("report-summary.txt", report.to_text_summary(top_n)),
+    ];
+    for (name, body) in &quads {
+        let path = d.join(name);
+        std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+        eprintln!("[+] {} written ({} bytes)", path.display(), body.len());
+    }
+    Ok(())
+}
+
+/// WS-11: `--anonymous` — port scan + RootDSE + null-session SMB + SRV lookup.
+/// Emits a smaller anonymous-mode report through the same JSON/HTML/MD/TXT
+/// renderers, so the output-format flags (`--out`, `--out-all`, `--format`)
+/// behave identically to the authenticated path.
+async fn scan_anonymous(a: ScanArgs) -> Result<()> {
+    let sp = ui::Spinner::start("anonymous fingerprint (port scan + RootDSE + SMB + SRV)");
+    let anon = crate::attacks::scan_anonymous::run(&a.auth.url, a.auth.insecure).await?;
+    sp.done(&format!(
+        "{} anonymous finding(s) from external fingerprint",
+        anon.findings.len()
+    ));
+
+    let domain_label = if anon.domain.is_empty() {
+        format!("{} (anonymous)", anon.host)
+    } else {
+        format!("{} (anonymous — domain {})", anon.host, anon.domain)
+    };
+
+    let report = Report::build(
+        &domain_label,
+        anon.findings,
+        Vec::new(),
+        (0, 0),
+        &RiskConfig::default(),
+    );
+
+    if let Some(dir) = &a.out_all {
+        return write_out_all(&report, dir, a.top_n);
+    }
+
+    let explicit_format = std::env::args().any(|a| a == "--format");
+    let format = if explicit_format {
+        a.format.clone()
+    } else if let Some(path) = &a.out {
+        match std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("html") => "html".to_string(),
+            Some("md") | Some("markdown") => "md".to_string(),
+            Some("txt") | Some("text") => "txt".to_string(),
+            _ => "json".to_string(),
+        }
+    } else {
+        a.format.clone()
+    };
+
+    let body = match format.as_str() {
+        "html" => report.to_html(),
+        "md" => report.to_markdown(),
+        "txt" => report.to_text_summary(a.top_n),
+        _ => report.to_json(),
+    };
+
+    match &a.out {
+        Some(path) if path != "-" => {
+            std::fs::write(path, &body)
+                .with_context(|| format!("write anonymous report → {path}"))?;
+            eprintln!(
+                "[+] anonymous {} report written → {} ({} bytes)",
                 format,
                 path,
                 body.len()

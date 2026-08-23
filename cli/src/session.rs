@@ -57,6 +57,9 @@ impl Session {
             gssapi: false,
             bloodhound: None,
             out: None,
+            out_all: None,
+            top_n: 10,
+            anonymous: false,
         }
     }
 }
