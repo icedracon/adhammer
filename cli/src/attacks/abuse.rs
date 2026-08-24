@@ -188,7 +188,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         if a.dry_run {
             println!(
                 "[dry-run] would write attribute=msDS-KeyCredentialLink target={dn} value={} (dn-binary)",
-                &kc.dn_binary
+                kc.dn_binary
             );
             println!("[dry-run] no change made");
             return Ok(());
