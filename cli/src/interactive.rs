@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Password};
+use std::time::Instant;
 
 use crate::session::{self, Session};
 use crate::{dcshadow, poison};
@@ -218,34 +219,60 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
     ),
 ];
 
-/// Colored boxed banner + session line shown above the interactive menu.
+fn intro_enabled() -> bool {
+    std::env::var("ADHAMMER_UI_INTRO").map_or(true, |v| v != "0")
+}
+
+/// Opening splash shown once per interactive run.
+fn intro_sequence(_sess: &session::Session) {
+    use crate::ui;
+    if !intro_enabled() {
+        return;
+    }
+
+    let art = [
+        "   █████╗ ██████╗ ██╗  ██╗ █████╗ ███╗   ███╗███╗   ███╗███████╗██████╗ ",
+        "  ██╔══██╗██╔══██╗██║  ██║██╔══██╗████╗ ████║████╗ ████║██╔════╝██╔══██╗",
+        "  ███████║██║  ██║███████║███████║██╔████╔██║██╔████╔██║█████╗  ██████╔╝",
+        "  ██╔══██║██║  ██║██╔══██║██╔══██║██║╚██╔╝██║██║╚██╔╝██║██╔══╝  ██╔══██╗",
+        "  ██║  ██║██████╔╝██║  ██║██║  ██║██║ ╚═╝ ██║██║ ╚═╝ ██║███████╗██║  ██║",
+        "  ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝",
+    ];
+
+    eprintln!();
+    for line in art {
+        eprintln!("{}", ui::accent_err(line));
+        ui::beat_for(ui::Pace::Fast);
+    }
+    ui::note("   supported findings -> validate -> export");
+    ui::hold_for(ui::Pace::Important);
+}
+
+/// Compact banner shown above the interactive menu after the intro splash.
 fn banner(sess: &session::Session) {
     use crate::ui;
-    let title = "ADHAMMER · Active Directory audit + validation";
-    let rule = "─".repeat(title.chars().count() + 2);
-    println!();
-    println!("  {}", ui::accent(&format!("╭{rule}╮")));
-    println!("  {}", ui::accent(&format!("│ {title} │")));
-    println!("  {}", ui::accent(&format!("╰{rule}╯")));
-    println!(
-        "  {} {}    {} {}    {} {}",
-        ui::dim("domain"),
-        ui::green(&sess.domain),
-        ui::dim("dc"),
-        ui::green(&sess.dc),
-        ui::dim("user"),
-        ui::green(&sess.username),
+    eprintln!();
+    eprintln!(
+        "  {} {}  {} {}  {} {}  {} {}",
+        ui::sticker("ADHAMMER", ui::Tone::Accent),
+        ui::accent_err(env!("CARGO_PKG_VERSION")),
+        ui::sticker("DOMAIN", ui::Tone::Dim),
+        ui::green_err(&sess.domain),
+        ui::sticker("DC", ui::Tone::Dim),
+        ui::green_err(&sess.dc),
+        ui::sticker("USER", ui::Tone::Dim),
+        ui::green_err(&sess.username),
     );
-    println!();
+    ui::note("  Auto = scan -> validate -> export    Single attack = brief -> run -> proof");
 }
 
 pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
     let reuse = use_old
         || (session::exists()
-            && Confirm::new()
-                .with_prompt("Saved session found — reuse it? (No = enter new credentials)")
-                .default(true)
-                .interact()?);
+            && prompt_confirm(
+                "Saved session found — reuse it? (No = enter new credentials)",
+                true,
+            )?);
     let sess = if reuse {
         session::load()?
     } else {
@@ -257,6 +284,8 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
         }
         s
     };
+
+    intro_sequence(&sess);
 
     'outer: loop {
         banner(&sess);
@@ -276,7 +305,7 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
         match mode {
             // AUTO: guided scan → findings list → pick which to impact → chain + PoC report.
             0 => {
-                if let Err(e) = dispatch(&Action::Guided, &sess).await {
+                if let Err(e) = run_action_with_brief(&Action::Guided, &sess).await {
                     crate::ui::bad(&format!("{e:#}"));
                 }
             }
@@ -300,7 +329,7 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
                 if ai == actions.len() {
                     continue 'outer; // Back
                 }
-                if let Err(e) = dispatch(&actions[ai].1, &sess).await {
+                if let Err(e) = run_action_with_brief(&actions[ai].1, &sess).await {
                     crate::ui::bad(&format!("{e:#}"));
                 }
             }
@@ -315,13 +344,11 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
                     Action::Exit => break,
                     Action::ShowRoadmap => print_roadmap_summary(),
                     Action::WipeSession => {
-                        if Confirm::new()
-                            .with_prompt(
-                                "Really wipe the saved session? (deletes your creds from disk)",
-                            )
-                            .default(false)
-                            .interact()
-                            .unwrap_or(false)
+                        if prompt_confirm(
+                            "Really wipe the saved session? (deletes your creds from disk)",
+                            false,
+                        )
+                        .unwrap_or(false)
                         {
                             session::wipe().ok();
                         } else {
@@ -338,8 +365,9 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
 }
 
 fn setup_wizard() -> Result<Session> {
-    println!("=== ADhammer setup ===");
-    println!("Enter the engagement target (saved for `adhammer --old`).\n");
+    crate::ui::header_err("ADhammer setup");
+    crate::ui::note("Enter the engagement target (saved for `adhammer --old`).");
+    crate::ui::note("Controls: Enter=default  y=yes  n=no  Ctrl+C=cancel");
 
     // 1. user  2. password | NT hash  3. domain  4. domain-controller IP  5. TLS.
     let username: String = Input::new()
@@ -359,7 +387,7 @@ fn setup_wizard() -> Result<Session> {
     )
     .context("auth prompt")?;
     let (password, nt_hash) = if auth == 0 {
-        (Password::new().with_prompt("Password").interact()?, None)
+        (prompt_password("Password")?, None)
     } else {
         let h: String = Input::new()
             .with_prompt("NT hash (32 hex)")
@@ -383,10 +411,7 @@ fn setup_wizard() -> Result<Session> {
         .interact_text()
         .context("dc prompt")?;
 
-    let insecure = Confirm::new()
-        .with_prompt("Skip LDAPS certificate verification (lab DC)?")
-        .default(true)
-        .interact()
+    let insecure = prompt_confirm("Skip LDAPS certificate verification (lab DC)?", true)
         .context("insecure prompt")?;
 
     Ok(Session {
@@ -410,16 +435,27 @@ fn save_session_for_interactive(sess: &Session) -> Result<()> {
         return Ok(());
     }
 
-    eprintln!("[!] this OS cannot encrypt saved session credentials");
-    let save_plain = Confirm::new()
-        .with_prompt("Save the session unencrypted for this lab host anyway?")
-        .default(false)
-        .interact()
-        .unwrap_or(false);
-    if save_plain {
-        session::save_allow_cleartext(sess)?;
-    } else {
-        eprintln!("[*] continuing without a saved session (`--old` will not work later)");
+    crate::ui::outcome(
+        crate::ui::OutcomeKind::Blocked,
+        "session encryption unavailable on this OS",
+    );
+    crate::ui::note("Choose how to continue on this lab host.");
+    let choice = prompt_select(
+        "Session save",
+        &[
+            "Save unencrypted for this lab",
+            "Continue without saving",
+            "Cancel setup",
+        ],
+        1,
+    )?;
+    match choice {
+        0 => session::save_allow_cleartext(sess)?,
+        1 => crate::ui::outcome(
+            crate::ui::OutcomeKind::Skipped,
+            "continuing without a saved session (`--old` will not work later)",
+        ),
+        _ => anyhow::bail!("setup cancelled before saving the session"),
     }
     Ok(())
 }
@@ -440,7 +476,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 domain: Some(s.netbios()),
                 realm: Some(s.realm()),
                 kdc: Some(s.dc.clone()),
-                out: "adhammer-report.md".into(),
+                out: "adhammer-pentest-report.md".into(),
                 yes: false,
                 no_impact: false,
             })
@@ -454,7 +490,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             let password: String = Password::new()
                 .with_prompt("Password to spray")
-                .interact()?;
+                .interact()
+                .or_else(|_| prompt_password("Password to spray"))?;
             spray(SprayArgs {
                 kdc: s.dc.clone(),
                 realm: s.realm(),
@@ -670,7 +707,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             let account_password: String = Password::new()
                 .with_prompt("Controlled account password")
-                .interact()?;
+                .interact()
+                .or_else(|_| prompt_password("Controlled account password"))?;
             let impersonate: String = Input::new()
                 .with_prompt("User to impersonate")
                 .with_initial_text("Administrator")
@@ -689,10 +727,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::Dcsync => {
-            let all = Confirm::new()
-                .with_prompt("Dump ALL domain accounts (full secretsdump)?")
-                .default(false)
-                .interact()?;
+            let all = prompt_confirm("Dump ALL domain accounts (full secretsdump)?", false)?;
             let target: String = if all {
                 String::new()
             } else {
@@ -867,10 +902,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("UPN to impersonate via SAN")
                 .with_initial_text(format!("Administrator@{}", s.domain))
                 .interact_text()?;
-            let pkinit = Confirm::new()
-                .with_prompt("Chain enroll → cert → PKINIT (TGT)?")
-                .default(false)
-                .interact()?;
+            let pkinit = prompt_confirm("Chain enroll → cert → PKINIT (TGT)?", false)?;
             esc1(Esc1Args {
                 auth: crate::shared_args::SmbAuth {
                     host: s.dc.clone(),
@@ -1055,10 +1087,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             let target: String = Input::new()
                 .with_prompt("Target sAMAccountName (plant KeyCredentialLink)")
                 .interact_text()?;
-            let pkinit = Confirm::new()
-                .with_prompt("Also do PKINIT to get a TGT as the target?")
-                .default(true)
-                .interact()?;
+            let pkinit = prompt_confirm("Also do PKINIT to get a TGT as the target?", true)?;
             shadowcred(ShadowcredArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
@@ -1207,13 +1236,13 @@ async fn fetch_key_and_sid(
     let auto = if s.password.is_empty() {
         false
     } else {
-        Confirm::new()
-            .with_prompt(format!(
+        prompt_confirm(
+            &format!(
                 "Auto-fetch {account}'s AES256 key + domain SID via DCSync (uses your session creds)?"
-            ))
-            .default(true)
-            .interact()
-            .unwrap_or(false)
+            ),
+            true,
+        )
+        .unwrap_or(false)
     };
     if !auto {
         return Ok((prompt_key(key_label)?, prompt_sid()?));
@@ -1277,11 +1306,12 @@ fn prompt_select<T: AsRef<str>>(prompt: &str, items: &[T], default: usize) -> Re
         items.len()
     );
 
-    println!();
-    println!("{prompt}");
+    eprintln!();
+    eprintln!("{prompt}");
+    crate::ui::menu_legend();
     for (idx, item) in items.iter().enumerate() {
         let marker = if idx == default { "*" } else { " " };
-        println!("  {marker} {}. {}", idx + 1, item.as_ref());
+        eprintln!("  {marker} {}. {}", idx + 1, item.as_ref());
     }
 
     loop {
@@ -1301,6 +1331,272 @@ fn prompt_select<T: AsRef<str>>(prompt: &str, items: &[T], default: usize) -> Re
             return Ok(choice);
         }
         crate::ui::bad(&format!("Enter a number between 1 and {}.", items.len()));
+    }
+}
+
+async fn run_action_with_brief(action: &Action, s: &Session) -> Result<()> {
+    show_action_brief(action, s);
+    crate::ui::hold();
+    let start = Instant::now();
+    match dispatch(action, s).await {
+        Ok(()) => {
+            crate::ui::outcome(
+                crate::ui::OutcomeKind::Validated,
+                &format!(
+                    "{} completed ({:.1}s)",
+                    action_name(action),
+                    start.elapsed().as_secs_f32()
+                ),
+            );
+            if let Some(next) = action_next_hint(action) {
+                crate::ui::field_err("next", next);
+            }
+            pause_after_action()?;
+            Ok(())
+        }
+        Err(e) => {
+            crate::ui::outcome(
+                crate::ui::OutcomeKind::Failed,
+                &format!(
+                    "{} failed ({:.1}s)",
+                    action_name(action),
+                    start.elapsed().as_secs_f32()
+                ),
+            );
+            crate::ui::field_err("reason", &format!("{e:#}"));
+            if let Some(next) = action_failure_hint(action) {
+                crate::ui::field_err("next", next);
+            }
+            pause_after_action()?;
+            Err(e)
+        }
+    }
+}
+
+fn show_action_brief(action: &Action, s: &Session) {
+    crate::ui::header_err("Preflight");
+    crate::ui::field_story_err("action", action_name(action), crate::ui::Pace::Fast);
+    crate::ui::field_story_err(
+        &crate::ui::sticker("MODE", crate::ui::Tone::Accent),
+        action_mode(action),
+        crate::ui::Pace::Fast,
+    );
+    crate::ui::field_story_err("host", &s.dc, crate::ui::Pace::Fast);
+    crate::ui::field_story_err("user", &s.username, crate::ui::Pace::Fast);
+    crate::ui::field_story_err(
+        &crate::ui::sticker("PROOF", crate::ui::Tone::Good),
+        action_proof_hint(action),
+        crate::ui::Pace::Normal,
+    );
+    crate::ui::field_story_err(
+        &crate::ui::sticker("WRITES", crate::ui::Tone::Warn),
+        action_write_hint(action),
+        crate::ui::Pace::Normal,
+    );
+    if let Some(note) = action_note(action) {
+        crate::ui::field_story_err(
+            &crate::ui::sticker("NOTE", crate::ui::Tone::Dim),
+            note,
+            crate::ui::Pace::Important,
+        );
+    }
+}
+
+fn action_name(action: &Action) -> &'static str {
+    match action {
+        Action::Scan => "Scan",
+        Action::Guided => "Auto / Guided",
+        Action::Roast => "Roast",
+        Action::Spray => "Spray",
+        Action::EnumSamr => "Enum SAMR",
+        Action::EnumLsa => "Enum LSA",
+        Action::NetSweep => "Net sweep",
+        Action::DnsEnum => "DNS enumeration",
+        Action::AdcsEnum => "AD CS enumeration",
+        Action::EnumEsc => "ESC registry enumeration",
+        Action::EnumPosture => "Posture enumeration",
+        Action::Abuse => "LDAP abuse",
+        Action::Coerce => "Coerce",
+        Action::Zerologon => "Zerologon detection",
+        Action::Rbcd => "RBCD",
+        Action::Dcsync => "DCSync",
+        Action::Capture => "NTLM capture",
+        Action::Poison => "LLMNR / NBT-NS poison",
+        Action::Relay => "NTLM relay",
+        Action::Exec => "Exec",
+        Action::Wmiexec => "WMIexec",
+        Action::Winrm => "WinRM",
+        Action::Secretsdump => "Secretsdump",
+        Action::Gmsa => "gMSA",
+        Action::Laps => "LAPS",
+        Action::Esc1 => "ESC1",
+        Action::Asktgt => "AskTGT",
+        Action::Golden => "Golden ticket",
+        Action::Silver => "Silver ticket",
+        Action::Pth => "Pass-the-ticket",
+        Action::EnumSessions => "Session enumeration",
+        Action::Unconstrained => "Unconstrained delegation",
+        Action::Shadowcred => "Shadow credentials",
+        Action::Esc4 => "ESC4",
+        Action::Badsuccessor => "BadSuccessor",
+        Action::Dcshadow => "DCShadow detector",
+        Action::Constrained => "Constrained delegation",
+        Action::Mssql => "MSSQL",
+        Action::ShowRoadmap => "Roadmap",
+        Action::WipeSession => "Wipe session",
+        Action::Exit => "Exit",
+    }
+}
+
+fn action_mode(action: &Action) -> &'static str {
+    match action {
+        Action::Scan
+        | Action::Guided
+        | Action::EnumSamr
+        | Action::EnumLsa
+        | Action::NetSweep
+        | Action::DnsEnum
+        | Action::AdcsEnum
+        | Action::EnumEsc
+        | Action::EnumPosture
+        | Action::EnumSessions
+        | Action::Unconstrained
+        | Action::Dcshadow
+        | Action::Zerologon => "passive / low-impact",
+        Action::Roast | Action::Spray | Action::Gmsa | Action::Laps | Action::Asktgt => {
+            "credential / validation"
+        }
+        Action::Capture
+        | Action::Poison
+        | Action::Relay
+        | Action::Exec
+        | Action::Wmiexec
+        | Action::Winrm
+        | Action::Secretsdump
+        | Action::Rbcd
+        | Action::Constrained
+        | Action::Esc1
+        | Action::Esc4
+        | Action::Golden
+        | Action::Silver
+        | Action::Pth
+        | Action::Mssql
+        | Action::Abuse
+        | Action::Coerce
+        | Action::Dcsync
+        | Action::Shadowcred
+        | Action::Badsuccessor => "active / impacting",
+        Action::ShowRoadmap | Action::WipeSession | Action::Exit => "session",
+    }
+}
+
+fn action_proof_hint(action: &Action) -> &'static str {
+    match action {
+        Action::Guided => "multi-step findings, proof snippets, optional export bundle",
+        Action::Scan => "findings and control paths",
+        Action::Roast => "Kerberos hash material",
+        Action::Spray => "valid / invalid login outcomes",
+        Action::Gmsa => "managed password hash",
+        Action::Laps => "local admin password",
+        Action::Asktgt | Action::Golden | Action::Silver | Action::Pth => "ticket / ccache output",
+        Action::Exec | Action::Wmiexec | Action::Winrm | Action::Mssql => "command output",
+        Action::Relay | Action::Esc1 | Action::Esc4 | Action::Shadowcred => {
+            "LDAP or certificate proof"
+        }
+        Action::Dcsync | Action::Secretsdump => "replicated or dumped secret material",
+        _ => "stdout / stderr proof in the run output",
+    }
+}
+
+fn action_write_hint(action: &Action) -> &'static str {
+    match action {
+        Action::Guided => "writes reports if you export them",
+        Action::Asktgt | Action::Golden | Action::Silver | Action::Esc1 => {
+            "may write ccache or certificate artifacts"
+        }
+        Action::Capture
+        | Action::Poison
+        | Action::Relay
+        | Action::Exec
+        | Action::Wmiexec
+        | Action::Winrm
+        | Action::Mssql
+        | Action::Abuse
+        | Action::Coerce
+        | Action::Rbcd
+        | Action::Constrained
+        | Action::Dcsync
+        | Action::Secretsdump
+        | Action::Shadowcred
+        | Action::Esc4
+        | Action::Badsuccessor => "network-side effects likely",
+        _ => "no local artifacts unless the action says otherwise",
+    }
+}
+
+fn action_note(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::Guided => {
+            Some("After the scan, ADhammer will ask what to validate and whether to export proof.")
+        }
+        Action::Constrained => {
+            Some("Uses the same S4U chain as RBCD, but framed for AllowedToDelegateTo abuse.")
+        }
+        Action::Zerologon => {
+            Some("Interactive mode only exposes the safe detector, not the destructive reset path.")
+        }
+        _ => None,
+    }
+}
+
+fn action_next_hint(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::Guided => Some("Open the exported summary or HTML if you chose export; otherwise review the validated findings above."),
+        Action::Scan => Some("If findings were interesting, rerun Auto / Guided to validate the strongest paths."),
+        _ => Some("Proof is in the command output above. Guided mode is the best path when you need packaged artifacts."),
+    }
+}
+
+fn action_failure_hint(action: &Action) -> Option<&'static str> {
+    match action {
+        Action::Guided | Action::Scan => Some("Re-check bind identity, DC reachability, and LDAPS settings."),
+        Action::Exec | Action::Wmiexec | Action::Winrm | Action::Mssql => {
+            Some("Re-check host reachability, service availability, and the privileges of the current identity.")
+        }
+        _ => Some("Re-check credentials, target context, and any required delegation or CA prerequisites."),
+    }
+}
+
+fn pause_after_action() -> Result<()> {
+    crate::ui::note("Press Enter to return to the menu.");
+    let _: String = Input::new()
+        .with_prompt("")
+        .allow_empty(true)
+        .interact_text()?;
+    Ok(())
+}
+
+fn prompt_confirm(prompt: &str, default: bool) -> Result<bool> {
+    crate::ui::note("Controls: Enter=default  y=yes  n=no  Ctrl+C=cancel");
+    Confirm::new()
+        .with_prompt(prompt)
+        .default(default)
+        .interact()
+        .map_err(Into::into)
+}
+
+fn prompt_password(prompt: &str) -> Result<String> {
+    match Password::new().with_prompt(prompt).interact() {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            crate::ui::warn(&format!(
+                "hidden password input unavailable ({err}) — falling back to visible entry"
+            ));
+            Input::<String>::new()
+                .with_prompt(format!("{prompt} (visible)"))
+                .interact_text()
+                .map_err(Into::into)
+        }
     }
 }
 

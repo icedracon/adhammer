@@ -109,6 +109,54 @@ Do NOT move protocol logic into adhammer — it stays in standalone crates.
 All workspace members share `workspace.package.version`. Bump in ONE place (root `Cargo.toml`).
 `Cargo.lock` updates automatically — commit it with the version bump.
 
+**★ Minimum-bump / SemVer honesty — HARD RULE, every crate (workspace + siblings).**
+The version communicates **compatibility, not significance.** Bump only as far as the
+change actually requires — never jump a minor/major to signal a milestone. **Verify the
+real public-API delta before bumping.** Authoritative: `cargo semver-checks check-release`
+(compares against the published version). Fast heuristic:
+```
+git show <range> --unified=0 | grep -E '^-.*pub (fn|struct|enum|trait|mod|const|type)'
+```
+Nothing printed (no pub item removed / renamed) ⇒ **likely** compatible ⇒ **stay on the
+current version line** (patch bump within `^current`).
+**Heuristic blind spot — reason about these, the grep won't catch them (they leave signature
+TEXT unchanged but ARE breaking):** a redefined type alias (esp. an error alias like
+`pub type Result<T> = …` switching `anyhow` → a typed enum), a changed trait bound, a
+changed return/param type reached through an alias, a new/changed default trait method,
+an enum gaining a variant without `#[non_exhaustive]`. Any of these ⇒ **breaking ⇒ minor**.
+- **0.x crate** (`^0.y.z` = `>=0.y.z,<0.(y+1).0`): additive/bugfix → **patch** `0.2.5→0.2.6`
+  (every `^0.2` consumer gets it free); breaking → **minor** `0.2.x→0.3.0`.
+- **≥1.0 crate**: additive → minor, bugfix → patch, breaking → major.
+- Why hard: an unneeded minor/major forces a **pin-bump cascade** across every dependent.
+  Real case — dcerpc `0.3.0` was purely additive (21 pub added, 0 removed) and would have
+  broken ~10 sibling `^0.2` pins + adhammer; re-versioned to `0.2.7`, zero pin changes.
+  Reserve the next minor for a real break (e.g. dcerpc `drsuapi` removal → 0.4.0, already
+  promised — never tighten a published deprecation target).
+
+## Consumer safety — published crates have real downstream users (never crash / never break them)
+These crates have external consumers (windows-sddl 2k+ dl, ntlmssp 2k+). Every change ships to them.
+
+**Never break (API compatibility):**
+- Minimum-bump rule (above) — breaking → minor/major so `^` shields old consumers.
+- **`#[non_exhaustive]` on every public error enum** so future variants are a *patch*, not a break.
+  New enums get it at creation; already-published enums get it **bundled with their next minor bump**.
+- Deprecate, never yank the rug: `#[deprecated]` + removal-version promise, keep ≥1 minor cycle.
+  Never tighten a published removal date.
+- Additive-first: new capability = new method/module/crate (patch), not a changed signature.
+
+**Never crash (panic-safety — a lib that panics on data crashes the CONSUMER's process):**
+- A library **NEVER panics on input.** Malformed/hostile bytes → `Err`, never `unwrap()`/`expect()`/
+  index-panic/`unreachable!`. Panics only on genuine programmer error.
+- **Fuzz every wire parser** (cargo-fuzz; clone `dcerpc/fuzz`). A crate that parses attacker/server
+  bytes is not publish-ready until it has a fuzz target and a clean run. Panic found → convert to `Err`.
+- Bounded-alloc preflight on every wire-derived length; checked/saturating arithmetic on length math.
+
+**Never lock out (MSRV):** keep `rust-version` accurate and as low as the dep closure allows; pin
+heavy deps down rather than raise the floor.
+
+**Per-crate publish gate (grandiose update):**
+`fmt → clippy -D → test → FUZZ (0 panics) → cargo semver-checks → bounded-alloc audit → --dry-run → publish → verify index`
+
 ## What NOT to do
 - **Rule for new crates:** extract only when the primitive has genuine **dual-use** appeal
   (used by defensive / admin / DFIR tools too, not just offensive). Attacker-only compositions

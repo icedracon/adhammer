@@ -26,6 +26,8 @@ venv/
 # local run artefacts — never commit
 auto-report.md
 adhammer-report.*
+adhammer-pentest-report.*
+*-rebuilt.html
 report.json
 report.html
 report-summary.txt

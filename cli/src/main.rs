@@ -135,7 +135,7 @@ struct AutoArgs {
     #[arg(long)]
     kdc: Option<String>,
     /// Report output path (Markdown). Sidecar HTML / JSON / TXT files are written alongside it.
-    #[arg(long, default_value = "adhammer-report.md")]
+    #[arg(long, default_value = "adhammer-pentest-report.md")]
     out: String,
     /// Validate every finding without prompting (unattended).
     #[arg(long)]

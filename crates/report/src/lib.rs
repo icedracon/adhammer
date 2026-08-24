@@ -88,45 +88,225 @@ impl Report {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into())
     }
 
-    /// Minimal self-contained HTML — enough for the diploma appendix; style later.
+    /// Self-contained operator-facing HTML report for passive scan output.
     pub fn to_html(&self) -> String {
-        let mut rows = String::new();
-        for f in &self.findings {
-            rows.push_str(&format!(
-                "<tr><td>{sev:?}</td><td>{id}</td><td>{cat:?}</td><td>{title}</td><td>{n}</td></tr>",
-                sev = f.severity,
-                id = f.id,
-                cat = f.category,
-                title = html_escape(&f.title),
-                n = f.affected.len(),
-            ));
-        }
+        let total_findings = self.findings.len();
+        let chain_count = self.composite_chains.iter().filter(|c| c.present).count();
+        let path_count = self.top_paths.len();
+        let critical = self
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
+        let high = self
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::High)
+            .count();
+        let medium = self
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Medium)
+            .count();
+        let low = self
+            .findings
+            .iter()
+            .filter(|f| matches!(f.severity, Severity::Low | Severity::Info))
+            .count();
         format!(
-            "<!doctype html><meta charset=utf-8><title>ADhammer — {dom}</title>\
-             <style>body{{font:14px system-ui;margin:2rem}}table{{border-collapse:collapse;width:100%}}\
-             td,th{{border:1px solid #ccc;padding:4px 8px;text-align:left}}\
-             h1 small{{color:#888}}\
-             .path{{border:1px solid #ccc;margin:1rem 0;padding:.5rem 1rem}}\
-             .route{{font-weight:600}}\
-             .hop{{margin:.5rem 0 .5rem 1rem;border-left:3px solid #ddd;padding-left:.75rem}}\
-             .cmd{{font-family:ui-monospace,Consolas,monospace;background:#f4f4f4;padding:2px 6px;display:inline-block}}\
-             .chain{{border:1px solid #d33;margin:.5rem 0;padding:.4rem .75rem;background:#fff6f6}}\
-             .chain b{{color:#a00}}\
-             .todo{{color:#a60;font-style:italic}}\
-             .fix{{color:#060}}</style>\
-             <h1>ADhammer report <small>{dom}</small></h1>\
-             <p>Total risk score: <b>{score}</b> — graph: {nodes} nodes / {edges} edges</p>\
+            "<!doctype html><meta charset=utf-8><title>ADhammer report — {dom}</title>\
+             <style>\
+             :root{{color-scheme:dark;--bg:#0b1020;--panel:#131a2c;--panel-2:#10172a;--line:#2c3657;--text:#e8edf7;--muted:#98a4c7;--green:#5be49b;--amber:#ffcf66;--red:#ff6b7f;--blue:#7cc9ff;}}\
+             *{{box-sizing:border-box}}\
+             body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 Inter,Segoe UI,system-ui,sans-serif}}\
+             .wrap{{max-width:1240px;margin:0 auto;padding:32px 24px 56px}}\
+             h1,h2,h3,p{{margin:0}}\
+             code,pre{{font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}}\
+             code{{background:#0d1323;padding:3px 6px;border-radius:6px}}\
+             section{{margin-top:28px}}\
+             .hero{{margin-bottom:10px}}\
+             .hero p{{margin-top:12px;color:var(--muted);max-width:900px}}\
+             .hero-head{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}}\
+             .subtitle{{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}}\
+             .stats,.sev-grid,.score-grid{{display:grid;gap:12px}}\
+             .stats{{grid-template-columns:repeat(5,minmax(140px,1fr));margin:20px 0}}\
+             .sev-grid{{grid-template-columns:repeat(4,minmax(140px,1fr));margin:0 0 6px}}\
+             .score-grid{{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-top:12px}}\
+             .stat,.sev-card,.score-card,.panel,.finding,.path,.chain{{background:var(--panel);border:1px solid var(--line);border-radius:8px}}\
+             .stat,.sev-card,.score-card{{padding:14px 16px}}\
+             .stat b,.sev-card b,.score-card b{{display:block;font-size:25px;line-height:1.1}}\
+             .stat span,.sev-card span,.score-card span{{color:var(--muted);font-size:12px;text-transform:uppercase}}\
+             .sev-critical{{border-color:rgba(255,107,127,.45)}} .sev-high{{border-color:rgba(255,207,102,.45)}} .sev-medium{{border-color:rgba(124,201,255,.45)}}\
+             .sev-low{{border-color:rgba(152,164,199,.35)}}\
+             .panel{{padding:18px 20px}}\
+             .panel h2{{margin-bottom:12px}}\
+             .panel p{{color:var(--muted)}}\
+             .chip{{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--line);background:var(--panel-2);margin-right:8px}}\
+             .chip-critical{{color:var(--red);border-color:var(--red)}}\
+             .chip-high{{color:var(--amber);border-color:var(--amber)}}\
+             .chip-medium{{color:var(--blue);border-color:var(--blue)}}\
+             .chip-low,.chip-info{{color:var(--muted)}}\
+             .chip-good{{color:var(--green);border-color:rgba(91,228,155,.5)}}\
+             .chip-warn{{color:var(--amber);border-color:rgba(255,207,102,.55)}}\
+             .muted{{color:var(--muted)}}\
+             .finding{{padding:18px 20px;margin:0 0 16px}}\
+             .finding-head{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}}\
+             .finding h3{{margin-bottom:10px}}\
+             .meta{{display:grid;grid-template-columns:130px 1fr;gap:10px;margin:8px 0}}\
+             .meta .k{{color:var(--muted);font-weight:600}}\
+             .list{{margin:0;padding-left:18px;color:var(--text)}}\
+             .list li{{margin:4px 0}}\
+             .path{{padding:18px 20px;margin:0 0 16px}}\
+             .path-head{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}}\
+             .route{{font-weight:700;font-size:16px}}\
+             .hop{{margin:12px 0 0;padding:12px 14px;border-left:3px solid var(--line);background:rgba(11,16,32,.45);border-radius:0 8px 8px 0}}\
+             .hop-top{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}}\
+             .cmd{{display:block;margin-top:10px;padding:10px 12px;background:#0d1323;border:1px solid var(--line);border-radius:8px;overflow:auto}}\
+             .todo{{color:var(--amber);font-style:italic;margin-top:10px}}\
+             .fix{{margin-top:10px;color:var(--green)}}\
+             .chain{{padding:14px 16px;margin:0 0 12px}}\
+             .chain p{{margin-top:6px;color:var(--muted)}}\
+             @media (max-width:900px){{.stats{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .sev-grid{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .meta{{grid-template-columns:1fr}} .wrap{{padding:24px 18px 42px}}}}\
+             </style>\
+             <div class=wrap>\
+             <div class=hero>\
+               <div class=hero-head>\
+                 <div>\
+                   <div class=subtitle>ADhammer passive audit report</div>\
+                   <h1>{dom}</h1>\
+                 </div>\
+                 <div class=subtitle>{date}</div>\
+               </div>\
+               <p>This report summarizes supported passive findings, control-path analysis, and attack-chain correlation from the current directory snapshot. Findings are grouped for fast operator review, with attack paths and mitigations kept copy-paste close.</p>\
+             </div>\
+             <div class=stats>\
+               <div class=stat><b>{findings}</b><span>Total findings</span></div>\
+               <div class=stat><b>{score}</b><span>Risk score</span></div>\
+               <div class=stat><b>{nodes}</b><span>Graph nodes</span></div>\
+               <div class=stat><b>{paths_count}</b><span>Attack paths</span></div>\
+               <div class=stat><b>{chains_count}</b><span>Attack chains</span></div>\
+             </div>\
+             <div class=sev-grid>\
+               <div class=\"sev-card sev-critical\"><b>{critical}</b><span>Critical</span></div>\
+               <div class=\"sev-card sev-high\"><b>{high}</b><span>High</span></div>\
+               <div class=\"sev-card sev-medium\"><b>{medium}</b><span>Medium</span></div>\
+               <div class=\"sev-card sev-low\"><b>{low}</b><span>Low / Info</span></div>\
+             </div>\
+             <section class=panel><h2>Risk by category</h2><div class=score-grid>{scores}</div></section>\
              {chains}\
-             <table><tr><th>Severity</th><th>Rule</th><th>Category</th><th>Finding</th><th>#</th></tr>{rows}</table>\
-             {paths}",
+             <section class=panel><h2>Findings</h2><p>Each card shows why the condition matters, what it affects, and the shortest remediation text needed to brief an operator or stakeholder.</p></section>\
+             {findings_html}\
+             {paths}\
+             </div>",
             dom = html_escape(&self.domain),
+            date = current_utc_date(),
+            findings = total_findings,
             score = self.total_score,
             nodes = self.graph_nodes,
-            edges = self.graph_edges,
+            paths_count = path_count,
+            chains_count = chain_count,
+            critical = critical,
+            high = high,
+            medium = medium,
+            low = low,
+            scores = self.category_scores_html(),
             chains = self.chains_html(),
-            rows = rows,
+            findings_html = self.findings_html(),
             paths = self.paths_html(),
         )
+    }
+
+    fn category_scores_html(&self) -> String {
+        if self.category_scores.is_empty() {
+            return "<div class=score-card><b>0</b><span>No category scores</span></div>".into();
+        }
+        let mut out = String::new();
+        for (category, score) in &self.category_scores {
+            out.push_str(&format!(
+                "<div class=score-card><b>{}</b><span>{}</span></div>",
+                score,
+                html_escape(category)
+            ));
+        }
+        out
+    }
+
+    fn findings_html(&self) -> String {
+        let mut out = String::new();
+        for sev in SEV_ORDER {
+            let batch: Vec<_> = self
+                .findings
+                .iter()
+                .filter(|f| f.severity == *sev)
+                .collect();
+            if batch.is_empty() {
+                continue;
+            }
+            out.push_str(&format!(
+                "<section><div class=panel><h2>{}</h2><p>{} finding(s) in this band.</p></div></section>",
+                sev_name(*sev),
+                batch.len()
+            ));
+            for f in batch {
+                let mitre = if f.mitre.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "<div class=meta><div class=k>MITRE</div><div>{}</div></div>",
+                        html_escape(
+                            &f.mitre
+                                .iter()
+                                .map(|m| format!("{} {}", m.id, m.name))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    )
+                };
+                let impact = f
+                    .impact
+                    .as_ref()
+                    .map(|s| {
+                        format!(
+                            "<div class=meta><div class=k>Impact</div><div>{}</div></div>",
+                            html_escape(s)
+                        )
+                    })
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "<article class=finding>\
+                       <div class=finding-head>\
+                         <span class=\"chip chip-{sev_class}\">{sev}</span>\
+                         <span class=chip>{id}</span>\
+                         <span class=chip>{category}</span>\
+                         <span class=\"chip {affected_chip}\">{affected_count} affected</span>\
+                       </div>\
+                       <h3>{title}</h3>\
+                       <div class=meta><div class=k>Why</div><div>{detail}</div></div>\
+                       {mitre}\
+                       <div class=meta><div class=k>Affected</div><div>{affected}</div></div>\
+                       {impact}\
+                       <div class=meta><div class=k>Remediation</div><div>{remediation}</div></div>\
+                     </article>",
+                    sev_class = sev_class(f.severity),
+                    sev = html_escape(sev_name(f.severity)),
+                    id = html_escape(&f.id),
+                    category = html_escape(cat_label(f.category)),
+                    affected_chip = if f.affected.is_empty() {
+                        "muted"
+                    } else {
+                        "chip-good"
+                    },
+                    affected_count = f.affected.len(),
+                    title = html_escape(&f.title),
+                    detail = html_escape(&f.detail),
+                    mitre = mitre,
+                    affected = affected_html(&f.affected),
+                    impact = impact,
+                    remediation = html_escape(&f.remediation),
+                ));
+            }
+        }
+        out
     }
 
     /// The kill-chain section: each route to Tier-0 hop by hop, with the command that walks
@@ -135,26 +315,27 @@ impl Report {
         if self.top_paths.is_empty() {
             return String::new();
         }
-        let mut out = String::from("<h2>Attack paths to Tier-0</h2>");
+        let mut out = String::from(
+            "<section><div class=panel><h2>Attack paths to Tier-0</h2><p>These are the cheapest control paths in the graph. Every hop keeps the suggested command or clearly says when executor support is still missing.</p></div></section>",
+        );
         for p in &self.top_paths {
             out.push_str(&format!(
-                "<div class=path><div class=route>{route}</div>\
-                 <div>cost {cost}{exec}</div>",
+                "<article class=path><div class=path-head><div><div class=route>{route}</div><div class=muted>cost {cost}</div></div><div>{exec}</div></div>",
                 route = html_escape(&p.render()),
                 cost = p.cost,
                 exec = if p.fully_executable() {
-                    " · every hop is executable"
+                    "<span class=\"chip chip-good\">every hop executable</span>"
                 } else {
-                    ""
+                    "<span class=\"chip chip-warn\">manual/context gaps remain</span>"
                 },
             ));
             for (i, s) in p.steps.iter().enumerate() {
                 let cmd = match &s.command {
-                    Some(c) => format!("<div class=cmd>{}</div>", html_escape(c)),
+                    Some(c) => format!("<code class=cmd>{}</code>", html_escape(c)),
                     None => "<div class=todo>no executor yet — detection only</div>".into(),
                 };
                 out.push_str(&format!(
-                    "<div class=hop><b>{n}. {edge}</b> — {from} → {to}<br>{impact}<br>{cmd}\
+                    "<div class=hop><div class=hop-top><b>{n}. {edge}</b><span class=muted>{from} -> {to}</span></div><div>{impact}</div>{cmd}\
                      <div class=fix>fix: {fix}</div></div>",
                     n = i + 1,
                     edge = s.edge,
@@ -165,7 +346,7 @@ impl Report {
                     fix = html_escape(s.mitigation),
                 ));
             }
-            out.push_str("</div>");
+            out.push_str("</article>");
         }
         out
     }
@@ -175,10 +356,12 @@ impl Report {
         if present.is_empty() {
             return String::new();
         }
-        let mut out = String::from("<h2>Attack chains</h2>");
+        let mut out = String::from(
+            "<section><div class=panel><h2>Attack chains</h2><p>Composite chains highlight combinations that raise impact beyond any single finding on its own.</p></div></section>",
+        );
         for c in present {
             out.push_str(&format!(
-                "<div class=chain><b>{title}</b> — {impact}</div>",
+                "<article class=chain><div><span class=\"chip chip-critical\">Chain</span><b>{title}</b></div><p>{impact}</p></article>",
                 title = html_escape(c.title),
                 impact = html_escape(c.impact),
             ));
@@ -360,6 +543,51 @@ fn sev_short(s: Severity) -> &'static str {
         Severity::Low => "LOW ",
         Severity::Info => "INFO",
     }
+}
+
+fn sev_class(s: Severity) -> &'static str {
+    match s {
+        Severity::Critical => "critical",
+        Severity::High => "high",
+        Severity::Medium => "medium",
+        Severity::Low => "low",
+        Severity::Info => "info",
+    }
+}
+
+fn cat_label(c: Category) -> &'static str {
+    match c {
+        Category::PrivilegedAccounts => "Privileged Accounts",
+        Category::Trusts => "Trusts",
+        Category::StaleObjects => "Stale Objects",
+        Category::Anomalies => "Anomalies",
+    }
+}
+
+fn affected_html(values: &[String]) -> String {
+    if values.is_empty() {
+        return "<span class=muted>none recorded</span>".into();
+    }
+    if values.len() <= 6 {
+        let mut out = String::from("<ul class=list>");
+        for value in values {
+            out.push_str(&format!("<li>{}</li>", html_escape(value)));
+        }
+        out.push_str("</ul>");
+        return out;
+    }
+
+    let mut out = String::new();
+    let summary = format!("{} objects / principals", values.len());
+    out.push_str(&format!(
+        "<details><summary>{}</summary><ul class=list>",
+        html_escape(&summary)
+    ));
+    for value in values {
+        out.push_str(&format!("<li>{}</li>", html_escape(value)));
+    }
+    out.push_str("</ul></details>");
+    out
 }
 
 fn html_escape(s: &str) -> String {

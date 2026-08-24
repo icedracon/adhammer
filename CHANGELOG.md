@@ -5,6 +5,27 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-08-24
+
+Local interactive UX polish release. Keeps the `1.4.2` trust-surface cleanup
+and turns the default operator experience into a more guided, shell-safe flow.
+
+### Changed
+
+- **Narrated Auto / Guided flow** — connection summary, named phases with
+  elapsed timing, clearer clean/finding states, inline proof snippets, export
+  choices, and a final run summary card.
+- **Shell-safe prompts** — numbered menus now print controls inline, password
+  prompts degrade to visible entry when hidden input is unavailable, and the
+  non-Windows session-save refusal became an explicit three-way choice instead
+  of a dead-end warning.
+- **Single-attack framing** — interactive attack runs now show a compact
+  preflight card plus timed success/failure framing so the operator sees the
+  action, proof expectation, and likely next step before and after execution.
+- **Structured-output safety preserved** — the interactive narrator stays on
+  the human path while machine-readable flows keep their existing clean-output
+  contract.
+
 ## [1.4.2] — 2026-08-24
 
 Public-slot replacement for the yanked `1.4.1` line. Carries the local `1.4.1`

@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "serde",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "anyhow",
  "ntlmssp",
@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "aes",
  "cbc",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "adhammer-core",
  "aes",

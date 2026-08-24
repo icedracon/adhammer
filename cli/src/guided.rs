@@ -4,7 +4,7 @@
 //! Declined and non-auto-validatable findings still land in the report (documented, not
 //! exercised), so the deliverable is the complete picture. Terminal output is colored via `ui`;
 //! the primary report is Markdown with the exact command + captured proof per validated finding,
-//! plus sidecar JSON / HTML / text artifacts for automation and screenshots.
+//! plus sidecar JSON / HTML / text artifacts for automation, screenshots, and client handoff.
 
 use crate::ui;
 use adhammer_checks::run_all;
@@ -17,6 +17,9 @@ use dialoguer::{Confirm, Input};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+const PREMIUM_GUIDED_REPORT_TEMPLATE: &str =
+    include_str!("../templates/premium_guided_report.html");
 
 pub struct GuidedArgs {
     pub url: String,
@@ -68,6 +71,12 @@ enum Outcome {
     Attempted { cmd: String, evidence: String },
     Declined,
     Potential,
+}
+
+enum ExportChoice {
+    FullBundle,
+    SummaryOnly,
+    Skip,
 }
 
 /// Flags whose value is credential material — value is replaced with
@@ -178,18 +187,20 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         gssapi: false,
     };
 
+    let connect_host = a.host.clone().unwrap_or_else(|| url_host(&a.url));
+    show_connection_summary(&connect_host, &a.user, a.insecure);
+
     // Step-by-step narration so the operator always sees what adhammer is doing right now.
-    ui::info(&format!(
-        "step 1/4 · binding to {} as {}",
-        a.host.clone().unwrap_or_else(|| url_host(&a.url)),
+    let bind_phase = ui::Phase::start(&format!(
+        "step 1/4 - binding to {connect_host} as {}",
         a.user
     ));
     let mut c = Collector::connect(&cfg).await?;
-    ui::ok("LDAP bind established");
+    bind_phase.finish(ui::OutcomeKind::Validated, "LDAP bind established");
 
-    let sp = ui::Spinner::start(
-        "step 2/4 · collecting AD objects (users · groups · computers · GPOs · ACLs)",
-    );
+    let collect_phase =
+        ui::Phase::start("step 2/4 - collecting AD objects (users, groups, computers, GPOs, ACLs)");
+    let sp = ui::Spinner::start("collecting AD objects (users, groups, computers, GPOs, ACLs)");
     let ca = c
         .read_cas()
         .await
@@ -197,15 +208,25 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         .and_then(|v| v.into_iter().next().map(|(n, _)| n));
     let snap = c.collect().await?;
     sp.done(&format!("{} objects collected", snap.objects.len()));
+    collect_phase.finish(
+        ui::OutcomeKind::Validated,
+        &format!("{} directory object(s) collected", snap.objects.len()),
+    );
 
-    ui::info("step 3/4 · building control-path graph → Tier-0");
+    let graph_phase = ui::Phase::start("step 3/4 - building control-path graph to Tier-0");
     let graph = ControlGraph::build(&snap);
     let paths = graph.paths_to_tier0();
-    ui::ok(&format!("{} control-path(s) to Tier-0", paths.len()));
+    graph_phase.finish(
+        ui::OutcomeKind::Validated,
+        &format!("{} control-path(s) to Tier-0", paths.len()),
+    );
 
-    ui::info("step 4/4 · running security checks");
+    let checks_phase = ui::Phase::start("step 4/4 - running supported security checks");
     let mut findings = run_all(&snap, &graph); // already sorted by score, desc
-    ui::ok(&format!("{} passive finding(s)", findings.len()));
+    checks_phase.finish(
+        ui::OutcomeKind::Validated,
+        &format!("{} passive finding(s)", findings.len()),
+    );
 
     let ctx = Ctx {
         url: a.url.clone(),
@@ -257,6 +278,9 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     // Full severity-grouped summary of EVERY bug found (not just the validatable subset), so the
     // operator sees the complete picture before choosing which to demonstrate impact for.
     show_findings_summary(&findings, &ctx.realm);
+    if findings.is_empty() {
+        show_clean_state(&ctx.realm);
+    }
     if a.yes {
         ui::info("--yes: validating every finding with an available PoC");
         if !a.no_impact {
@@ -285,24 +309,53 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     } else if validatable.is_empty() {
         std::collections::HashSet::new()
     } else {
-        ui::header(&format!(
+        ui::header_err(&format!(
             "Scan found {} finding(s) — pick which to validate + demonstrate impact",
             findings.len()
         ));
+        ui::note("Only supported findings with an automated validator are listed below.");
         for (n, &i) in validatable.iter().enumerate() {
             let f = &findings[i];
-            println!(
-                "  {:>2}. {} {} {}  {}",
+            let proof = proof_kind_for(f);
+            let plan = validator(f, &ctx)
+                .map(|(label, _, _)| label)
+                .unwrap_or_default();
+            eprintln!(
+                "  {:>2}. {} {} {}",
                 n + 1,
                 sev_emoji(f.severity),
-                sev_tag(f.severity),
-                ui::accent(&f.title),
-                ui::dim(&format!("· {}", cat_str(f.category))),
+                severity_sticker(f.severity),
+                ui::accent_err(&f.title),
             );
+            ui::field_story_err(&ui::sticker("PROOF", ui::Tone::Good), proof, ui::Pace::Fast);
+            ui::field_story_err(
+                &ui::sticker("METHOD", ui::Tone::Accent),
+                &plan,
+                ui::Pace::Normal,
+            );
+            if let Some(impact) = &f.impact {
+                ui::field_story_err(
+                    &ui::sticker("IMPACT", ui::Tone::Warn),
+                    impact,
+                    ui::Pace::Important,
+                );
+            }
+            if let Some(note) = validator_context_note(f, &ctx) {
+                ui::field_story_err(
+                    &ui::sticker("CONTEXT", ui::Tone::Dim),
+                    &note,
+                    ui::Pace::Normal,
+                );
+            }
+            ui::hold_for(match f.severity {
+                Severity::Critical => ui::Pace::Important,
+                Severity::High => ui::Pace::Normal,
+                Severity::Medium | Severity::Low | Severity::Info => ui::Pace::Fast,
+            });
         }
         let unvalidatable = findings.len() - validatable.len();
         if unvalidatable > 0 {
-            println!(
+            eprintln!(
                 "  {}",
                 ui::dim(&format!(
                     "(+{unvalidatable} without an automated validator — documented in the report)"
@@ -333,7 +386,11 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
                     if !a.no_impact {
                         if let Some(imp) = &f.impact {
                             impact_yes.insert(f.id.clone());
-                            ui::field("impact", imp);
+                            ui::field_story_err(
+                                &ui::sticker("IMPACT", ui::Tone::Warn),
+                                imp,
+                                ui::Pace::Important,
+                            );
                         }
                     }
                     let sp = ui::Spinner::start(format!("running {label}"));
@@ -349,16 +406,16 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
                             let ev = truncate(&full);
                             if confirmed {
                                 sp.done("validated — PoC captured");
-                                show_proof(&ev);
+                                ui::proof_block(proof_kind_for(&f), &ev);
                                 Outcome::Validated { cmd, evidence: ev }
                             } else {
                                 sp.done_warn("attempted — proof not found (see report)");
-                                show_proof(&ev);
+                                ui::proof_block(proof_kind_for(&f), &ev);
                                 Outcome::Attempted { cmd, evidence: ev }
                             }
                         }
                         Err(e) => {
-                            sp.done_warn(&format!("could not run: {e}"));
+                            sp.done_warn(&format!("failed to run validator: {e}"));
                             Outcome::Attempted {
                                 cmd,
                                 evidence: format!("failed to spawn: {e}"),
@@ -373,8 +430,8 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
 
     // Opportunistic active checks that aren't part of the passive scan (network/ADCS). Each runs
     // a read/probe and only becomes a report finding when a weakness is actually confirmed.
-    println!();
-    ui::header("Active checks (beyond the passive scan)");
+    eprintln!();
+    ui::header_err("Active checks (beyond the passive scan)");
 
     // LAPS local-admin read across the estate.
     {
@@ -392,7 +449,7 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
                     if hit {
                         sp.done("validated — LAPS credentials recovered");
                         let ev = truncate(&full);
-                        show_proof(&ev);
+                        ui::proof_block("password", &ev);
                         results.push((laps_finding(), Outcome::Validated { cmd, evidence: ev }));
                     } else {
                         sp.done("no LAPS password readable — not exposed");
@@ -417,7 +474,7 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
                     if hit {
                         sp.done("validated — ESC8 web enrollment exposed");
                         let ev = truncate(&full);
-                        show_proof(&ev);
+                        ui::proof_block("web enrollment proof", &ev);
                         results.push((esc8_finding(), Outcome::Validated { cmd, evidence: ev }));
                     } else {
                         sp.done("no ESC8 web-enrollment exposure");
@@ -428,34 +485,18 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         }
     }
 
-    let (v, at, d, p) = tally(&results);
-    println!();
-    println!(
-        "{}   {}   {}   {}",
-        ui::green(&format!("✓ {v} validated")),
-        ui::yellow(&format!("▲ {at} attempted")),
-        ui::dim(&format!("◻ {d} declined")),
-        ui::dim(&format!("◽ {p} potential"))
-    );
     let artifacts = artifact_paths(&a.out);
     let report = build_report(&snap, &results, &impact_yes);
     let json = build_json_report(&snap, &results, &impact_yes);
     let html = build_html_report(&snap, &results, &impact_yes);
     let txt = build_text_report(&snap, &results);
-    std::fs::write(&artifacts.markdown, report)
-        .with_context(|| format!("write report {}", artifacts.markdown.display()))?;
-    std::fs::write(&artifacts.json, json)
-        .with_context(|| format!("write report {}", artifacts.json.display()))?;
-    std::fs::write(&artifacts.html, html)
-        .with_context(|| format!("write report {}", artifacts.html.display()))?;
-    std::fs::write(&artifacts.text, txt)
-        .with_context(|| format!("write report {}", artifacts.text.display()))?;
-    println!();
-    ui::ok("report bundle written — open the HTML in a browser:");
-    ui::field("html", &abs_display(&artifacts.html));
-    ui::field("json", &abs_display(&artifacts.json));
-    ui::field("markdown", &abs_display(&artifacts.markdown));
-    ui::field("summary", &abs_display(&artifacts.text));
+    let export_choice = if a.yes {
+        ExportChoice::FullBundle
+    } else {
+        prompt_export_choice()?
+    };
+    let exported = write_artifacts(export_choice, &artifacts, &report, &json, &html, &txt)?;
+    show_finish_card(&results, &impact_yes, &exported);
     Ok(())
 }
 
@@ -579,17 +620,54 @@ fn parse_impact_selection(raw: &str, slots: &[usize]) -> std::collections::HashS
         .collect()
 }
 
+fn show_connection_summary(host: &str, user: &str, insecure: bool) {
+    ui::header_err("Connection summary");
+    ui::field_story_err("host", host, ui::Pace::Fast);
+    ui::field_story_err("user", user, ui::Pace::Fast);
+    ui::field_story_err(
+        "ldaps",
+        if insecure {
+            "certificate verification skipped (lab mode)"
+        } else {
+            "certificate verification enabled"
+        },
+        ui::Pace::Normal,
+    );
+    ui::note_story(
+        "Important moments will linger a bit longer; routine metadata moves faster.",
+        ui::Pace::Important,
+    );
+    ui::hold_for(ui::Pace::Important);
+}
+
+fn show_clean_state(realm: &str) {
+    ui::header_err("Clean pass");
+    ui::field_story_err("realm", realm, ui::Pace::Fast);
+    ui::field_story_err(
+        "checked",
+        "LDAP collection, control paths, supported passive checks",
+        ui::Pace::Normal,
+    );
+    ui::field_story_err(
+        "next",
+        "Optional deeper actions remain: LAPS read, AD CS ESC8 probe, or export a clean summary",
+        ui::Pace::Important,
+    );
+    ui::hold_for(ui::Pace::Important);
+}
+
 /// Severity-grouped roll-up of every finding — "Found N · Critical: a · b; High: c …" — so the
 /// operator sees the whole picture (all passive + active detections), not only the validatable
 /// ones, before the impact prompt.
 fn show_findings_summary(findings: &[Finding], realm: &str) {
     if findings.is_empty() {
-        ui::ok(&format!(
-            "no findings on {realm} — clean for every check run"
-        ));
+        ui::outcome(
+            ui::OutcomeKind::Clean,
+            &format!("no findings on {realm} — clean for every check run"),
+        );
         return;
     }
-    ui::header(&format!("Found {} finding(s) on {realm}", findings.len()));
+    ui::header_err(&format!("Found {} finding(s) on {realm}", findings.len()));
     for sev in [
         Severity::Critical,
         Severity::High,
@@ -605,23 +683,30 @@ fn show_findings_summary(findings: &[Finding], realm: &str) {
         if names.is_empty() {
             continue;
         }
-        println!(
+        eprintln!(
             "  {} {} ({}): {}",
             sev_emoji(sev),
-            sev_label(sev),
+            severity_sticker(sev),
             names.len(),
             names.join(" · ")
         );
+        ui::beat_for(match sev {
+            Severity::Critical => ui::Pace::Critical,
+            Severity::High => ui::Pace::Important,
+            Severity::Medium => ui::Pace::Normal,
+            Severity::Low | Severity::Info => ui::Pace::Fast,
+        });
     }
+    ui::hold_for(ui::Pace::Important);
 }
 
-fn sev_label(s: Severity) -> &'static str {
+fn severity_sticker(s: Severity) -> String {
     match s {
-        Severity::Critical => "Critical",
-        Severity::High => "High",
-        Severity::Medium => "Medium",
-        Severity::Low => "Low",
-        Severity::Info => "Info",
+        Severity::Critical => ui::sticker("CRITICAL", ui::Tone::Bad),
+        Severity::High => ui::sticker("HIGH", ui::Tone::Warn),
+        Severity::Medium => ui::sticker("MEDIUM", ui::Tone::Accent),
+        Severity::Low => ui::sticker("LOW", ui::Tone::Dim),
+        Severity::Info => ui::sticker("INFO", ui::Tone::Dim),
     }
 }
 
@@ -636,45 +721,36 @@ fn sev_emoji(s: Severity) -> &'static str {
     }
 }
 
-/// Print the captured proof (ticket / hash / cert / shell output) inline under a validated finding,
-/// so the operator sees the actual evidence — not just "PoC captured". Capped for the terminal; the
-/// full evidence still lands in every report artifact.
-fn show_proof(ev: &str) {
-    let ev = ev.trim();
-    if ev.is_empty() {
-        return;
-    }
-    const MAX_LINES: usize = 12;
-    const MAX_LEN: usize = 160;
-    let lines: Vec<&str> = ev.lines().collect();
-    println!("     {}", ui::dim("── proof ──"));
-    for line in lines.iter().take(MAX_LINES) {
-        let n = line.chars().count();
-        let shown = if n > MAX_LEN {
-            let head: String = line.chars().take(MAX_LEN).collect();
-            format!("{head}…[+{} chars]", n - MAX_LEN)
-        } else {
-            (*line).to_string()
-        };
-        println!("     {}", ui::dim(&shown));
-    }
-    if lines.len() > MAX_LINES {
-        println!(
-            "     {}",
-            ui::dim(&format!(
-                "… (+{} more line(s) — full proof in the report)",
-                lines.len() - MAX_LINES
-            ))
-        );
-    }
-}
-
 fn confirm(prompt: &str) -> bool {
     Confirm::new()
         .with_prompt(format!("  {prompt}"))
         .default(false)
         .interact()
         .unwrap_or(false)
+}
+
+fn proof_kind_for(f: &Finding) -> &'static str {
+    match f.id.as_str() {
+        "P-AsrepRoast" => "hash",
+        "P-KerberoastAdmin" => "ticket hash",
+        "P-DcsyncPath" => "replicated secret",
+        "P-RbcdPath" | "P-ConstrainedDelegation" => "service ticket",
+        "A-Esc1" => "certificate",
+        "X-LapsRead" => "password",
+        "X-Esc8" => "web enrollment proof",
+        _ => "proof",
+    }
+}
+
+fn validator_context_note(f: &Finding, c: &Ctx) -> Option<String> {
+    match f.id.as_str() {
+        "A-Esc1" if c.ca.is_none() => Some("needs CA context before validation".into()),
+        "P-DcsyncPath" => Some("requires replication rights with current bind identity".into()),
+        "P-RbcdPath" | "P-ConstrainedDelegation" => {
+            Some("needs a controlled account and delegation path".into())
+        }
+        _ => None,
+    }
 }
 
 /// Synthetic finding for a confirmed LAPS local-admin read (not a passive-scan rule).
@@ -758,11 +834,11 @@ fn tally(r: &[(Finding, Outcome)]) -> (usize, usize, usize, usize) {
 
 fn sev_tag(s: Severity) -> String {
     match s {
-        Severity::Critical => ui::red("[CRITICAL]"),
-        Severity::High => ui::yellow("[HIGH]"),
-        Severity::Medium => ui::accent("[MEDIUM]"),
-        Severity::Low => ui::dim("[LOW]"),
-        Severity::Info => ui::dim("[INFO]"),
+        Severity::Critical => ui::red_err("[CRITICAL]"),
+        Severity::High => ui::yellow_err("[HIGH]"),
+        Severity::Medium => ui::accent_err("[MEDIUM]"),
+        Severity::Low => ui::sticker("LOW", ui::Tone::Dim),
+        Severity::Info => ui::sticker("INFO", ui::Tone::Dim),
     }
 }
 
@@ -784,12 +860,21 @@ fn mitre_str(f: &Finding) -> String {
 }
 
 fn print_card(f: &Finding) {
-    println!();
-    println!("{} {}", sev_tag(f.severity), ui::accent(&f.title));
-    ui::field("id", &f.id);
-    ui::field("category", cat_str(f.category));
+    eprintln!();
+    eprintln!("{} {}", sev_tag(f.severity), ui::accent_err(&f.title));
+    ui::beat_for(match f.severity {
+        Severity::Critical => ui::Pace::Important,
+        Severity::High => ui::Pace::Normal,
+        Severity::Medium | Severity::Low | Severity::Info => ui::Pace::Fast,
+    });
+    ui::field_story_err("id", &f.id, ui::Pace::Fast);
+    ui::field_story_err("category", cat_str(f.category), ui::Pace::Fast);
     if !f.mitre.is_empty() {
-        ui::field("mitre", &mitre_str(f));
+        ui::field_story_err(
+            &ui::sticker("MITRE", ui::Tone::Accent),
+            &mitre_str(f),
+            ui::Pace::Fast,
+        );
     }
     if !f.affected.is_empty() {
         let n = f.affected.len();
@@ -805,9 +890,22 @@ fn print_card(f: &Finding) {
         } else {
             String::new()
         };
-        ui::field("affected", &format!("{shown}{extra}"));
+        ui::field_story_err(
+            &ui::sticker("AFFECTED", ui::Tone::Warn),
+            &format!("{shown}{extra}"),
+            ui::Pace::Normal,
+        );
     }
-    ui::field("why", &f.detail);
+    ui::field_story_err(
+        &ui::sticker("WHY", ui::Tone::Dim),
+        &f.detail,
+        ui::Pace::Important,
+    );
+    ui::hold_for(match f.severity {
+        Severity::Critical => ui::Pace::Critical,
+        Severity::High => ui::Pace::Important,
+        Severity::Medium | Severity::Low | Severity::Info => ui::Pace::Normal,
+    });
     // Impact is intentionally NOT printed here — it's shown per-finding via a
     // "want impact? (y/n)" prompt in the guided loop, so operators can pick which
     // findings to annotate before the terminal fills with narrative.
@@ -926,6 +1024,123 @@ struct ArtifactPaths {
     text: PathBuf,
 }
 
+fn prompt_export_choice() -> Result<ExportChoice> {
+    eprintln!();
+    ui::header_err("Export");
+    ui::menu_legend();
+    eprintln!("  * 1. Export full bundle (HTML + JSON + Markdown + summary)");
+    eprintln!("    2. Export summary only");
+    eprintln!("    3. Skip export");
+    let raw: String = Input::new()
+        .with_prompt("Export choice [1-3, Enter=1]")
+        .allow_empty(true)
+        .interact_text()
+        .unwrap_or_else(|_| "1".to_string());
+    Ok(match raw.trim() {
+        "" | "1" => ExportChoice::FullBundle,
+        "2" => ExportChoice::SummaryOnly,
+        "3" => ExportChoice::Skip,
+        _ => ExportChoice::FullBundle,
+    })
+}
+
+fn write_artifacts(
+    choice: ExportChoice,
+    artifacts: &ArtifactPaths,
+    markdown: &str,
+    json: &str,
+    html: &str,
+    text: &str,
+) -> Result<Vec<(&'static str, String)>> {
+    let mut exported = Vec::new();
+    match choice {
+        ExportChoice::FullBundle => {
+            std::fs::write(&artifacts.markdown, markdown)
+                .with_context(|| format!("write report {}", artifacts.markdown.display()))?;
+            std::fs::write(&artifacts.json, json)
+                .with_context(|| format!("write report {}", artifacts.json.display()))?;
+            std::fs::write(&artifacts.html, html)
+                .with_context(|| format!("write report {}", artifacts.html.display()))?;
+            std::fs::write(&artifacts.text, text)
+                .with_context(|| format!("write report {}", artifacts.text.display()))?;
+            exported.push(("html", abs_display(&artifacts.html)));
+            exported.push(("json", abs_display(&artifacts.json)));
+            exported.push(("markdown", abs_display(&artifacts.markdown)));
+            exported.push(("summary", abs_display(&artifacts.text)));
+        }
+        ExportChoice::SummaryOnly => {
+            std::fs::write(&artifacts.text, text)
+                .with_context(|| format!("write report {}", artifacts.text.display()))?;
+            exported.push(("summary", abs_display(&artifacts.text)));
+        }
+        ExportChoice::Skip => {}
+    }
+    for (label, path) in &exported {
+        ui::artifact(label, path);
+    }
+    if exported.is_empty() {
+        ui::outcome(ui::OutcomeKind::Skipped, "export skipped");
+    }
+    Ok(exported)
+}
+
+fn show_finish_card(
+    results: &[(Finding, Outcome)],
+    impact_ids: &std::collections::HashSet<String>,
+    exported: &[(&'static str, String)],
+) {
+    let (validated, attempted, declined, potential) = tally(results);
+    let strongest = results
+        .iter()
+        .filter(|(_, outcome)| matches!(outcome, Outcome::Validated { .. }))
+        .find_map(|(finding, _)| {
+            impact_ids.contains(&finding.id).then(|| {
+                finding
+                    .impact
+                    .as_ref()
+                    .unwrap_or(&finding.title)
+                    .to_string()
+            })
+        })
+        .unwrap_or_else(|| {
+            results
+                .iter()
+                .find(|(_, outcome)| matches!(outcome, Outcome::Validated { .. }))
+                .map(|(finding, _)| finding.title.clone())
+                .unwrap_or_else(|| "No impact validated in this run".to_string())
+        });
+    let export_line = if exported.is_empty() {
+        "none".to_string()
+    } else {
+        exported
+            .iter()
+            .map(|(label, _)| (*label).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    ui::finish_card(
+        "Run complete",
+        &[
+            ("validated", validated.to_string()),
+            ("attempted", attempted.to_string()),
+            ("declined", declined.to_string()),
+            ("potential", potential.to_string()),
+            ("strongest", strongest),
+            ("exports", export_line),
+            (
+                "next",
+                if validated > 0 {
+                    "Open the HTML or summary artifact, then capture any manual follow-up needed for the validated path."
+                        .to_string()
+                } else {
+                    "Review the clean/attempted paths, then decide whether to run a deeper single attack or export the summary."
+                        .to_string()
+                },
+            ),
+        ],
+    );
+}
+
 fn artifact_paths(out: &str) -> ArtifactPaths {
     let markdown = PathBuf::from(out);
     ArtifactPaths {
@@ -1002,6 +1217,54 @@ fn build_html_report(
     impact_ids: &std::collections::HashSet<String>,
 ) -> String {
     let (validated, attempted, declined, potential) = tally(results);
+    let domain_dns = dns_from_dn(&snap.domain.domain_dn);
+    let domain_label = if domain_dns.is_empty() {
+        snap.domain.domain_dn.as_str()
+    } else {
+        domain_dns.as_str()
+    };
+    let proof_rows = results
+        .iter()
+        .filter(|(_, o)| matches!(o, Outcome::Validated { .. } | Outcome::Attempted { .. }))
+        .count();
+    let validation_ratio = if results.is_empty() {
+        0
+    } else {
+        ((validated + attempted + declined) * 100) / results.len()
+    };
+    let mut highlights = String::new();
+    for (f, o) in results.iter().filter(|(f, o)| {
+        impact_ids.contains(&f.id)
+            && matches!(o, Outcome::Validated { .. } | Outcome::Attempted { .. })
+    }) {
+        let proof_tag = match o {
+            Outcome::Validated { .. } => "validated",
+            Outcome::Attempted { .. } => "attempted",
+            Outcome::Declined | Outcome::Potential => "",
+        };
+        let impact = f.impact.as_deref().unwrap_or(&f.detail);
+        highlights.push_str(&format!(
+            "<article class=\"highlight highlight-{proof_tag}\">\
+               <div class=\"badge-row\">\
+                 <span class=\"badge sev sev-{sev}\">{sev_word}</span>\
+                 <span class=\"badge outcome outcome-{proof_tag}\">{proof_tag}</span>\
+                 <span class=\"badge ghost\">{id}</span>\
+               </div>\
+               <h3>{title}</h3>\
+               <p>{impact}</p>\
+             </article>",
+            sev = sev_word(f.severity).to_ascii_lowercase(),
+            sev_word = html_escape(sev_word(f.severity)),
+            proof_tag = html_escape(proof_tag),
+            id = html_escape(&f.id),
+            title = html_escape(&f.title),
+            impact = html_escape(impact),
+        ));
+    }
+    if highlights.is_empty() {
+        highlights = "<article class=\"highlight empty\"><h3>No validated impact recorded yet</h3><p>This run captured the passive findings and left the remaining items as potential, declined, or waiting for operator validation.</p></article>".into();
+    }
+
     let mut body = String::new();
     for (f, o) in results {
         let impact = if impact_ids.contains(&f.id) {
@@ -1009,7 +1272,7 @@ fn build_html_report(
                 .as_ref()
                 .map(|s| {
                     format!(
-                        "<div class=\"meta\"><span class=\"k\">Impact</span><span class=\"v\">{}</span></div>",
+                        "<div class=\"field\"><div class=\"k\">Impact</div><div class=\"v\">{}</div></div>",
                         html_escape(s)
                     )
                 })
@@ -1021,93 +1284,141 @@ fn build_html_report(
             String::new()
         } else {
             format!(
-                "<div class=\"meta\"><span class=\"k\">MITRE</span><span class=\"v\">{}</span></div>",
+                "<div class=\"field\"><div class=\"k\">MITRE</div><div class=\"v\">{}</div></div>",
                 html_escape(&mitre_str(f))
             )
         };
-        let affected = if f.affected.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"meta\"><span class=\"k\">Affected</span><span class=\"v\">{}</span></div>",
-                html_escape(&f.affected.join(", "))
-            )
-        };
+        let affected = format!(
+            "<div class=\"field\"><div class=\"k\">Affected</div><div class=\"v\">{}</div></div>",
+            affected_html(&f.affected)
+        );
         let proof = match o {
             Outcome::Validated { cmd, evidence } | Outcome::Attempted { cmd, evidence } => format!(
-                "<div class=\"proof\"><div class=\"meta\"><span class=\"k\">Command</span><code>{}</code></div>\
-                 <details><summary>Captured output</summary><pre>{}</pre></details></div>",
+                "<section class=\"proof\">\
+                   <div class=\"field\"><div class=\"k\">Command</div><div class=\"v\"><code>{}</code></div></div>\
+                   <details><summary>Captured proof</summary><pre>{}</pre></details>\
+                 </section>",
                 html_escape(cmd),
                 html_escape(evidence)
             ),
             _ => String::new(),
         };
         body.push_str(&format!(
-            "<section class=\"finding\">\
+            "<article class=\"finding finding-{sev}\">\
                <div class=\"head\">\
-                 <span class=\"sev sev-{}\">{}</span>\
-                 <span class=\"status\">{}</span>\
+                 <div class=\"badge-row\">\
+                   <span class=\"badge sev sev-{sev}\">{sev_word}</span>\
+                   <span class=\"badge outcome outcome-{outcome}\">{outcome}</span>\
+                   <span class=\"badge ghost\">{id}</span>\
+                   <span class=\"badge ghost\">{category}</span>\
+                 </div>\
+                 <h2>{title}</h2>\
                </div>\
-               <h2>{} <small>{}</small></h2>\
-               <div class=\"meta\"><span class=\"k\">Category</span><span class=\"v\">{}</span></div>\
-               {}{}\
-               <div class=\"meta\"><span class=\"k\">Why</span><span class=\"v\">{}</span></div>\
-               {}\
-               <div class=\"meta\"><span class=\"k\">Remediation</span><span class=\"v\">{}</span></div>\
-               {}\
-             </section>",
-            sev_word(f.severity).to_ascii_lowercase(),
-            html_escape(sev_word(f.severity)),
-            html_escape(outcome_label(o)),
-            html_escape(&f.title),
-            html_escape(&f.id),
-            html_escape(cat_str(f.category)),
-            mitre,
-            affected,
-            html_escape(&f.detail),
-            impact,
-            html_escape(&f.remediation),
-            proof,
+               <div class=\"field-grid\">\
+                 {mitre}\
+                 {affected}\
+                 <div class=\"field\"><div class=\"k\">Why</div><div class=\"v\">{detail}</div></div>\
+                 {impact}\
+                 <div class=\"field\"><div class=\"k\">Remediation</div><div class=\"v\">{remediation}</div></div>\
+               </div>\
+               {proof}\
+             </article>",
+            sev = sev_word(f.severity).to_ascii_lowercase(),
+            sev_word = html_escape(sev_word(f.severity)),
+            outcome = html_escape(outcome_label(o)),
+            id = html_escape(&f.id),
+            category = html_escape(cat_str(f.category)),
+            title = html_escape(&f.title),
+            mitre = mitre,
+            affected = affected,
+            detail = html_escape(&f.detail),
+            impact = impact,
+            remediation = html_escape(&f.remediation),
+            proof = proof,
         ));
     }
-    format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>ADhammer guided report — {domain}</title>\
-         <style>\
-           :root {{ color-scheme: dark; --bg:#0b1020; --panel:#131a2c; --line:#2c3657; --text:#e8edf7; --muted:#98a4c7; --green:#5be49b; --amber:#ffcf66; --red:#ff6b7f; --blue:#7cc9ff; }}\
-           * {{ box-sizing:border-box; }} body {{ margin:0; padding:32px; background:var(--bg); color:var(--text); font:15px/1.55 Inter,Segoe UI,system-ui,sans-serif; }}\
-           h1,h2 {{ margin:0; }} .hero {{ margin-bottom:24px; }} .hero p {{ color:var(--muted); max-width:900px; }}\
-           .stats {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:12px; margin:18px 0 28px; }}\
-           .stat {{ background:var(--panel); border:1px solid var(--line); padding:14px 16px; border-radius:8px; }}\
-           .stat b {{ display:block; font-size:24px; }} .stat span {{ color:var(--muted); font-size:12px; text-transform:uppercase; }}\
-           .finding {{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:0 0 18px; }}\
-           .head {{ display:flex; gap:10px; align-items:center; margin-bottom:10px; }} .sev,.status {{ padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }}\
-           .sev-critical {{ color:var(--red); border:1px solid var(--red); }} .sev-high {{ color:var(--amber); border:1px solid var(--amber); }} .sev-medium {{ color:var(--blue); border:1px solid var(--blue); }} .sev-low,.sev-info {{ color:var(--muted); border:1px solid var(--line); }}\
-           .status {{ background:#10172a; border:1px solid var(--line); color:var(--muted); }}\
-           h2 small {{ color:var(--muted); font-size:13px; font-weight:600; margin-left:8px; }}\
-           .meta {{ display:grid; grid-template-columns:120px 1fr; gap:10px; margin:8px 0; }} .k {{ color:var(--muted); font-weight:600; }}\
-           code,pre {{ font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }} code {{ background:#0d1323; padding:4px 6px; border-radius:6px; }}\
-           pre {{ white-space:pre-wrap; background:#0d1323; border:1px solid var(--line); border-radius:8px; padding:14px; overflow:auto; }}\
-           details summary {{ cursor:pointer; color:var(--blue); margin:8px 0 0; }}\
-         </style>\
-         <div class=\"hero\">\
-           <h1>ADhammer guided report</h1>\
-           <p>Domain <code>{domain}</code>. Guided mode ran the passive audit, then recorded which findings were validated, attempted, declined, or left potential.</p>\
-           <div class=\"stats\">\
-             <div class=\"stat\"><b>{total}</b><span>Total findings</span></div>\
-             <div class=\"stat\"><b>{validated}</b><span>Validated</span></div>\
-             <div class=\"stat\"><b>{attempted}</b><span>Attempted</span></div>\
-             <div class=\"stat\"><b>{declined}</b><span>Declined</span></div>\
-             <div class=\"stat\"><b>{potential}</b><span>Potential</span></div>\
-           </div>\
-         </div>{body}",
-        domain = html_escape(&snap.domain.domain_dn),
-        total = results.len(),
-        validated = validated,
-        attempted = attempted,
-        declined = declined,
-        potential = potential,
-        body = body,
-    )
+    let indexed = results.len();
+    let exposed = results
+        .iter()
+        .map(|(f, _)| f.affected.len())
+        .max()
+        .unwrap_or(0);
+    let crown_actions = if results.iter().any(|(f, _)| f.id == "P-DcsyncPath") {
+        1
+    } else if validated > 0 {
+        2
+    } else {
+        0
+    };
+    let risk_hint = if results
+        .iter()
+        .any(|(f, o)| f.severity == Severity::Critical && matches!(o, Outcome::Validated { .. }))
+    {
+        "validated Tier-0 path"
+    } else if results
+        .iter()
+        .any(|(f, _)| f.severity == Severity::Critical)
+    {
+        "critical exposure"
+    } else if validated > 0 {
+        "proof captured"
+    } else if results.iter().any(|(f, _)| f.severity == Severity::High) {
+        "high-risk findings"
+    } else {
+        "operator review"
+    };
+    PREMIUM_GUIDED_REPORT_TEMPLATE
+        .replace("__DOMAIN__", &html_escape(domain_label))
+        .replace(
+            "__INTRO__",
+            &html_escape("This report captures the supported findings observed during this ADhammer engagement, the validation paths the operator chose to run, and the proof gathered for each confirmed path. It is designed to read cleanly as a client-facing pentest deliverable while keeping commands and evidence close for technical review."),
+        )
+        .replace("__STATUS__", "scan complete")
+        .replace("__INDEXED__", &indexed.to_string())
+        .replace("__RISK_HINT__", risk_hint)
+        .replace("__HUD_VALIDATED__", &format!("{validated:02}"))
+        .replace("__HUD_EXPOSED__", &format!("{exposed:02}"))
+        .replace("__HUD_ACTIONS__", &format!("{crown_actions:02}"))
+        .replace("__STAT_TOTAL__", &results.len().to_string())
+        .replace("__STAT_VALIDATED__", &validated.to_string())
+        .replace("__STAT_ATTEMPTED__", &attempted.to_string())
+        .replace("__STAT_DECLINED__", &declined.to_string())
+        .replace("__STAT_POTENTIAL__", &potential.to_string())
+        .replace("__STAT_RATIO__", &format!("{validation_ratio}%"))
+        .replace(
+            "__VALIDATED_COPY__",
+            &html_escape("The strongest operator-ready moments from this run. These are the findings where ADhammer captured proof or at least completed an operator-visible validation attempt."),
+        )
+        .replace("__PROOF_ROWS__", &proof_rows.to_string())
+        .replace("__HIGHLIGHTS__", &highlights)
+        .replace(
+            "__FINDINGS_COPY__",
+            &html_escape("Each finding keeps the same reading order: what was observed, why it matters, impact when validation was selected, remediation, and proof when a validation path ran."),
+        )
+        .replace("__BODY__", &body)
+        .replace(
+            "__FOOTER__",
+            &html_escape(&format!("{} · generated {}", domain_label, current_utc_date())),
+        )
+}
+
+fn current_utc_date() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return "unknown-date".to_string();
+    };
+    let days = (dur.as_secs() / 86_400) as i64;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    format!("{year:04}-{m:02}-{d:02}")
 }
 
 fn build_text_report(snap: &Snapshot, results: &[(Finding, Outcome)]) -> String {
@@ -1160,6 +1471,30 @@ fn outcome_evidence(o: &Outcome) -> Option<String> {
         }
         Outcome::Declined | Outcome::Potential => None,
     }
+}
+
+fn affected_html(values: &[String]) -> String {
+    if values.is_empty() {
+        return "<span class=\"muted\">none recorded</span>".into();
+    }
+    if values.len() <= 5 {
+        let mut out = String::from("<ul class=\"list\">");
+        for value in values {
+            out.push_str(&format!("<li>{}</li>", html_escape(value)));
+        }
+        out.push_str("</ul>");
+        return out;
+    }
+
+    let mut out = format!(
+        "<details><summary>{} objects / principals</summary><ul class=\"list\">",
+        values.len()
+    );
+    for value in values {
+        out.push_str(&format!("<li>{}</li>", html_escape(value)));
+    }
+    out.push_str("</ul></details>");
+    out
 }
 
 fn html_escape(s: &str) -> String {

@@ -76,3 +76,17 @@ pub fn run_all(snap: &Snapshot, graph: &ControlGraph) -> Vec<Finding> {
     out.sort_by_key(|f| std::cmp::Reverse(f.score()));
     out
 }
+
+/// Run every rule and report per-check coverage: `(check id, findings it produced)`, in
+/// `registry()` order. An empty Vec means the check ran and the target is **not** vulnerable to
+/// that vector — the completeness signal a pentest report needs ("checked X, clean"), so the
+/// operator sees where there IS a bug and where there is NOT, not only the positive hits.
+pub fn run_all_with_coverage(
+    snap: &Snapshot,
+    graph: &ControlGraph,
+) -> Vec<(&'static str, Vec<Finding>)> {
+    registry()
+        .iter()
+        .map(|c| (c.id(), c.run(snap, graph)))
+        .collect()
+}

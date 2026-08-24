@@ -95,15 +95,15 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 <br/>
 
-## ✨ What's new in 1.4.2
+## ✨ What's new in 1.4.3
 
-This local `1.4.2` line rolls the yanked `1.4.1` workspace payload forward and tightens the trust surface before publish.
+This local `1.4.3` line keeps the `1.4.2` trust-surface cleanup and adds the interactive polish pass so the shipped binary is easier to drive from Kali, PowerShell, and `cmd`.
 
-- **JSON contract fixed** — `--json` now emits JSON-only stdout for attack / enum / dump flows; human output is captured into evidence instead of breaking parsers.
-- **Graph-generated commands corrected** — report/control-path commands now use real flags for `gmsa`, `laps`, and constrained delegation; ESC1 templates include the auth/context they actually need.
-- **Password contract made consistent** — password-taking commands accept `@file:`, `$ADHAMMER_PASSWORD`, and TTY prompt instead of forcing argv-only secrets.
-- **Help/docs truth pass** — stale claims, version drift, and validation wording are aligned with the current local code and the validation ledger.
-- **Validation ledger added** — supported capabilities are now labeled `unit-tested`, `offline-tested`, `live-validated`, or `validation owed` in [docs/VALIDATION.md](docs/VALIDATION.md).
+- **Narrated guided flow** — Auto / Guided now shows a connection summary, named phases with timing, clearer clean/finding states, proof snippets, export choices, and a final finish card.
+- **Shell-safe interaction** — numbered prompts now print their controls, non-Windows session-save refusal becomes a guided choice, and hidden password prompts degrade cleanly when the terminal cannot support them.
+- **Single-attack preflight** — interactive attack runs now start with a compact brief and end with a timed success/failure frame instead of dropping the operator into a raw action with no context.
+- **JSON contract preserved** — human narration stays on the operator path while scripted `--json` flows remain machine-clean.
+- **Validation ledger kept honest** — supported capabilities still stay labeled `unit-tested`, `offline-tested`, `live-validated`, or `validation owed` in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
 

@@ -9,7 +9,7 @@ Status key:
 | ❌ | Open — not implemented |
 | 🚫 | Out of scope — requires different tooling or active relay not in passive audit |
 
-Last updated: 2026-08-24 · local 1.4.2 release candidate
+Last updated: 2026-08-24 · local 1.4.3 release candidate
 
 ---
 
@@ -22,7 +22,7 @@ Last updated: 2026-08-24 · local 1.4.2 release candidate
 | Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
-This file tracks current per-vector status against the local `1.4.2` tree. [ROADMAP.md](ROADMAP.md)
+This file tracks current per-vector status against the local `1.4.3` tree. [ROADMAP.md](ROADMAP.md)
 tracks future workstreams; [docs/VALIDATION.md](docs/VALIDATION.md) is the release truth source for
 what is unit-tested, offline-tested, live-validated, or still owed.
 
@@ -186,10 +186,10 @@ is out of scope).
 | DCSync Kerberos keys | ✅ | `attack dcsync` dumps AES256/128 + RC4 from supplementalCredentials (incl. RFC 8009 AES-SHA2) |
 | noPac (CVE-2021-42278/87) | Medium | MAQ check exists; no samAccountName rename chain (target: 1.4.2 WS-A1) |
 | Zerologon (CVE-2020-1472) | Medium | Netlogon AES-CFB8 zero-IV auth bypass (target: 1.4.2 WS-A2) |
-| UnPAC-the-hash (PKINIT → NT hash) | Medium | Post-PKINIT TGT decrypt → recover NT hash from PAC (target: 1.4.3) |
-| Golden gMSA (KDS RootKey forge) | Medium | Extract RootKey → forge gMSA passwords cross-forest / beyond time window (target: 1.4.3) |
-| KeyList attack (MS-KILE) | Low | `KERB-KEY-LIST-REQ` — Server 2016+ optional feature (target: 1.4.3) |
-| Legacy DCC1 (MSCACHEV1) offline decrypt | Low | Pre-Vista credential cache format (target: 1.4.3) |
+| UnPAC-the-hash (PKINIT → NT hash) | Medium | Post-PKINIT TGT decrypt → recover NT hash from PAC (target: 1.4.4) |
+| Golden gMSA (KDS RootKey forge) | Medium | Extract RootKey → forge gMSA passwords cross-forest / beyond time window (target: 1.4.4) |
+| KeyList attack (MS-KILE) | Low | `KERB-KEY-LIST-REQ` — Server 2016+ optional feature (target: 1.4.4) |
+| Legacy DCC1 (MSCACHEV1) offline decrypt | Low | Pre-Vista credential cache format (target: 1.4.4) |
 | AS-REP roast AES-only accounts | Low | Bails on non-RC4 AS-REP (`kerberos/lib.rs`) |
 
 ### LDAP / AD object abuse
@@ -213,8 +213,8 @@ is out of scope).
 | SMB → LDAPS relay (EPA/channel binding bypass) | Medium | Relay targets LDAP :389 only |
 | IPv6 DNS takeover | Low | Poison is IPv4 LLMNR/NBT-NS only |
 | DCOM / WMI coercion | Low | No DCOM stack |
-| DFSCoerce (MS-DFSNM) | Medium | Coerce family completion (target: 1.4.3) |
-| ShadowCoerce (MS-FSRVP) | Medium | VSS-based coerce variant (target: 1.4.3) |
+| DFSCoerce (MS-DFSNM) | Medium | Coerce family completion (target: 1.4.4) |
+| ShadowCoerce (MS-FSRVP) | Medium | VSS-based coerce variant (target: 1.4.4) |
 | MITM6 / DHCPv6 spoof | Medium | IPv6 auto-config takeover — Windows resolves IPv6 first when advertised (target: 1.4.4) |
 | KrbRelay family | Medium | Cross-protocol Kerberos AP-REQ relay (SMB → LDAP via ticket rewriting) (target: 1.4.4) |
 | Enterprise WiFi (EAP) RADIUS relay | Low | User cred capture via 802.1X mis-config (target: 1.4.4) |
@@ -332,7 +332,8 @@ backlog ships as 1.4.1 → 1.4.6 with no 1.5.x milestone. Full slotting in
 - **v1.4.2** *(local release candidate)* — yanked-slot replacement + trust-surface cleanup for JSON, docs, graph executors, and password contracts before publish
   (trust-key extract → cross-forest golden) · LDAP CB + SMB3 encryption probes · `krb-listen`
   standalone crate · legacy DC validation matrix (2016/2019/2022).
-- **v1.4.3** *(planned)* — UnPAC-the-hash · DFSCoerce · ShadowCoerce · Golden gMSA · KeyList · DCC1.
+- **v1.4.3** *(local release candidate)* — narrated interactive UX polish, shell-safe prompts, export/finish flow, and attack preflight/result framing.
+- **v1.4.4** *(planned)* — UnPAC-the-hash · DFSCoerce · ShadowCoerce · Golden gMSA · KeyList · DCC1.
 - **v1.4.4** *(planned)* — MITM6 / DHCPv6 · KrbRelay · EAP relay · poison-at-scale.
 - **v1.4.5** *(planned)* — DPAPI backup key · SID history · Skeleton Key · DSRM · shadowcred tracker.
 - **v1.4.6** *(planned)* — MSSQL deep · Exchange pillage · GPP full-decrypt.
