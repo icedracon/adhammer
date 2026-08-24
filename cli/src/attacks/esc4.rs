@@ -11,7 +11,7 @@ pub(crate) struct Esc4Args {
     pub url: String,
     #[arg(long)]
     pub user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     #[arg(long)]
     pub insecure: bool,
@@ -28,10 +28,11 @@ pub(crate) struct Esc4Args {
 /// a template ESC1-vulnerable: `msPKI-Certificate-Name-Flag |= ENROLLEE_SUPPLIES_SUBJECT`, and
 /// `msPKI-Enrollment-Flag &= ~PEND_ALL_REQUESTS`. Optionally grant `--enrollee` an Enroll ACE.
 /// After this runs, `attack esc1 --template <name> --alt-name Administrator` finishes the chain.
-pub(crate) async fn esc4(a: Esc4Args) -> Result<()> {
+pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
     use adhammer_collector::{Collector, LdapConfig};
     const CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT: i64 = 0x0000_0001;
     const CT_FLAG_PEND_ALL_REQUESTS: i64 = 0x0000_0002;
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
 
     let cfg = LdapConfig {
         url: a.url.clone(),

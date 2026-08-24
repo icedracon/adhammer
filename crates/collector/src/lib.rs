@@ -12,8 +12,8 @@ use ldap3::controls::RawControl;
 use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use std::collections::{HashMap, HashSet};
 
-pub mod sources;
 pub mod dns_record;
+pub mod sources;
 
 /// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of
 /// nTSecurityDescriptor (0x7), omitting the SACL. Without this, a non-admin bind gets an
@@ -898,14 +898,18 @@ pub fn dns_from_nc(nc: &str) -> String {
 
 /// Qualify a bind identity. A bare sAMAccountName gets turned into a UPN (`user@domain`) so
 /// simple_bind succeeds on a real DC; anything already qualified (`DOMAIN\user`, a UPN, or a
-/// full DN containing `=`) is passed through untouched.
+/// full DN containing `=`) is passed through untouched. A `DOMAIN/user` typo (forward slash) is
+/// normalized to `DOMAIN\user` — a forward slash is never valid in a sAMAccountName, so this can
+/// only be the NETBIOS separator mistyped, and mis-qualifying it to a UPN yields a confusing
+/// `data 52e` bind failure.
 fn qualify_bind(name: &str, domain: Option<&str>) -> String {
+    let name = name.replace('/', "\\");
     if name.contains('\\') || name.contains('@') || name.contains('=') {
-        return name.to_string();
+        return name;
     }
     match domain {
         Some(d) if !d.is_empty() => format!("{name}@{d}"),
-        _ => name.to_string(),
+        _ => name,
     }
 }
 
@@ -1279,6 +1283,14 @@ mod tests {
             qualify_bind("administrator", Some("testlab.local")),
             "administrator@testlab.local"
         );
+    }
+
+    #[test]
+    fn forward_slash_typo_normalized_to_backslash() {
+        // `DOMAIN/user` (forward slash) must bind as `DOMAIN\user`, not mis-qualify to a UPN.
+        let d = Some("testlab.local");
+        assert_eq!(qualify_bind("TESTLAB/labuser", d), "TESTLAB\\labuser");
+        assert_eq!(qualify_bind("TESTLAB/labuser", None), "TESTLAB\\labuser");
     }
 
     #[test]

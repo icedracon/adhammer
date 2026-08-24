@@ -5,11 +5,11 @@ Status key:
 | Symbol | Meaning |
 |--------|---------|
 | ✅ | Closed — implemented and live-validated (or unit-tested where passive-only) |
-| 🔶 | Partial — detection or trigger exists; exploit chain incomplete |
+| 🔶 | Partial — detection, handler, or trigger exists, but the full exploit chain or live validation is still owed |
 | ❌ | Open — not implemented |
 | 🚫 | Out of scope — requires different tooling or active relay not in passive audit |
 
-Last updated: 2026-07-29 · v1.0.0
+Last updated: 2026-08-24 · local 1.4.2 release candidate
 
 ---
 
@@ -22,9 +22,9 @@ Last updated: 2026-07-29 · v1.0.0
 | Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
-**Post-1.0 backlog is planned as milestones — see [ROADMAP.md](ROADMAP.md)** (v1.1 lateral+LAPS,
-v1.2 ADCS ESC8/11, v1.3 legacy matrix + noPac). This file tracks per-vector status; ROADMAP tracks
-the release plan.
+This file tracks current per-vector status against the local `1.4.2` tree. [ROADMAP.md](ROADMAP.md)
+tracks future workstreams; [docs/VALIDATION.md](docs/VALIDATION.md) is the release truth source for
+what is unit-tested, offline-tested, live-validated, or still owed.
 
 See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
 
@@ -113,10 +113,10 @@ Passive LDAP-only detection in `checks/adcs.rs`. Templates must be **published**
 | ESC5 | Vulnerable PKI object ACL (CA server) | ✅ | Broad-principal Write/Owner over `pKIEnrollmentService`/`certificationAuthority` objects (reuses the template ACL walk) |
 | ESC6 | EDITF_ATTRIBUTESUBJECTALTNAME2 on CA | ✅ | `enum esc` reads the policy-module `EditFlags` over MS-RRP (live-validated, Server 2022) |
 | ESC7 | Vulnerable CA ACL (ManageCa / ManageCertificates) | ✅ | `enum esc` parses the CA `Security` SD over MS-RRP; flags non-Tier-0 ManageCA/ManageCertificates (live-validated, Server 2022) |
-| ESC8 | Web Enrollment HTTP relay | 🔶 | **Detection done** (`enum adcs`): probes each CA host's `http://…/certsrv` for a cleartext NTLM 401 (relayable). Relay *exploit* still open (see ESC8 in the relay backlog) |
+| ESC8 | Web Enrollment HTTP relay | 🔶 | Detection done (`enum adcs`), and `attack relay --target adcs-http` has a client path; end-to-end live validation is still owed |
 | ESC9 | CT_FLAG_NO_SECURITY_EXTENSION + auth EKU | ✅ | |
 | ESC10 | Weak certificate mapping on DC | ✅ | `enum esc` reads the DC `Kdc\StrongCertificateBindingEnforcement` over MS-RRP (live-validated, Server 2022) |
-| ESC11 | ICPR RPC relay | 🔶 | **Detection done** (`enum esc`): CA `InterfaceFlags` lacks `IF_ENFORCEENCRYPTICERTREQUEST` ⇒ relayable. Active relay to `\cert` pipe still open |
+| ESC11 | ICPR RPC relay | 🔶 | Detection done (`enum esc`), and `attack relay --target icpr` is wired; matrix validation is still owed because CA auth-level policy decides the real outcome |
 | ESC13 | Issuance policy → privileged group link | ✅ | |
 | ESC14 | Weak explicit cert mapping (`altSecurityIdentities`) | ✅ | Flags Subject-only / Issuer+Subject / RFC822 X509 mappings; live-validated |
 | ESC15 / EKUwu | Schema v1 + application-policy injection (CVE-2024-49019) | ✅ | Any enrollable v1 template; live-validated on the lab |
@@ -198,7 +198,7 @@ is out of scope).
 |--------|----------|-------|
 | DCSync via pure LDAP (WS2025 hybrid) | Medium | DRSUAPI path done; LDAP-only replication path not implemented |
 | GMSA password read | ✅ | `attack gmsa` reads msDS-ManagedPassword → NT hash (live-validated) |
-| LAPS password read | ✅ | `attack laps` reads `ms-Mcs-AdmPwd` (legacy) + `msLAPS-Password` (Windows LAPS JSON) over LDAPS — one host or sweep-all; live-validated. Encrypted `msLAPS-EncryptedPassword` (DPAPI-NG) surfaced but not decrypted |
+| LAPS password read | ✅ | `attack laps` reads legacy `ms-Mcs-AdmPwd`, Windows LAPS JSON, and decrypts `msLAPS-EncryptedPassword` via GKDI / DPAPI-NG when the bind identity is authorized |
 | AdminSDHolder / ACL backdoor write | Medium | Graph detects paths; no `attack dacl` helper |
 | ADIDNS enumeration (adidnsdump-style) | ✅ | `enum dns` — reads all zones/records from DomainDnsZones/ForestDnsZones over LDAP, parses `dnsRecord` (A/AAAA/CNAME/NS/SOA/SRV/MX/TXT/PTR), flags wildcard nodes; live-validated |
 | ADIDNS record write / mitm6 spoofing | ❌ | enumeration + wildcard detection done; no record-write primitive yet |
@@ -327,9 +327,9 @@ backlog ships as 1.4.1 → 1.4.6 with no 1.5.x milestone. Full slotting in
   golden/silver tickets, PtH/PtT/OtH, shadow creds/PKINIT, ADCS ESC1, SVCCTL exec, coerce.
 - **v1.1–v1.3** (shipped) — LAPS · WinRM · WMI · atexec · session-hunting · BadSuccessor
   (Server 2025 dMSA) · ADCS ESC1/3/4/6/15 · DCShadow-prep (LDAP path — dead on 2019+) · fuzz.
-- **v1.4.1** *(planned — "grandiozno")* — MSSQL/Exchange/SCCM lateral · DCShadow-modern
+- **v1.4.1** *(local, yanked public slot)* — MSSQL lateral · DCShadow-modern (DRSUAPI) · report/output work
   (DRSUAPI) · cross-forest Kerberos · sealed dcerpc bind · DACL Attacks II · bulk `GetNCChanges`.
-- **v1.4.2** *(planned — "completion + fortress")* — noPac · Zerologon · forest-trust chain
+- **v1.4.2** *(local release candidate)* — yanked-slot replacement + trust-surface cleanup for JSON, docs, graph executors, and password contracts before publish
   (trust-key extract → cross-forest golden) · LDAP CB + SMB3 encryption probes · `krb-listen`
   standalone crate · legacy DC validation matrix (2016/2019/2022).
 - **v1.4.3** *(planned)* — UnPAC-the-hash · DFSCoerce · ShadowCoerce · Golden gMSA · KeyList · DCC1.

@@ -76,7 +76,7 @@ pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
     }
 }
 
-async fn esc_registry_probe(
+pub(crate) async fn esc_registry_probe(
     host: &str,
     domain: &str,
     user: &str,

@@ -3,7 +3,8 @@
 //!
 //! Declined and non-auto-validatable findings still land in the report (documented, not
 //! exercised), so the deliverable is the complete picture. Terminal output is colored via `ui`;
-//! the report is Markdown with the exact command + captured proof per validated finding.
+//! the primary report is Markdown with the exact command + captured proof per validated finding,
+//! plus sidecar JSON / HTML / text artifacts for automation and screenshots.
 
 use crate::ui;
 use adhammer_checks::run_all;
@@ -12,7 +13,9 @@ use adhammer_core::finding::{Category, Finding, Severity};
 use adhammer_core::snapshot::Snapshot;
 use adhammer_graph::ControlGraph;
 use anyhow::{Context, Result};
-use dialoguer::Confirm;
+use dialoguer::{Confirm, Input};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct GuidedArgs {
@@ -27,7 +30,7 @@ pub struct GuidedArgs {
     pub out: String,
     /// Validate every finding without prompting (unattended runs).
     pub yes: bool,
-    /// Skip the per-finding **Impact:** attack-chain narrative in the Markdown report.
+    /// Skip the per-finding **Impact:** attack-chain narrative in the saved report artifacts.
     /// The interactive card still shows it either way.
     pub no_impact: bool,
 }
@@ -164,7 +167,8 @@ mod redact_tests {
     }
 }
 
-pub async fn guided(a: GuidedArgs) -> Result<()> {
+pub async fn guided(mut a: GuidedArgs) -> Result<()> {
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let cfg = LdapConfig {
         url: a.url.clone(),
         bind_dn: a.user.clone(),
@@ -174,23 +178,34 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         gssapi: false,
     };
 
-    let sp = ui::Spinner::start("collecting AD objects + correlating findings");
+    // Step-by-step narration so the operator always sees what adhammer is doing right now.
+    ui::info(&format!(
+        "step 1/4 · binding to {} as {}",
+        a.host.clone().unwrap_or_else(|| url_host(&a.url)),
+        a.user
+    ));
     let mut c = Collector::connect(&cfg).await?;
+    ui::ok("LDAP bind established");
+
+    let sp = ui::Spinner::start(
+        "step 2/4 · collecting AD objects (users · groups · computers · GPOs · ACLs)",
+    );
     let ca = c
         .read_cas()
         .await
         .ok()
         .and_then(|v| v.into_iter().next().map(|(n, _)| n));
     let snap = c.collect().await?;
+    sp.done(&format!("{} objects collected", snap.objects.len()));
+
+    ui::info("step 3/4 · building control-path graph → Tier-0");
     let graph = ControlGraph::build(&snap);
     let paths = graph.paths_to_tier0();
-    let findings = run_all(&snap, &graph); // already sorted by score, desc
-    sp.done(&format!(
-        "{} objects · {} findings · {} control-path(s) to Tier-0",
-        snap.objects.len(),
-        findings.len(),
-        paths.len()
-    ));
+    ui::ok(&format!("{} control-path(s) to Tier-0", paths.len()));
+
+    ui::info("step 4/4 · running security checks");
+    let mut findings = run_all(&snap, &graph); // already sorted by score, desc
+    ui::ok(&format!("{} passive finding(s)", findings.len()));
 
     let ctx = Ctx {
         url: a.url.clone(),
@@ -214,64 +229,113 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         ca,
     };
 
-    ui::header(&format!(
-        "Guided validation — {} finding(s) on {}",
-        findings.len(),
-        ctx.realm
-    ));
+    // ESC registry misconfig probe (ESC6/7/10/11/16 via MS-RRP over SMB) — parity with `scan`, so
+    // Auto runs EVERY detection, not just the LDAP-passive set. Non-fatal: the CA may be
+    // unreachable, and a failed probe must never abort the guided run.
+    if let Some(ca) = ctx.ca.clone() {
+        let sp = ui::Spinner::start("probing CA registry for ESC6/7/10/11/16 (MS-RRP)");
+        match crate::attacks::scan::esc_registry_probe(
+            &ctx.host,
+            &ctx.domain,
+            &ctx.sam_user(),
+            &ctx.password,
+            std::slice::from_ref(&ca),
+        )
+        .await
+        {
+            Ok(mut esc) if !esc.is_empty() => {
+                let n = esc.len();
+                findings.append(&mut esc);
+                findings.sort_by_key(|f| std::cmp::Reverse(f.score()));
+                sp.done(&format!("{n} ESC registry finding(s)"));
+            }
+            Ok(_) => sp.done("CA registry clean (no ESC6/7/10/11/16)"),
+            Err(e) => sp.done_warn(&format!("ESC registry probe skipped: {e}")),
+        }
+    }
+
+    // Full severity-grouped summary of EVERY bug found (not just the validatable subset), so the
+    // operator sees the complete picture before choosing which to demonstrate impact for.
+    show_findings_summary(&findings, &ctx.realm);
     if a.yes {
         ui::info("--yes: validating every finding with an available PoC");
+        if !a.no_impact {
+            ui::info("--yes also includes every finding's Impact narrative in the saved artifacts");
+        }
     }
 
     let exe = std::env::current_exe().context("locate adhammer binary")?;
     let mut results: Vec<(Finding, Outcome)> = Vec::new();
-    // Per-finding decision: whether the operator asked to see (and include in report)
-    // the "Impact" attack-chain narrative for this specific finding. `--no-impact`
-    // shortcuts every finding to NO without prompting; `--yes` (unattended) shortcuts
-    // every finding to YES so the report is fully-annotated.
+    // Findings whose Impact attack-chain narrative the operator asked to include in the report.
     let mut impact_yes: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for f in findings {
-        print_card(&f);
-        // Per-finding impact prompt — after the card renders (Why but NOT Impact yet),
-        // ask if the operator wants to see the attack-chain narrative. YES prints it
-        // to the terminal AND flags the finding for inclusion in the report's
-        // **Impact:** line.
-        if f.impact.is_some() {
-            let show_impact = if a.no_impact {
-                false
-            } else if a.yes {
-                true
-            } else {
-                Confirm::new()
-                    .with_prompt("  want impact? (attack-chain narrative for this finding)")
-                    .default(true)
-                    .interact()
-                    .unwrap_or(true)
-            };
-            if show_impact {
-                impact_yes.insert(f.id.clone());
-                if let Some(imp) = &f.impact {
-                    ui::field("impact", imp);
-                }
-            }
+    // Which findings have an automated validator (can be exercised for a real PoC).
+    let validatable: Vec<usize> = findings
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| validator(f, &ctx).is_some())
+        .map(|(i, _)| i)
+        .collect();
+
+    // Batch impact selection: print a short numbered list of the validatable findings and let the
+    // operator pick which to validate + demonstrate impact for in ONE step (instead of a y/n per
+    // finding). `--yes` selects all; `--no-impact` / no-validatable / non-interactive selects none.
+    let selected: std::collections::HashSet<usize> = if a.yes {
+        validatable.iter().copied().collect()
+    } else if validatable.is_empty() {
+        std::collections::HashSet::new()
+    } else {
+        ui::header(&format!(
+            "Scan found {} finding(s) — pick which to validate + demonstrate impact",
+            findings.len()
+        ));
+        for (n, &i) in validatable.iter().enumerate() {
+            let f = &findings[i];
+            println!(
+                "  {:>2}. {} {} {}  {}",
+                n + 1,
+                sev_emoji(f.severity),
+                sev_tag(f.severity),
+                ui::accent(&f.title),
+                ui::dim(&format!("· {}", cat_str(f.category))),
+            );
         }
+        let unvalidatable = findings.len() - validatable.len();
+        if unvalidatable > 0 {
+            println!(
+                "  {}",
+                ui::dim(&format!(
+                    "(+{unvalidatable} without an automated validator — documented in the report)"
+                ))
+            );
+        }
+        let raw: String = Input::new()
+            .with_prompt("Demonstrate impact for? [all / e.g. 1,3 / none]")
+            .allow_empty(true)
+            .default("all".to_string())
+            .interact_text()
+            .unwrap_or_else(|_| "none".to_string());
+        parse_impact_selection(&raw, &validatable)
+    };
+
+    for (i, f) in findings.into_iter().enumerate() {
+        let selected_here = selected.contains(&i);
         let outcome = match validator(&f, &ctx) {
-            None => {
-                ui::info("no automated validator — recorded as potential");
-                Outcome::Potential
-            }
+            // No automated validator, or not chosen → documented in the report, but SILENT on
+            // screen so the terminal stays focused on the impacts that actually ran + their proof.
+            None => Outcome::Potential,
             Some((label, argv, marker)) => {
-                let run = a.yes
-                    || Confirm::new()
-                        .with_prompt(format!("  validate «{label}» and capture a PoC?"))
-                        .default(false)
-                        .interact()
-                        .unwrap_or(false);
-                if !run {
-                    ui::info("skipped — recorded as potential (not exercised)");
+                if !selected_here {
                     Outcome::Declined
                 } else {
+                    // Only the findings the operator picked get the full card + impact + proof.
+                    print_card(&f);
+                    if !a.no_impact {
+                        if let Some(imp) = &f.impact {
+                            impact_yes.insert(f.id.clone());
+                            ui::field("impact", imp);
+                        }
+                    }
                     let sp = ui::Spinner::start(format!("running {label}"));
                     let cmd = redacted_cmd(&argv);
                     match Command::new(&exe).args(&argv).output() {
@@ -285,9 +349,11 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                             let ev = truncate(&full);
                             if confirmed {
                                 sp.done("validated — PoC captured");
+                                show_proof(&ev);
                                 Outcome::Validated { cmd, evidence: ev }
                             } else {
                                 sp.done_warn("attempted — proof not found (see report)");
+                                show_proof(&ev);
                                 Outcome::Attempted { cmd, evidence: ev }
                             }
                         }
@@ -325,13 +391,9 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                         o.status.success() && full.lines().any(|l| l.matches('\t').count() >= 2);
                     if hit {
                         sp.done("validated — LAPS credentials recovered");
-                        results.push((
-                            laps_finding(),
-                            Outcome::Validated {
-                                cmd,
-                                evidence: truncate(&full),
-                            },
-                        ));
+                        let ev = truncate(&full);
+                        show_proof(&ev);
+                        results.push((laps_finding(), Outcome::Validated { cmd, evidence: ev }));
                     } else {
                         sp.done("no LAPS password readable — not exposed");
                     }
@@ -354,13 +416,9 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
                     let hit = o.status.success() && full.contains("exposes NTLM");
                     if hit {
                         sp.done("validated — ESC8 web enrollment exposed");
-                        results.push((
-                            esc8_finding(),
-                            Outcome::Validated {
-                                cmd,
-                                evidence: truncate(&full),
-                            },
-                        ));
+                        let ev = truncate(&full);
+                        show_proof(&ev);
+                        results.push((esc8_finding(), Outcome::Validated { cmd, evidence: ev }));
                     } else {
                         sp.done("no ESC8 web-enrollment exposure");
                     }
@@ -379,10 +437,39 @@ pub async fn guided(a: GuidedArgs) -> Result<()> {
         ui::dim(&format!("◻ {d} declined")),
         ui::dim(&format!("◽ {p} potential"))
     );
+    let artifacts = artifact_paths(&a.out);
     let report = build_report(&snap, &results, &impact_yes);
-    std::fs::write(&a.out, report).with_context(|| format!("write report {}", a.out))?;
-    ui::ok(&format!("report written → {}", a.out));
+    let json = build_json_report(&snap, &results, &impact_yes);
+    let html = build_html_report(&snap, &results, &impact_yes);
+    let txt = build_text_report(&snap, &results);
+    std::fs::write(&artifacts.markdown, report)
+        .with_context(|| format!("write report {}", artifacts.markdown.display()))?;
+    std::fs::write(&artifacts.json, json)
+        .with_context(|| format!("write report {}", artifacts.json.display()))?;
+    std::fs::write(&artifacts.html, html)
+        .with_context(|| format!("write report {}", artifacts.html.display()))?;
+    std::fs::write(&artifacts.text, txt)
+        .with_context(|| format!("write report {}", artifacts.text.display()))?;
+    println!();
+    ui::ok("report bundle written — open the HTML in a browser:");
+    ui::field("html", &abs_display(&artifacts.html));
+    ui::field("json", &abs_display(&artifacts.json));
+    ui::field("markdown", &abs_display(&artifacts.markdown));
+    ui::field("summary", &abs_display(&artifacts.text));
     Ok(())
+}
+
+/// Absolute, human-readable path (joins the CWD for a relative path) — so the operator can find
+/// the report file. Avoids `std::fs::canonicalize`, which returns the ugly `\\?\` prefix on Windows.
+fn abs_display(p: &Path) -> String {
+    let ap = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|d| d.join(p))
+            .unwrap_or_else(|_| p.to_path_buf())
+    };
+    ap.display().to_string()
 }
 
 /// Map a finding to the attack that proves it (label + argv for the adhammer subcommand), or
@@ -471,6 +558,114 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
             ))
         }
         _ => None,
+    }
+}
+
+/// Parse a batch impact selection — `"all"` / `"none"` / `"1,3 5"` — into the set of finding
+/// indices (into the full `findings` vec) the operator chose. `slots[list_position] = finding_idx`.
+/// Empty / `none` / unparseable selects nothing; `all` selects every validatable finding.
+fn parse_impact_selection(raw: &str, slots: &[usize]) -> std::collections::HashSet<usize> {
+    let raw = raw.trim().to_lowercase();
+    if raw.is_empty() || raw == "none" || raw == "n" || raw == "0" {
+        return std::collections::HashSet::new();
+    }
+    if raw == "all" || raw == "a" || raw == "*" {
+        return slots.iter().copied().collect();
+    }
+    raw.split([',', ' '])
+        .filter_map(|tok| tok.trim().parse::<usize>().ok())
+        .filter(|&n| (1..=slots.len()).contains(&n))
+        .map(|n| slots[n - 1])
+        .collect()
+}
+
+/// Severity-grouped roll-up of every finding — "Found N · Critical: a · b; High: c …" — so the
+/// operator sees the whole picture (all passive + active detections), not only the validatable
+/// ones, before the impact prompt.
+fn show_findings_summary(findings: &[Finding], realm: &str) {
+    if findings.is_empty() {
+        ui::ok(&format!(
+            "no findings on {realm} — clean for every check run"
+        ));
+        return;
+    }
+    ui::header(&format!("Found {} finding(s) on {realm}", findings.len()));
+    for sev in [
+        Severity::Critical,
+        Severity::High,
+        Severity::Medium,
+        Severity::Low,
+        Severity::Info,
+    ] {
+        let names: Vec<&str> = findings
+            .iter()
+            .filter(|f| f.severity == sev)
+            .map(|f| f.title.as_str())
+            .collect();
+        if names.is_empty() {
+            continue;
+        }
+        println!(
+            "  {} {} ({}): {}",
+            sev_emoji(sev),
+            sev_label(sev),
+            names.len(),
+            names.join(" · ")
+        );
+    }
+}
+
+fn sev_label(s: Severity) -> &'static str {
+    match s {
+        Severity::Critical => "Critical",
+        Severity::High => "High",
+        Severity::Medium => "Medium",
+        Severity::Low => "Low",
+        Severity::Info => "Info",
+    }
+}
+
+/// A colored severity "sticker" for the findings list.
+fn sev_emoji(s: Severity) -> &'static str {
+    match s {
+        Severity::Critical => "🔴",
+        Severity::High => "🟠",
+        Severity::Medium => "🟡",
+        Severity::Low => "🔵",
+        Severity::Info => "⚪",
+    }
+}
+
+/// Print the captured proof (ticket / hash / cert / shell output) inline under a validated finding,
+/// so the operator sees the actual evidence — not just "PoC captured". Capped for the terminal; the
+/// full evidence still lands in every report artifact.
+fn show_proof(ev: &str) {
+    let ev = ev.trim();
+    if ev.is_empty() {
+        return;
+    }
+    const MAX_LINES: usize = 12;
+    const MAX_LEN: usize = 160;
+    let lines: Vec<&str> = ev.lines().collect();
+    println!("     {}", ui::dim("── proof ──"));
+    for line in lines.iter().take(MAX_LINES) {
+        let n = line.chars().count();
+        let shown = if n > MAX_LEN {
+            let head: String = line.chars().take(MAX_LEN).collect();
+            format!("{head}…[+{} chars]", n - MAX_LEN)
+        } else {
+            (*line).to_string()
+        };
+        println!("     {}", ui::dim(&shown));
+    }
+    if lines.len() > MAX_LINES {
+        println!(
+            "     {}",
+            ui::dim(&format!(
+                "… (+{} more line(s) — full proof in the report)",
+                lines.len() - MAX_LINES
+            ))
+        );
     }
 }
 
@@ -690,6 +885,288 @@ fn sev_word(s: Severity) -> &'static str {
         Severity::Low => "LOW",
         Severity::Info => "INFO",
     }
+}
+
+#[derive(Serialize)]
+struct GuidedArtifactReport {
+    domain: String,
+    summary: GuidedArtifactSummary,
+    findings: Vec<GuidedArtifactFinding>,
+}
+
+#[derive(Serialize)]
+struct GuidedArtifactSummary {
+    total: usize,
+    validated: usize,
+    attempted: usize,
+    declined: usize,
+    potential: usize,
+}
+
+#[derive(Serialize)]
+struct GuidedArtifactFinding {
+    id: String,
+    title: String,
+    severity: &'static str,
+    category: &'static str,
+    status: &'static str,
+    mitre: Vec<String>,
+    affected: Vec<String>,
+    why: String,
+    impact: Option<String>,
+    remediation: String,
+    command: Option<String>,
+    evidence: Option<String>,
+}
+
+struct ArtifactPaths {
+    markdown: PathBuf,
+    json: PathBuf,
+    html: PathBuf,
+    text: PathBuf,
+}
+
+fn artifact_paths(out: &str) -> ArtifactPaths {
+    let markdown = PathBuf::from(out);
+    ArtifactPaths {
+        json: sibling_with_extension(&markdown, "json"),
+        html: sibling_with_extension(&markdown, "html"),
+        text: sibling_summary_path(&markdown),
+        markdown,
+    }
+}
+
+fn sibling_with_extension(path: &Path, ext: &str) -> PathBuf {
+    let mut out = path.to_path_buf();
+    out.set_extension(ext);
+    out
+}
+
+fn sibling_summary_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("adhammer-report");
+    parent.join(format!("{stem}-summary.txt"))
+}
+
+fn build_json_report(
+    snap: &Snapshot,
+    results: &[(Finding, Outcome)],
+    impact_ids: &std::collections::HashSet<String>,
+) -> String {
+    let (validated, attempted, declined, potential) = tally(results);
+    let findings = results
+        .iter()
+        .map(|(f, o)| GuidedArtifactFinding {
+            id: f.id.clone(),
+            title: f.title.clone(),
+            severity: sev_word(f.severity),
+            category: cat_str(f.category),
+            status: outcome_label(o),
+            mitre: f
+                .mitre
+                .iter()
+                .map(|m| format!("{} {}", m.id, m.name))
+                .collect(),
+            affected: f.affected.clone(),
+            why: f.detail.clone(),
+            impact: if impact_ids.contains(&f.id) {
+                f.impact.clone()
+            } else {
+                None
+            },
+            remediation: f.remediation.clone(),
+            command: outcome_command(o),
+            evidence: outcome_evidence(o),
+        })
+        .collect();
+    let report = GuidedArtifactReport {
+        domain: snap.domain.domain_dn.clone(),
+        summary: GuidedArtifactSummary {
+            total: results.len(),
+            validated,
+            attempted,
+            declined,
+            potential,
+        },
+        findings,
+    };
+    serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into())
+}
+
+fn build_html_report(
+    snap: &Snapshot,
+    results: &[(Finding, Outcome)],
+    impact_ids: &std::collections::HashSet<String>,
+) -> String {
+    let (validated, attempted, declined, potential) = tally(results);
+    let mut body = String::new();
+    for (f, o) in results {
+        let impact = if impact_ids.contains(&f.id) {
+            f.impact
+                .as_ref()
+                .map(|s| {
+                    format!(
+                        "<div class=\"meta\"><span class=\"k\">Impact</span><span class=\"v\">{}</span></div>",
+                        html_escape(s)
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let mitre = if f.mitre.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"meta\"><span class=\"k\">MITRE</span><span class=\"v\">{}</span></div>",
+                html_escape(&mitre_str(f))
+            )
+        };
+        let affected = if f.affected.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"meta\"><span class=\"k\">Affected</span><span class=\"v\">{}</span></div>",
+                html_escape(&f.affected.join(", "))
+            )
+        };
+        let proof = match o {
+            Outcome::Validated { cmd, evidence } | Outcome::Attempted { cmd, evidence } => format!(
+                "<div class=\"proof\"><div class=\"meta\"><span class=\"k\">Command</span><code>{}</code></div>\
+                 <details><summary>Captured output</summary><pre>{}</pre></details></div>",
+                html_escape(cmd),
+                html_escape(evidence)
+            ),
+            _ => String::new(),
+        };
+        body.push_str(&format!(
+            "<section class=\"finding\">\
+               <div class=\"head\">\
+                 <span class=\"sev sev-{}\">{}</span>\
+                 <span class=\"status\">{}</span>\
+               </div>\
+               <h2>{} <small>{}</small></h2>\
+               <div class=\"meta\"><span class=\"k\">Category</span><span class=\"v\">{}</span></div>\
+               {}{}\
+               <div class=\"meta\"><span class=\"k\">Why</span><span class=\"v\">{}</span></div>\
+               {}\
+               <div class=\"meta\"><span class=\"k\">Remediation</span><span class=\"v\">{}</span></div>\
+               {}\
+             </section>",
+            sev_word(f.severity).to_ascii_lowercase(),
+            html_escape(sev_word(f.severity)),
+            html_escape(outcome_label(o)),
+            html_escape(&f.title),
+            html_escape(&f.id),
+            html_escape(cat_str(f.category)),
+            mitre,
+            affected,
+            html_escape(&f.detail),
+            impact,
+            html_escape(&f.remediation),
+            proof,
+        ));
+    }
+    format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>ADhammer guided report — {domain}</title>\
+         <style>\
+           :root {{ color-scheme: dark; --bg:#0b1020; --panel:#131a2c; --line:#2c3657; --text:#e8edf7; --muted:#98a4c7; --green:#5be49b; --amber:#ffcf66; --red:#ff6b7f; --blue:#7cc9ff; }}\
+           * {{ box-sizing:border-box; }} body {{ margin:0; padding:32px; background:var(--bg); color:var(--text); font:15px/1.55 Inter,Segoe UI,system-ui,sans-serif; }}\
+           h1,h2 {{ margin:0; }} .hero {{ margin-bottom:24px; }} .hero p {{ color:var(--muted); max-width:900px; }}\
+           .stats {{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:12px; margin:18px 0 28px; }}\
+           .stat {{ background:var(--panel); border:1px solid var(--line); padding:14px 16px; border-radius:8px; }}\
+           .stat b {{ display:block; font-size:24px; }} .stat span {{ color:var(--muted); font-size:12px; text-transform:uppercase; }}\
+           .finding {{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:0 0 18px; }}\
+           .head {{ display:flex; gap:10px; align-items:center; margin-bottom:10px; }} .sev,.status {{ padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }}\
+           .sev-critical {{ color:var(--red); border:1px solid var(--red); }} .sev-high {{ color:var(--amber); border:1px solid var(--amber); }} .sev-medium {{ color:var(--blue); border:1px solid var(--blue); }} .sev-low,.sev-info {{ color:var(--muted); border:1px solid var(--line); }}\
+           .status {{ background:#10172a; border:1px solid var(--line); color:var(--muted); }}\
+           h2 small {{ color:var(--muted); font-size:13px; font-weight:600; margin-left:8px; }}\
+           .meta {{ display:grid; grid-template-columns:120px 1fr; gap:10px; margin:8px 0; }} .k {{ color:var(--muted); font-weight:600; }}\
+           code,pre {{ font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }} code {{ background:#0d1323; padding:4px 6px; border-radius:6px; }}\
+           pre {{ white-space:pre-wrap; background:#0d1323; border:1px solid var(--line); border-radius:8px; padding:14px; overflow:auto; }}\
+           details summary {{ cursor:pointer; color:var(--blue); margin:8px 0 0; }}\
+         </style>\
+         <div class=\"hero\">\
+           <h1>ADhammer guided report</h1>\
+           <p>Domain <code>{domain}</code>. Guided mode ran the passive audit, then recorded which findings were validated, attempted, declined, or left potential.</p>\
+           <div class=\"stats\">\
+             <div class=\"stat\"><b>{total}</b><span>Total findings</span></div>\
+             <div class=\"stat\"><b>{validated}</b><span>Validated</span></div>\
+             <div class=\"stat\"><b>{attempted}</b><span>Attempted</span></div>\
+             <div class=\"stat\"><b>{declined}</b><span>Declined</span></div>\
+             <div class=\"stat\"><b>{potential}</b><span>Potential</span></div>\
+           </div>\
+         </div>{body}",
+        domain = html_escape(&snap.domain.domain_dn),
+        total = results.len(),
+        validated = validated,
+        attempted = attempted,
+        declined = declined,
+        potential = potential,
+        body = body,
+    )
+}
+
+fn build_text_report(snap: &Snapshot, results: &[(Finding, Outcome)]) -> String {
+    let (validated, attempted, declined, potential) = tally(results);
+    let mut out = String::new();
+    out.push_str(&format!(
+        "ADhammer guided summary — {}\n\n",
+        snap.domain.domain_dn
+    ));
+    out.push_str(&format!(
+        "Findings: {} total | {} validated | {} attempted | {} declined | {} potential\n\n",
+        results.len(),
+        validated,
+        attempted,
+        declined,
+        potential
+    ));
+    for (f, o) in results {
+        out.push_str(&format!(
+            "[{}] {} — {}\n  status: {}\n",
+            sev_word(f.severity),
+            f.id,
+            f.title,
+            outcome_label(o)
+        ));
+    }
+    out
+}
+
+fn outcome_label(o: &Outcome) -> &'static str {
+    match o {
+        Outcome::Validated { .. } => "validated",
+        Outcome::Attempted { .. } => "attempted",
+        Outcome::Declined => "declined",
+        Outcome::Potential => "potential",
+    }
+}
+
+fn outcome_command(o: &Outcome) -> Option<String> {
+    match o {
+        Outcome::Validated { cmd, .. } | Outcome::Attempted { cmd, .. } => Some(cmd.clone()),
+        Outcome::Declined | Outcome::Potential => None,
+    }
+}
+
+fn outcome_evidence(o: &Outcome) -> Option<String> {
+    match o {
+        Outcome::Validated { evidence, .. } | Outcome::Attempted { evidence, .. } => {
+            Some(evidence.clone())
+        }
+        Outcome::Declined | Outcome::Potential => None,
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 // ---- small derivations ----------------------------------------------------------------

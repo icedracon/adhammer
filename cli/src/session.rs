@@ -93,6 +93,21 @@ pub fn load() -> Result<Session> {
 }
 
 pub fn save(session: &Session) -> Result<()> {
+    save_inner(
+        session,
+        std::env::var_os("ADHAMMER_ALLOW_PLAIN_SESSION").is_some(),
+    )
+}
+
+pub fn save_allow_cleartext(session: &Session) -> Result<()> {
+    save_inner(session, true)
+}
+
+pub fn would_save_cleartext() -> bool {
+    dpapi::is_cleartext_wrapper()
+}
+
+fn save_inner(session: &Session, allow_cleartext: bool) -> Result<()> {
     let path = config_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -104,7 +119,7 @@ pub fn save(session: &Session) -> Result<()> {
     // fallback (non-Windows, non-keyring host). Silent plaintext writes of
     // credential material are the exact opposite of what an operator expects
     // from a "DPAPI-encrypted session" flag. Override via env for lab work.
-    if dpapi::is_cleartext_wrapper() && std::env::var_os("ADHAMMER_ALLOW_PLAIN_SESSION").is_none() {
+    if dpapi::is_cleartext_wrapper() && !allow_cleartext {
         anyhow::bail!(
             "session save refused: DPAPI is unavailable on this platform so the file would \
              be written in cleartext. Set ADHAMMER_ALLOW_PLAIN_SESSION=1 to allow it (lab only), \

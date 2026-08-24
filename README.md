@@ -32,7 +32,7 @@
 </p>
 
 <p align="center">
-  <sub><b>43 standalone protocol crates + 12-crate workspace</b> · <b>Server 2022 + 2025 live-validated</b> · MIT · zero external protocol deps</sub>
+  <sub><b>61 standalone crates + 12-crate workspace</b> · <b>validation ledger in <code>docs/VALIDATION.md</code></b> · <b>Rust 1.87</b> · MIT</sub>
 </p>
 
 <br/>
@@ -95,18 +95,15 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 <br/>
 
-## ✨ What's new in 1.3.10
+## ✨ What's new in 1.4.2
 
-Hardening + UX pass driven by an outside multi-agent code review — 33 of 37 findings closed. No new attack surface, no wire-format changes; a *"trust me on the wire"* maintenance release.
+This local `1.4.2` line rolls the yanked `1.4.1` workspace payload forward and tightens the trust surface before publish.
 
-- **`--password @file:/path/to/pw`** — read the password from a file (trailing `\r\n` trimmed) instead of putting it on argv. Applies to every attack + enum handler that takes `--password`.
-- **Interactive password prompt** — when `--password` is omitted and stdin is a TTY, adhammer prompts with echo off. Zero new deps (reuses `dialoguer`).
-- **DRSUAPI wire hardening** — three bounded-alloc preflights (`ptmc` / `amc` / `vmc`) + a panic-safety fix in `read_dsname_rid` (SubAuthorityCount validated 1..=5, no more unchecked slice + `unwrap`). Live-validated against Server 2022 + 2025.
-- **Kerberos non-ASCII → `Result`** — `krb_string`, `principal`, `build_as_req`, `build_tgs_req` now reject non-IA5String input at the boundary (RFC 4120) instead of panicking inside `picky-asn1`.
-- **Registry hive walker rewritten iterative** — cyclic `ri` subkey lists could stack-overflow the recursive path. Now BFS with `HashSet<u32>` cycle guard + `MAX_VISITED = 65_536` cap.
-- **Typed CLI value_enums** — `attack coerce --pipe`, `attack abuse --action`, `attack relay --target` reject unknown values at parse time with a listed set instead of running past an SMB/DCERPC connect only to bail late.
-- **Session file `O_EXCL` + 0600 atomic** on Unix; refuses to write in cleartext on non-Windows hosts without `ADHAMMER_ALLOW_PLAIN_SESSION=1`.
-- **CI gated on `clippy -D warnings`** + ubuntu/windows/macos test matrix + MSRV verify. CHANGELOG backfilled 1.3.1 → 1.3.9.
+- **JSON contract fixed** — `--json` now emits JSON-only stdout for attack / enum / dump flows; human output is captured into evidence instead of breaking parsers.
+- **Graph-generated commands corrected** — report/control-path commands now use real flags for `gmsa`, `laps`, and constrained delegation; ESC1 templates include the auth/context they actually need.
+- **Password contract made consistent** — password-taking commands accept `@file:`, `$ADHAMMER_PASSWORD`, and TTY prompt instead of forcing argv-only secrets.
+- **Help/docs truth pass** — stale claims, version drift, and validation wording are aligned with the current local code and the validation ledger.
+- **Validation ledger added** — supported capabilities are now labeled `unit-tested`, `offline-tested`, `live-validated`, or `validation owed` in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
 
@@ -120,21 +117,21 @@ Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub R
 
 **🔴 Red team operators**
 
-One binary, no Python, no runtime deps. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated across Server 2022 and Server 2025, with version-specific limitations called out explicitly (e.g. LDAP-path DCShadow on 2019+).
+One binary, no Python runtime, no sidecar services. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated for supported paths across Server 2022 and Server 2025, with version-specific limitations called out explicitly (e.g. LDAP-path DCShadow on 2019+).
 
 </td>
 <td width="33%" valign="top">
 
 **🛡️ AD auditors / defenders**
 
-41 hygiene checks across four categories, MITRE ATT&CK-tagged, low-priv collection via `SD_FLAGS`. Reports as JSON, HTML, or a BloodHound-CE ingest bundle. Every finding has a matching PoC — the audit tool ships the exploit.
+41 hygiene checks across four categories, MITRE ATT&CK-tagged, low-priv collection via `SD_FLAGS`. Reports as JSON, HTML, or a BloodHound-CE ingest bundle. Supported findings have matching PoCs; unsupported ones stay labeled potential instead of being overstated.
 
 </td>
 <td width="33%" valign="top">
 
 **🦀 Rust developers**
 
-43 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS-v2 blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
+61 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
 
 </td>
 </tr>
@@ -226,9 +223,9 @@ Two commands drive the whole flow. Everything else is a subcommand.
 
 Collects a domain over LDAP as a **low-privileged user** (via the `SD_FLAGS` control), builds a control-path graph in-process, and runs the check pack across four categories — privileged accounts, trusts, stale objects, anomalies — plus **15 of the 16 AD CS ESC classes**, ADIDNS exposure, and SYSVOL / GPP. Every finding is scored, MITRE-tagged, and exportable in a BloodHound-compatible JSON bundle.
 
-### 2 &mdash; `adhammer auto` &nbsp;·&nbsp; validate every finding with a live PoC
+### 2 &mdash; `adhammer auto` &nbsp;·&nbsp; validate supported findings with a live PoC
 
-A report shouldn't say a path *might* be exploitable. `auto` walks each finding, asks "*validate this one?*" — on yes runs the matching tradecraft, marks the finding **validated only when real proof is present** (an actual `$krb5tgs$` hash, a replicated `krbtgt` secret, an `ISSUED` cert). Everything lands in a Markdown assessment report with the exact command + evidence per PoC.
+A report shouldn't say a path *might* be exploitable when the tool can prove it. `auto` walks each finding, asks "*validate this one?*" — on yes runs the matching supported tradecraft, marks the finding **validated only when real proof is present** (an actual `$krb5tgs$` hash, a replicated `krbtgt` secret, an `ISSUED` cert), and leaves unsupported findings explicitly marked as potential. Everything lands in a Markdown assessment report with the exact command + evidence per PoC.
 
 <br/>
 
@@ -311,7 +308,7 @@ Grab the latest from **[Releases →](https://github.com/icedracon/adhammer/rele
 </tr>
 </table>
 
-Requires **Rust 1.80+** to build from source. Tested on Kali, Ubuntu, Debian, macOS, and native Windows.
+Requires **Rust 1.87+** to build from source. Tested on Kali, Ubuntu, Debian, macOS, and native Windows.
 
 <br/>
 
@@ -482,7 +479,7 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 - LLMNR + NBT-NS poison → NetNTLMv2 capture
 - Remote exec: SVCCTL · TSCH (atexec) · WMI (DCOM) · WinRM
 - Zerologon **safe-detect** by default (`attack zerologon` runs read-only detection); a destructive `--exploit` path exists and requires explicit runtime confirmation
-- DCShadow (rights enumeration; push not implemented)
+- DCShadow (rights enumeration + prep/cleanup shipped; DRSUAPI push path present, live validation owed)
 - Server 2025 **BadSuccessor** (dMSA)
 
 </details>
@@ -501,7 +498,7 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 
 <br/>
 
-ADhammer is one binary on top of **61 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **18k+** and climbing.
+ADhammer is one binary on top of **61 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **20k+**.
 
 **Two brands, one project:**
 

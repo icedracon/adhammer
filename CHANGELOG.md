@@ -5,6 +5,27 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-08-24
+
+Public-slot replacement for the yanked `1.4.1` line. Carries the local `1.4.1`
+workspace payload forward under the `1.4.2` version and tightens the release
+truth surface before publish.
+
+### Changed
+
+- **JSON contract** — `--json` now emits JSON-only stdout for attack / enum /
+  dump flows. Human/progress output is captured into the evidence field instead
+  of breaking downstream parsers.
+- **Graph executor templates** — generated report/control-path commands now use
+  real CLI flags for `attack gmsa`, `attack laps`, constrained delegation, and
+  ESC1 enrollment context.
+- **Password fallback consistency** — commands that still parsed `--password`
+  as mandatory now accept `@file:`, `$ADHAMMER_PASSWORD`, and TTY prompt like
+  the rest of the CLI.
+- **Release truth pass** — README / VECTORS / local validation ledger now align
+  with the actual local code and validation status instead of the stale 1.3.10
+  public surface.
+
 ## [1.4.1] — 2026-08-24
 
 The **"grandiozno"** feature release. 12 workstreams + 5 refactor passes.
@@ -136,7 +157,7 @@ lands in 1.4.2.
 - dcerpc 17 pre-existing clippy warnings cleanup (blocks dcerpc 0.3.0 publish)
 - WS-F SCCM + SCOM enum, WS-G ADIDNS DELETE, WS-H krb5.conf enhancements
 
-## [1.3.10] — 2026-08-23
+### Carry-over detail from late 1.3.10 stabilization
   extending the DACL-write chapter to full CAPE coverage:
   - `write-owner` — rewrite Owner SID in `nTSecurityDescriptor`
     (SD_FLAGS-controlled read, in-place owner splice, write-back).

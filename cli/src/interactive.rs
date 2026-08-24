@@ -2,7 +2,7 @@
 //! Reuse saved session with `adhammer --old`.
 
 use anyhow::{Context, Result};
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
+use dialoguer::{Confirm, Input, Password};
 
 use crate::session::{self, Session};
 use crate::{dcshadow, poison};
@@ -95,9 +95,9 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
     (
         "Recon — passive enumeration + safe probes",
         &[
-            ("Scan — passive audit (41 checks + graph)", Action::Scan),
+            ("Scan — passive audit (scored checks + graph)", Action::Scan),
             (
-                "Guided — scan → confirm each weakness → validate + PoC report",
+                "Guided — scan → validate + PoC report (MD/HTML/JSON/TXT)",
                 Action::Guided,
             ),
             ("Enum SAMR — list domain users", Action::EnumSamr),
@@ -253,52 +253,82 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
         if no_save {
             eprintln!("[*] --no-save: session (creds) will NOT be written to disk");
         } else {
-            session::save(&s)?;
+            save_session_for_interactive(&s)?;
         }
         s
     };
 
-    let theme = ColorfulTheme::default();
     'outer: loop {
         banner(&sess);
 
-        // First level: pick a category.
-        let cat_labels: Vec<&str> = CATEGORIES.iter().map(|(l, _)| *l).collect();
-        let ci = Select::with_theme(&theme)
-            .with_prompt("Category")
-            .items(&cat_labels)
-            .default(0)
-            .interact()
-            .context("category cancelled")?;
+        // Front door: two modes + session. Auto is the default (just press Enter).
+        let mode = prompt_select(
+            "Mode",
+            &[
+                "Auto — scan, then chain impact on the findings you pick",
+                "Single attack — pick one technique (grouped)",
+                "Session — open vectors / wipe creds / exit",
+            ],
+            0,
+        )
+        .context("mode cancelled")?;
 
-        // Second level: pick an action in that category, or ← Back to categories.
-        let actions = CATEGORIES[ci].1;
-        let mut action_labels: Vec<String> =
-            actions.iter().map(|(l, _)| (*l).to_string()).collect();
-        action_labels.push("← Back to categories".to_string());
-        let ai = Select::with_theme(&theme)
-            .with_prompt(cat_labels[ci])
-            .items(&action_labels)
-            .default(0)
-            .interact()
-            .context("action cancelled")?;
-        if ai == actions.len() {
-            continue 'outer; // Back
-        }
-
-        match &actions[ai].1 {
-            Action::Exit => break,
-            Action::ShowRoadmap => {
-                print_roadmap_summary();
-                continue;
-            }
-            Action::WipeSession => {
-                session::wipe().ok();
-                continue;
-            }
-            action => {
-                if let Err(e) = dispatch(action, &sess).await {
+        match mode {
+            // AUTO: guided scan → findings list → pick which to impact → chain + PoC report.
+            0 => {
+                if let Err(e) = dispatch(&Action::Guided, &sess).await {
                     crate::ui::bad(&format!("{e:#}"));
+                }
+            }
+            // SINGLE ATTACK: pick an attack category, then a technique (Session category excluded).
+            1 => {
+                let attack_cats = &CATEGORIES[..CATEGORIES.len() - 1];
+                let mut cat_labels: Vec<String> =
+                    attack_cats.iter().map(|(l, _)| (*l).to_string()).collect();
+                cat_labels.push("← Back".to_string());
+                let ci = prompt_select("Category", &cat_labels, 0).context("category cancelled")?;
+                if ci == attack_cats.len() {
+                    continue 'outer; // Back
+                }
+
+                let actions = attack_cats[ci].1;
+                let mut action_labels: Vec<String> =
+                    actions.iter().map(|(l, _)| (*l).to_string()).collect();
+                action_labels.push("← Back".to_string());
+                let ai = prompt_select(attack_cats[ci].0, &action_labels, 0)
+                    .context("action cancelled")?;
+                if ai == actions.len() {
+                    continue 'outer; // Back
+                }
+                if let Err(e) = dispatch(&actions[ai].1, &sess).await {
+                    crate::ui::bad(&format!("{e:#}"));
+                }
+            }
+            // SESSION: open vectors / wipe creds / exit (the last category).
+            _ => {
+                let sess_actions = CATEGORIES[CATEGORIES.len() - 1].1;
+                let labels: Vec<String> =
+                    sess_actions.iter().map(|(l, _)| (*l).to_string()).collect();
+                let si = prompt_select("Session", &labels, labels.len() - 1)
+                    .context("session cancelled")?;
+                match &sess_actions[si].1 {
+                    Action::Exit => break,
+                    Action::ShowRoadmap => print_roadmap_summary(),
+                    Action::WipeSession => {
+                        if Confirm::new()
+                            .with_prompt(
+                                "Really wipe the saved session? (deletes your creds from disk)",
+                            )
+                            .default(false)
+                            .interact()
+                            .unwrap_or(false)
+                        {
+                            session::wipe().ok();
+                        } else {
+                            crate::ui::info("kept — session not wiped");
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -317,13 +347,17 @@ fn setup_wizard() -> Result<Session> {
         .with_initial_text("administrator")
         .interact_text()
         .context("username prompt")?;
+    // Accept the common `DOMAIN/user` typo: AD principals are `DOMAIN\user` (NETBIOS) or
+    // `user@domain` (UPN); a forward slash is never valid in a sAMAccountName, so normalize it
+    // to a backslash rather than letting the bind fail with a confusing `data 52e`.
+    let username = username.trim().replace('/', "\\");
 
-    let auth = Select::new()
-        .with_prompt("Authenticate with")
-        .items(&["Password", "NT hash (pass-the-hash)"])
-        .default(0)
-        .interact()
-        .context("auth prompt")?;
+    let auth = prompt_select(
+        "Authenticate with",
+        &["Password", "NT hash (pass-the-hash)"],
+        0,
+    )
+    .context("auth prompt")?;
     let (password, nt_hash) = if auth == 0 {
         (Password::new().with_prompt("Password").interact()?, None)
     } else {
@@ -368,6 +402,26 @@ fn setup_wizard() -> Result<Session> {
 /// The session's NT hash as `Option<String>` for the pass-the-hash-capable actions.
 fn sess_hash(s: &Session) -> Option<String> {
     s.nt_hash.clone()
+}
+
+fn save_session_for_interactive(sess: &Session) -> Result<()> {
+    if !session::would_save_cleartext() {
+        session::save(sess)?;
+        return Ok(());
+    }
+
+    eprintln!("[!] this OS cannot encrypt saved session credentials");
+    let save_plain = Confirm::new()
+        .with_prompt("Save the session unencrypted for this lab host anyway?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if save_plain {
+        session::save_allow_cleartext(sess)?;
+    } else {
+        eprintln!("[*] continuing without a saved session (`--old` will not work later)");
+    }
+    Ok(())
 }
 
 async fn dispatch(action: &Action, s: &Session) -> Result<()> {
@@ -558,11 +612,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 "write-rbcd",
                 "pkinit",
             ];
-            let ai = Select::new()
-                .with_prompt("Abuse action")
-                .items(&labels)
-                .default(0)
-                .interact()?;
+            let ai = prompt_select("Abuse action", &labels, 0)?;
             let target: String = Input::new()
                 .with_prompt("Target sAMAccountName")
                 .interact_text()?;
@@ -595,11 +645,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("Listener IP (where DC should auth to)")
                 .interact_text()?;
             let pipes = ["lsarpc (PetitPotam)", "efsrpc", "spoolss (PrinterBug)"];
-            let pi = Select::new()
-                .with_prompt("Coercion vector")
-                .items(&pipes)
-                .default(0)
-                .interact()?;
+            let pi = prompt_select("Coercion vector", &pipes, 0)?;
             let pipe = match pi {
                 1 => CoercePipe::Efsrpc,
                 2 => CoercePipe::Spoolss,
@@ -922,15 +968,14 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             .await
         }
         Action::Pth => {
-            let golden_mode = Select::new()
-                .with_prompt("Ticket type")
-                .items(&[
+            let golden_mode = prompt_select(
+                "Ticket type",
+                &[
                     "Golden (krbtgt key, via KDC)",
                     "Silver (service key, no KDC)",
-                ])
-                .default(0)
-                .interact()?
-                == 0;
+                ],
+                0,
+            )? == 0;
             let (krbtgt_aes256, service_aes256, domain_sid) = if golden_mode {
                 let (k, sid) = fetch_key_and_sid(s, "krbtgt", "krbtgt AES256 key (64 hex)").await?;
                 (Some(k), None, sid)
@@ -1224,6 +1269,50 @@ fn prompt_key(label: &str) -> Result<String> {
     Ok(k)
 }
 
+fn prompt_select<T: AsRef<str>>(prompt: &str, items: &[T], default: usize) -> Result<usize> {
+    anyhow::ensure!(!items.is_empty(), "{prompt}: no choices available");
+    anyhow::ensure!(
+        default < items.len(),
+        "{prompt}: default index {default} is out of range for {} choices",
+        items.len()
+    );
+
+    println!();
+    println!("{prompt}");
+    for (idx, item) in items.iter().enumerate() {
+        let marker = if idx == default { "*" } else { " " };
+        println!("  {marker} {}. {}", idx + 1, item.as_ref());
+    }
+
+    loop {
+        let raw: String = Input::new()
+            .with_prompt(format!(
+                "{prompt} [1-{}, Enter={} ]",
+                items.len(),
+                default + 1
+            ))
+            .allow_empty(true)
+            .interact_text()?;
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return Ok(default);
+        }
+        if let Some(choice) = parse_menu_choice(raw, items.len()) {
+            return Ok(choice);
+        }
+        crate::ui::bad(&format!("Enter a number between 1 and {}.", items.len()));
+    }
+}
+
+fn parse_menu_choice(raw: &str, len: usize) -> Option<usize> {
+    let n = raw.parse::<usize>().ok()?;
+    if (1..=len).contains(&n) {
+        Some(n - 1)
+    } else {
+        None
+    }
+}
+
 fn prompt_sid() -> Result<String> {
     Ok(Input::<String>::new()
         .with_prompt("Domain SID (S-1-5-21-a-b-c)")
@@ -1258,4 +1347,22 @@ fn print_roadmap_summary() {
     println!();
     println!("  Full matrix: VECTORS.md in the repo root (or next to the binary source).");
     println!("  Suggested close order: PTT → ESC5/7 passive → constrained del → GMSA/LAPS → SVCCTL/TSCH → cert enroll");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_menu_choice;
+
+    #[test]
+    fn parse_menu_choice_accepts_valid_numbers() {
+        assert_eq!(parse_menu_choice("1", 3), Some(0));
+        assert_eq!(parse_menu_choice("3", 3), Some(2));
+    }
+
+    #[test]
+    fn parse_menu_choice_rejects_invalid_numbers() {
+        assert_eq!(parse_menu_choice("0", 3), None);
+        assert_eq!(parse_menu_choice("4", 3), None);
+        assert_eq!(parse_menu_choice("abc", 3), None);
+    }
 }

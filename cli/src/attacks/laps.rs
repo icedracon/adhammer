@@ -14,7 +14,7 @@ pub(crate) struct LapsArgs {
     pub url: String,
     #[arg(long)]
     pub user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     #[arg(long)]
     pub insecure: bool,

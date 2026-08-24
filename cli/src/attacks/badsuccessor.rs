@@ -13,7 +13,7 @@ pub(crate) struct BadsuccessorArgs {
     pub url: String,
     #[arg(long)]
     pub user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     #[arg(long)]
     pub insecure: bool,
@@ -38,8 +38,9 @@ pub(crate) struct BadsuccessorArgs {
 /// LIVE VALIDATION OWED: the attack landed on Server 2025 GA; behaviour on later Cumulative
 /// Updates may change. Run against the 2025 DC on your matrix and confirm the dMSA is
 /// accepted (LDAP add succeeds) and issues a working TGT.
-pub(crate) async fn badsuccessor(a: BadsuccessorArgs) -> Result<()> {
+pub(crate) async fn badsuccessor(mut a: BadsuccessorArgs) -> Result<()> {
     use adhammer_collector::{Collector, LdapConfig};
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let cfg = LdapConfig {
         url: a.url.clone(),
         bind_dn: a.user.clone(),

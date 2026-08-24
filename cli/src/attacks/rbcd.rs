@@ -14,7 +14,7 @@ pub(crate) struct RbcdArgs {
     #[arg(long)]
     pub account: String,
     /// Controlled account password
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub account_password: String,
     /// User to impersonate, e.g. Administrator
     #[arg(long)]
@@ -25,7 +25,8 @@ pub(crate) struct RbcdArgs {
 }
 
 /// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
-pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
+pub(crate) async fn rbcd(mut a: RbcdArgs) -> Result<()> {
+    a.account_password = crate::resolve_secret(&a.account_password, "ADHAMMER_PASSWORD")?;
     let etype = adhammer_kerberos::rbcd_impersonate(
         &a.account,
         &a.account_password,

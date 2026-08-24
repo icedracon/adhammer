@@ -15,10 +15,23 @@ venv/
 
 # credential caches / dumps produced at runtime
 *.ccache
+.ccache/
 *.kirbi
 *.pcap
+*.pfx
+*.csr
+*.stub
+*.issued.pem
 
 # local run artefacts — never commit
 auto-report.md
+adhammer-report.*
+report.json
+report.html
+report-summary.txt
+reports/
 esc1.crt
 esc1.crt.key.pem
+*.crt
+.env
+.env.*

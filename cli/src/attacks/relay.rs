@@ -51,7 +51,7 @@ pub(crate) struct RelayArgs {
     /// For `adcs-http`: CA template to request (default `User`).
     #[arg(long, default_value = "User")]
     pub ca_template: String,
-    /// For `adcs-http`: HTTPS port (default 443; use 80 with `--ca-scheme http`).
+    /// For `adcs-http`: HTTPS port (default 443). This handler does not expose a cleartext HTTP scheme flag.
     #[arg(long, default_value_t = 443)]
     pub ca_port: u16,
     /// For `adcs-http`: skip TLS cert verification (self-signed / internal CA is the norm).

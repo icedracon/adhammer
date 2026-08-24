@@ -123,15 +123,15 @@ impl Check for DcsyncPath {
         }
         vec![Finding {
             id: self.id().into(),
-            title: "Non-privileged principals hold a direct control path to Tier-0".into(),
+            title: "Direct control path to Tier-0 detected".into(),
             category: Category::PrivilegedAccounts,
             severity: Severity::Critical,
             mitre: vec![mitre::DCSYNC, mitre::VALID_ACCOUNTS],
             weight_bonus: close.len() as u32 * 8,
             affected: close,
             detail: "Control-path graph found principals one dangerous ACL edge away from Domain/Enterprise Admins or the domain head (DCSync-capable).".into(),
-            impact: Some("Attacker as (or compromising) the listed principal writes the ACL, gains DCSync/GenericAll on Tier-0, extracts krbtgt hash → golden ticket → full domain compromise. Cost=1 means one action away, not one hop of pivoting.".into()),
-            remediation: "Audit and remove the offending ACEs (WriteDacl/GenericAll/Replication rights); re-apply the AdminSDHolder template.".into(),
+            impact: Some("Any compromised principal in the listed path can write the ACL, gain DCSync/GenericAll on Tier-0, extract the krbtgt hash, and forge a golden ticket. Cost=1 means one dangerous action away, not one hop of pivoting.".into()),
+            remediation: "Review the listed principals and remove unexpected ACEs (WriteDacl/GenericAll/Replication rights); re-apply the AdminSDHolder template where appropriate.".into(),
         }]
     }
 }
@@ -153,7 +153,7 @@ impl Check for ShadowCredentialsPath {
         }
         vec![Finding {
             id: self.id().into(),
-            title: "Non-privileged principals can write Shadow Credentials on Tier-0".into(),
+            title: "Shadow Credentials path to Tier-0 detected".into(),
             category: Category::PrivilegedAccounts,
             severity: Severity::Critical,
             mitre: vec![mitre::VALID_ACCOUNTS],
@@ -161,7 +161,7 @@ impl Check for ShadowCredentialsPath {
             affected: hits,
             detail: "Write access to msDS-KeyCredentialLink on a Tier-0 object lets an attacker register a key and PKINIT as that principal.".into(),
             impact: Some("Attacker writes msDS-KeyCredentialLink on the Tier-0 target, then PKINITs with the freshly-generated cert to obtain a TGT as that principal. Full impersonation of a Domain Admin without ever learning their password.".into()),
-            remediation: "Remove WriteProperty on msDS-KeyCredentialLink for non-Tier-0 principals; audit AdminSDHolder inheritance on privileged accounts.".into(),
+            remediation: "Remove unexpected WriteProperty on msDS-KeyCredentialLink and audit AdminSDHolder inheritance on privileged accounts.".into(),
         }]
     }
 }

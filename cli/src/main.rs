@@ -47,10 +47,15 @@ struct Cli {
     #[arg(long, global = true, value_name = "[user:pass@]host:port")]
     socks: Option<String>,
 
-    /// Emit structured JSON output (AttackResult envelope) instead of human-readable text.
-    /// Applies to attack/enum/dump subcommands. Scan already emits JSON by default.
+    /// Force the JSON AttackResult envelope (now the DEFAULT for attack/enum/dump). Scan, auto,
+    /// check and setup always render the human report. Kept for back-compat / explicitness.
     #[arg(long, global = true)]
     json: bool,
+
+    /// Force human-readable (colored) output for attack/enum/dump, which otherwise emit the JSON
+    /// AttackResult envelope by default. No effect on scan/auto/check/setup (always human).
+    #[arg(long, global = true)]
+    text: bool,
 
     #[command(subcommand)]
     cmd: Option<Command>,
@@ -58,7 +63,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Passive audit: LDAP collection → control-path graph → 41 checks → scored report.
+    /// Passive audit: LDAP collection → control-path graph → scored checks → report.
     Scan(attacks::scan::ScanArgs),
     /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions.
     #[command(subcommand)]
@@ -72,7 +77,7 @@ enum Command {
     /// Dump credentials / secrets from AD (LAPS, gMSA).
     #[command(subcommand)]
     Dump(DumpCmd),
-    /// Guided: scan → correlate → confirm each weakness → validate + PoC → report.
+    /// Guided: scan → validate + PoC → multi-format report bundle.
     Auto(AutoArgs),
     /// One-shot onboarding helpers: `setup krb5` writes a working krb5.conf.
     #[command(subcommand)]
@@ -113,7 +118,7 @@ struct AutoArgs {
     url: String,
     #[arg(long)]
     user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     password: String,
     #[arg(long)]
     insecure: bool,
@@ -129,13 +134,13 @@ struct AutoArgs {
     /// KDC host (defaults to --host).
     #[arg(long)]
     kdc: Option<String>,
-    /// Report output path (Markdown).
+    /// Report output path (Markdown). Sidecar HTML / JSON / TXT files are written alongside it.
     #[arg(long, default_value = "adhammer-report.md")]
     out: String,
     /// Validate every finding without prompting (unattended).
     #[arg(long)]
     yes: bool,
-    /// Skip the per-finding "Impact" attack-chain narrative in the Markdown report.
+    /// Skip the per-finding "Impact" attack-chain narrative in the saved report artifacts.
     /// The interactive card still shows it either way.
     #[arg(long)]
     no_impact: bool,
@@ -380,8 +385,43 @@ struct CaptureArgs {
 
 // ScanArgs + `config(&ScanArgs)` moved to `attacks::scan` in arch-0.
 
+/// Enable ANSI colors + UTF-8 glyph output on legacy Windows consoles (cmd.exe, Windows
+/// PowerShell / conhost). Windows Terminal negotiates VT itself, but conhost does not — without
+/// this, `ui.rs`'s SGR codes and box/braille glyphs render as literal `←[1m` garbage, and the
+/// "beautiful report" looks broken. Hand-rolled kernel32 FFI so the CLI needs no `windows-sys`
+/// dependency. No-op off Windows and on redirected (non-console) streams.
+#[cfg(windows)]
+fn enable_windows_console() {
+    const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+    const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+    const CP_UTF8: u32 = 65001;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetStdHandle(nstdhandle: u32) -> *mut core::ffi::c_void;
+        fn GetConsoleMode(handle: *mut core::ffi::c_void, mode: *mut u32) -> i32;
+        fn SetConsoleMode(handle: *mut core::ffi::c_void, mode: u32) -> i32;
+        fn SetConsoleOutputCP(codepage: u32) -> i32;
+    }
+    // SAFETY: standard kernel32 console calls; the handle comes straight from GetStdHandle and we
+    // only widen the existing mode. On a redirected stream GetConsoleMode fails and we skip it.
+    unsafe {
+        SetConsoleOutputCP(CP_UTF8);
+        for h in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            let handle = GetStdHandle(h);
+            let mut mode = 0u32;
+            if GetConsoleMode(handle, &mut mode) != 0 {
+                SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    }
+}
+#[cfg(not(windows))]
+fn enable_windows_console() {}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    enable_windows_console();
     tracing_subscriber::fmt().with_target(false).init();
     let cli = Cli::parse();
 
@@ -402,29 +442,69 @@ async fn main() -> Result<()> {
     match cli.cmd {
         None => interactive::run(cli.old, cli.no_save).await,
         Some(cmd) => {
-            if cli.json {
-                dispatch_json(cmd).await
-            } else {
+            // JSON AttackResult envelope is the DEFAULT for attack/enum/dump (machine-first);
+            // --text forces human. Scan/auto/check/setup always render the human report (handled
+            // inside dispatch_json, which routes them straight to `dispatch`).
+            if cli.text {
                 dispatch(cmd).await
+            } else {
+                dispatch_json(cmd).await
             }
         }
     }
 }
 
 async fn dispatch_json(cmd: Command) -> Result<()> {
+    // Report/audit/config commands own their human output — never JSON-wrap them.
+    if matches!(
+        cmd,
+        Command::Scan(_) | Command::Auto(_) | Command::Check(_) | Command::Setup(_)
+    ) {
+        return dispatch(cmd).await;
+    }
+
     let cmd_str = format!("adhammer {}", cmd_label(&cmd));
-    let result = dispatch(cmd).await;
+    let exe = std::env::current_exe().context("locate adhammer binary for JSON wrapper")?;
+    // Run the child in TEXT mode so it does NOT re-enter this wrapper (JSON now defaults on) —
+    // otherwise every wrapped command would recurse into another wrapper indefinitely.
+    let mut child_args = args_without_json(std::env::args().skip(1).collect());
+    child_args.push("--text".to_string());
+    let output = std::process::Command::new(exe)
+        .args(&child_args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .context("run child command for JSON wrapper")?;
+
     let ar = adhammer_core::AttackResult {
         command: cmd_str,
-        success: result.is_ok(),
-        evidence: match &result {
-            Ok(()) => String::new(),
-            Err(e) => format!("{e:#}"),
-        },
+        success: output.status.success(),
+        evidence: merge_output(&output.stdout, &output.stderr),
         finding_id: None,
     };
-    println!("{}", serde_json::to_string_pretty(&ar).unwrap_or_default());
-    result
+    println!("{}", serde_json::to_string_pretty(&ar)?);
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!("wrapped command exited with {}", output.status);
+    }
+}
+
+fn args_without_json(args: Vec<String>) -> Vec<String> {
+    args.into_iter().filter(|arg| arg != "--json").collect()
+}
+
+fn merge_output(stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (false, false) => format!("{stdout}\n{stderr}"),
+    }
 }
 
 fn cmd_label(cmd: &Command) -> &'static str {
@@ -623,7 +703,7 @@ pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> 
 
 #[cfg(test)]
 mod resolve_secret_tests {
-    use super::resolve_secret;
+    use super::{args_without_json, merge_output, resolve_secret};
     use std::io::Write as _;
 
     #[test]
@@ -672,6 +752,25 @@ mod resolve_secret_tests {
             msg.contains("read password file"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn json_wrapper_strips_all_json_flags() {
+        let got = args_without_json(vec![
+            "attack".into(),
+            "--json".into(),
+            "icpr-esc1".into(),
+            "--json".into(),
+            "--ca".into(),
+            "TEST-CA".into(),
+        ]);
+        assert_eq!(got, vec!["attack", "icpr-esc1", "--ca", "TEST-CA"]);
+    }
+
+    #[test]
+    fn merged_output_preserves_stdout_and_stderr() {
+        let got = merge_output(b"hello\n", b"warn\n");
+        assert_eq!(got, "hello\nwarn");
     }
 }
 

@@ -18,7 +18,7 @@ pub(crate) struct SprayArgs {
     #[arg(long)]
     pub users: String,
     /// Single password to spray across all users
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     /// Stop targeting a user after N failed attempts within --lockout-window.
     /// Prevents accidentally locking accounts on a domain with an aggressive
@@ -31,8 +31,9 @@ pub(crate) struct SprayArgs {
 }
 
 /// Kerberos password spray: one password across a user list, classified by KDC response.
-pub(crate) async fn spray(a: SprayArgs) -> Result<()> {
+pub(crate) async fn spray(mut a: SprayArgs) -> Result<()> {
     use adhammer_kerberos::{check_credential, CredResult};
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
 
     let users: Vec<String> = if let Some(path) = a.users.strip_prefix('@') {
         std::fs::read_to_string(path)

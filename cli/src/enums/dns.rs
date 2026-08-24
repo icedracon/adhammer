@@ -12,7 +12,7 @@ pub(crate) struct DnsArgs {
     pub url: String,
     #[arg(long)]
     pub user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     #[arg(long)]
     pub insecure: bool,
@@ -21,8 +21,9 @@ pub(crate) struct DnsArgs {
 /// Enumerate AD-integrated DNS over LDAP (adidnsdump-equivalent): list every zone + record from
 /// the DomainDnsZones/ForestDnsZones partitions, and flag wildcard nodes — a wildcard (or any
 /// writable node) turns ADIDNS into a mitm6 / WPAD name-hijack primitive.
-pub(crate) async fn dnsenum(a: DnsArgs) -> Result<()> {
+pub(crate) async fn dnsenum(mut a: DnsArgs) -> Result<()> {
     use adhammer_collector::{Collector, LdapConfig};
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let cfg = LdapConfig {
         url: a.url.clone(),
         bind_dn: a.user.clone(),

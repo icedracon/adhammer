@@ -14,7 +14,7 @@ pub(crate) struct ShadowcredArgs {
     pub url: String,
     #[arg(long)]
     pub user: String,
-    #[arg(long)]
+    #[arg(long, default_value = "")]
     pub password: String,
     #[arg(long)]
     pub insecure: bool,
@@ -52,7 +52,8 @@ pub(crate) struct ShadowcredArgs {
 /// `attack shadowcred` — thin wrapper for the ADD flow, plus management
 /// (`--list` / `--remove <GUID>` / `--clear`) that reads and rewrites
 /// `msDS-KeyCredentialLink` directly (no `attack abuse` roundtrip).
-pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
+pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
+    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     if a.list {
         return list(&a).await;
     }
