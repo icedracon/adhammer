@@ -472,6 +472,46 @@ impl Check for CleartextSecretAttr {
     }
 }
 
+/// The domain default policy stores every user's password with reversible encryption
+/// (`pwdProperties` bit DOMAIN_PASSWORD_STORE_CLEARTEXT 0x10). Distinct from the per-account
+/// `A-ReversibleEncryption` (UAC 0x80) — this forces a recoverable cleartext-equivalent for the
+/// WHOLE domain. (WS-COVERAGE, 1.4.3.)
+pub struct DomainReversiblePwd;
+impl Check for DomainReversiblePwd {
+    fn id(&self) -> &'static str {
+        "A-DomainReversiblePwd"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        const DOMAIN_PASSWORD_STORE_CLEARTEXT: i64 = 0x10;
+        let Some(dom) = snap.by_dn(&snap.domain.domain_dn) else {
+            return vec![];
+        };
+        let Some(props) = dom.int("pwdProperties") else {
+            return vec![];
+        };
+        if props & DOMAIN_PASSWORD_STORE_CLEARTEXT == 0 {
+            return vec![];
+        }
+        let dn = &snap.domain.domain_dn;
+        vec![Finding {
+            id: self.id().into(),
+            title: "Domain policy stores all passwords with reversible encryption".into(),
+            category: Category::Anomalies,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: 20,
+            affected: vec![dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {dn}:pwdProperties"),
+                format!("0x{props:08X} (DOMAIN_PASSWORD_STORE_CLEARTEXT 0x10 set)"),
+            )],
+            detail: "The domain's pwdProperties has DOMAIN_PASSWORD_STORE_CLEARTEXT set — every account's password is stored reversibly encrypted in NTDS, a domain-wide cleartext-equivalent exposure.".into(),
+            impact: Some("Anyone who dumps NTDS.dit (DCSync or offline extract) recovers EVERY user's plaintext password directly — no cracking. Worst-case credential exposure, and it applies to the whole domain rather than one account.".into()),
+            remediation: "Clear DOMAIN_PASSWORD_STORE_CLEARTEXT (0x10) from the default domain policy's pwdProperties, then force a domain-wide password reset.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,5 +574,35 @@ mod tests {
         let clean = obj("user", &[("sAMAccountName", "bob")]);
         let snap2 = Snapshot::new(DomainInfo::default(), vec![clean]);
         assert!(CleartextSecretAttr.run(&snap2, &g).is_empty());
+    }
+
+    #[test]
+    fn domain_reversible_pwd_flags_store_cleartext_bit() {
+        // pwdProperties 0x11 = complexity + STORE_CLEARTEXT
+        let mut dom = obj("domainDNS", &[("pwdProperties", "17")]);
+        dom.dn = "DC=corp,DC=local".into();
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_dn: "DC=corp,DC=local".into(),
+                ..Default::default()
+            },
+            vec![dom],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(DomainReversiblePwd
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "A-DomainReversiblePwd"));
+        // clean when the bit is clear (0x1 = complexity only)
+        let mut dom2 = obj("domainDNS", &[("pwdProperties", "1")]);
+        dom2.dn = "DC=corp,DC=local".into();
+        let snap2 = Snapshot::new(
+            DomainInfo {
+                domain_dn: "DC=corp,DC=local".into(),
+                ..Default::default()
+            },
+            vec![dom2],
+        );
+        assert!(DomainReversiblePwd.run(&snap2, &g).is_empty());
     }
 }

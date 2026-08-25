@@ -879,6 +879,61 @@ impl Check for ComputerInPrivGroup {
     }
 }
 
+/// Group Policy Creator Owners (RID 520) with members beyond the built-in Administrator (RID 500).
+/// Members can create new GPOs; combined with any OU/site GP-link delegation that becomes code
+/// execution on every machine the linked policy applies to. (WS-COVERAGE, 1.4.3.)
+pub struct GpoCreatorOwners;
+impl Check for GpoCreatorOwners {
+    fn id(&self) -> &'static str {
+        "P-GpoCreatorOwners"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let Some(dsid) = snap.domain.domain_sid.as_ref() else {
+            return vec![];
+        };
+        let Some(grp) = snap.by_sid(&domain_sid_with_rid(dsid, 520)) else {
+            return vec![];
+        };
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for member_dn in grp.all("member") {
+            // Skip the built-in Administrator (RID 500) — it's the benign default member.
+            let is_default_admin = snap
+                .by_dn(member_dn)
+                .and_then(|m| m.bin1("objectSid"))
+                .and_then(Sid::from_bytes)
+                .and_then(|s| s.rid())
+                == Some(500);
+            if is_default_admin {
+                continue;
+            }
+            affected.push(member_dn.clone());
+            if evidence.len() < 25 {
+                evidence.push(Evidence::new(
+                    format!("LDAP {}:member", grp.dn),
+                    format!("{member_dn} is a non-default member of Group Policy Creator Owners"),
+                ));
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Non-default members of Group Policy Creator Owners".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Medium,
+            mitre: vec![mitre::GPO_MOD],
+            weight_bonus: affected.len() as u32 * 3,
+            affected,
+            evidence,
+            detail: "Accounts other than the built-in Administrator are members of Group Policy Creator Owners and can create new GPOs. If any OU or site delegates GP-link rights, a created GPO becomes code execution on the machines it targets.".into(),
+            impact: Some("A member creates a malicious GPO; wherever they (or an accomplice) can link it, it runs as SYSTEM on every affected machine — a common lateral-movement and privilege-escalation path.".into()),
+            remediation: "Remove non-administrative accounts from Group Policy Creator Owners; grant GPO authoring through a controlled, audited process.".into(),
+        }]
+    }
+}
+
 /// The host portion of an SPN `service/host[:port][/name]`, lowercased. `None` if malformed.
 fn spn_host(spn: &str) -> Option<String> {
     let after = spn.split_once('/')?.1;
@@ -1214,5 +1269,55 @@ mod tests {
         let ok = deleg_account("CN=svc2,DC=corp,DC=local", &["cifs/fs01.corp.local"]);
         let snap2 = Snapshot::new(DomainInfo::default(), vec![dc, ok]);
         assert!(ConstrainedToDc.run(&snap2, &g).is_empty());
+    }
+
+    #[test]
+    fn gpo_creator_owners_flags_nondefault_only() {
+        let domain = Sid::parse("S-1-5-21-1-2-3").unwrap();
+        // Non-default member (svc) present → flag.
+        let gpco = group(
+            "CN=Group Policy Creator Owners,DC=corp,DC=local",
+            520,
+            &["CN=svc,DC=corp,DC=local"],
+            &domain,
+        );
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain.clone()),
+                ..Default::default()
+            },
+            vec![gpco],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(GpoCreatorOwners
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-GpoCreatorOwners"));
+
+        // Only the built-in Administrator (RID 500) → benign default, no finding.
+        let gpco2 = group(
+            "CN=Group Policy Creator Owners,DC=corp,DC=local",
+            520,
+            &["CN=Administrator,DC=corp,DC=local"],
+            &domain,
+        );
+        let admin_sid = domain_sid_with_rid(&domain, 500);
+        let mut aattr: HashMap<String, Vec<String>> = HashMap::new();
+        aattr.insert("objectClass".into(), vec!["user".into()]);
+        let mut abin: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+        abin.insert("objectSid".into(), vec![sid_bytes(&admin_sid)]);
+        let admin = AdObject {
+            dn: "CN=Administrator,DC=corp,DC=local".into(),
+            attrs: aattr,
+            bin: abin,
+        };
+        let snap2 = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain),
+                ..Default::default()
+            },
+            vec![gpco2, admin],
+        );
+        assert!(GpoCreatorOwners.run(&snap2, &g).is_empty());
     }
 }
