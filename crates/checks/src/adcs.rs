@@ -307,6 +307,84 @@ impl Check for VulnerableCertTemplates {
     }
 }
 
+/// True if the template uses an elliptic-curve key algorithm — for ECC, a 256/384-bit key is
+/// strong, so it must NOT be flagged against the 2048-bit RSA minimum.
+fn is_ecc_template(o: &AdObject) -> bool {
+    if let Some(a) = o.one("msPKI-Asymmetric-Algorithm") {
+        let a = a.to_ascii_uppercase();
+        if a.starts_with("EC") || a.contains("ECD") || a.contains("ECDSA") {
+            return true;
+        }
+    }
+    o.all("pKIDefaultCSPs").iter().any(|c| {
+        let c = c.to_ascii_uppercase();
+        c.contains("ECD") || c.contains("ECDSA") || c.contains("ELLIPTIC")
+    })
+}
+
+/// Weak-crypto certificate templates: an RSA template whose `msPKI-Minimal-Key-Size` is below 2048
+/// bits issues certificates a modern attacker can forge or factor, undermining every use of the
+/// template (auth, signing, TLS). Pure-LDAP hygiene, orthogonal to the ESC enrollment classes.
+/// (WS-COVERAGE, 1.4.3.)
+pub struct WeakCertTemplateCrypto;
+impl Check for WeakCertTemplateCrypto {
+    fn id(&self) -> &'static str {
+        "A-WeakCertKeySize"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let published = published_templates(snap);
+        let filter_published = !published.is_empty();
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        let mut min_size = 2048;
+        for o in snap.iter_class("pKICertificateTemplate") {
+            let name = o.one("cn").or_else(|| o.one("name")).unwrap_or(&o.dn);
+            if filter_published && !published.contains(&name.to_ascii_lowercase()) {
+                continue;
+            }
+            let Some(ksize) = o.int("msPKI-Minimal-Key-Size") else {
+                continue;
+            };
+            if ksize <= 0 || ksize >= 2048 || is_ecc_template(o) {
+                continue;
+            }
+            min_size = min_size.min(ksize);
+            affected.push(name.to_string());
+            if evidence.len() < 25 {
+                let algo = o
+                    .one("msPKI-Asymmetric-Algorithm")
+                    .unwrap_or("RSA (default)");
+                evidence.push(Evidence::new(
+                    format!("LDAP {}:msPKI-Minimal-Key-Size", o.dn),
+                    format!("{ksize}-bit {algo} (< 2048-bit minimum)"),
+                ));
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        // A 512-bit template is forgeable today; 1024 is deprecated. Grade by the weakest seen.
+        let severity = if min_size < 1024 {
+            Severity::High
+        } else {
+            Severity::Medium
+        };
+        vec![Finding {
+            id: self.id().into(),
+            title: "Certificate template uses a weak RSA key size (< 2048)".into(),
+            category: Category::Anomalies,
+            severity,
+            mitre: vec![mitre::CERT_ABUSE],
+            weight_bonus: affected.len() as u32 * 4,
+            affected,
+            evidence,
+            detail: "A certificate template mandates an RSA key smaller than 2048 bits. Certificates it issues are weak: 1024-bit is deprecated and 512-bit is factorable, so a forged or factored key defeats whatever the cert authorizes.".into(),
+            impact: Some("An attacker who factors/forges a certificate from this template impersonates its subject (auth cert → PKINIT as the user, or a signing cert accepted as legitimate). Weak keys also let a downgrade weaken otherwise-strong PKI.".into()),
+            remediation: "Raise the template's Minimum Key Size to ≥ 2048 (RSA) or migrate to ECC P-256+, then re-issue affected certificates.".into(),
+        }]
+    }
+}
+
 /// Templates actually published by at least one CA (`certificateTemplates` on the
 /// pKIEnrollmentService object). Lowercased names.
 fn published_templates(snap: &Snapshot) -> HashSet<String> {
@@ -533,5 +611,45 @@ mod tests {
             !findings.iter().any(|f| f.id == "A-Esc1"),
             "manager approval should suppress ESC1"
         );
+    }
+
+    fn template_keysize(name: &str, ksize: &str, algo: Option<&str>) -> AdObject {
+        let mut attrs: HashMap<String, Vec<String>> = HashMap::new();
+        attrs.insert("objectClass".into(), vec!["pKICertificateTemplate".into()]);
+        attrs.insert("cn".into(), vec![name.into()]);
+        attrs.insert("msPKI-Minimal-Key-Size".into(), vec![ksize.into()]);
+        if let Some(a) = algo {
+            attrs.insert("msPKI-Asymmetric-Algorithm".into(), vec![a.into()]);
+        }
+        AdObject {
+            dn: format!("CN={name},CN=Certificate Templates,..."),
+            attrs,
+            bin: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn weak_rsa_flagged_ecc_and_strong_ignored() {
+        let weak = template_keysize("WeakRsa", "1024", None); // RSA default, < 2048 → flag
+        let ecc = template_keysize("EccOk", "256", Some("ECDH_P256")); // 256-bit ECC → strong
+        let strong = template_keysize("StrongRsa", "4096", None); // ≥ 2048 → fine
+        let snap = Snapshot::new(DomainInfo::default(), vec![weak, ecc, strong]);
+        let graph = ControlGraph::build(&snap);
+        let f = WeakCertTemplateCrypto.run(&snap, &graph);
+        assert!(f.iter().any(|x| x.id == "A-WeakCertKeySize"));
+        let hit = f.iter().find(|x| x.id == "A-WeakCertKeySize").unwrap();
+        assert_eq!(hit.affected, vec!["WeakRsa".to_string()]);
+        assert_eq!(hit.severity, Severity::Medium); // 1024 → Medium, not < 1024
+    }
+
+    #[test]
+    fn factorable_512bit_is_high() {
+        let weak = template_keysize("Rsa512", "512", Some("RSA"));
+        let snap = Snapshot::new(DomainInfo::default(), vec![weak]);
+        let graph = ControlGraph::build(&snap);
+        let f = WeakCertTemplateCrypto.run(&snap, &graph);
+        assert!(f
+            .iter()
+            .any(|x| x.id == "A-WeakCertKeySize" && x.severity == Severity::High));
     }
 }

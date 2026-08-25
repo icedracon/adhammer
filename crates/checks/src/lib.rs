@@ -61,6 +61,7 @@ pub fn registry() -> Vec<Box<dyn Check>> {
         Box::new(anomalies_extra::WeakFineGrainedPolicy),
         Box::new(anomalies_extra::CleartextSecretAttr),
         Box::new(adcs::VulnerableCertTemplates),
+        Box::new(adcs::WeakCertTemplateCrypto),
         Box::new(trusts::SidFilteringDisabled),
         Box::new(trusts::SelectiveAuthDisabled),
         Box::new(trusts::TgtDelegationAcrossTrust),
