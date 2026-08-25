@@ -443,6 +443,12 @@ impl Check for KerberoastableUsers {
         let mut affected: Vec<String> = Vec::new();
         let mut evidence: Vec<Evidence> = Vec::new();
         for o in snap.iter_class("user") {
+            // Computer objects (and gMSAs, which derive from computer) carry SPNs by design but hold
+            // 120-char auto-rotated passwords — not roastable in practice. Only true user service
+            // accounts belong here; excluding computer-class avoids flagging every machine + the DC.
+            if o.has_class("computer") {
+                continue;
+            }
             let spns = o.all("servicePrincipalName");
             // krbtgt carries an SPN by design and isn't roastable in practice.
             let is_krbtgt = o
@@ -1319,5 +1325,44 @@ mod tests {
             vec![gpco2, admin],
         );
         assert!(GpoCreatorOwners.run(&snap2, &g).is_empty());
+    }
+
+    #[test]
+    fn kerberoastable_user_excludes_computers() {
+        // Real user service account with an SPN → flagged.
+        let mut ua: HashMap<String, Vec<String>> = HashMap::new();
+        ua.insert("objectClass".into(), vec!["user".into()]);
+        ua.insert(
+            "servicePrincipalName".into(),
+            vec!["MSSQLSvc/db.corp.local:1433".into()],
+        );
+        ua.insert("userAccountControl".into(), vec!["512".into()]);
+        let user = AdObject {
+            dn: "CN=svc_sql,DC=corp,DC=local".into(),
+            attrs: ua,
+            bin: HashMap::new(),
+        };
+        // Computer (objectClass user+computer) with SPNs → NOT roastable, must be excluded.
+        let mut ca: HashMap<String, Vec<String>> = HashMap::new();
+        ca.insert("objectClass".into(), vec!["user".into(), "computer".into()]);
+        ca.insert("servicePrincipalName".into(), vec!["HOST/dc01".into()]);
+        ca.insert("userAccountControl".into(), vec!["4096".into()]);
+        let comp = AdObject {
+            dn: "CN=DC01,DC=corp,DC=local".into(),
+            attrs: ca,
+            bin: HashMap::new(),
+        };
+        let snap = Snapshot::new(DomainInfo::default(), vec![user, comp]);
+        let g = ControlGraph::build(&snap);
+        let hit = KerberoastableUsers
+            .run(&snap, &g)
+            .into_iter()
+            .find(|x| x.id == "P-KerberoastableUser")
+            .expect("user service account should be flagged");
+        assert!(hit.affected.iter().any(|a| a.contains("svc_sql")));
+        assert!(
+            !hit.affected.iter().any(|a| a.contains("DC01")),
+            "computer accounts must be excluded from Kerberoastable users"
+        );
     }
 }
