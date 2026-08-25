@@ -75,5 +75,16 @@ pub async fn probe_esc_registry(
         }
     }
 
-    hits.into_iter().map(|h| h.into_finding()).collect()
+    // The pure decision layer can't know which CA/DC produced the reading, so registry-ESC
+    // findings (esp. DC-posture ones like ESC10) come back with an empty `affected`. Attach the
+    // probed CA/DC name here so every finding points at a concrete object instead of nothing.
+    hits.into_iter()
+        .map(|h| {
+            let mut f = h.into_finding();
+            if f.affected.is_empty() {
+                f.affected.push(ca_name.to_string());
+            }
+            f
+        })
+        .collect()
 }
