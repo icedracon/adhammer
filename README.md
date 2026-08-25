@@ -95,7 +95,21 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 <br/>
 
-## ✨ What's new in 1.4.3
+## ✨ What's new in 1.4.4
+
+The **"read the whole picture"** release — every scan report now ships a visual control-path graph and a complete coverage matrix inline, so you see what was checked and what tripped, not just the hits. Adds the last two offensive carryovers from 1.4.3 and sharpens the first-touch connection experience.
+
+- **In-report control-path graph** — the HTML report renders the cheapest attack paths to Tier-0 as a self-contained SVG (no external libraries, no CDN), laid out deterministically so two scans of the same domain diff cleanly.
+- **Full coverage matrix in every report** — all 58 checks appear with their status (`tripped` / `clean`) plus evidence, in JSON / HTML / Markdown / terminal — the completeness signal a report needs (*"checked X, clean"*), so a reviewer sees where there is *and isn't* a finding.
+- **`attack dns`** — write ADIDNS records (`add-a` / `modify-a` / `tombstone` / `delete`) over LDAP, `--dry-run` by default so the intended change prints before anything is written.
+- **`enum sccm` / `enum scom`** — discover Configuration Manager and Operations Manager footholds from the directory; an absent container reports *not present* instead of erroring.
+- **Clearer connection failures** — a failed LDAP bind now names the actual cause (TLS/cert, channel binding, reachability) instead of a generic hint, so first-touch setup from Kali / PowerShell is faster to debug.
+
+Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+
+<br/>
+
+### Previously — what 1.4.3 added
 
 The **"prove it, cover it"** release — every finding now carries the ground-truth server artifact that substantiates it, the passive-detection registry grew from 41 to 58 checks, and scans can diff against a prior run. On top of the interactive-UX pass that makes the binary easier to drive from Kali, PowerShell, and `cmd`.
 
