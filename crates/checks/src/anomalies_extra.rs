@@ -411,6 +411,67 @@ impl Check for WeakFineGrainedPolicy {
     }
 }
 
+/// A directory object with a populated `userPassword` / `unixUserPassword` attribute — some
+/// provisioning tools (inetOrgPerson sync, Identity Management for Unix / SFU) stash a
+/// cleartext-or-crypt password there, and it is readable by ANY authenticated user over LDAP.
+/// Distinct from `A-PasswordInDescription` (which scans description/info). (WS-COVERAGE, 1.4.3.)
+pub struct CleartextSecretAttr;
+impl Check for CleartextSecretAttr {
+    fn id(&self) -> &'static str {
+        "A-CleartextSecret"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in &snap.objects {
+            for attr in ["userPassword", "unixUserPassword"] {
+                // The value may arrive as a string or as an octet-string binary attribute.
+                let str_val = o.one(attr).filter(|s| !s.is_empty());
+                let bin_len = o.bin1(attr).map(|b| b.len()).filter(|n| *n > 0);
+                if str_val.is_none() && bin_len.is_none() {
+                    continue;
+                }
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    // Proof: the attribute is set and LDAP-readable. Show length + a short printable
+                    // prefix so a client can confirm by hand without the full secret in the report.
+                    let detail = match (str_val, bin_len) {
+                        (Some(v), _) => {
+                            let n = v.chars().count();
+                            let prefix: String = v.chars().take(2).collect();
+                            format!("{attr} set, {n} char(s), starts \"{prefix}…\" — LDAP-readable")
+                        }
+                        (None, Some(n)) => {
+                            format!("{attr} set, {n} byte(s) octet-string — LDAP-readable")
+                        }
+                        _ => unreachable!(),
+                    };
+                    evidence.push(Evidence::new(format!("LDAP {}:{attr}", o.dn), detail));
+                }
+                break;
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Password stored in userPassword/unixUserPassword".into(),
+            category: Category::Anomalies,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 5,
+            affected,
+            evidence,
+            detail: "An object carries a password in userPassword/unixUserPassword — a cleartext or \
+                     reversibly-encoded credential that any authenticated user can read over LDAP."
+                .into(),
+            impact: Some("Any domain user reads the attribute and recovers the credential directly — no cracking. Common with directory-sync/SFU accounts that are also service accounts.".into()),
+            remediation: "Clear userPassword/unixUserPassword; rotate the exposed credential; store secrets in a vault, never in a readable LDAP attribute.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,5 +521,18 @@ mod tests {
         assert!(f
             .iter()
             .any(|x| x.id == "A-PasswordPolicy" && x.affected.len() == 2));
+    }
+
+    #[test]
+    fn cleartext_secret_flags_userpassword() {
+        let u = obj("user", &[("userPassword", "Sup3rSecret!")]);
+        let snap = Snapshot::new(DomainInfo::default(), vec![u]);
+        let g = ControlGraph::build(&snap);
+        let f = CleartextSecretAttr.run(&snap, &g);
+        assert!(f.iter().any(|x| x.id == "A-CleartextSecret"));
+        // clean when the attribute is absent
+        let clean = obj("user", &[("sAMAccountName", "bob")]);
+        let snap2 = Snapshot::new(DomainInfo::default(), vec![clean]);
+        assert!(CleartextSecretAttr.run(&snap2, &g).is_empty());
     }
 }

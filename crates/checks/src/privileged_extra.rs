@@ -631,6 +631,128 @@ impl Check for BroadInTier0Group {
     }
 }
 
+/// Key Admins (RID 526) / Enterprise Key Admins (RID 527) with any members. These groups can write
+/// `msDS-KeyCredentialLink` on user and computer objects domain-wide — i.e. register a Shadow
+/// Credential and PKINIT as ANY principal. They are missing from the classic operator-group sweep
+/// yet are effectively Tier-0. (WS-COVERAGE, 1.4.3.)
+pub struct KeyAdminsPopulated;
+impl Check for KeyAdminsPopulated {
+    fn id(&self) -> &'static str {
+        "P-KeyAdmins"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let groups = [
+            ("Key Admins", GroupRef::Domain(526)),
+            ("Enterprise Key Admins", GroupRef::Domain(527)),
+        ];
+        let hits: Vec<(&'static str, String, Vec<String>)> = groups
+            .iter()
+            .filter_map(|(label, spec)| {
+                let grp = resolve(snap, spec)?;
+                let members = grp.all("member");
+                (!members.is_empty()).then(|| (*label, grp.dn.clone(), members.to_vec()))
+            })
+            .collect();
+        if hits.is_empty() {
+            return vec![];
+        }
+        let affected: Vec<String> = hits
+            .iter()
+            .map(|(label, _, m)| format!("{label} ({} members)", m.len()))
+            .collect();
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(label, dn, m)| {
+                Evidence::new(
+                    format!("LDAP {dn}:member"),
+                    format!(
+                        "{label}: {} member(s), e.g. {}",
+                        m.len(),
+                        m.first().map(String::as_str).unwrap_or("<none>")
+                    ),
+                )
+            })
+            .collect();
+        vec![Finding {
+            id: self.id().into(),
+            title: "Populated Key Admins / Enterprise Key Admins".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::High,
+            mitre: vec![mitre::CERT_ABUSE],
+            weight_bonus: affected.len() as u32 * 8,
+            affected,
+            evidence,
+            detail: "Members of Key Admins / Enterprise Key Admins can write msDS-KeyCredentialLink on directory objects, letting them register an NGC key and PKINIT as the target — a domain-wide Shadow Credentials primitive.".into(),
+            impact: Some("A member adds a key credential to any account (including a Domain Admin) and authenticates via PKINIT as that principal — passwordless impersonation without touching the target's password.".into()),
+            remediation: "Empty these groups unless Windows Hello for Business enrollment genuinely requires them; use just-in-time membership and treat any member as Tier-0.".into(),
+        }]
+    }
+}
+
+/// Privileged (adminCount=1) enabled accounts that are NOT in the Protected Users group, *when that
+/// group is already in use* (non-empty). Complementary to `A-ProtectedUsers` (which fires only when
+/// the group is entirely empty): here the org adopted Protected Users but left some admins out, so
+/// those specific accounts keep RC4 TGTs, delegation, and NTLM exposure. (WS-COVERAGE, 1.4.3.)
+pub struct AdminNotProtected;
+impl Check for AdminNotProtected {
+    fn id(&self) -> &'static str {
+        "P-AdminNotProtected"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let Some(dsid) = snap.domain.domain_sid.as_ref() else {
+            return vec![];
+        };
+        let Some(pu) = snap.by_sid(&domain_sid_with_rid(dsid, 525)) else {
+            return vec![];
+        };
+        // Only meaningful once Protected Users is actually populated — otherwise A-ProtectedUsers owns it.
+        let members: std::collections::HashSet<String> = pu
+            .all("member")
+            .iter()
+            .map(|d| d.to_ascii_lowercase())
+            .collect();
+        if members.is_empty() {
+            return vec![];
+        }
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("user") {
+            if o.int("adminCount") == Some(1)
+                && o.uac() & uac::ACCOUNTDISABLE == 0
+                && !members.contains(&o.dn.to_ascii_lowercase())
+            {
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!("LDAP {}:memberOf/adminCount", o.dn),
+                        format!(
+                            "adminCount=1, enabled; absent from Protected Users ({} member(s))",
+                            members.len()
+                        ),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Privileged accounts missing from Protected Users".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Low,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 2,
+            affected,
+            evidence,
+            detail: "The domain uses Protected Users, but these adminCount=1 accounts are not members — they keep the credential-theft exposures Protected Users would remove (RC4 TGTs, delegation, NTLM, long ticket lifetime).".into(),
+            impact: Some("These specific admins remain Kerberoast/PtH/delegation-exposed while the org believes Protected Users covers its Tier-0 — an easily-overlooked gap that leaves the highest-value accounts unhardened.".into()),
+            remediation: "Add every Tier-0 account to Protected Users after validating compatibility (no RC4-only services, no required delegation).".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -675,5 +797,97 @@ mod tests {
         let g = ControlGraph::build(&snap);
         let f = SidHistory.run(&snap, &g);
         assert!(f.iter().any(|x| x.id == "P-SidHistoryPriv"));
+    }
+
+    fn sid_bytes(s: &Sid) -> Vec<u8> {
+        let mut b = vec![s.revision, s.sub_authorities.len() as u8];
+        b.extend_from_slice(&[0, 0, 0, 0, 0, s.identifier_authority as u8]);
+        for sub in &s.sub_authorities {
+            b.extend_from_slice(&sub.to_le_bytes());
+        }
+        b
+    }
+
+    fn group(dn: &str, rid: u32, members: &[&str], domain: &Sid) -> AdObject {
+        let sid = domain_sid_with_rid(domain, rid);
+        let mut a: HashMap<String, Vec<String>> = HashMap::new();
+        a.insert("objectClass".into(), vec!["group".into()]);
+        a.insert(
+            "member".into(),
+            members.iter().map(|m| m.to_string()).collect(),
+        );
+        let mut bin: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
+        bin.insert("objectSid".into(), vec![sid_bytes(&sid)]);
+        AdObject {
+            dn: dn.into(),
+            attrs: a,
+            bin,
+        }
+    }
+
+    #[test]
+    fn key_admins_populated_flags() {
+        let domain = Sid::parse("S-1-5-21-1-2-3").unwrap();
+        let ka = group(
+            "CN=Key Admins,DC=corp,DC=local",
+            526,
+            &["CN=bob,DC=corp,DC=local"],
+            &domain,
+        );
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain.clone()),
+                ..Default::default()
+            },
+            vec![ka],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(KeyAdminsPopulated
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-KeyAdmins"));
+    }
+
+    #[test]
+    fn admin_not_protected_flags_when_pu_used() {
+        let domain = Sid::parse("S-1-5-21-1-2-3").unwrap();
+        let pu = group(
+            "CN=Protected Users,DC=corp,DC=local",
+            525,
+            &["CN=carol,DC=corp,DC=local"],
+            &domain,
+        );
+        let mut admin_attrs: HashMap<String, Vec<String>> = HashMap::new();
+        admin_attrs.insert("objectClass".into(), vec!["user".into()]);
+        admin_attrs.insert("adminCount".into(), vec!["1".into()]);
+        admin_attrs.insert("userAccountControl".into(), vec!["512".into()]);
+        let admin = AdObject {
+            dn: "CN=svc-admin,DC=corp,DC=local".into(),
+            attrs: admin_attrs,
+            bin: HashMap::new(),
+        };
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain.clone()),
+                ..Default::default()
+            },
+            vec![pu, admin],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(AdminNotProtected
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-AdminNotProtected"));
+        // clean when Protected Users is empty (A-ProtectedUsers owns that case)
+        let domain2 = Sid::parse("S-1-5-21-9-9-9").unwrap();
+        let empty_pu = group("CN=Protected Users,DC=x,DC=y", 525, &[], &domain2);
+        let snap2 = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain2),
+                ..Default::default()
+            },
+            vec![empty_pu],
+        );
+        assert!(AdminNotProtected.run(&snap2, &g).is_empty());
     }
 }

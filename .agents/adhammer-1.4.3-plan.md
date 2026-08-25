@@ -106,10 +106,12 @@ client *trusts* and one they take on faith — and it's what separates adhammer 
 ### Tier 0 — the 1.4.3 thesis: prove it, cover it (NEW — top priority)
 
 > **Progress (2026-08-25):** WS-PROOF **DONE** (`Finding.evidence`, every check populated, rendered
-> in HTML/MD/terminal — commit `7058c53`). WS-COVERAGE **in progress: registry 41 → 47** (+6
+> in HTML/MD/terminal — commit `7058c53`). WS-COVERAGE **in progress: registry 41 → 52** (+11
 > evidence-backed: PasswordInDescription, ConstrainedDelegation, KerberoastableUser, AdminDelegatable,
-> KeyCredentialOnAdmin, BroadInTier0). WS-AUTOVAL **started** (roast validator widened to KerberoastableUser).
-> WS-AUTOSCAN **not started** (live probes — needs the lab to validate). All local, gate green.
+> KeyCredentialOnAdmin, BroadInTier0, WeakFgpp, LapsExpired, **CleartextSecret (userPassword/unixUserPassword),
+> KeyAdmins (526/527), AdminNotProtected**). WS-AUTOVAL **started** (roast validator widened to KerberoastableUser).
+> WS-AUTOSCAN posture probe folded into Auto (commit `098af82`); remaining live probes need the lab.
+> All local, 173 tests green, workspace clippy `-D` clean.
 
 **WS-PROOF — ground-truth evidence on every finding ★ north-star**
 - Goal: every `Finding` carries the raw server/client artifact that substantiates it, not just
