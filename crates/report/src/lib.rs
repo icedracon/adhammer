@@ -8,7 +8,9 @@ use adhammer_graph::AttackPath;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+pub mod baseline;
 pub mod composite;
+pub use baseline::BaselineDiff;
 pub use composite::CompositeChain;
 
 /// Configurable multipliers per category (diploma "risk scoring engine").
@@ -50,6 +52,10 @@ pub struct Report {
     /// Every rule appears (present + absent) so a machine reader can tell the
     /// difference between "chain didn't match" and "chain wasn't checked".
     pub composite_chains: Vec<CompositeChain>,
+    /// WS-19: comparison against a prior scan (NEW / RESOLVED / SEVERITY-CHANGED), present only
+    /// when the caller passed `--baseline`. Absent from JSON otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_diff: Option<BaselineDiff>,
 }
 
 impl Report {
@@ -81,7 +87,16 @@ impl Report {
             graph_nodes: graph_stats.0,
             graph_edges: graph_stats.1,
             composite_chains,
+            baseline_diff: None,
         }
+    }
+
+    /// WS-19: attach a baseline comparison computed from a prior scan's JSON. `label` is recorded
+    /// in the diff (usually the baseline file path). On a parse error the report is returned
+    /// unchanged and the error is handed back so the caller can warn without aborting the scan.
+    pub fn with_baseline(mut self, baseline_json: &str, label: &str) -> Result<Self, String> {
+        self.baseline_diff = Some(BaselineDiff::compute(baseline_json, &self.findings, label)?);
+        Ok(self)
     }
 
     pub fn to_json(&self) -> String {
@@ -192,6 +207,7 @@ impl Report {
                <div class=\"sev-card sev-medium\"><b>{medium}</b><span>Medium</span></div>\
                <div class=\"sev-card sev-low\"><b>{low}</b><span>Low / Info</span></div>\
              </div>\
+             {baseline}\
              <section class=panel><h2>Risk by category</h2><div class=score-grid>{scores}</div></section>\
              {chains}\
              <section class=panel><h2>Findings</h2><p>Each card shows why the condition matters, what it affects, and the shortest remediation text needed to brief an operator or stakeholder.</p></section>\
@@ -209,10 +225,136 @@ impl Report {
             high = high,
             medium = medium,
             low = low,
+            baseline = self.baseline_html(),
             scores = self.category_scores_html(),
             chains = self.chains_html(),
             findings_html = self.findings_html(),
             paths = self.paths_html(),
+        )
+    }
+
+    /// WS-19: a `[NEW] ` / `[SEV CHANGED] ` prefix for a finding whose id moved vs the baseline.
+    fn baseline_tag(&self, id: &str) -> &'static str {
+        if let Some(d) = &self.baseline_diff {
+            if d.new_ids().contains(id) {
+                return "[NEW] ";
+            }
+            if d.sevchanged_ids().contains(id) {
+                return "[SEV CHANGED] ";
+            }
+        }
+        ""
+    }
+
+    /// WS-19: Markdown "Baseline diff" block (empty string when no baseline was supplied).
+    fn baseline_md(&self) -> String {
+        let Some(d) = &self.baseline_diff else {
+            return String::new();
+        };
+        let mut out = format!(
+            "## Baseline diff\n\nCompared against `{}` — **{} new**, **{} resolved**, **{} severity-changed**, {} unchanged.\n\n",
+            collapse_ws(&d.baseline),
+            d.summary.new,
+            d.summary.resolved,
+            d.summary.severity_changed,
+            d.summary.unchanged,
+        );
+        for e in d.new.iter().take(50) {
+            out.push_str(&format!(
+                "- [NEW] {} — {} ({})\n",
+                e.id, e.object, e.severity
+            ));
+        }
+        for e in d.severity_changed.iter().take(50) {
+            out.push_str(&format!(
+                "- [SEV {}→{}] {} — {}\n",
+                e.from, e.to, e.id, e.object
+            ));
+        }
+        for e in d.resolved.iter().take(50) {
+            out.push_str(&format!(
+                "- [RESOLVED] {} — {} ({})\n",
+                e.id, e.object, e.severity
+            ));
+        }
+        out.push('\n');
+        out
+    }
+
+    /// WS-19: HTML "Baseline diff" panel (empty when no baseline was supplied).
+    fn baseline_html(&self) -> String {
+        let Some(d) = &self.baseline_diff else {
+            return String::new();
+        };
+        let row = |items: String| -> String { format!("<ul class=list>{items}</ul>") };
+        let new_rows: String = d
+            .new
+            .iter()
+            .take(50)
+            .map(|e| {
+                format!(
+                    "<li><code>{}</code> {} <span class=muted>({})</span></li>",
+                    html_escape(&e.id),
+                    html_escape(&e.object),
+                    html_escape(&e.severity)
+                )
+            })
+            .collect();
+        let chg_rows: String = d
+            .severity_changed
+            .iter()
+            .take(50)
+            .map(|e| {
+                format!(
+                    "<li><code>{}</code> {} <span class=muted>{}→{}</span></li>",
+                    html_escape(&e.id),
+                    html_escape(&e.object),
+                    html_escape(&e.from),
+                    html_escape(&e.to)
+                )
+            })
+            .collect();
+        let res_rows: String = d
+            .resolved
+            .iter()
+            .take(50)
+            .map(|e| {
+                format!(
+                    "<li><code>{}</code> {} <span class=muted>({})</span></li>",
+                    html_escape(&e.id),
+                    html_escape(&e.object),
+                    html_escape(&e.severity)
+                )
+            })
+            .collect();
+        format!(
+            "<section class=panel><h2>Baseline diff</h2>\
+             <p>Compared against <code>{base}</code>: \
+             <span class=\"chip chip-high\">{n} new</span>\
+             <span class=\"chip chip-good\">{r} resolved</span>\
+             <span class=\"chip chip-medium\">{c} severity-changed</span>\
+             <span class=chip>{u} unchanged</span></p>\
+             {new_block}{chg_block}{res_block}</section>",
+            base = html_escape(&d.baseline),
+            n = d.summary.new,
+            r = d.summary.resolved,
+            c = d.summary.severity_changed,
+            u = d.summary.unchanged,
+            new_block = if new_rows.is_empty() {
+                String::new()
+            } else {
+                format!("<h3>New</h3>{}", row(new_rows))
+            },
+            chg_block = if chg_rows.is_empty() {
+                String::new()
+            } else {
+                format!("<h3>Severity changed</h3>{}", row(chg_rows))
+            },
+            res_block = if res_rows.is_empty() {
+                String::new()
+            } else {
+                format!("<h3>Resolved</h3>{}", row(res_rows))
+            },
         )
     }
 
@@ -279,6 +421,7 @@ impl Report {
                          <span class=chip>{id}</span>\
                          <span class=chip>{category}</span>\
                          <span class=\"chip {affected_chip}\">{affected_count} affected</span>\
+                         {baseline_chip}\
                        </div>\
                        <h3>{title}</h3>\
                        <div class=meta><div class=k>Why</div><div>{detail}</div></div>\
@@ -296,6 +439,14 @@ impl Report {
                         "muted"
                     } else {
                         "chip-good"
+                    },
+                    baseline_chip = {
+                        let t = self.baseline_tag(&f.id);
+                        if t.is_empty() {
+                            String::new()
+                        } else {
+                            format!("<span class=\"chip chip-warn\">{}</span>", html_escape(t.trim()))
+                        }
                     },
                     affected_count = f.affected.len(),
                     title = html_escape(&f.title),
@@ -404,6 +555,9 @@ impl Report {
             self.findings.len(),
         ));
 
+        // WS-19: baseline diff summary right under the header, before the TOC.
+        out.push_str(&self.baseline_md());
+
         // Table of contents.
         out.push_str("## Contents\n\n");
         let present_chains = self.composite_chains.iter().any(|c| c.present);
@@ -443,7 +597,12 @@ impl Report {
             let name = sev_name(*sev);
             out.push_str(&format!("## {name}\n\n"));
             for f in batch {
-                out.push_str(&format!("### {} — {}\n\n", f.id, f.title));
+                out.push_str(&format!(
+                    "### {}{} — {}\n\n",
+                    self.baseline_tag(&f.id),
+                    f.id,
+                    f.title
+                ));
                 if !f.mitre.is_empty() {
                     let tags: Vec<String> = f
                         .mitre
@@ -518,6 +677,16 @@ impl Report {
         out.push_str(&format!("Chains: {} present\n", chain_hits.len()));
         for c in &chain_hits {
             out.push_str(&format!("  - {} -> {}\n", c.title, c.impact));
+        }
+
+        if let Some(d) = &self.baseline_diff {
+            out.push_str(&format!(
+                "Baseline ({}): +{} new / -{} resolved / ~{} severity-changed\n",
+                collapse_ws(&d.baseline),
+                d.summary.new,
+                d.summary.resolved,
+                d.summary.severity_changed,
+            ));
         }
 
         out.push('\n');
@@ -688,6 +857,25 @@ mod tests {
             (0, 0),
             &RiskConfig::default(),
         )
+    }
+
+    #[test]
+    fn baseline_diff_renders_and_tags_findings() {
+        // WS-19: a report with a baseline attached tags NEW findings and carries a baseline_diff.
+        let prior =
+            empty_report(vec![mk_finding("A-Old", Severity::High, "was here before")]).to_json();
+        let r = empty_report(vec![mk_finding("A-Fresh", Severity::Critical, "brand new")])
+            .with_baseline(&prior, "prior.json")
+            .unwrap();
+        let md = r.to_markdown();
+        assert!(md.contains("## Baseline diff"));
+        assert!(md.contains("### [NEW] A-Fresh — brand new"));
+        let json = r.to_json();
+        assert!(json.contains("\"baseline_diff\""));
+        assert!(json.contains("\"A-Old\"")); // resolved
+        let txt = r.to_text_summary(10);
+        assert!(txt.contains("Baseline (prior.json): +1 new / -1 resolved"));
+        assert!(r.to_html().contains("Baseline diff"));
     }
 
     #[test]

@@ -60,6 +60,7 @@ impl Session {
             out_all: None,
             top_n: 10,
             anonymous: false,
+            baseline: None,
         }
     }
 }

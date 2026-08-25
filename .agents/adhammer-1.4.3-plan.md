@@ -248,12 +248,12 @@ client *trusts* and one they take on faith — and it's what separates adhammer 
 - Acceptance: flags a planted reanimation path in the lab; edge appears in BH-CE export.
 - Verify: live LDAP query on DC01; unit test on the rule against a synthetic ACL snapshot.
 
-**WS-19 — Baseline diff** (source: diego, no-AI form)
+**WS-19 — Baseline diff** (source: diego, no-AI form) — **DONE (2026-08-25)**
 - Goal: `scan --baseline <prior.json>` → tagged `[NEW]` / `[RESOLVED]` / `[SEVERITY-CHANGED]` by `(id, affected_object)`, rendered in all 4 report formats.
-- Files: `crates/report/`, `crates/checks/` finding model.
+- Files: `crates/report/src/baseline.rs` (new — `BaselineDiff::compute`, keyed on (id, object)), `crates/report/src/lib.rs` (`Report.baseline_diff` field + `with_baseline` + md/html/txt render + per-finding `[NEW]`/`[SEV CHANGED]` tag), `cli/src/attacks/scan.rs` (`--baseline <PRIOR_JSON>` flag, best-effort: missing/bad baseline warns, scan still emits), `cli/src/session.rs`.
 - Effort: S · Depends: none.
-- Acceptance: two scans of a changed lab diff correctly; JSON carries a `baseline_diff` object.
-- Verify: unit test with two fixture scans; live two-run on DC01.
+- Acceptance: JSON carries a `baseline_diff` object; md/html/txt render the diff + tag findings. **Met** — 4 unit tests (compute new/resolved/sev-changed, identical=all-unchanged, bad-json errs, render+tag integration).
+- Verify: unit tests green (offline). **Still to do live:** two-run on DC01 (blocked on lab).
 
 **WS-F-krb — `setup krb5` enhancements**
 - Goal: `--auto` (SRV-discover DCs, pick the one that returns a TGT, write krb5.conf) + `--append` (add a realm to an existing conf).

@@ -63,6 +63,12 @@ pub(crate) struct ScanArgs {
     /// Will be removed in 1.5.0.
     #[arg(long)]
     pub bloodhound: Option<String>,
+    /// WS-19: compare this scan against a prior scan's JSON report at `<path>` and tag findings
+    /// NEW / RESOLVED / SEVERITY-CHANGED (keyed by rule id + affected object). Adds a
+    /// `baseline_diff` object to the JSON report and a "Baseline diff" section to md/html/txt.
+    /// A missing or unparsable baseline is a warning, not a hard error — the scan still emits.
+    #[arg(long, value_name = "PRIOR_JSON")]
+    pub baseline: Option<String>,
 }
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
@@ -289,13 +295,33 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         findings.extend(adhammer_sysvol::gptmpl::policy_findings(&policy));
     }
 
-    let report = Report::build(
+    let mut report = Report::build(
         &snap.domain.domain_dn,
         findings,
         paths,
         stats,
         &RiskConfig::default(),
     );
+
+    // WS-19: baseline diff. Read a prior scan's JSON and tag NEW / RESOLVED / SEVERITY-CHANGED.
+    // Best-effort: a missing/unparsable baseline warns to stderr and the scan still emits.
+    if let Some(path) = &a.baseline {
+        match std::fs::read_to_string(path) {
+            Ok(prior) => {
+                match adhammer_report::BaselineDiff::compute(&prior, &report.findings, path) {
+                    Ok(diff) => {
+                        ui::ok(&format!(
+                        "baseline diff vs {path}: +{} new / -{} resolved / ~{} severity-changed",
+                        diff.summary.new, diff.summary.resolved, diff.summary.severity_changed
+                    ));
+                        report.baseline_diff = Some(diff);
+                    }
+                    Err(e) => eprintln!("[!] baseline diff skipped: {e}"),
+                }
+            }
+            Err(e) => eprintln!("[!] baseline read failed ({path}): {e}"),
+        }
+    }
 
     // WS-9 (1.4.1): --out-all writes all four report formats into a directory,
     // in one pass. Preserves --out (single-file) semantics; the two flags are
