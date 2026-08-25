@@ -97,13 +97,13 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 ## ✨ What's new in 1.4.3
 
-This local `1.4.3` line keeps the `1.4.2` trust-surface cleanup and adds the interactive polish pass so the shipped binary is easier to drive from Kali, PowerShell, and `cmd`.
+The **"prove it, cover it"** release — every finding now carries the ground-truth server artifact that substantiates it, the passive-detection registry grew from 41 to 58 checks, and scans can diff against a prior run. On top of the interactive-UX pass that makes the binary easier to drive from Kali, PowerShell, and `cmd`.
 
-- **Narrated guided flow** — Auto / Guided now shows a connection summary, named phases with timing, clearer clean/finding states, proof snippets, export choices, and a final finish card.
-- **Shell-safe interaction** — numbered prompts now print their controls, non-Windows session-save refusal becomes a guided choice, and hidden password prompts degrade cleanly when the terminal cannot support them.
-- **Single-attack preflight** — interactive attack runs now start with a compact brief and end with a timed success/failure frame instead of dropping the operator into a raw action with no context.
-- **JSON contract preserved** — human narration stays on the operator path while scripted `--json` flows remain machine-clean.
-- **Validation ledger kept honest** — supported capabilities still stay labeled `unit-tested`, `offline-tested`, `live-validated`, or `validation owed` in [docs/VALIDATION.md](docs/VALIDATION.md).
+- **Ground-truth evidence on every finding** — each finding carries the raw server/client artifact that proves it (the exact LDAP attribute value, registry key, cert-template flag, or wire status), rendered in the JSON, HTML, Markdown, and terminal reports. *"You have X"* becomes *"the server returned Y, which is X"* — a reviewer can verify each finding by hand from the evidence.
+- **Wider passive coverage (41 → 58 checks)** — new evidence-backed rules: constrained delegation targeting a DC (Critical), broad principals directly in Tier-0, Key Admins / Enterprise Key Admins, foreign and computer accounts in privileged groups, cleartext-secret attributes, weak certificate-template key sizes, expired LAPS, and privileged accounts missing from Protected Users.
+- **Baseline diff** — `scan --baseline <prior.json>` tags findings `NEW` / `RESOLVED` / `SEVERITY-CHANGED` by (rule id, affected object), across every report format — track drift between assessments.
+- **Narrated guided flow** — Auto / Guided shows a connection summary, named phases with timing, clearer clean/finding states, proof snippets, export choices, and a finish card; shell-safe numbered prompts; single-attack preflight brief and timed result frame.
+- **JSON contract preserved** — human narration on the operator path, `--json` stays machine-clean. Validation ledger stays honest in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
 
