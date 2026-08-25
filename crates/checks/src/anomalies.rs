@@ -6,6 +6,7 @@ use adhammer_core::finding::{mitre, Category, Severity};
 use adhammer_core::object::uac;
 use adhammer_core::sid::rid;
 use adhammer_core::snapshot::Snapshot;
+use adhammer_core::Evidence;
 use adhammer_core::Finding;
 use adhammer_graph::ControlGraph;
 
@@ -31,6 +32,10 @@ impl Check for MachineAccountQuota {
             severity: if maq >= 10 { Severity::Medium } else { Severity::Low },
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: vec![snap.domain.domain_dn.clone()],
+            evidence: vec![Evidence::new(
+                "LDAP domain root:ms-DS-MachineAccountQuota",
+                format!("{maq} (>0 ⇒ any authenticated user may join computers)"),
+            )],
             detail: "A non-zero quota lets any authenticated user create computer accounts — a prerequisite for RBCD and noPac (CVE-2021-42278/87) style attacks.".into(),
             impact: Some("Any authenticated user can create up to that many computer objects, then abuse RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity) via the newly-created machine account to impersonate any user against any service the machine controls, including Tier-0.".into()),
             remediation: "Set ms-DS-MachineAccountQuota to 0 and delegate computer-join to a dedicated group.".into(),
@@ -62,6 +67,10 @@ impl Check for KrbtgtPasswordAge {
             severity: if age_days > 365 { Severity::High } else { Severity::Medium },
             mitre: vec![mitre::GOLDEN_TICKET],
             affected: vec![krbtgt.dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {}:pwdLastSet", krbtgt.dn),
+                format!("pwdLastSet={pls} FILETIME (~{age_days} days ago, ≥180)"),
+            )],
             detail: "A stale krbtgt key means any previously forged Golden Ticket remains valid; rotation invalidates them.".into(),
             impact: Some("The krbtgt hash signs every Kerberos TGT. If an attacker recovered it more than one rotation ago (via DCSync or NTDS dump), all TGTs they forge remain valid: golden-ticket persistence that survives password resets.".into()),
             remediation: "Rotate the krbtgt password twice (with >10h between rotations) using the Microsoft reset script.".into(),
@@ -77,16 +86,26 @@ impl Check for ReversibleEncryption {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         const ENCRYPTED_TEXT_PWD_ALLOWED: u32 = 0x0080;
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, u32)> = snap
             .iter_class("user")
             .filter(|o| {
                 o.uac() & ENCRYPTED_TEXT_PWD_ALLOWED != 0 && o.uac() & uac::ACCOUNTDISABLE == 0
             })
-            .map(|o| o.dn.clone())
+            .map(|o| (o.dn.clone(), o.uac()))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, u)| {
+                Evidence::new(
+                    format!("LDAP {dn}:userAccountControl"),
+                    format!("0x{u:08X} (ENCRYPTED_TEXT_PWD_ALLOWED 0x80 set)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Accounts store passwords with reversible encryption".into(),
@@ -94,7 +113,8 @@ impl Check for ReversibleEncryption {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 5,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "Reversible encryption stores a recoverable cleartext-equivalent of the password in the directory.".into(),
             impact: Some("The account's plaintext password is stored in NTDS.dit under a reversible AES/RC4 wrap. An attacker who dumps NTDS (via DCSync or NTDS.dit extract) recovers the plaintext directly: no cracking needed.".into()),
             remediation: "Clear the flag and force a password reset for affected accounts.".into(),
@@ -109,18 +129,35 @@ impl Check for Rc4Kerberos {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         // msDS-SupportedEncryptionTypes: bit 0x4 = RC4, 0x8|0x10 = AES. Missing/0 ⇒ RC4 default.
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, i64)> = snap
             .iter_class("user")
             .filter(|o| !o.all("servicePrincipalName").is_empty())
             .filter(|o| {
                 let et = o.int("msDS-SupportedEncryptionTypes").unwrap_or(0);
                 et == 0 || (et & 0x4 != 0 && et & 0x18 == 0)
             })
-            .map(|o| o.dn.clone())
+            .map(|o| {
+                (
+                    o.dn.clone(),
+                    o.int("msDS-SupportedEncryptionTypes").unwrap_or(0),
+                )
+            })
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, et)| {
+                let why = if *et == 0 {
+                    "unset (falls back to RC4 etype 23)".to_string()
+                } else {
+                    format!("0x{et:X} (RC4 0x4 set, AES 0x18 absent)")
+                };
+                Evidence::new(format!("LDAP {dn}:msDS-SupportedEncryptionTypes"), why)
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Service accounts negotiate RC4 Kerberos encryption".into(),
@@ -128,7 +165,8 @@ impl Check for Rc4Kerberos {
             severity: Severity::Medium,
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: 0,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "RC4 (etype 23) TGS tickets crack far faster than AES; missing msDS-SupportedEncryptionTypes falls back to RC4.".into(),
             impact: Some("TGS tickets for these accounts are encrypted with RC4-HMAC (MD4 of NT hash). Kerberoasting cracks them ~10x faster than AES-encrypted tickets, and unpatched RC4 downgrade lets an attacker force RC4 for any account.".into()),
             remediation: "Set msDS-SupportedEncryptionTypes to AES128+AES256 (0x18) on service accounts and DCs.".into(),
@@ -152,6 +190,16 @@ impl Check for BadSuccessor {
         if dmsas.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = dmsas
+            .iter()
+            .take(25)
+            .map(|dn| {
+                Evidence::new(
+                    format!("LDAP {dn}:objectClass"),
+                    "msDS-DelegatedManagedServiceAccount (dMSA present)",
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Delegated Managed Service Accounts present (badSuccessor exposure)".into(),
@@ -159,6 +207,7 @@ impl Check for BadSuccessor {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: dmsas,
+            evidence,
             detail: "Server 2025 dMSA objects can be abused (badSuccessor) when create/write over the containing OU is delegated to non-Tier-0 principals, yielding privilege takeover.".into(),
             impact: Some("An account with CreateChild on any OU can create a dMSA pre-migrated from any target account (including Administrator). Requesting a TGT as the dMSA yields a ticket whose PAC carries the target's SIDs: instant impersonation.".into()),
             remediation: "Restrict CreateChild/Write on OUs that can host dMSA objects to Tier-0; audit msDS-ManagedAccountPrecededByLink.".into(),

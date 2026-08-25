@@ -178,6 +178,11 @@ pub fn esc7(sd_bytes: &[u8]) -> Vec<EscHit> {
 
 impl EscHit {
     pub fn into_finding(self) -> adhammer_core::Finding {
+        // Ground-truth evidence: the raw CA config value read over MS-RRP that triggered this ESC.
+        let ev = vec![adhammer_core::Evidence::new(
+            format!("MS-RRP CA config registry [{}]", self.id),
+            self.detail.clone(),
+        )];
         adhammer_core::Finding {
             id: self.id.to_string(),
             title: self.title.to_string(),
@@ -190,6 +195,7 @@ impl EscHit {
             mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
             affected: vec![],
             detail: self.detail,
+            evidence: ev,
             impact: None,
             remediation: String::new(),
             weight_bonus: 20,

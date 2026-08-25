@@ -4,7 +4,7 @@
 
 use super::Check;
 use crate::util::{builtin_sid, domain_sid_with_rid, is_broad};
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::object::uac;
 use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::Snapshot;
@@ -46,16 +46,35 @@ impl Check for SensitiveGroups {
             ("Server Operators", GroupRef::Builtin(549)),
             ("DnsAdmins", GroupRef::ByName("DnsAdmins")),
         ];
-        let affected: Vec<String> = groups
+        let hits: Vec<(&'static str, String, Vec<String>)> = groups
             .iter()
             .filter_map(|(label, spec)| {
-                let members = resolve(snap, spec)?.all("member");
-                (!members.is_empty()).then(|| format!("{label} ({} members)", members.len()))
+                let grp = resolve(snap, spec)?;
+                let members = grp.all("member");
+                (!members.is_empty()).then(|| (*label, grp.dn.clone(), members.to_vec()))
             })
             .collect();
-        if affected.is_empty() {
+        if hits.is_empty() {
             return vec![];
         }
+        let affected: Vec<String> = hits
+            .iter()
+            .map(|(label, _, members)| format!("{label} ({} members)", members.len()))
+            .collect();
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(label, dn, members)| {
+                Evidence::new(
+                    format!("LDAP {dn}:member"),
+                    format!(
+                        "{label}: {} member(s), e.g. {}",
+                        members.len(),
+                        members.first().map(String::as_str).unwrap_or("<none>")
+                    ),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Populated sensitive / Tier-0-equivalent groups".into(),
@@ -64,6 +83,7 @@ impl Check for SensitiveGroups {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: affected.len() as u32 * 5,
             affected,
+            evidence,
             detail: "Members of Account/Backup/Print/Server Operators and DnsAdmins can escalate to Domain Admin; Schema Admins should be empty outside schema changes.".into(),
             impact: Some("Members of these groups (Backup Operators, Server Operators, Print Operators, Account Operators, DnsAdmins, etc.) can escalate to Domain Admin via well-documented paths (SeBackupPrivilege dumps SAM, DnsAdmin ServerLevelPluginDll, etc.). Any account here should be treated as Tier-0.".into()),
             remediation: "Empty these groups; use just-in-time membership for the rare legitimate operation.".into(),
@@ -79,33 +99,42 @@ impl Check for GmsaReadableByBroad {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         let dsid = snap.domain.domain_sid.as_ref();
-        let affected: Vec<String> = snap
+        let hits: Vec<(String, String)> = snap
             .iter_class("msDS-GroupManagedServiceAccount")
-            .filter(|o| {
-                o.bin1("msDS-GroupMSAMembership")
-                    .and_then(|raw| windows_sddl::parse(raw).ok())
-                    .map(|sd| {
-                        sd.dacl
-                            .iter()
-                            .flat_map(|d| &d.aces)
-                            .filter(|a| a.is_allow())
-                            .any(|a| is_broad(&a.trustee, dsid))
-                    })
-                    .unwrap_or(false)
+            .filter_map(|o| {
+                let raw = o.bin1("msDS-GroupMSAMembership")?;
+                let sd = windows_sddl::parse(raw).ok()?;
+                let trustee = sd
+                    .dacl
+                    .iter()
+                    .flat_map(|d| &d.aces)
+                    .filter(|a| a.is_allow())
+                    .find(|a| is_broad(&a.trustee, dsid))?;
+                Some((o.dn.clone(), trustee.trustee.to_string()))
             })
-            .map(|o| o.dn.clone())
             .collect();
-        if affected.is_empty() {
+        if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, sid)| {
+                Evidence::new(
+                    format!("LDAP {dn}:msDS-GroupMSAMembership"),
+                    format!("allow ACE grants password retrieval to broad principal {sid}"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "gMSA password readable by a broad principal".into(),
             category: Category::PrivilegedAccounts,
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
-            weight_bonus: affected.len() as u32 * 8,
-            affected,
+            weight_bonus: hits.len() as u32 * 8,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "msDS-GroupMSAMembership grants password retrieval to a low-privilege group; any member can recover the gMSA's credentials.".into(),
             impact: Some("The gMSA password is DPAPI-NG-wrapped and readable by any principal in msDS-GroupMSAMembership. A broad principal here means an unprivileged attacker recovers the gMSA's password, then impersonates the service, often a Tier-0 helper.".into()),
             remediation: "Restrict PrincipalsAllowedToRetrieveManagedPassword to specific hardened hosts.".into(),
@@ -120,8 +149,8 @@ impl Check for SidHistory {
         "P-SidHistory"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let mut privileged = Vec::new();
-        let mut any = Vec::new();
+        let mut privileged: Vec<(String, Sid)> = Vec::new();
+        let mut any: Vec<(String, String)> = Vec::new();
         for o in &snap.objects {
             let sids: Vec<Sid> = o
                 .bin_all("sIDHistory")
@@ -131,14 +160,30 @@ impl Check for SidHistory {
             if sids.is_empty() {
                 continue;
             }
-            if sids.iter().any(is_privileged_sid) {
-                privileged.push(o.dn.clone());
+            if let Some(p) = sids.iter().find(|s| is_privileged_sid(s)) {
+                privileged.push((o.dn.clone(), p.clone()));
             } else {
-                any.push(o.dn.clone());
+                let joined = sids
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                any.push((o.dn.clone(), joined));
             }
         }
         let mut out = Vec::new();
         if !privileged.is_empty() {
+            let evidence: Vec<Evidence> = privileged
+                .iter()
+                .take(25)
+                .map(|(dn, sid)| {
+                    let val = match sid.rid() {
+                        Some(r) => format!("{sid} (privileged well-known RID {r})"),
+                        None => format!("{sid} (privileged well-known SID)"),
+                    };
+                    Evidence::new(format!("LDAP {dn}:sIDHistory"), val)
+                })
+                .collect();
             out.push(Finding {
                 id: "P-SidHistoryPriv".into(),
                 title: "sIDHistory contains a privileged SID (escalation)".into(),
@@ -146,13 +191,24 @@ impl Check for SidHistory {
                 severity: Severity::Critical,
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: privileged.len() as u32 * 10,
-                affected: privileged,
+                affected: privileged.iter().map(|(dn, _)| dn.clone()).collect(),
+                evidence,
                 detail: "The account's sIDHistory injects a privileged RID (e.g. 512/519), granting that privilege transparently — a classic persistence / migration abuse.".into(),
                 impact: Some("The Kerberos PAC includes sIDHistory SIDs as group memberships. If the account is ever authenticated, it acts with the listed privileged group's rights: silent, permanent escalation invisible in memberOf.".into()),
                 remediation: "Remove privileged SIDs from sIDHistory; investigate how they were added.".into(),
             });
         }
         if !any.is_empty() {
+            let evidence: Vec<Evidence> = any
+                .iter()
+                .take(25)
+                .map(|(dn, sids)| {
+                    Evidence::new(
+                        format!("LDAP {dn}:sIDHistory"),
+                        format!("sIDHistory = {sids}"),
+                    )
+                })
+                .collect();
             out.push(Finding {
                 id: "P-SidHistoryAny".into(),
                 title: "Accounts carry sIDHistory".into(),
@@ -160,7 +216,8 @@ impl Check for SidHistory {
                 severity: Severity::Low,
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: 0,
-                affected: any,
+                affected: any.iter().map(|(dn, _)| dn.clone()).collect(),
+                evidence,
                 detail: "sIDHistory outside an active migration is unusual and expands effective access; review for legitimacy.".into(),
                 impact: Some("The Kerberos PAC includes sIDHistory SIDs as group memberships. If the account is ever authenticated, it acts with the listed privileged group's rights: silent, permanent escalation invisible in memberOf.".into()),
                 remediation: "Clear sIDHistory once migrations complete.".into(),
@@ -179,7 +236,7 @@ impl Check for RbcdConfigured {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         let dsid = snap.domain.domain_sid.as_ref();
-        let mut low_priv = Vec::new();
+        let mut low_priv: Vec<(String, String)> = Vec::new();
         for o in &snap.objects {
             let Some(raw) = o.bin1("msDS-AllowedToActOnBehalfOfOtherIdentity") else {
                 continue;
@@ -192,14 +249,24 @@ impl Check for RbcdConfigured {
                 .iter()
                 .flat_map(|d| &d.aces)
                 .filter(|a| a.is_allow())
-                .any(|a| is_broad(&a.trustee, dsid));
-            if broad {
-                low_priv.push(o.dn.clone());
+                .find(|a| is_broad(&a.trustee, dsid));
+            if let Some(ace) = broad {
+                low_priv.push((o.dn.clone(), ace.trustee.to_string()));
             }
         }
         if low_priv.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = low_priv
+            .iter()
+            .take(25)
+            .map(|(dn, sid)| {
+                Evidence::new(
+                    format!("LDAP {dn}:msDS-AllowedToActOnBehalfOfOtherIdentity"),
+                    format!("allow ACE grants S4U2Proxy to broad principal {sid}"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "RBCD allows a broad principal to act on the object".into(),
@@ -207,7 +274,8 @@ impl Check for RbcdConfigured {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: low_priv.len() as u32 * 8,
-            affected: low_priv,
+            affected: low_priv.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "msDS-AllowedToActOnBehalfOfOtherIdentity grants a low-privilege principal S4U2Proxy rights, allowing impersonation of any user to the object.".into(),
             impact: Some("The listed target's msDS-AllowedToActOnBehalfOfOtherIdentity grants a broad principal (or one they control) the ability to S4U2Self+S4U2Proxy as any user against the target's services: silent full impersonation.".into()),
             remediation: "Remove the RBCD entry or restrict it to a specific, trusted service account.".into(),
@@ -235,6 +303,19 @@ impl Check for LapsCoverage {
         if missing.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = missing
+            .iter()
+            .take(25)
+            .map(|dn| {
+                Evidence::new(
+                    format!(
+                        "LDAP {dn}:ms-Mcs-AdmPwdExpirationTime + msLAPS-PasswordExpirationTime"
+                    ),
+                    "both LAPS expiration attributes absent (no managed local-admin password)"
+                        .to_string(),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} computers without LAPS coverage", missing.len()),
@@ -243,6 +324,7 @@ impl Check for LapsCoverage {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![format!("{} computer objects", missing.len())],
+            evidence,
             detail: "Machines with no LAPS-managed local administrator password are prone to shared/static local admin creds enabling lateral movement.".into(),
             impact: Some("Local admin passwords are either shared across the fleet (lateral movement pivot in one hop) or unmanaged/weak. A single-machine compromise cascades domain-wide via reused local-admin credentials.".into()),
             remediation: "Deploy Windows LAPS domain-wide and confirm expiration attributes populate.".into(),
@@ -257,14 +339,24 @@ impl Check for PasswordNotRequired {
         "P-PasswdNotReqd"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, u32)> = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::PASSWD_NOTREQD != 0 && o.uac() & uac::ACCOUNTDISABLE == 0)
-            .map(|o| o.dn.clone())
+            .map(|o| (o.dn.clone(), o.uac()))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, u)| {
+                Evidence::new(
+                    format!("LDAP {dn}:userAccountControl"),
+                    format!("0x{u:08X} (PASSWD_NOTREQD 0x20 set)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Accounts with PASSWD_NOTREQD set".into(),
@@ -272,7 +364,8 @@ impl Check for PasswordNotRequired {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 3,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "PASSWD_NOTREQD lets the account be set to (or keep) an empty password, bypassing the password policy.".into(),
             impact: Some("The account can authenticate with an empty password. Any spray/enumeration script tries blank first: one authenticated shell inside the domain, often on a service account with more rights than expected.".into()),
             remediation: "Clear the flag and enforce a password reset.".into(),

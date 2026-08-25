@@ -10,7 +10,7 @@
 //! Everyone, BUILTIN\Users).
 
 use super::Check;
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::{AdObject, Finding};
@@ -115,36 +115,109 @@ impl Check for VulnerableCertTemplates {
                 continue; // unpublished templates aren't enrollable
             }
             let (can_enroll, can_write) = broad_rights(o, dsid);
+            let ekus = if t.ekus.is_empty() {
+                "<none>".to_string()
+            } else {
+                t.ekus.join(", ")
+            };
 
             // ESC4: any low-priv principal can modify the template ⇒ they can make it ESC1.
             if can_write {
-                esc4.push(t.name.clone());
+                esc4.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:nTSecurityDescriptor", o.dn),
+                        "broad principal (Authenticated Users / Domain Users / Everyone) holds Write/GenericAll on the template ACL".to_string(),
+                    ),
+                ));
             }
             if !can_enroll {
                 continue; // remaining ESCs need low-priv enrollment
             }
+            let enroll_why = "broad principal holds Enroll on the template ACL";
             let approved = t.manager_approval() || t.ra_signature > 0;
 
             if t.supplies_subject() && t.auth_eku() && !approved {
-                esc1.push(t.name.clone());
+                esc1.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}", o.dn),
+                        format!(
+                            "msPKI-Certificate-Name-Flag=0x{:X} (ENROLLEE_SUPPLIES_SUBJECT); \
+                             pKIExtendedKeyUsage=[{ekus}] (auth EKU); \
+                             msPKI-Enrollment-Flag=0x{:X}/RA-Signature={} (no approval); enroll: {enroll_why}",
+                            t.name_flag, t.enroll_flag, t.ra_signature
+                        ),
+                    ),
+                ));
             }
             if t.any_purpose() && !approved {
-                esc2.push(t.name.clone());
+                esc2.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:pKIExtendedKeyUsage", o.dn),
+                        format!(
+                            "[{ekus}] (Any-Purpose / no-EKU); \
+                             msPKI-Enrollment-Flag=0x{:X}/RA-Signature={} (no approval); enroll: {enroll_why}",
+                            t.enroll_flag, t.ra_signature
+                        ),
+                    ),
+                ));
             }
             if t.enrollment_agent() && !t.manager_approval() {
-                esc3.push(t.name.clone());
+                esc3.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:pKIExtendedKeyUsage", o.dn),
+                        format!(
+                            "[{ekus}] (Certificate-Request-Agent {EKU_ENROLLMENT_AGENT}); \
+                             msPKI-Enrollment-Flag=0x{:X} (no manager approval); enroll: {enroll_why}",
+                            t.enroll_flag
+                        ),
+                    ),
+                ));
             }
             if t.no_security_extension() && t.auth_eku() {
-                esc9.push(t.name.clone());
+                esc9.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:msPKI-Enrollment-Flag", o.dn),
+                        format!(
+                            "0x{:X} (CT_FLAG_NO_SECURITY_EXTENSION 0x80000 set); \
+                             pKIExtendedKeyUsage=[{ekus}] (auth EKU); enroll: {enroll_why}",
+                            t.enroll_flag
+                        ),
+                    ),
+                ));
             }
             if t.issuance_policies && t.auth_eku() {
-                esc13.push(t.name.clone());
+                let policies = o.all("msPKI-Certificate-Policy").join(", ");
+                esc13.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:msPKI-Certificate-Policy", o.dn),
+                        format!(
+                            "[{policies}] (issuance policy present); \
+                             pKIExtendedKeyUsage=[{ekus}] (auth EKU); enroll: {enroll_why}"
+                        ),
+                    ),
+                ));
             }
             // ESC15 / EKUwu (CVE-2024-49019): a schema-v1 template enrollable by low-priv lets the
             // requester inject arbitrary application policies (e.g. Client Authentication) in the
             // CSR — the template's own EKU is irrelevant, so any enrollable v1 template qualifies.
             if t.schema_version == 1 && !approved {
-                esc15.push(t.name.clone());
+                esc15.push((
+                    t.name.clone(),
+                    Evidence::new(
+                        format!("LDAP {}:msPKI-Template-Schema-Version", o.dn),
+                        format!(
+                            "1 (schema v1 — arbitrary application-policy injection); \
+                             msPKI-Enrollment-Flag=0x{:X}/RA-Signature={} (no approval); enroll: {enroll_why}",
+                            t.enroll_flag, t.ra_signature
+                        ),
+                    ),
+                ));
             }
         }
 
@@ -156,12 +229,19 @@ impl Check for VulnerableCertTemplates {
             .chain(snap.iter_class("certificationAuthority"))
         {
             if broad_rights(o, dsid).1 {
-                esc5.push(
-                    o.one("cn")
-                        .or_else(|| o.one("name"))
-                        .unwrap_or(&o.dn)
-                        .to_string(),
-                );
+                let name = o
+                    .one("cn")
+                    .or_else(|| o.one("name"))
+                    .unwrap_or(&o.dn)
+                    .to_string();
+                esc5.push((
+                    name,
+                    Evidence::new(
+                        format!("LDAP {}:nTSecurityDescriptor", o.dn),
+                        "broad principal holds Write/WriteDacl/WriteOwner on the CA object"
+                            .to_string(),
+                    ),
+                ));
             }
         }
 
@@ -175,7 +255,13 @@ impl Check for VulnerableCertTemplates {
                         .one("sAMAccountName")
                         .or_else(|| o.one("cn"))
                         .unwrap_or(&o.dn);
-                    esc14.push(format!("{who} ({m})"));
+                    esc14.push((
+                        who.to_string(),
+                        Evidence::new(
+                            format!("LDAP {}:altSecurityIdentities", o.dn),
+                            m.to_string(),
+                        ),
+                    ));
                 }
             }
         }
@@ -305,15 +391,19 @@ fn push(
     id: &str,
     title: &str,
     severity: Severity,
-    affected: Vec<String>,
+    hits: Vec<(String, Evidence)>,
     detail: &str,
     impact: Option<&str>,
     remediation: &str,
 ) {
-    if affected.is_empty() {
+    if hits.is_empty() {
         return;
     }
-    let bonus = affected.len() as u32 * 10;
+    let bonus = hits.len() as u32 * 10;
+    // Ground-truth evidence: each vulnerable template/object carries the exact attribute values
+    // that triggered its ESC class (built at the detection site).
+    let affected: Vec<String> = hits.iter().map(|(n, _)| n.clone()).collect();
+    let evidence: Vec<Evidence> = hits.into_iter().map(|(_, e)| e).take(25).collect();
     out.push(Finding {
         id: id.into(),
         title: title.into(),
@@ -321,6 +411,7 @@ fn push(
         severity,
         mitre: vec![mitre::CERT_ABUSE],
         affected,
+        evidence,
         detail: detail.into(),
         impact: impact.map(|s| s.to_string()),
         remediation: remediation.into(),

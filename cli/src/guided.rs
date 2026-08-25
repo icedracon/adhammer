@@ -762,6 +762,8 @@ fn laps_finding() -> Finding {
         severity: Severity::Critical,
         mitre: vec![adhammer_core::finding::mitre::VALID_ACCOUNTS],
         affected: vec![],
+        // Proof is the captured `attack laps` output (the recovered password), shown + saved by the guided flow.
+        evidence: Vec::new(),
         detail: "A LAPS-managed local administrator password was readable with the current identity — instant local admin, reusable for lateral movement.".into(),
         impact: None,
         remediation: "Restrict read access to ms-Mcs-AdmPwd / msLAPS-Password to tier-appropriate admins; deploy encrypted (DPAPI-NG) LAPS.".into(),
@@ -778,6 +780,8 @@ fn esc8_finding() -> Finding {
         severity: Severity::Critical,
         mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
         affected: vec![],
+        // Proof is the captured `enum adcs` ESC8 probe output, shown + saved by the guided flow.
+        evidence: Vec::new(),
         detail: "A CA exposes HTTP web enrollment with NTLM over cleartext — a coerced machine's NTLM can be relayed to it for a cert, then PKINIT for that machine's TGT.".into(),
         impact: None,
         remediation: "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); enforce SMB/LDAP signing to blunt the relay.".into(),
@@ -901,6 +905,25 @@ fn print_card(f: &Finding) {
         &f.detail,
         ui::Pace::Important,
     );
+    if !f.evidence.is_empty() {
+        let shown: String = f
+            .evidence
+            .iter()
+            .take(4)
+            .map(|e| format!("{} = {}", e.source, e.value))
+            .collect::<Vec<_>>()
+            .join("   ·   ");
+        let extra = if f.evidence.len() > 4 {
+            format!(" (+{} more in report)", f.evidence.len() - 4)
+        } else {
+            String::new()
+        };
+        ui::field_story_err(
+            &ui::sticker("PROOF", ui::Tone::Accent),
+            &format!("{shown}{extra}"),
+            ui::Pace::Normal,
+        );
+    }
     ui::hold_for(match f.severity {
         Severity::Critical => ui::Pace::Critical,
         Severity::High => ui::Pace::Important,
@@ -1558,6 +1581,7 @@ mod tests {
             severity: Severity::High,
             mitre: vec![],
             affected: affected.iter().map(|s| s.to_string()).collect(),
+            evidence: Vec::new(),
             detail: "d".into(),
             impact: None,
             remediation: "r".into(),

@@ -90,6 +90,30 @@ pub mod mitre {
     };
 }
 
+/// A single piece of **ground-truth evidence** substantiating a finding (WS-PROOF): the actual
+/// server/client artifact — an LDAP attribute value, an MS-RRP registry key, a SAMR field, a wire
+/// status code — that a reviewer can verify **by hand, independent of adhammer's verdict**. This is
+/// the difference between "you have X" (our word) and "the server returned Y, which is X" (proof).
+#[derive(Clone, Debug, Serialize)]
+pub struct Evidence {
+    /// Where it came from, expressed so a reviewer can reproduce it — e.g.
+    /// `LDAP CN=svc_sql,…:msDS-SupportedEncryptionTypes`,
+    /// `MS-RRP HKLM\SYSTEM\CurrentControlSet\…\StrongCertificateBindingEnforcement`,
+    /// `SAMR DOMAIN_PASSWORD_INFORMATION.MinPasswordLength`.
+    pub source: String,
+    /// The raw value exactly as the server/client returned it (decoded/hex as needed for legibility).
+    pub value: String,
+}
+
+impl Evidence {
+    pub fn new(source: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            value: value.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
     pub id: String, // stable rule id, e.g. "P-KerberoastAdmin"
@@ -101,6 +125,11 @@ pub struct Finding {
     pub affected: Vec<String>,
     /// What was observed (evidence-level: raw stat, matched attribute, etc.).
     pub detail: String,
+    /// Ground-truth evidence (WS-PROOF): the raw server/client artifacts that prove this finding,
+    /// each verifiable by hand. Empty only for not-yet-evidenced legacy rules; the 1.4.3 goal is
+    /// every finding carries ≥1. Reports/UIs render it under a distinct "Evidence" heading.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<Evidence>,
     /// Attack-chain narrative: if an attacker acted on this finding, what would happen?
     /// 1-2 sentences. Optional so downstream Finding producers can leave it blank; UIs
     /// render it under a distinct "Impact" heading and reports omit the section if `None`.
@@ -117,6 +146,18 @@ impl Finding {
     /// annotate the attack-chain narrative alongside the raw evidence.
     pub fn with_impact(mut self, impact: impl Into<String>) -> Self {
         self.impact = Some(impact.into());
+        self
+    }
+
+    /// Attach one piece of ground-truth evidence (chainable) — see [`Evidence`].
+    pub fn with_evidence(mut self, source: impl Into<String>, value: impl Into<String>) -> Self {
+        self.evidence.push(Evidence::new(source, value));
+        self
+    }
+
+    /// Attach several evidence rows at once (chainable).
+    pub fn with_evidences(mut self, ev: impl IntoIterator<Item = Evidence>) -> Self {
+        self.evidence.extend(ev);
         self
     }
 }

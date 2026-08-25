@@ -36,6 +36,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           or restrict enrollment to a trusted group."
                 .into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc2 { template, .. } => Finding {
             id: "A-Esc2-ms-crtd".into(),
@@ -50,6 +51,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             impact: Some("Attacker enrolls a cert whose Any-Purpose EKU covers Client-Auth, then PKINITs it. Same outcome as ESC1: DA TGT from any low-priv account.".into()),
             remediation: "Constrain EKU set; require approval; restrict enrollment.".into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc3 { template, .. } => Finding {
             id: "A-Esc3-ms-crtd".into(),
@@ -66,6 +68,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           approval; scope with application policies."
                 .into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc6 {
             ca_name,
@@ -91,6 +94,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2) and restart the CA."
                 .into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc9 { template } => Finding {
             id: "A-Esc9-ms-crtd".into(),
@@ -106,6 +110,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation:
                 "Clear the flag; enforce Full strong certificate mapping on DCs (KB5014754).".into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc13 {
             template,
@@ -126,6 +131,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation: "Audit msPKI-Certificate-Policy OID→group links; restrict enrollment."
                 .into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
         EscFinding::Esc15 { template } => Finding {
             id: "A-Esc15-ms-crtd".into(),
@@ -142,6 +148,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           patch."
                 .into(),
             weight_bonus: 0,
+            evidence: Vec::new(),
         },
     }
 }

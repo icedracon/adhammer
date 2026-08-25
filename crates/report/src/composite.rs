@@ -75,6 +75,7 @@ mod tests {
             severity: Severity::High,
             mitre: vec![],
             affected: vec![],
+            evidence: Vec::new(),
             detail: String::new(),
             impact: None,
             remediation: String::new(),

@@ -45,6 +45,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
             severity: Severity::Info,
             mitre: vec![],
             affected: vec![host.clone()],
+            evidence: Vec::new(),
             detail: format!("open: {list}"),
             impact: None,
             remediation: "External attack surface — restrict inbound to management scope.".into(),
@@ -83,6 +84,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                 severity: sev,
                 mitre: vec![],
                 affected: vec![host.clone()],
+                evidence: Vec::new(),
                 detail,
                 impact: (rd.anon_subtree_hit > 0).then(|| {
                     "Anonymous readers can enumerate directory objects — pre-auth recon material."
@@ -113,6 +115,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                 severity: sev,
                 mitre: vec![],
                 affected: vec![host.clone()],
+            evidence: Vec::new(),
                 detail: format!("negotiate SecurityMode=0x{d:04x}, required={req}"),
                 impact: (!req).then(|| {
                     "Coerced auth (PetitPotam / PrinterBug) can be relayed to this host for SMB code execution.".into()
@@ -141,6 +144,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                     severity: Severity::Info,
                     mitre: vec![],
                     affected: vec![q.clone()],
+            evidence: Vec::new(),
                     detail,
                     impact: None,
                     remediation:

@@ -5,7 +5,7 @@
 //! Policy and Default Domain Controllers Policy — so we never false-positive on an
 //! unlinked or test GPO. GptTmpl.inf is normally UTF-16LE with a BOM.
 
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::Finding;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -112,7 +112,11 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
         severity: sev,
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: 0,
-        affected: vec![val],
+        affected: vec![val.clone()],
+        evidence: vec![Evidence::new(
+            format!("SYSVOL GptTmpl.inf default-policy [{id}]"),
+            val,
+        )],
         detail: detail.into(),
         impact: None,
         remediation: rem.into(),

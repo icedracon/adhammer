@@ -1,7 +1,7 @@
 //! Category: Stale Objects. Pure-LDAP, cheap. Inactive principals and unsupported OS.
 
 use super::Check;
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::object::{uac, AdObject};
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::Finding;
@@ -26,16 +26,31 @@ impl Check for InactiveAccounts {
         "S-Inactive"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let count = snap
+        // Capture the raw lastLogonTimestamp FILETIME per stale account as ground-truth evidence.
+        let hits: Vec<(String, i64, i64)> = snap
             .iter_class("user")
-            .filter(|o| match o.filetime("lastLogonTimestamp") {
-                Some(t) if t > 0 => FILETIME_2026_DAYS - t / TICKS_PER_DAY > INACTIVE_DAYS,
-                _ => false,
+            .filter_map(|o| match o.filetime("lastLogonTimestamp") {
+                Some(t) if t > 0 => {
+                    let d = FILETIME_2026_DAYS - t / TICKS_PER_DAY;
+                    (d > INACTIVE_DAYS).then_some((o.dn.clone(), t, d))
+                }
+                _ => None,
             })
-            .count();
-        if count == 0 {
+            .collect();
+        if hits.is_empty() {
             return vec![];
         }
+        let count = hits.len();
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, raw, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:lastLogonTimestamp"),
+                    format!("{raw} ({d}d ago, > {INACTIVE_DAYS}d inactivity threshold)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{count} accounts inactive > {INACTIVE_DAYS} days"),
@@ -43,6 +58,7 @@ impl Check for InactiveAccounts {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             affected: vec![format!("{count} user objects")],
+            evidence,
             detail: "Dormant accounts expand the attack surface and are prime targets for password spray / takeover.".into(),
             impact: Some("Stale accounts with valid credentials are the easiest lateral-movement path. They're rarely monitored, their passwords are old (crackable), and they may hold group memberships whose relevance the owners have forgotten.".into()),
             remediation: "Disable or remove accounts unused beyond the inactivity threshold.".into(),
@@ -57,20 +73,32 @@ impl Check for UnsupportedOs {
         "S-UnsupportedOs"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        // Keep the matched operatingSystem string per host — the exact banner the DC returned.
+        let hits: Vec<(String, String)> = snap
             .iter_class("computer")
-            .filter(|o| {
-                o.one("operatingSystem").is_some_and(|os| {
-                    ["2000", "2003", "2008", "XP", "Windows 7", "Vista", "2012"]
-                        .iter()
-                        .any(|old| os.contains(old))
-                })
+            .filter_map(|o| {
+                o.one("operatingSystem")
+                    .filter(|os| {
+                        ["2000", "2003", "2008", "XP", "Windows 7", "Vista", "2012"]
+                            .iter()
+                            .any(|old| os.contains(old))
+                    })
+                    .map(|os| (o.dn.clone(), os.to_string()))
             })
-            .map(|o| format!("{} [{}]", o.dn, o.one("operatingSystem").unwrap_or("")))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, os)| {
+                Evidence::new(
+                    format!("LDAP {dn}:operatingSystem"),
+                    format!("\"{os}\" (end-of-life / unsupported)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Unsupported / end-of-life operating systems in the domain".into(),
@@ -78,7 +106,8 @@ impl Check for UnsupportedOs {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 3,
-            affected: hits,
+            affected: hits.iter().map(|(dn, os)| format!("{dn} [{os}]")).collect(),
+            evidence,
             detail: "EOL Windows versions receive no security patches and often force weak protocols (NTLMv1, SMBv1).".into(),
             impact: Some("EoL OSes miss every security patch since their EoL date. Local privilege escalation via known unpatched CVEs, protocol downgrade (SMBv1, RC4-only), and no support for modern Kerberos/RPC hardening.".into()),
             remediation: "Decommission or isolate; where unavoidable, apply ESU and segment the network.".into(),
@@ -94,14 +123,30 @@ impl Check for PasswordNeverChanged {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         const STALE_PW_DAYS: i64 = 730;
-        let count = snap
+        // Capture the raw pwdLastSet FILETIME per enabled account with a stale password.
+        let hits: Vec<(String, i64, i64)> = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "pwdLastSet").is_some_and(|d| d > STALE_PW_DAYS))
-            .count();
-        if count == 0 {
+            .filter_map(|o| {
+                age_days(o, "pwdLastSet")
+                    .filter(|d| *d > STALE_PW_DAYS)
+                    .map(|d| (o.dn.clone(), o.filetime("pwdLastSet").unwrap_or(0), d))
+            })
+            .collect();
+        if hits.is_empty() {
             return vec![];
         }
+        let count = hits.len();
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, raw, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:pwdLastSet"),
+                    format!("{raw} ({d}d ago, > {STALE_PW_DAYS}d)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{count} accounts with passwords older than {STALE_PW_DAYS} days"),
@@ -110,6 +155,7 @@ impl Check for PasswordNeverChanged {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![format!("{count} user objects")],
+            evidence,
             detail: "Long-lived passwords are more likely to be cracked, reused, or already exposed in breaches.".into(),
             impact: Some("Passwords that never change accumulate risk. Old cracked passwords remain valid; the account may have been compromised years ago and the attacker retains persistence via credential rotation on their side, not yours.".into()),
             remediation: "Enforce password rotation and investigate accounts exempt from expiry.".into(),
@@ -124,14 +170,36 @@ impl Check for StaleComputers {
         "S-StaleComputers"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let count = snap
+        // Capture the raw lastLogonTimestamp FILETIME per enabled, dormant computer.
+        let hits: Vec<(String, i64, i64)> = snap
             .iter_class("computer")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "lastLogonTimestamp").is_some_and(|d| d > INACTIVE_DAYS))
-            .count();
-        if count == 0 {
+            .filter_map(|o| {
+                age_days(o, "lastLogonTimestamp")
+                    .filter(|d| *d > INACTIVE_DAYS)
+                    .map(|d| {
+                        (
+                            o.dn.clone(),
+                            o.filetime("lastLogonTimestamp").unwrap_or(0),
+                            d,
+                        )
+                    })
+            })
+            .collect();
+        if hits.is_empty() {
             return vec![];
         }
+        let count = hits.len();
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, raw, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:lastLogonTimestamp"),
+                    format!("{raw} ({d}d ago, > {INACTIVE_DAYS}d inactivity threshold)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{count} computers inactive > {INACTIVE_DAYS} days"),
@@ -140,6 +208,7 @@ impl Check for StaleComputers {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![format!("{count} computer objects")],
+            evidence,
             detail: "Dormant computer accounts remain valid Kerberos principals and expand the attack surface (e.g. resurrected-machine attacks).".into(),
             impact: Some("Dormant computer objects still hold their machine password + delegation rights. An attacker who resurrects one (physical box or by writing to the object) gets a machine-account foothold with the historical trust.".into()),
             remediation: "Disable and remove computer accounts unused beyond the threshold.".into(),
@@ -156,15 +225,29 @@ impl Check for MachinePasswordAge {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         const STALE_MACHINE_PW_DAYS: i64 = 180;
-        let hits: Vec<String> = snap
+        // Capture the raw pwdLastSet FILETIME per computer whose machine password never rotated.
+        let hits: Vec<(String, i64, i64)> = snap
             .iter_class("computer")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
-            .filter(|o| age_days(o, "pwdLastSet").is_some_and(|d| d > STALE_MACHINE_PW_DAYS))
-            .map(|o| o.dn.clone())
+            .filter_map(|o| {
+                age_days(o, "pwdLastSet")
+                    .filter(|d| *d > STALE_MACHINE_PW_DAYS)
+                    .map(|d| (o.dn.clone(), o.filetime("pwdLastSet").unwrap_or(0), d))
+            })
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, raw, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:pwdLastSet"),
+                    format!("{raw} ({d}d ago, > {STALE_MACHINE_PW_DAYS}d, ~30d rotation expected)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} computers with machine password older than 180 days", hits.len()),
@@ -172,7 +255,8 @@ impl Check for MachinePasswordAge {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _, _)| dn.clone()).collect(),
+            evidence,
             detail: "The machine password normally rotates every ~30 days; a much older one indicates a dead computer or a manually pinned credential usable for persistence.".into(),
             impact: Some("Machine password rotation limits the useful lifetime of a captured NTLM hash / Kerberos machine key. 180+ day-old machine password = any historical LSASS dump or NTDS extract that included this machine still works today.".into()),
             remediation: "Remove dead computer accounts; investigate any live host that stopped rotating its password.".into(),
@@ -197,15 +281,27 @@ impl Check for DuplicateSpn {
                     .push(o.dn.clone());
             }
         }
-        let mut affected: Vec<String> = owners
-            .into_iter()
-            .filter(|(_, v)| v.len() > 1)
-            .map(|(spn, v)| format!("{spn} → {}", v.join(", ")))
-            .collect();
-        if affected.is_empty() {
+        // Keep the SPN → owning-DNs mapping so each duplicate registration is its own evidence row.
+        let mut dups: Vec<(String, Vec<String>)> =
+            owners.into_iter().filter(|(_, v)| v.len() > 1).collect();
+        if dups.is_empty() {
             return vec![];
         }
-        affected.sort();
+        dups.sort();
+        let evidence: Vec<Evidence> = dups
+            .iter()
+            .take(25)
+            .map(|(spn, v)| {
+                Evidence::new(
+                    format!("LDAP servicePrincipalName={spn}"),
+                    format!("registered on {} accounts: {}", v.len(), v.join(", ")),
+                )
+            })
+            .collect();
+        let affected: Vec<String> = dups
+            .iter()
+            .map(|(spn, v)| format!("{spn} → {}", v.join(", ")))
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} duplicate SPN registrations", affected.len()),
@@ -214,6 +310,7 @@ impl Check for DuplicateSpn {
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: affected.len() as u32 * 3,
             affected,
+            evidence,
             detail: "A service principal name registered on multiple accounts causes Kerberos auth failures and can hide a rogue account shadowing a real service.".into(),
             impact: Some("Two accounts registering the same SPN causes the KDC to pick unpredictably. An attacker can register a duplicate SPN on a controlled account, then any Kerberos auth to that SPN yields a ticket the attacker's account can decrypt: silent MitM.".into()),
             remediation: "Remove the duplicate SPN from the incorrect account (setspn -D).".into(),

@@ -10,7 +10,7 @@
 // [`adhammer_secrets`]'s crate doc.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::Finding;
 use std::path::{Path, PathBuf};
 
@@ -81,6 +81,21 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
             )
         })
         .collect::<Vec<_>>();
+    // Ground-truth evidence: the file + the actually-decrypted cpassword (MS14-025 AES key).
+    let evidence: Vec<Evidence> = hits
+        .iter()
+        .take(25)
+        .map(|h| {
+            Evidence::new(
+                format!("SYSVOL GPP {}", h.file.display()),
+                format!(
+                    "cpassword decrypts to `{}` (user {})",
+                    h.password,
+                    h.user.as_deref().unwrap_or("<no user>")
+                ),
+            )
+        })
+        .collect();
     Some(Finding {
         id: "A-GppPassword".into(),
         title: "Recoverable GPP cpassword in SYSVOL (MS14-025)".into(),
@@ -89,6 +104,7 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: hits.len() as u32 * 10,
         affected,
+        evidence,
         detail: "Group Policy Preferences store passwords encrypted with a Microsoft-published AES key; any authenticated user who can read SYSVOL can decrypt them.".into(),
         impact: None,
         remediation: "Remove the offending GPP XML files, rotate the exposed credentials, and stop using GPP to set passwords (KB2962486).".into(),

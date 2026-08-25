@@ -242,7 +242,7 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
             .filter(|h| !h.is_empty())
             .collect();
         for host in &ca_hosts {
-            if let Some(_detail) = esc8_probe(host).await {
+            if let Some(probe) = esc8_probe(host).await {
                 findings.push(adhammer_core::Finding {
                     id: "A-Esc8".into(),
                     title: format!(
@@ -252,6 +252,10 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
                     severity: adhammer_core::finding::Severity::Critical,
                     mitre: vec![adhammer_core::finding::mitre::CERT_ABUSE],
                     affected: vec![host.clone()],
+                    evidence: vec![adhammer_core::Evidence::new(
+                        format!("HTTP {host}/certsrv (ESC8 probe)"),
+                        probe,
+                    )],
                     detail: format!(
                         "The CA at {host} exposes HTTP web enrollment with NTLM authentication \
                          over cleartext — a coerced machine's NTLM can be relayed for a cert, \

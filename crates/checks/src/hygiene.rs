@@ -7,7 +7,7 @@ use super::Check;
 use adhammer_core::finding::{mitre, Category, Severity};
 use adhammer_core::object::{uac, AdObject};
 use adhammer_core::snapshot::Snapshot;
-use adhammer_core::Finding;
+use adhammer_core::{Evidence, Finding};
 use adhammer_graph::ControlGraph;
 
 const TICKS_PER_DAY: i64 = 864_000_000_000;
@@ -34,16 +34,26 @@ impl Check for PrivilegedPasswordNeverExpires {
         "A-PrivPwdNeverExpires"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, u32)> = snap
             .iter_class("user")
             .filter(|o| !o.has_class("computer"))
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
             .filter(|o| is_privileged(o) && o.uac() & uac::DONT_EXPIRE_PASSWORD != 0)
-            .map(|o| o.dn.clone())
+            .map(|o| (o.dn.clone(), o.uac()))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, u)| {
+                Evidence::new(
+                    format!("LDAP {dn}:userAccountControl+adminCount"),
+                    format!("uac=0x{u:08X} (DONT_EXPIRE_PASSWORD 0x10000 set), adminCount=1"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} privileged accounts with non-expiring passwords", hits.len()),
@@ -51,7 +61,8 @@ impl Check for PrivilegedPasswordNeverExpires {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 2,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "A privileged account with DONT_EXPIRE_PASSWORD keeps the same credential indefinitely — ideal for offline cracking, reuse, and breach persistence.".into(),
             impact: Some("The password never rotates, so once cracked or captured (Kerberoast, NTDS dump, historical breach) it remains valid indefinitely. Privileged accounts are the highest-value targets; DONT_EXPIRE_PASSWORD on any is a persistence gift.".into()),
             remediation: "Remove DONT_EXPIRE_PASSWORD from privileged accounts; migrate service accounts to gMSA.".into(),
@@ -67,14 +78,24 @@ impl Check for DesOnlyAccounts {
         "A-DesOnly"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, u32)> = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::USE_DES_KEY_ONLY != 0)
-            .map(|o| o.dn.clone())
+            .map(|o| (o.dn.clone(), o.uac()))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, u)| {
+                Evidence::new(
+                    format!("LDAP {dn}:userAccountControl"),
+                    format!("0x{u:08X} (USE_DES_KEY_ONLY 0x200000 set)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} accounts restricted to DES Kerberos keys", hits.len()),
@@ -82,7 +103,8 @@ impl Check for DesOnlyAccounts {
             severity: Severity::Medium,
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: hits.len() as u32 * 3,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "USE_DES_KEY_ONLY forces 56-bit DES tickets, which are crackable in minutes and enable AS-REP/Kerberoast downgrade.".into(),
             impact: Some("DES tickets are cracked in seconds on modern hardware. USE_DES_KEY_ONLY forces the KDC to issue DES-encrypted tickets: Kerberoast, offline crack, account password in trivial time.".into()),
             remediation: "Clear USE_DES_KEY_ONLY and enforce AES-only (msDS-SupportedEncryptionTypes).".into(),
@@ -124,6 +146,10 @@ impl Check for ObsoleteFunctionalLevel {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![dom.dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {}:msDS-Behavior-Version", dom.dn),
+                format!("{level} (Windows Server {name}, < 7 = 2016)"),
+            )],
             detail: "An older functional level blocks modern security features (PAM/shadow-principals, tighter Kerberos, native LAPS enforcement).".into(),
             impact: Some("Pre-Server-2016 functional level is missing key security features: no Credential Guard-compatible ticket signing, no PAC signature enforcement improvements, no modern Kerberos armoring/FAST enforcement. Attacks that Server 2016+ mitigates work here.".into()),
             remediation: "Retire legacy DCs and raise the domain/forest functional level to 2016+.".into(),
@@ -139,14 +165,24 @@ impl Check for DisabledPrivileged {
         "S-DisabledInPrivGroup"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, u32)> = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE != 0 && is_privileged(o))
-            .map(|o| o.dn.clone())
+            .map(|o| (o.dn.clone(), o.uac()))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, u)| {
+                Evidence::new(
+                    format!("LDAP {dn}:userAccountControl+adminCount"),
+                    format!("uac=0x{u:08X} (ACCOUNTDISABLE 0x2 set), adminCount=1"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} disabled accounts still stamped privileged (adminCount=1)", hits.len()),
@@ -154,7 +190,8 @@ impl Check for DisabledPrivileged {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "A disabled but adminCount=1 account keeps its AdminSDHolder-protected ACL; anyone who can re-enable it (or its password) gains a Tier-0 identity.".into(),
             impact: Some("adminCount=1 sticks even after the account is disabled: it keeps its AdminSDHolder-stamped ACLs and can be re-enabled without triggering a permission review. Re-enablement gives instant tier-0 access.".into()),
             remediation: "Remove stale privileged accounts, or clear adminCount and re-baseline the ACL after removing them from protected groups.".into(),
@@ -171,16 +208,28 @@ impl Check for NeverLoggedOn {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         const OLD_DAYS: i64 = 90;
-        let count = snap
+        let hits: Vec<(String, i64)> = snap
             .iter_class("user")
             .filter(|o| !o.has_class("computer"))
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0)
             .filter(|o| age_days(o, "lastLogonTimestamp").is_none())
-            .filter(|o| age_days(o, "whenCreated").is_some_and(|d| d > OLD_DAYS))
-            .count();
+            .filter_map(|o| age_days(o, "whenCreated").map(|d| (o.dn.clone(), d)))
+            .filter(|(_, d)| *d > OLD_DAYS)
+            .collect();
+        let count = hits.len();
         if count == 0 {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:lastLogonTimestamp+whenCreated"),
+                    format!("lastLogonTimestamp=<unset>, whenCreated age={d}d (> {OLD_DAYS}d)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{count} enabled accounts created > {OLD_DAYS}d ago that never logged on"),
@@ -189,6 +238,7 @@ impl Check for NeverLoggedOn {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![format!("{count} user objects")],
+            evidence,
             detail: "Provisioned-but-unused accounts often keep their initial (weak/shared) password and are prime password-spray targets.".into(),
             impact: Some("Never-logged-on old accounts are often abandoned service accounts with weak/default passwords, sitting in privileged groups. Password spray hits these first: an attacker gets in with a low-effort guess.".into()),
             remediation: "Disable or delete accounts that were never used within a grace window of creation.".into(),
@@ -207,24 +257,32 @@ impl Check for PrimaryGroupPrivileged {
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         // Domain/Schema/Enterprise Admins + Group Policy Creator Owners RIDs.
         const PRIV_RIDS: [i64; 4] = [512, 518, 519, 520];
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, i64)> = snap
             .iter_class("user")
             .filter(|o| !o.has_class("computer"))
-            .filter(|o| {
-                o.int("primaryGroupID")
-                    .is_some_and(|r| PRIV_RIDS.contains(&r))
-            })
-            .map(|o| {
-                format!(
-                    "{} (primaryGroupID={})",
-                    o.dn,
-                    o.int("primaryGroupID").unwrap_or(0)
-                )
-            })
+            .filter_map(|o| o.int("primaryGroupID").map(|r| (o.dn.clone(), r)))
+            .filter(|(_, r)| PRIV_RIDS.contains(r))
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, r)| {
+                let group = match *r {
+                    512 => "Domain Admins",
+                    518 => "Schema Admins",
+                    519 => "Enterprise Admins",
+                    520 => "Group Policy Creator Owners",
+                    _ => "privileged group",
+                };
+                Evidence::new(
+                    format!("LDAP {dn}:primaryGroupID"),
+                    format!("{r} ({group} RID — grants membership, absent from group member attr)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} accounts privileged via primaryGroupID (hidden membership)", hits.len()),
@@ -232,7 +290,11 @@ impl Check for PrimaryGroupPrivileged {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 5,
-            affected: hits,
+            affected: hits
+                .iter()
+                .map(|(dn, r)| format!("{dn} (primaryGroupID={r})"))
+                .collect(),
+            evidence,
             detail: "Setting primaryGroupID to a privileged group grants that group's rights without appearing in its member attribute — a stealth Domain-Admin persistence technique.".into(),
             impact: Some("primaryGroupID = 512 grants Domain Admins membership WITHOUT the SID appearing in memberOf: hidden from most audits. An attacker sets primaryGroupID on a controlled account for stealth persistence.".into()),
             remediation: "Reset primaryGroupID to 513 (Domain Users) and investigate how it was changed.".into(),
@@ -249,15 +311,25 @@ impl Check for DormantPrivileged {
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
         const DORMANT_DAYS: i64 = 90;
-        let hits: Vec<String> = snap
+        let hits: Vec<(String, i64)> = snap
             .iter_class("user")
             .filter(|o| o.uac() & uac::ACCOUNTDISABLE == 0 && is_privileged(o))
-            .filter(|o| age_days(o, "lastLogonTimestamp").is_some_and(|d| d > DORMANT_DAYS))
-            .map(|o| o.dn.clone())
+            .filter_map(|o| age_days(o, "lastLogonTimestamp").map(|d| (o.dn.clone(), d)))
+            .filter(|(_, d)| *d > DORMANT_DAYS)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|(dn, d)| {
+                Evidence::new(
+                    format!("LDAP {dn}:lastLogonTimestamp+adminCount"),
+                    format!("lastLogonTimestamp age={d}d (> {DORMANT_DAYS}d), adminCount=1"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: format!("{} privileged accounts dormant > {DORMANT_DAYS} days", hits.len()),
@@ -265,7 +337,8 @@ impl Check for DormantPrivileged {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 3,
-            affected: hits,
+            affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "An unused but privileged account draws no attention if compromised; dormant Tier-0 credentials are a favored persistence target.".into(),
             impact: Some("Privileged accounts that haven't logged on in months are prime targets: no owner watching, old credentials, but full rights when authenticated. Kerberoasting is likely to succeed unnoticed.".into()),
             remediation: "Disable dormant privileged accounts; require just-in-time elevation for admin duties.".into(),
@@ -285,7 +358,10 @@ impl Check for DefaultAdministratorActive {
         let Some(admin) = snap.by_rid(500) else {
             return vec![];
         };
-        if age_days(admin, "lastLogonTimestamp").is_none_or(|d| d > RECENT_DAYS) {
+        let Some(age) = age_days(admin, "lastLogonTimestamp") else {
+            return vec![];
+        };
+        if age > RECENT_DAYS {
             return vec![];
         }
         vec![Finding {
@@ -296,6 +372,10 @@ impl Check for DefaultAdministratorActive {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![admin.dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {}:lastLogonTimestamp", admin.dn),
+                format!("age={age}d (<= {RECENT_DAYS}d, RID 500 recently authenticated)"),
+            )],
             detail: "The built-in Administrator should be a sealed break-glass account; routine use means a shared credential with no individual attribution and full Tier-0 rights.".into(),
             impact: Some("The built-in Administrator is exempt from lockout policy and often has DONT_EXPIRE_PASSWORD. Active use means the credential is being shared or captured on hosts: any LSASS dump captures it with tier-0 rights.".into()),
             remediation: "Reserve RID 500 for break-glass, use named admin accounts, and enable auditing/alerting on its logons.".into(),

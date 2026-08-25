@@ -3,7 +3,7 @@
 //! `trustAttributes` / `trustDirection` bitfields (MS-ADTS §6.1.6).
 
 use super::Check;
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::object::AdObject;
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::Finding;
@@ -24,6 +24,7 @@ const TD_INBOUND: i64 = 0x1;
 const TD_OUTBOUND: i64 = 0x2;
 
 struct Trust {
+    dn: String,
     partner: String,
     attrs: i64,
     direction: i64,
@@ -32,6 +33,7 @@ struct Trust {
 impl Trust {
     fn from(o: &AdObject) -> Self {
         Trust {
+            dn: o.dn.clone(),
             partner: o
                 .one("trustPartner")
                 .or_else(|| o.one("flatName"))
@@ -63,7 +65,7 @@ impl Check for SidFilteringDisabled {
         "T-SidFiltering"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<Trust> = snap
             .iter_class("trustedDomain")
             .map(Trust::from)
             .filter(|t| {
@@ -71,11 +73,28 @@ impl Check for SidFilteringDisabled {
                     && t.inbound_facing()
                     && (!t.has(TA_QUARANTINED_DOMAIN) || t.has(TA_TREAT_AS_EXTERNAL))
             })
-            .map(|t| t.partner)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|t| {
+                let note = if t.has(TA_TREAT_AS_EXTERNAL) {
+                    "TREAT_AS_EXTERNAL 0x40 set (SID filtering bypassed)"
+                } else {
+                    "QUARANTINED_DOMAIN 0x4 clear (SID filtering off)"
+                };
+                Evidence::new(
+                    format!("LDAP {}:trustAttributes", t.dn),
+                    format!(
+                        "0x{:08X} — {}; WITHIN_FOREST 0x20 clear; trustDirection=0x{:X}",
+                        t.attrs, note, t.direction
+                    ),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "SID filtering not enforced on external/forest trust".into(),
@@ -83,7 +102,8 @@ impl Check for SidFilteringDisabled {
             severity: Severity::High,
             mitre: vec![mitre::TRUST_MOD, mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 8,
-            affected: hits,
+            affected: hits.iter().map(|t| t.partner.clone()).collect(),
+            evidence,
             detail: "Without quarantine (SID filtering), a compromised trusted domain can inject SID history for our privileged RIDs (e.g. 512) and authenticate as Domain Admin.".into(),
             impact: Some("Trusted-domain admins can inject arbitrary SIDs (including Enterprise Admins of THIS domain) into their users' PAC. Cross-domain golden ticket, full compromise of your domain from a compromised trust partner.".into()),
             remediation: "Enable SID filtering: netdom trust /quarantine:Yes (external) or /enablesidhistory:No (forest); avoid TREAT_AS_EXTERNAL.".into(),
@@ -99,15 +119,27 @@ impl Check for SelectiveAuthDisabled {
         "T-SelectiveAuth"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<Trust> = snap
             .iter_class("trustedDomain")
             .map(Trust::from)
             .filter(|t| !t.within_forest() && t.inbound_facing() && !t.has(TA_CROSS_ORGANIZATION))
-            .map(|t| t.partner)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|t| {
+                Evidence::new(
+                    format!("LDAP {}:trustAttributes", t.dn),
+                    format!(
+                        "0x{:08X} — CROSS_ORGANIZATION 0x10 clear (selective auth off); trustDirection=0x{:X}",
+                        t.attrs, t.direction
+                    ),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Selective authentication disabled on external/forest trust".into(),
@@ -115,7 +147,8 @@ impl Check for SelectiveAuthDisabled {
             severity: Severity::Medium,
             mitre: vec![mitre::TRUST_MOD],
             weight_bonus: hits.len() as u32 * 3,
-            affected: hits,
+            affected: hits.iter().map(|t| t.partner.clone()).collect(),
+            evidence,
             detail: "Domain-wide (forest-wide) authentication lets every principal in the trusted domain authenticate to every resource, widening lateral movement.".into(),
             impact: Some("Any user in the trusted domain can authenticate to any resource in your domain (default deny is off). Compromise of a low-priv user in the trusted domain gives them the same attack surface as a domestic user.".into()),
             remediation: "Enable selective authentication and grant 'Allowed to authenticate' only where required.".into(),
@@ -131,15 +164,27 @@ impl Check for TgtDelegationAcrossTrust {
         "T-TgtDelegation"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<Trust> = snap
             .iter_class("trustedDomain")
             .map(Trust::from)
             .filter(|t| t.has(TA_FOREST_TRANSITIVE) && !t.has(TA_NO_TGT_DELEGATION))
-            .map(|t| t.partner)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|t| {
+                Evidence::new(
+                    format!("LDAP {}:trustAttributes", t.dn),
+                    format!(
+                        "0x{:08X} — FOREST_TRANSITIVE 0x8 set, NO_TGT_DELEGATION 0x200 clear",
+                        t.attrs
+                    ),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "TGT delegation allowed across forest trust".into(),
@@ -147,7 +192,8 @@ impl Check for TgtDelegationAcrossTrust {
             severity: Severity::Medium,
             mitre: vec![mitre::TRUST_MOD],
             weight_bonus: hits.len() as u32 * 5,
-            affected: hits,
+            affected: hits.iter().map(|t| t.partner.clone()).collect(),
+            evidence,
             detail: "The forest trust does not set the no-TGT-delegation flag; an unconstrained-delegation host in the trusted forest can capture forwarded TGTs of our users.".into(),
             impact: Some("A user's TGT can be forwarded to services in the trusted domain. An attacker with a compromised service in the trusted domain can extract TGTs of visiting users from your domain and impersonate them.".into()),
             remediation: "Set the CROSS_ORGANIZATION_NO_TGT_DELEGATION flag on the trust (netdom trust /EnableTGTDelegation:No).".into(),
@@ -162,15 +208,24 @@ impl Check for Rc4Trust {
         "T-Rc4Trust"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<Trust> = snap
             .iter_class("trustedDomain")
             .map(Trust::from)
             .filter(|t| t.has(TA_USES_RC4))
-            .map(|t| t.partner)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|t| {
+                Evidence::new(
+                    format!("LDAP {}:trustAttributes", t.dn),
+                    format!("0x{:08X} — USES_RC4_ENCRYPTION 0x80 set", t.attrs),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Trust uses RC4 encryption".into(),
@@ -178,7 +233,8 @@ impl Check for Rc4Trust {
             severity: Severity::Low,
             mitre: vec![mitre::TRUST_MOD],
             weight_bonus: 0,
-            affected: hits,
+            affected: hits.iter().map(|t| t.partner.clone()).collect(),
+            evidence,
             detail: "The trust key negotiates RC4; inter-realm TGTs are then RC4-encrypted and easier to forge/crack.".into(),
             impact: Some("Trust tickets are encrypted with RC4-HMAC using the trust key. If the trust key is recovered (DCSync of the trust account, or Kerberoasting the inter-realm ticket), the attacker forges inter-domain tickets: cross-domain golden.".into()),
             remediation: "Enable AES on the trust and rotate the trust password.".into(),
@@ -194,17 +250,29 @@ impl Check for TransitiveExternalTrust {
         "T-TransitiveExternal"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let hits: Vec<String> = snap
+        let hits: Vec<Trust> = snap
             .iter_class("trustedDomain")
             .map(Trust::from)
             .filter(|t| {
                 !t.within_forest() && !t.has(TA_FOREST_TRANSITIVE) && !t.has(TA_NON_TRANSITIVE)
             })
-            .map(|t| t.partner)
             .collect();
         if hits.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = hits
+            .iter()
+            .take(25)
+            .map(|t| {
+                Evidence::new(
+                    format!("LDAP {}:trustAttributes", t.dn),
+                    format!(
+                        "0x{:08X} — NON_TRANSITIVE 0x1 clear, FOREST_TRANSITIVE 0x8 clear, WITHIN_FOREST 0x20 clear (transitive external)",
+                        t.attrs
+                    ),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Transitive external trust".into(),
@@ -212,7 +280,8 @@ impl Check for TransitiveExternalTrust {
             severity: Severity::Low,
             mitre: vec![mitre::TRUST_MOD],
             weight_bonus: 0,
-            affected: hits,
+            affected: hits.iter().map(|t| t.partner.clone()).collect(),
+            evidence,
             detail: "A transitive external trust can chain implicit trust to domains beyond the direct partner, expanding the reachable attack surface.".into(),
             impact: Some("Transitivity on an external trust means indirect trust chains: compromise of a distant trusted domain reaches into yours via the transitive edge.".into()),
             remediation: "Make external trusts non-transitive unless a transitive path is explicitly required.".into(),

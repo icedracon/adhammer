@@ -282,6 +282,7 @@ impl Report {
                        </div>\
                        <h3>{title}</h3>\
                        <div class=meta><div class=k>Why</div><div>{detail}</div></div>\
+                       {evidence}\
                        {mitre}\
                        <div class=meta><div class=k>Affected</div><div>{affected}</div></div>\
                        {impact}\
@@ -299,6 +300,22 @@ impl Report {
                     affected_count = f.affected.len(),
                     title = html_escape(&f.title),
                     detail = html_escape(&f.detail),
+                    evidence = if f.evidence.is_empty() {
+                        String::new()
+                    } else {
+                        let rows: String = f
+                            .evidence
+                            .iter()
+                            .map(|e| {
+                                format!(
+                                    "<div class=ev><code>{}</code> = <code>{}</code></div>",
+                                    html_escape(&e.source),
+                                    html_escape(&e.value)
+                                )
+                            })
+                            .collect();
+                        format!("<div class=meta><div class=k>Evidence (ground truth)</div><div>{rows}</div></div>")
+                    },
                     mitre = mitre,
                     affected = affected_html(&f.affected),
                     impact = impact,
@@ -450,7 +467,17 @@ impl Report {
                     };
                     out.push_str(&format!("- Affected: {list}{more}\n"));
                 }
-                out.push_str(&format!("- Evidence: {}\n", collapse_ws(&f.detail)));
+                out.push_str(&format!("- Detail: {}\n", collapse_ws(&f.detail)));
+                if !f.evidence.is_empty() {
+                    out.push_str("- Evidence (ground truth):\n");
+                    for e in f.evidence.iter().take(25) {
+                        out.push_str(&format!(
+                            "  - `{}` = `{}`\n",
+                            collapse_ws(&e.source),
+                            collapse_ws(&e.value)
+                        ));
+                    }
+                }
                 if let Some(impact) = &f.impact {
                     out.push_str(&format!("- Impact: {}\n", collapse_ws(impact)));
                 }
@@ -645,6 +672,7 @@ mod tests {
             severity: sev,
             mitre: vec![mitre::CERT_ABUSE],
             affected: vec!["CN=DC01,OU=Domain Controllers,DC=corp,DC=local".into()],
+            evidence: Vec::new(),
             detail: "detected in test fixture".into(),
             impact: Some("test impact".into()),
             remediation: "test remediation".into(),

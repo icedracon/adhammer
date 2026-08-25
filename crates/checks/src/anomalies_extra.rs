@@ -7,7 +7,7 @@
 
 use super::Check;
 use crate::util::{builtin_sid, domain_sid_with_rid, is_broad};
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::object::uac;
 use adhammer_core::sid::{rid, Sid};
 use adhammer_core::snapshot::Snapshot;
@@ -25,24 +25,42 @@ impl Check for WeakPasswordPolicy {
             return vec![];
         };
         let mut issues = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        let dn = &snap.domain.domain_dn;
 
         if let Some(len) = dom.int("minPwdLength") {
             if len < 8 {
                 issues.push(format!("minimum password length is {len} (< 8)"));
+                evidence.push(Evidence::new(
+                    format!("LDAP {dn}:minPwdLength"),
+                    format!("minPwdLength={len} (<8)"),
+                ));
             }
         }
         // pwdProperties bit 0x1 = DOMAIN_PASSWORD_COMPLEX.
         if let Some(props) = dom.int("pwdProperties") {
             if props & 0x1 == 0 {
                 issues.push("password complexity disabled".into());
+                evidence.push(Evidence::new(
+                    format!("LDAP {dn}:pwdProperties"),
+                    format!("pwdProperties=0x{props:08X} (DOMAIN_PASSWORD_COMPLEX 0x1 clear)"),
+                ));
             }
         }
         if dom.int("lockoutThreshold") == Some(0) {
             issues.push("account lockout disabled (password spray possible)".into());
+            evidence.push(Evidence::new(
+                format!("LDAP {dn}:lockoutThreshold"),
+                "lockoutThreshold=0 (account lockout disabled)",
+            ));
         }
         // maxPwdAge is a negative 100ns interval; 0 = passwords never expire.
         if dom.int("maxPwdAge") == Some(0) {
             issues.push("passwords never expire".into());
+            evidence.push(Evidence::new(
+                format!("LDAP {dn}:maxPwdAge"),
+                "maxPwdAge=0 (passwords never expire)",
+            ));
         }
         if issues.is_empty() {
             return vec![];
@@ -55,6 +73,7 @@ impl Check for WeakPasswordPolicy {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: issues.len() as u32 * 3,
             affected: issues,
+            evidence,
             detail: "The default domain password policy allows weak or long-lived credentials, easing brute-force and spray attacks.".into(),
             impact: Some("Short minimum length + low complexity means accounts are crackable in hours from a single Kerberoast or AS-REP capture, and password-spray attacks succeed against multiple accounts before lockout fires.".into()),
             remediation: "Enforce length >= 14, complexity on, a lockout threshold, and finite maximum password age.".into(),
@@ -69,7 +88,11 @@ impl Check for DsHeuristics {
         "A-DsHeuristics"
     }
     fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
-        let Some(h) = snap.objects.iter().find_map(|o| o.one("dSHeuristics")) else {
+        let Some((h_dn, h)) = snap
+            .objects
+            .iter()
+            .find_map(|o| o.one("dSHeuristics").map(|v| (o.dn.clone(), v.to_string())))
+        else {
             return vec![];
         };
         let chars: Vec<char> = h.chars().collect();
@@ -85,6 +108,10 @@ impl Check for DsHeuristics {
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: 0,
                 affected: vec![format!("dSHeuristics = {h}")],
+                evidence: vec![Evidence::new(
+                    format!("LDAP {h_dn}:dSHeuristics"),
+                    format!("dSHeuristics=\"{h}\" (7th char '2' — fLDAPBlockAnonOps disabled)"),
+                )],
                 detail: "The 7th dSHeuristics character is '2', permitting unauthenticated LDAP reads of the directory.".into(),
                 impact: Some("Unauthenticated attackers can enumerate the domain (users, groups, SPNs, policy) without a single credential, accelerating every subsequent attack path: Kerberoasting, targeting, deprovisioned-account reuse.".into()),
                 remediation: "Clear the anonymous-operations flag (set the 7th dSHeuristics character to 0).".into(),
@@ -100,6 +127,13 @@ impl Check for DsHeuristics {
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: 0,
                 affected: vec![format!("dSHeuristics = {h}")],
+                evidence: vec![Evidence::new(
+                    format!("LDAP {h_dn}:dSHeuristics"),
+                    format!(
+                        "dSHeuristics=\"{h}\" (16th char '{}' — dwAdminSDExMask set)",
+                        chars.get(15).copied().unwrap_or('0')
+                    ),
+                )],
                 detail: "dwAdminSDExMask is set, excluding operator groups from AdminSDHolder ACL propagation and weakening their protection.".into(),
                 impact: Some("Unauthenticated attackers can enumerate the domain (users, groups, SPNs, policy) without a single credential, accelerating every subsequent attack path: Kerberoasting, targeting, deprovisioned-account reuse.".into()),
                 remediation: "Reset the 16th dSHeuristics character to 0 unless the exclusion is justified.".into(),
@@ -121,21 +155,30 @@ impl Check for PreWindows2000Compat {
         let Some(grp) = snap.by_sid(&builtin_sid(554)) else {
             return vec![];
         };
-        let broad_members: Vec<String> = grp
+        let broad_members: Vec<(String, Sid)> = grp
             .all("member")
             .iter()
-            .filter(|dn| {
+            .filter_map(|dn| {
                 snap.by_dn(dn)
                     .and_then(|m| m.bin1("objectSid"))
                     .and_then(Sid::from_bytes)
-                    .map(|s| is_broad(&s, dsid))
-                    .unwrap_or(false)
+                    .filter(|s| is_broad(s, dsid))
+                    .map(|s| (dn.clone(), s))
             })
-            .cloned()
             .collect();
         if broad_members.is_empty() {
             return vec![];
         }
+        let evidence: Vec<Evidence> = broad_members
+            .iter()
+            .take(25)
+            .map(|(dn, s)| {
+                Evidence::new(
+                    format!("LDAP {dn}:objectSid"),
+                    format!("{s} (broad principal, member of Pre-Windows 2000 Compatible Access S-1-5-32-554)"),
+                )
+            })
+            .collect();
         vec![Finding {
             id: self.id().into(),
             title: "Pre-Windows 2000 Compatible Access contains a broad principal".into(),
@@ -143,7 +186,8 @@ impl Check for PreWindows2000Compat {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
-            affected: broad_members,
+            affected: broad_members.iter().map(|(dn, _)| dn.clone()).collect(),
+            evidence,
             detail: "Everyone / Authenticated Users in this group grants near-anonymous read of sensitive attributes across the domain.".into(),
             impact: Some("Broad membership grants pre-auth anonymous read across the domain and can enable computer-account creation for RBCD chains.".into()),
             remediation: "Remove Everyone/Authenticated Users from Pre-Windows 2000 Compatible Access.".into(),
@@ -168,13 +212,25 @@ impl Check for ProtectedUsersUnused {
             return vec![];
         }
         // Only meaningful if there are privileged accounts to protect.
-        let has_admins = snap
-            .by_sid(&domain_sid_with_rid(dsid, rid::DOMAIN_ADMINS))
-            .map(|g| !g.all("member").is_empty())
-            .unwrap_or(false);
-        if !has_admins {
+        let Some(da_grp) = snap.by_sid(&domain_sid_with_rid(dsid, rid::DOMAIN_ADMINS)) else {
+            return vec![];
+        };
+        let da_count = da_grp.all("member").len();
+        if da_count == 0 {
             return vec![];
         }
+        let evidence = vec![
+            Evidence::new(
+                format!("LDAP {}:member", grp.dn),
+                "member=<empty> (Protected Users, RID 525, has 0 members)",
+            ),
+            Evidence::new(
+                format!("LDAP {}:member", da_grp.dn),
+                format!(
+                    "Domain Admins member count = {da_count} (Tier-0 accounts exist to protect)"
+                ),
+            ),
+        ];
         vec![Finding {
             id: self.id().into(),
             title: "Protected Users group is empty".into(),
@@ -183,6 +239,7 @@ impl Check for ProtectedUsersUnused {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec!["Protected Users (0 members)".into()],
+            evidence,
             detail: "Privileged accounts are not placed in Protected Users, so they remain exposed to credential theft (no RC4, no delegation, forced short TGT lifetime).".into(),
             impact: Some("Protected Users hardens membership against most credential-theft (no RC4 TGT, no unconstrained delegation, no NTLM). Empty = Tier-0 accounts remain vulnerable to Kerberoasting, PtH, and delegation abuse.".into()),
             remediation: "Add Tier-0 accounts to Protected Users after validating compatibility.".into(),
@@ -211,6 +268,13 @@ impl Check for GuestEnabled {
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
             affected: vec![guest.dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {}:userAccountControl", guest.dn),
+                format!(
+                    "0x{:08X} (ACCOUNTDISABLE 0x2 clear — Guest RID 501 enabled)",
+                    guest.uac()
+                ),
+            )],
             detail:
                 "An enabled Guest account provides an anonymous foothold and is rarely required."
                     .into(),
