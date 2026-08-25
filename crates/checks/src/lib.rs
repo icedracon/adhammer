@@ -53,6 +53,7 @@ pub fn registry() -> Vec<Box<dyn Check>> {
         Box::new(anomalies_extra::ProtectedUsersUnused),
         Box::new(anomalies_extra::GuestEnabled),
         Box::new(anomalies_extra::PasswordInDescription),
+        Box::new(anomalies_extra::WeakFineGrainedPolicy),
         Box::new(adcs::VulnerableCertTemplates),
         Box::new(trusts::SidFilteringDisabled),
         Box::new(trusts::SelectiveAuthDisabled),

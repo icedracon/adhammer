@@ -356,6 +356,61 @@ fn looks_like_password(s: &str) -> bool {
     classes >= 3
 }
 
+/// A Fine-Grained Password Policy (PSO, `msDS-PasswordSettings`) with weak settings — the default
+/// domain policy check misses these per-group overrides. (WS-COVERAGE, 1.4.3.)
+pub struct WeakFineGrainedPolicy;
+impl Check for WeakFineGrainedPolicy {
+    fn id(&self) -> &'static str {
+        "A-WeakFgpp"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("msDS-PasswordSettings") {
+            let minlen = o.int("msDS-MinimumPasswordLength");
+            let lockout = o.int("msDS-LockoutThreshold");
+            let weak = minlen.is_some_and(|l| l < 8) || lockout == Some(0);
+            if weak {
+                let name = o.one("cn").or_else(|| o.one("name")).unwrap_or(&o.dn);
+                affected.push(name.to_string());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!(
+                            "LDAP {}:msDS-MinimumPasswordLength/msDS-LockoutThreshold",
+                            o.dn
+                        ),
+                        format!(
+                            "msDS-MinimumPasswordLength={}, msDS-LockoutThreshold={}",
+                            minlen
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "unset".into()),
+                            lockout
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "unset".into()),
+                        ),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Weak Fine-Grained Password Policy (PSO)".into(),
+            category: Category::Anomalies,
+            severity: Severity::Medium,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 3,
+            affected,
+            evidence,
+            detail: "A Password Settings Object overrides the domain policy for its target group with a short minimum length and/or no lockout — accounts under it are easier to spray or crack.".into(),
+            impact: Some("Accounts governed by this PSO get weaker protection than the domain default — a targeted spray against that group succeeds where the domain policy would have blocked it.".into()),
+            remediation: "Set the PSO to length >= 14, complexity on, and a lockout threshold; verify its msDS-PSOAppliesTo target.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
