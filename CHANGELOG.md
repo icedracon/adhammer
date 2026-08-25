@@ -7,8 +7,42 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [1.4.3] — 2026-08-24
 
-Local interactive UX polish release. Keeps the `1.4.2` trust-surface cleanup
-and turns the default operator experience into a more guided, shell-safe flow.
+The **"prove it, cover it"** release. Extends the `1.4.2` trust-surface cleanup
+with ground-truth evidence on every finding, a wider passive-detection registry,
+and baseline diffing — on top of the interactive UX overhaul.
+
+> **Not yet validated against a live DC.** The new detections and baseline diff
+> pass the full offline test suite (`cargo test --workspace`, clippy `-D`) but
+> have not been run against a real directory. Live-validate on a DC before tag.
+
+### Added
+
+- **Ground-truth evidence on every finding (WS-PROOF).** Each `Finding` now
+  carries structured `Evidence` (source + raw value) — the actual LDAP
+  attribute, registry key, or wire status that substantiates it — rendered in
+  the JSON, HTML, Markdown, and terminal reports, so a reviewer can verify each
+  finding by hand instead of trusting the verdict.
+- **Passive check registry expanded 41 → 56 (WS-COVERAGE), all evidence-backed.**
+  Notable new rules: constrained delegation targeting a domain controller
+  (`P-ConstrainedToDc`, Critical); broad principal directly in a Tier-0 group
+  (`P-BroadInTier0`, Critical); Key Admins / Enterprise Key Admins membership
+  (`P-KeyAdmins`); foreign/cross-forest and computer accounts in Tier-0 groups
+  (`P-ForeignInPriv`, `P-ComputerInPriv`); cleartext `userPassword` /
+  `unixUserPassword` (`A-CleartextSecret`); weak RSA certificate-template key
+  size (`A-WeakCertKeySize`, ECC-aware); weak fine-grained password policy
+  (`A-WeakFgpp`); password-like strings in `description`/`info`
+  (`A-PasswordInDescription`); privileged accounts missing from a populated
+  Protected Users (`P-AdminNotProtected`); plus constrained delegation, broader
+  Kerberoastable/delegatable-admin coverage, key-credential-on-admin, and
+  expired-LAPS detections.
+- **Baseline diff (WS-19).** `scan --baseline <prior.json>` tags findings
+  `NEW` / `RESOLVED` / `SEVERITY-CHANGED` by `(rule id, affected object)`
+  against a prior scan. The JSON report gains a `baseline_diff` object; the
+  HTML / Markdown / text reports gain a diff section and per-finding tags.
+- **Auto runs the DC posture probe (WS-AUTOSCAN)** — the read-only
+  security-posture probe now fires automatically inside an `Auto` run.
+- **Wider auto-validation (WS-AUTOVAL)** — the guided flow now captures real
+  PoC proof for more finding classes (e.g. Kerberoastable service accounts).
 
 ### Changed
 
