@@ -44,6 +44,7 @@ pub fn registry() -> Vec<Box<dyn Check>> {
         Box::new(privileged_extra::AdminNotProtected),
         Box::new(privileged_extra::ForeignPrincipalInPrivGroup),
         Box::new(privileged_extra::ComputerInPrivGroup),
+        Box::new(privileged_extra::ConstrainedToDc),
         Box::new(privileged_extra::LapsCoverage),
         Box::new(privileged_extra::PasswordNotRequired),
         Box::new(anomalies::MachineAccountQuota),

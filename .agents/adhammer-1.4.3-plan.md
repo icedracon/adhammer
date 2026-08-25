@@ -106,8 +106,8 @@ client *trusts* and one they take on faith — and it's what separates adhammer 
 ### Tier 0 — the 1.4.3 thesis: prove it, cover it (NEW — top priority)
 
 > **Progress (2026-08-25):** WS-PROOF **DONE** (`Finding.evidence`, every check populated, rendered
-> in HTML/MD/terminal — commit `7058c53`). WS-COVERAGE **in progress: registry 41 → 54** (+13,
-> latest: ForeignPrincipalInPrivGroup, ComputerInPrivGroup) (formerly +11
+> in HTML/MD/terminal — commit `7058c53`). WS-COVERAGE **in progress: registry 41 → 55** (+14,
+> latest: ForeignPrincipalInPrivGroup, ComputerInPrivGroup, ConstrainedToDc [Critical]) (formerly +11
 > evidence-backed: PasswordInDescription, ConstrainedDelegation, KerberoastableUser, AdminDelegatable,
 > KeyCredentialOnAdmin, BroadInTier0, WeakFgpp, LapsExpired, **CleartextSecret (userPassword/unixUserPassword),
 > KeyAdmins (526/527), AdminNotProtected**). WS-AUTOVAL **started** (roast validator widened to KerberoastableUser).

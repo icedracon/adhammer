@@ -879,6 +879,102 @@ impl Check for ComputerInPrivGroup {
     }
 }
 
+/// The host portion of an SPN `service/host[:port][/name]`, lowercased. `None` if malformed.
+fn spn_host(spn: &str) -> Option<String> {
+    let after = spn.split_once('/')?.1;
+    let host = after.split(['/', ':']).next()?;
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
+/// Constrained delegation (`msDS-AllowedToDelegateTo`) whose target SPN points at a **domain
+/// controller**. Delegating to a DC service (ldap/cifs/host/…) means the delegating account can
+/// S4U2Proxy as any user — including a Domain Admin — against the DC itself: effectively DCSync /
+/// full domain compromise, far worse than the generic constrained-delegation case. Critical.
+/// (WS-COVERAGE, 1.4.3.)
+pub struct ConstrainedToDc;
+impl Check for ConstrainedToDc {
+    fn id(&self) -> &'static str {
+        "P-ConstrainedToDc"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        const SERVER_TRUST_ACCOUNT: u32 = 0x2000;
+        // DC identity set: FQDNs and short names of every DC computer object.
+        let mut dc_fqdn: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut dc_short: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for o in snap.iter_class("computer") {
+            let is_dc = o.int("primaryGroupID") == Some(516) || o.uac() & SERVER_TRUST_ACCOUNT != 0;
+            if !is_dc {
+                continue;
+            }
+            if let Some(h) = o.one("dNSHostName") {
+                let h = h.to_ascii_lowercase();
+                if let Some(first) = h.split('.').next() {
+                    dc_short.insert(first.to_string());
+                }
+                dc_fqdn.insert(h);
+            }
+            if let Some(s) = o.one("sAMAccountName") {
+                dc_short.insert(s.trim_end_matches('$').to_ascii_lowercase());
+            }
+            if let Some(cn) = o.one("cn") {
+                dc_short.insert(cn.to_ascii_lowercase());
+            }
+        }
+        if dc_fqdn.is_empty() && dc_short.is_empty() {
+            return vec![];
+        }
+        let targets_a_dc = |spn: &str| -> bool {
+            let Some(h) = spn_host(spn) else {
+                return false;
+            };
+            let short = h.split('.').next().unwrap_or(&h);
+            dc_fqdn.contains(&h) || dc_short.contains(short)
+        };
+
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in &snap.objects {
+            let bad: Vec<&String> = o
+                .all("msDS-AllowedToDelegateTo")
+                .iter()
+                .filter(|spn| targets_a_dc(spn))
+                .collect();
+            if bad.is_empty() {
+                continue;
+            }
+            affected.push(o.dn.clone());
+            if evidence.len() < 25 {
+                evidence.push(Evidence::new(
+                    format!("LDAP {}:msDS-AllowedToDelegateTo", o.dn),
+                    format!(
+                        "delegates to DC service(s): {}",
+                        bad.iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Constrained delegation targets a domain controller".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Critical,
+            mitre: vec![mitre::SILVER_TICKET, mitre::DCSYNC],
+            weight_bonus: affected.len() as u32 * 12,
+            affected,
+            evidence,
+            detail: "The account is configured for constrained delegation to a service running on a domain controller. Whoever controls it can S4U2Proxy as any user (including a Domain Admin) to that DC service.".into(),
+            impact: Some("Compromise of this account yields impersonation of any principal to the DC — e.g. an LDAP/CIFS/HOST ticket as a Domain Admin, enabling DCSync and full domain takeover. This is the worst form of constrained delegation.".into()),
+            remediation: "Remove the DC SPNs from msDS-AllowedToDelegateTo; never delegate to Tier-0 services. If the account must delegate, scope it to a specific non-Tier-0 service and mark Tier-0 accounts 'sensitive, cannot be delegated'.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1069,5 +1165,54 @@ mod tests {
             .run(&snap, &g)
             .iter()
             .any(|x| x.id == "P-ComputerInPriv"));
+    }
+
+    fn computer(dn: &str, sam: &str, dns: &str, pgid: &str) -> AdObject {
+        let mut a: HashMap<String, Vec<String>> = HashMap::new();
+        a.insert("objectClass".into(), vec!["computer".into()]);
+        a.insert("sAMAccountName".into(), vec![sam.into()]);
+        a.insert("dNSHostName".into(), vec![dns.into()]);
+        a.insert("primaryGroupID".into(), vec![pgid.into()]);
+        AdObject {
+            dn: dn.into(),
+            attrs: a,
+            bin: HashMap::new(),
+        }
+    }
+
+    fn deleg_account(dn: &str, targets: &[&str]) -> AdObject {
+        let mut a: HashMap<String, Vec<String>> = HashMap::new();
+        a.insert("objectClass".into(), vec!["user".into()]);
+        a.insert(
+            "msDS-AllowedToDelegateTo".into(),
+            targets.iter().map(|t| t.to_string()).collect(),
+        );
+        AdObject {
+            dn: dn.into(),
+            attrs: a,
+            bin: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn constrained_to_dc_flags_dc_target_only() {
+        let dc = computer(
+            "CN=DC01,DC=corp,DC=local",
+            "DC01$",
+            "dc01.corp.local",
+            "516",
+        );
+        // delegates to the DC -> Critical
+        let bad = deleg_account("CN=svc,DC=corp,DC=local", &["cifs/dc01.corp.local"]);
+        let snap = Snapshot::new(DomainInfo::default(), vec![dc.clone(), bad]);
+        let g = ControlGraph::build(&snap);
+        assert!(ConstrainedToDc
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-ConstrainedToDc" && x.severity == Severity::Critical));
+        // delegates to a non-DC file server -> no finding
+        let ok = deleg_account("CN=svc2,DC=corp,DC=local", &["cifs/fs01.corp.local"]);
+        let snap2 = Snapshot::new(DomainInfo::default(), vec![dc, ok]);
+        assert!(ConstrainedToDc.run(&snap2, &g).is_empty());
     }
 }
