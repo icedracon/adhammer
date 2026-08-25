@@ -707,6 +707,19 @@ mod tests {
     }
 
     #[test]
+    fn markdown_renders_ground_truth_evidence() {
+        // WS-PROOF: a finding's structured Evidence must surface as verifiable rows in the report.
+        let f = mk_finding("A-Rc4Kerberos", Severity::Medium, "RC4 Kerberos").with_evidence(
+            "LDAP CN=svc,DC=corp:msDS-SupportedEncryptionTypes",
+            "0x4 (RC4 only)",
+        );
+        let md = empty_report(vec![f]).to_markdown();
+        assert!(md.contains("Evidence (ground truth):"));
+        assert!(md.contains("msDS-SupportedEncryptionTypes"));
+        assert!(md.contains("0x4 (RC4 only)"));
+    }
+
+    #[test]
     fn markdown_renders_present_chains() {
         let r = empty_report(vec![mk_finding(
             "A-Esc8",
