@@ -432,6 +432,144 @@ impl Check for ConstrainedDelegation {
     }
 }
 
+/// Any enabled user account holding an SPN is Kerberoastable — the full offline-crack surface,
+/// broader than the admin-only `P-KerberoastAdmin`. (WS-COVERAGE, 1.4.3.)
+pub struct KerberoastableUsers;
+impl Check for KerberoastableUsers {
+    fn id(&self) -> &'static str {
+        "P-KerberoastableUser"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("user") {
+            let spns = o.all("servicePrincipalName");
+            // krbtgt carries an SPN by design and isn't roastable in practice.
+            let is_krbtgt = o
+                .one("sAMAccountName")
+                .is_some_and(|s| s.eq_ignore_ascii_case("krbtgt"));
+            if !spns.is_empty() && o.uac() & uac::ACCOUNTDISABLE == 0 && !is_krbtgt {
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!("LDAP {}:servicePrincipalName", o.dn),
+                        spns.join(", "),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Kerberoastable service accounts (user + SPN)".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Medium,
+            mitre: vec![mitre::KERBEROASTING],
+            weight_bonus: affected.len() as u32 * 2,
+            affected,
+            evidence,
+            detail: "Any authenticated user can request a TGS for these SPN-holding accounts and crack the encrypted portion offline to recover the account's password.".into(),
+            impact: Some("Attacker Kerberoasts the account, cracks a weak password offline in minutes-to-hours, and logs in as the service account — often a foothold for further privilege escalation.".into()),
+            remediation: "Use gMSA or 25+ char random passwords, enforce AES-only, and remove unused SPNs.".into(),
+        }]
+    }
+}
+
+/// Privileged (adminCount=1) accounts NOT flagged "account is sensitive and cannot be delegated"
+/// (UAC NOT_DELEGATED 0x100000) — their TGTs can be captured by an unconstrained-delegation host or
+/// abused via constrained delegation. (WS-COVERAGE, 1.4.3.)
+pub struct AdminsDelegatable;
+impl Check for AdminsDelegatable {
+    fn id(&self) -> &'static str {
+        "P-AdminDelegatable"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        const NOT_DELEGATED: u32 = 0x0010_0000;
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("user") {
+            if o.int("adminCount") == Some(1)
+                && o.uac() & uac::ACCOUNTDISABLE == 0
+                && o.uac() & NOT_DELEGATED == 0
+            {
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!("LDAP {}:userAccountControl", o.dn),
+                        format!(
+                            "0x{:08X} (adminCount=1; NOT_DELEGATED 0x100000 clear)",
+                            o.uac()
+                        ),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Privileged accounts are delegatable (missing 'sensitive, cannot be delegated')".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Medium,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 3,
+            affected,
+            evidence,
+            detail: "The account's TGT can be delegated. An unconstrained-delegation host that the account authenticates to caches its TGT; a constrained/RBCD path can impersonate it.".into(),
+            impact: Some("Attacker coerces the admin to authenticate to a delegation-enabled host, captures the TGT, and replays it — Tier-0 access without the password.".into()),
+            remediation: "Set 'account is sensitive and cannot be delegated' (UAC NOT_DELEGATED) on Tier-0 accounts, or add them to Protected Users.".into(),
+        }]
+    }
+}
+
+/// A privileged (adminCount=1) account carrying `msDS-KeyCredentialLink` (an NGC key). Legitimate
+/// for Windows Hello for Business, but an unexpected key on a Tier-0 account is a PKINIT backdoor an
+/// attacker may have planted (Shadow Credentials persistence). (WS-COVERAGE, 1.4.3.)
+pub struct KeyCredentialOnAdmin;
+impl Check for KeyCredentialOnAdmin {
+    fn id(&self) -> &'static str {
+        "P-KeyCredentialOnAdmin"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("user") {
+            let keys = o.all("msDS-KeyCredentialLink");
+            if !keys.is_empty() && o.int("adminCount") == Some(1) {
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!("LDAP {}:msDS-KeyCredentialLink", o.dn),
+                        format!(
+                            "{} NGC key(s) present on an adminCount=1 account",
+                            keys.len()
+                        ),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Key credential (NGC) on a privileged account (possible Shadow Credentials)".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::High,
+            mitre: vec![mitre::CERT_ABUSE],
+            weight_bonus: affected.len() as u32 * 5,
+            affected,
+            evidence,
+            detail: "msDS-KeyCredentialLink is set on a Tier-0 account. If not a deliberate Windows Hello for Business enrollment, it is a planted PKINIT key granting silent authentication as the account.".into(),
+            impact: Some("An attacker who planted the key PKINITs as the admin at will — a passwordless, password-reset-surviving backdoor into Tier-0.".into()),
+            remediation: "Verify every KeyCredentialLink on privileged accounts; remove unexpected NGC keys; restrict who can write msDS-KeyCredentialLink on Tier-0 objects.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
