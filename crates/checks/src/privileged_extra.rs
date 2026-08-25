@@ -570,6 +570,67 @@ impl Check for KeyCredentialOnAdmin {
     }
 }
 
+/// A broad principal (Everyone / Authenticated Users / Domain Users / Domain Computers) that is a
+/// DIRECT member of a Tier-0 group (Domain/Enterprise/Schema Admins, Administrators) — every
+/// authenticated user is effectively Domain Admin. (WS-COVERAGE, 1.4.3.)
+pub struct BroadInTier0Group;
+impl Check for BroadInTier0Group {
+    fn id(&self) -> &'static str {
+        "P-BroadInTier0"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let dsid = snap.domain.domain_sid.as_ref();
+        let groups = [
+            ("Domain Admins", GroupRef::Domain(512)),
+            ("Enterprise Admins", GroupRef::Domain(519)),
+            ("Schema Admins", GroupRef::Domain(518)),
+            ("Administrators", GroupRef::Builtin(544)),
+        ];
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for (label, spec) in &groups {
+            let Some(grp) = resolve(snap, spec) else {
+                continue;
+            };
+            for member_dn in grp.all("member") {
+                let Some(m) = snap.by_dn(member_dn) else {
+                    continue;
+                };
+                let Some(sid) = m.bin1("objectSid").and_then(Sid::from_bytes) else {
+                    continue;
+                };
+                if is_broad(&sid, dsid) {
+                    affected.push(format!("{member_dn} in {label}"));
+                    if evidence.len() < 25 {
+                        evidence.push(Evidence::new(
+                            format!("LDAP {}:member", grp.dn),
+                            format!(
+                                "broad principal {sid} ({member_dn}) is a direct member of {label}"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Broad principal directly in a Tier-0 group".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::Critical,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 20,
+            affected,
+            evidence,
+            detail: "A low-privilege / everyone-scoped principal is a direct member of Domain/Enterprise/Schema Admins or Administrators — every authenticated user inherits Tier-0.".into(),
+            impact: Some("Any authenticated user is already Domain Admin — DCSync the krbtgt, forge a golden ticket, own the forest. No escalation needed.".into()),
+            remediation: "Remove the broad principal from the Tier-0 group immediately; audit how and when it was added.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

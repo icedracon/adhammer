@@ -534,7 +534,7 @@ fn ldap_args(c: &Ctx) -> Vec<String> {
 fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)> {
     let ldap = || ldap_args(c);
     match f.id.as_str() {
-        "P-AsrepRoast" | "P-KerberoastAdmin" => {
+        "P-AsrepRoast" | "P-KerberoastAdmin" | "P-KerberoastableUser" => {
             let mut v = vec!["attack".into(), "roast".into()];
             v.extend(ldap());
             v.extend(["--kdc".into(), c.kdc.clone()]);
