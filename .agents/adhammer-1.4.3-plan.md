@@ -334,6 +334,18 @@ Run on both testlab.local forests (DC01 2025 @ 172.29.247.82 / 2022server @ 172.
 
 ## 9. Definition of done (all must hold to tag v1.4.3)
 
+> **STATUS 2026-08-25 — READY TO TAG.** Descoped to the Tier-0 "prove it, cover it"
+> release; Tier-1 Phase-3 (WS-4-P2 sealed bind, WS-1-P3, WS-2-P3, WS-13-CLI, WS-8-P2)
+> → **1.4.4** (`.agents/adhammer-1.4.4-plan.md`). Gate met: fmt clean · clippy `-D`
+> clean · `test --workspace` 185 pass/0 fail · MSRV still 1.87 (no raise) · CHANGELOG
+> written · **dcerpc 0.2.7 published** (crates.io + `v0.2.7` tag) · no AI/competitor/
+> CLI-break/un-yank. **Live-validated on both `testlab.local` forests (DC01 2025 +
+> 2022server):** scan → 16/16 evidence-backed findings each, WS-19 baseline delta,
+> ESC-registry fold, `dcsync krbtgt` matched baseline on both DCs. Remaining to ship:
+> `git tag v1.4.3` + publish 11 workspace crates bottom-up (needs explicit crates.io
+> go). Sibling wave (ms-pac-forge/ntlm-relay/llmnr-poison 0.2.0, ms-csra 0.1.2) is
+> independent — publish separately, NOT gating 1.4.3.
+
 - [ ] Every Tier-1 item live-validated on ≥1 DC, output captured for release notes.
 - [ ] `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean at Rust stable.
 - [ ] `cargo test --workspace` green (≥164, plus new WS tests); every new wire test uses a real `include_bytes!` fixture.

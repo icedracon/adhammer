@@ -5,15 +5,19 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
-## [1.4.3] — 2026-08-24
+## [1.4.3] — 2026-08-25
 
 The **"prove it, cover it"** release. Extends the `1.4.2` trust-surface cleanup
 with ground-truth evidence on every finding, a wider passive-detection registry,
 and baseline diffing — on top of the interactive UX overhaul.
 
-> **Not yet validated against a live DC.** The new detections and baseline diff
-> pass the full offline test suite (`cargo test --workspace`, clippy `-D`) but
-> have not been run against a real directory. Live-validate on a DC before tag.
+> **Live-validated 2026-08-25** against both `testlab.local` forests (Server 2025
+> DC01 + Server 2022). `scan` produced evidence-backed findings (16/16 carry
+> ground-truth evidence on each DC), the WS-19 baseline diff detected real deltas,
+> the ESC-registry probe folded into scan, and `dcsync krbtgt` matched the
+> known-good hash on both DCs. Offline gate green (`cargo test --workspace`,
+> `clippy -D`). Tier-1 Phase-3 completions (sealed-bind, MSSQL/DCShadow live,
+> `attack dns`, PFX export) are deferred to 1.4.4.
 
 ### Added
 
