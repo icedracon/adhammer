@@ -485,6 +485,48 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         }
     }
 
+    // DC posture — LDAP signing / channel binding + Print Spooler (NTLM-relay + coercion enablers).
+    {
+        let argv = vec![
+            "enum".to_string(),
+            "posture".into(),
+            "--host".into(),
+            ctx.host.clone(),
+            "--domain".into(),
+            ctx.domain.clone(),
+            "--user".into(),
+            ctx.sam_user(),
+            "--password".into(),
+            ctx.password.clone(),
+        ];
+        if a.yes
+            || confirm(
+                "probe DC posture (LDAP signing / channel binding / Spooler = relay enablers)?",
+            )
+        {
+            let sp = ui::Spinner::start("DC posture probe (MS-RRP + \\spoolss)");
+            let cmd = redacted_cmd(&argv);
+            match Command::new(&exe).args(&argv).output() {
+                Ok(o) => {
+                    let full = full_out(&o.stdout, &o.stderr);
+                    let exposed = o.status.success()
+                        && (full.contains("relayable")
+                            || full.contains("Spooler")
+                            || full.contains("not enforced"));
+                    if exposed {
+                        sp.done("validated — DC posture exposes relay/coercion enablers");
+                        let ev = truncate(&full);
+                        ui::proof_block("DC posture proof", &ev);
+                        results.push((posture_finding(), Outcome::Validated { cmd, evidence: ev }));
+                    } else {
+                        sp.done("DC posture hardened (signing + channel binding, no Spooler)");
+                    }
+                }
+                Err(e) => sp.done_warn(&format!("could not run: {e}")),
+            }
+        }
+    }
+
     let artifacts = artifact_paths(&a.out);
     let report = build_report(&snap, &results, &impact_yes);
     let json = build_json_report(&snap, &results, &impact_yes);
@@ -785,6 +827,24 @@ fn esc8_finding() -> Finding {
         detail: "A CA exposes HTTP web enrollment with NTLM over cleartext — a coerced machine's NTLM can be relayed to it for a cert, then PKINIT for that machine's TGT.".into(),
         impact: None,
         remediation: "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); enforce SMB/LDAP signing to blunt the relay.".into(),
+        weight_bonus: 0,
+    }
+}
+
+/// Synthetic finding for confirmed DC relay/coercion posture exposure (from the `enum posture` probe).
+fn posture_finding() -> Finding {
+    Finding {
+        id: "X-Posture".into(),
+        title: "DC relay/coercion posture exposure (LDAP signing / channel binding / Spooler)".into(),
+        category: Category::Anomalies,
+        severity: Severity::High,
+        mitre: vec![adhammer_core::finding::mitre::COERCION],
+        affected: vec![],
+        // Proof is the captured `enum posture` output, shown + saved by the guided flow.
+        evidence: Vec::new(),
+        detail: "The DC does not fully enforce LDAP signing / channel binding, and/or the Print Spooler is reachable — the exact preconditions for NTLM relay + coercion (PetitPotam/PrinterBug -> relay -> ADCS/LDAP).".into(),
+        impact: None,
+        remediation: "Require LDAP signing and enforce LDAP channel binding (EPA) on every DC; disable the Print Spooler service on DCs.".into(),
         weight_bonus: 0,
     }
 }
