@@ -168,6 +168,12 @@ enum EnumCmd {
     Wkssvc(enums::sessions::SessionsArgs),
     /// Enumerate logged-on SIDs via HKU registry enumeration over MS-RRP (often works without local admin).
     Hku(enums::sessions::SessionsArgs),
+    /// Enumerate the SCCM footprint under CN=System Management (IronEye absorb) — Management
+    /// Points, site codes, device MPs. An absent container is a clean result.
+    Sccm(enums::sccm::SysCenterArgs),
+    /// Enumerate the SCOM footprint under CN=OperationsManager (IronEye absorb), when the
+    /// schema extension is present. An absent container is a clean result.
+    Scom(enums::sccm::SysCenterArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -262,6 +268,10 @@ enum AttackCmd {
     /// chain that pushes `EXECUTE AS LOGIN='<name>'` frames (LIFO) and unwinds them
     /// with `REVERT` on both success and error paths.
     Mssql(attacks::mssql::MssqlArgs),
+    /// ADIDNS record write (IronEye absorb) — add / modify / tombstone / delete an A record
+    /// in the `DomainDnsZones` (or `--forest ForestDnsZones`) partition. `--dry-run` is
+    /// default-safe; the DNS_RPC_RECORD wire blob reuses `adhammer_collector::dns_record`.
+    Dns(attacks::dns::DnsArgs),
 }
 
 #[derive(Parser)]
@@ -521,6 +531,8 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Sessions(_) => "enum sessions",
             EnumCmd::Wkssvc(_) => "enum wkssvc",
             EnumCmd::Hku(_) => "enum hku",
+            EnumCmd::Sccm(_) => "enum sccm",
+            EnumCmd::Scom(_) => "enum scom",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -553,6 +565,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Shadowcred(_) => "attack shadowcred",
             AttackCmd::Dcshadow(_) => "attack dcshadow",
             AttackCmd::Mssql(_) => "attack mssql",
+            AttackCmd::Dns(_) => "attack dns",
         },
         Command::Check(_) => "check adcs",
         Command::Dump(d) => match d {
@@ -579,6 +592,8 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Sessions(a)) => enums::sessions::sessions(a).await,
         Command::Enum(EnumCmd::Wkssvc(a)) => enums::sessions::wkssvc_enum(a).await,
         Command::Enum(EnumCmd::Hku(a)) => enums::sessions::hku_enum(a).await,
+        Command::Enum(EnumCmd::Sccm(a)) => enums::sccm::sccmenum(a).await,
+        Command::Enum(EnumCmd::Scom(a)) => enums::sccm::scomenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,
@@ -622,6 +637,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Shadowcred(a)) => attacks::shadowcred::shadowcred(a).await,
         Command::Attack(AttackCmd::Dcshadow(a)) => dcshadow(*a).await,
         Command::Attack(AttackCmd::Mssql(a)) => attacks::mssql::mssql(a).await,
+        Command::Attack(AttackCmd::Dns(a)) => attacks::dns::dns(a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,

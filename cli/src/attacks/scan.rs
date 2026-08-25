@@ -117,7 +117,15 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
     let graph = ControlGraph::build(&snap);
     let stats = graph.stats();
     let paths = graph.paths_to_tier0();
-    let mut findings = adhammer_checks::run_all(&snap, &graph);
+    // WS-R2: run every check with per-check coverage so the report can show the whole audit
+    // surface (tripped vs clean), then flatten to the scored finding list the rest expects.
+    let coverage_raw = adhammer_checks::run_all_with_coverage(&snap, &graph);
+    let coverage: Vec<(&'static str, usize)> = coverage_raw
+        .iter()
+        .map(|(id, fs)| (*id, fs.len()))
+        .collect();
+    let mut findings: Vec<_> = coverage_raw.into_iter().flat_map(|(_, fs)| fs).collect();
+    findings.sort_by_key(|f| std::cmp::Reverse(f.score()));
     {
         let crit = findings
             .iter()
@@ -301,7 +309,8 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         paths,
         stats,
         &RiskConfig::default(),
-    );
+    )
+    .with_coverage(coverage);
 
     // WS-19: baseline diff. Read a prior scan's JSON and tag NEW / RESOLVED / SEVERITY-CHANGED.
     // Best-effort: a missing/unparsable baseline warns to stderr and the scan still emits.

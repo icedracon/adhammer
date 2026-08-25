@@ -706,6 +706,26 @@ impl Collector {
         &self.base_dn
     }
 
+    /// Generic subtree search under `base` — used by targeted enumerators (SCCM/SCOM).
+    /// Each hit comes back as an `AdObject` (`.one()` / `.all()` accessors). A missing
+    /// container surfaces as an LDAP error the caller can treat as "not present / clean".
+    pub async fn search_subtree(
+        &mut self,
+        base: &str,
+        filter: &str,
+        attrs: Vec<&str>,
+    ) -> Result<Vec<AdObject>> {
+        let (rs, _) = self
+            .ldap
+            .search(base, Scope::Subtree, filter, attrs)
+            .await?
+            .success()?;
+        Ok(rs
+            .into_iter()
+            .map(|e| to_object(SearchEntry::construct(e)))
+            .collect())
+    }
+
     /// Read the two flag attributes of an AD CS certificate template. Returns
     /// (`msPKI-Certificate-Name-Flag`, `msPKI-Enrollment-Flag`) as signed 32-bit values —
     /// AD stores them as text integers that can be negative when the sign bit is set.

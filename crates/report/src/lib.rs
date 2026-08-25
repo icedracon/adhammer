@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 pub mod baseline;
 pub mod composite;
+pub mod graph_svg;
 pub use baseline::BaselineDiff;
 pub use composite::CompositeChain;
 
@@ -39,6 +40,15 @@ fn cat_key(c: Category) -> &'static str {
     }
 }
 
+/// WS-R2: one row of the coverage matrix — a registry check id and how many findings it
+/// produced this run (0 = the check ran and the directory is **clean** for that vector).
+/// Turns "here are the hits" into "here is everything we checked, and the result of each."
+#[derive(Serialize, Clone, Debug)]
+pub struct CheckCoverage {
+    pub id: String,
+    pub findings: usize,
+}
+
 #[derive(Serialize)]
 pub struct Report {
     pub domain: String,
@@ -56,6 +66,10 @@ pub struct Report {
     /// when the caller passed `--baseline`. Absent from JSON otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline_diff: Option<BaselineDiff>,
+    /// WS-R2: per-check coverage roster (every registry check + its finding count). Empty
+    /// unless the caller supplied it via [`Report::with_coverage`]; omitted from JSON when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coverage: Vec<CheckCoverage>,
 }
 
 impl Report {
@@ -88,7 +102,22 @@ impl Report {
             graph_edges: graph_stats.1,
             composite_chains,
             baseline_diff: None,
+            coverage: Vec::new(),
         }
+    }
+
+    /// WS-R2: attach the per-check coverage roster from `run_all_with_coverage`
+    /// (`(check_id, findings_count)`), so the report shows every check that ran — tripped
+    /// or clean — not only the positive hits. Additive builder, mirrors [`Self::with_baseline`].
+    pub fn with_coverage(mut self, cov: Vec<(&'static str, usize)>) -> Self {
+        self.coverage = cov
+            .into_iter()
+            .map(|(id, findings)| CheckCoverage {
+                id: id.to_string(),
+                findings,
+            })
+            .collect();
+        self
     }
 
     /// WS-19: attach a baseline comparison computed from a prior scan's JSON. `label` is recorded
@@ -182,6 +211,22 @@ impl Report {
              .chain{{padding:14px 16px;margin:0 0 12px}}\
              .chain p{{margin-top:6px;color:var(--muted)}}\
              @media (max-width:900px){{.stats{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .sev-grid{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .meta{{grid-template-columns:1fr}} .wrap{{padding:24px 18px 42px}}}}\
+             .graph-wrap{{overflow-x:auto;padding:6px 2px;margin-top:12px}}\
+             svg.graph{{min-width:100%;height:auto;display:block}}\
+             .node rect{{fill:var(--panel-2);stroke:var(--line);stroke-width:1.5}}\
+             .node text{{fill:var(--text);font:600 12px Inter,system-ui,sans-serif;text-anchor:middle;dominant-baseline:middle}}\
+             .node-source rect{{stroke:var(--blue)}}\
+             .node-inter rect{{stroke:var(--amber)}}\
+             .node-sink rect{{stroke:var(--red);stroke-width:2.5}}\
+             .edge{{stroke:var(--line);stroke-width:1.3;fill:none}}\
+             .edge-exec{{stroke:var(--green);stroke-width:2.4}}\
+             .edge-label{{fill:var(--muted);font:11px ui-monospace,Consolas,monospace;text-anchor:middle}}\
+             .arrow{{fill:var(--muted)}}\
+             .graph-note{{fill:var(--muted);font:12px Inter,system-ui,sans-serif}}\
+             .cov-wrap{{overflow-x:auto;margin-top:12px}}\
+             .cov{{border-collapse:collapse;width:100%;font-size:13px}}\
+             .cov th,.cov td{{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}}\
+             .cov th{{color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.04em}}\
              </style>\
              <div class=wrap>\
              <div class=hero>\
@@ -209,9 +254,11 @@ impl Report {
              </div>\
              {baseline}\
              <section class=panel><h2>Risk by category</h2><div class=score-grid>{scores}</div></section>\
+             {coverage}\
              {chains}\
              <section class=panel><h2>Findings</h2><p>Each card shows why the condition matters, what it affects, and the shortest remediation text needed to brief an operator or stakeholder.</p></section>\
              {findings_html}\
+             {graph}\
              {paths}\
              </div>",
             dom = html_escape(&self.domain),
@@ -227,10 +274,90 @@ impl Report {
             low = low,
             baseline = self.baseline_html(),
             scores = self.category_scores_html(),
+            coverage = self.coverage_html(),
             chains = self.chains_html(),
             findings_html = self.findings_html(),
+            graph = self.graph_svg_panel(),
             paths = self.paths_html(),
         )
+    }
+
+    /// WS-R1: the "Attack graph" panel — an inline, self-contained SVG of the cheapest
+    /// control paths to Tier-0 (see [`graph_svg`]). Empty string when there are no paths.
+    fn graph_svg_panel(&self) -> String {
+        let svg = graph_svg::attack_graph_svg(&self.top_paths);
+        if svg.is_empty() {
+            return String::new();
+        }
+        format!(
+            "<section class=panel><h2>Attack graph</h2>\
+             <p>The cheapest control paths to Tier-0, drawn as a graph — \
+             <span style=\"color:var(--blue)\">entry principal</span>, \
+             <span style=\"color:var(--amber)\">pivot</span>, \
+             <span style=\"color:var(--red)\">Tier-0 target</span>; \
+             <span style=\"color:var(--green)\">green</span> edges are hops adhammer can execute. \
+             Hover an edge for the hop.</p>\
+             <div class=graph-wrap>{svg}</div></section>"
+        )
+    }
+
+    /// WS-R2: HTML "Check coverage" panel — the full registry roster (tripped vs clean).
+    fn coverage_html(&self) -> String {
+        if self.coverage.is_empty() {
+            return String::new();
+        }
+        let total = self.coverage.len();
+        let tripped = self.coverage.iter().filter(|c| c.findings > 0).count();
+        let clean = total - tripped;
+        let rows: String = self
+            .coverage
+            .iter()
+            .map(|c| {
+                let (cls, status) = if c.findings > 0 {
+                    ("chip-warn", format!("{} finding(s)", c.findings))
+                } else {
+                    ("chip-good", "clean".to_string())
+                };
+                format!(
+                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td></tr>",
+                    html_escape(&c.id),
+                    cls,
+                    html_escape(&status)
+                )
+            })
+            .collect();
+        format!(
+            "<section class=panel><h2>Check coverage</h2>\
+             <p>All <b>{total}</b> passive checks ran — <b>{tripped}</b> tripped, <b>{clean}</b> clean. \
+             A clean check means the directory was tested for that vector and is not exposed to it.</p>\
+             <div class=cov-wrap><table class=cov><thead><tr><th>Check</th><th>Result</th></tr></thead>\
+             <tbody>{rows}</tbody></table></div></section>"
+        )
+    }
+
+    /// WS-R2: Markdown "Check coverage" section (empty when no coverage was supplied).
+    fn coverage_md(&self) -> String {
+        if self.coverage.is_empty() {
+            return String::new();
+        }
+        let tripped = self.coverage.iter().filter(|c| c.findings > 0).count();
+        let clean = self.coverage.len() - tripped;
+        let mut out = format!(
+            "## Check coverage\n\nAll {} passive checks ran — **{} tripped**, **{} clean**.\n\n| Check | Result |\n|---|---|\n",
+            self.coverage.len(),
+            tripped,
+            clean
+        );
+        for c in &self.coverage {
+            let status = if c.findings > 0 {
+                format!("{} finding(s)", c.findings)
+            } else {
+                "clean".to_string()
+            };
+            out.push_str(&format!("| `{}` | {} |\n", c.id, status));
+        }
+        out.push('\n');
+        out
     }
 
     /// WS-19: a `[NEW] ` / `[SEV CHANGED] ` prefix for a finding whose id moved vs the baseline.
@@ -557,6 +684,8 @@ impl Report {
 
         // WS-19: baseline diff summary right under the header, before the TOC.
         out.push_str(&self.baseline_md());
+        // WS-R2: full-registry coverage roster (tripped vs clean).
+        out.push_str(&self.coverage_md());
 
         // Table of contents.
         out.push_str("## Contents\n\n");
@@ -672,6 +801,15 @@ impl Report {
         if !parts.is_empty() {
             out.push_str(&format!("By severity: {}\n", parts.join("  ")));
         }
+        if !self.coverage.is_empty() {
+            let tripped = self.coverage.iter().filter(|c| c.findings > 0).count();
+            out.push_str(&format!(
+                "Coverage: {} checks run, {} tripped, {} clean\n",
+                self.coverage.len(),
+                tripped,
+                self.coverage.len() - tripped
+            ));
+        }
 
         let chain_hits: Vec<_> = self.composite_chains.iter().filter(|c| c.present).collect();
         out.push_str(&format!("Chains: {} present\n", chain_hits.len()));
@@ -786,7 +924,7 @@ fn affected_html(values: &[String]) -> String {
     out
 }
 
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -857,6 +995,74 @@ mod tests {
             (0, 0),
             &RiskConfig::default(),
         )
+    }
+
+    #[test]
+    fn coverage_matrix_renders_tripped_and_clean() {
+        // WS-R2: a report with a coverage roster shows every check — tripped and clean —
+        // in JSON, HTML, Markdown, and the text summary.
+        let r = empty_report(vec![mk_finding(
+            "A-Esc15",
+            Severity::Critical,
+            "tripped one",
+        )])
+        .with_coverage(vec![("A-Esc15", 1), ("A-CleanCheck", 0)]);
+        let json = r.to_json();
+        assert!(
+            json.contains("\"coverage\""),
+            "JSON carries a coverage array"
+        );
+        assert!(json.contains("A-CleanCheck"), "clean check listed in JSON");
+        let html = r.to_html();
+        assert!(html.contains("Check coverage"));
+        assert!(html.contains("A-Esc15") && html.contains("A-CleanCheck"));
+        assert!(html.contains("clean"), "clean status rendered in HTML");
+        let md = r.to_markdown();
+        assert!(md.contains("## Check coverage"));
+        assert!(md.contains("| `A-CleanCheck` | clean |"));
+        let txt = r.to_text_summary(10);
+        assert!(txt.contains("Coverage: 2 checks run, 1 tripped, 1 clean"));
+    }
+
+    #[test]
+    fn no_coverage_omits_section() {
+        // Empty coverage → no section, no JSON field (skip_serializing_if).
+        let r = empty_report(vec![mk_finding("A-X", Severity::Low, "x")]);
+        assert!(!r.to_json().contains("\"coverage\""));
+        assert!(!r.to_html().contains("Check coverage"));
+        assert!(!r.to_markdown().contains("## Check coverage"));
+    }
+
+    #[test]
+    fn html_includes_attack_graph_when_paths_present() {
+        // WS-R1: the HTML report embeds the inline SVG graph panel when there are paths.
+        use adhammer_graph::{AttackPath, Step};
+        let path = AttackPath {
+            principal: "bob".into(),
+            principal_sid: "S-1-5-21-9-9-1101".into(),
+            target: "Domain Admins".into(),
+            cost: 1,
+            steps: vec![Step {
+                from: "bob".into(),
+                from_sid: "S-1-5-21-9-9-1101".into(),
+                edge: "GenericAll",
+                to: "Domain Admins".into(),
+                to_sid: "S-1-5-21-9-9-512".into(),
+                impact: "",
+                mitigation: "",
+                command: Some("adhammer attack dcsync --user krbtgt".into()),
+            }],
+        };
+        let r = Report::build(
+            "DC=corp,DC=local",
+            vec![],
+            vec![path],
+            (2, 1),
+            &RiskConfig::default(),
+        );
+        let html = r.to_html();
+        assert!(html.contains("Attack graph"));
+        assert!(html.contains("<svg class=graph"));
     }
 
     #[test]
