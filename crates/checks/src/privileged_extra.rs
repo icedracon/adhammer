@@ -753,6 +753,132 @@ impl Check for AdminNotProtected {
     }
 }
 
+/// The Tier-0 + operator group set, resolved once per check that sweeps privileged membership.
+fn tier0_and_operator_groups() -> [(&'static str, GroupRef); 10] {
+    [
+        ("Domain Admins", GroupRef::Domain(512)),
+        ("Enterprise Admins", GroupRef::Domain(519)),
+        ("Schema Admins", GroupRef::Domain(518)),
+        ("Administrators", GroupRef::Builtin(544)),
+        ("Account Operators", GroupRef::Builtin(548)),
+        ("Backup Operators", GroupRef::Builtin(551)),
+        ("Print Operators", GroupRef::Builtin(550)),
+        ("Server Operators", GroupRef::Builtin(549)),
+        ("Key Admins", GroupRef::Domain(526)),
+        ("Enterprise Key Admins", GroupRef::Domain(527)),
+    ]
+}
+
+/// A foreign-forest / cross-domain principal that is a direct member of a Tier-0 or operator group.
+/// These come in via `CN=ForeignSecurityPrincipals` (a trusted-forest SID) and are easy to miss in a
+/// single-domain audit, yet grant that external principal privileged access here. (WS-COVERAGE, 1.4.3.)
+pub struct ForeignPrincipalInPrivGroup;
+impl Check for ForeignPrincipalInPrivGroup {
+    fn id(&self) -> &'static str {
+        "P-ForeignInPriv"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for (label, spec) in tier0_and_operator_groups() {
+            let Some(grp) = resolve(snap, &spec) else {
+                continue;
+            };
+            for member_dn in grp.all("member") {
+                let is_fsp_dn = member_dn
+                    .to_ascii_lowercase()
+                    .contains(",cn=foreignsecurityprincipals,");
+                let is_fsp_class = snap
+                    .by_dn(member_dn)
+                    .is_some_and(|m| m.has_class("foreignSecurityPrincipal"));
+                if is_fsp_dn || is_fsp_class {
+                    affected.push(format!("{member_dn} in {label}"));
+                    if evidence.len() < 25 {
+                        evidence.push(Evidence::new(
+                            format!("LDAP {}:member", grp.dn),
+                            format!("foreign security principal {member_dn} is a direct member of {label}"),
+                        ));
+                    }
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Foreign/cross-forest principal in a privileged group".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 5,
+            affected,
+            evidence,
+            detail: "A principal from a trusted forest/domain (ForeignSecurityPrincipal) holds direct membership in a Tier-0 or operator group, extending privileged access across the trust boundary.".into(),
+            impact: Some("Whoever controls that external account has privileged rights in this domain. Compromise or abuse in the trusted forest becomes compromise here, across a boundary most audits don't cross.".into()),
+            remediation: "Review every ForeignSecurityPrincipal in privileged groups; remove unless the cross-forest grant is explicitly required and the source forest is equally trusted.".into(),
+        }]
+    }
+}
+
+/// A computer account (`computer` class or a `$`-suffixed sAMAccountName) that is a direct member of
+/// Domain/Enterprise/Schema Admins or Administrators. Legitimate cluster/management setups rarely
+/// need this; more often it is RBCD staging or attacker persistence. (WS-COVERAGE, 1.4.3.)
+pub struct ComputerInPrivGroup;
+impl Check for ComputerInPrivGroup {
+    fn id(&self) -> &'static str {
+        "P-ComputerInPriv"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let groups = [
+            ("Domain Admins", GroupRef::Domain(512)),
+            ("Enterprise Admins", GroupRef::Domain(519)),
+            ("Schema Admins", GroupRef::Domain(518)),
+            ("Administrators", GroupRef::Builtin(544)),
+        ];
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for (label, spec) in &groups {
+            let Some(grp) = resolve(snap, spec) else {
+                continue;
+            };
+            for member_dn in grp.all("member") {
+                let Some(m) = snap.by_dn(member_dn) else {
+                    continue;
+                };
+                let is_computer = m.has_class("computer")
+                    || m.one("sAMAccountName").is_some_and(|s| s.ends_with('$'));
+                if is_computer {
+                    affected.push(format!("{member_dn} in {label}"));
+                    if evidence.len() < 25 {
+                        let sam = m.one("sAMAccountName").unwrap_or("<unknown>");
+                        evidence.push(Evidence::new(
+                            format!("LDAP {}:member", grp.dn),
+                            format!("computer account {sam} ({member_dn}) is a direct member of {label}"),
+                        ));
+                    }
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Computer account in a Tier-0 group".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 6,
+            affected,
+            evidence,
+            detail: "A machine account is a direct member of a Tier-0 group. Anyone who controls that machine (local SYSTEM, or an RBCD/coercion path to its TGT) inherits Domain Admin.".into(),
+            impact: Some("Compromising the machine — or coercing/relaying its computer-account authentication — yields Tier-0. Attackers also add a controlled machine account here for stealthy, reboot-surviving persistence.".into()),
+            remediation: "Remove computer accounts from Tier-0 groups; grant the needed rights to a dedicated, monitored service account or via a resource-specific delegation instead.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,5 +1015,59 @@ mod tests {
             vec![empty_pu],
         );
         assert!(AdminNotProtected.run(&snap2, &g).is_empty());
+    }
+
+    #[test]
+    fn foreign_principal_in_priv_flags() {
+        let domain = Sid::parse("S-1-5-21-1-2-3").unwrap();
+        let da = group(
+            "CN=Domain Admins,DC=corp,DC=local",
+            512,
+            &["CN=S-1-5-21-9-9-9-500,CN=ForeignSecurityPrincipals,DC=corp,DC=local"],
+            &domain,
+        );
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain.clone()),
+                ..Default::default()
+            },
+            vec![da],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(ForeignPrincipalInPrivGroup
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-ForeignInPriv"));
+    }
+
+    #[test]
+    fn computer_in_priv_flags() {
+        let domain = Sid::parse("S-1-5-21-1-2-3").unwrap();
+        let da = group(
+            "CN=Domain Admins,DC=corp,DC=local",
+            512,
+            &["CN=WS01,DC=corp,DC=local"],
+            &domain,
+        );
+        let mut c: HashMap<String, Vec<String>> = HashMap::new();
+        c.insert("objectClass".into(), vec!["computer".into()]);
+        c.insert("sAMAccountName".into(), vec!["WS01$".into()]);
+        let comp = AdObject {
+            dn: "CN=WS01,DC=corp,DC=local".into(),
+            attrs: c,
+            bin: HashMap::new(),
+        };
+        let snap = Snapshot::new(
+            DomainInfo {
+                domain_sid: Some(domain.clone()),
+                ..Default::default()
+            },
+            vec![da, comp],
+        );
+        let g = ControlGraph::build(&snap);
+        assert!(ComputerInPrivGroup
+            .run(&snap, &g)
+            .iter()
+            .any(|x| x.id == "P-ComputerInPriv"));
     }
 }
