@@ -5,6 +5,60 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-08-26
+
+The **"read the whole picture"** release. Every scan now ships a visual
+control-path graph and a complete coverage matrix inline in the report — every
+check appears with its status and evidence, not just the ones that fired. Adds
+the last two carryover items from 1.4.3's Tier-1 Phase-3: `attack dns` (ADIDNS
+write) and `enum sccm` / `enum scom` (Configuration Manager / Operations Manager
+discovery). Also folds in a first-touch UX fix for LDAP connection failures so
+operators see the actual cause, not a generic "unreachable" hint.
+
+**Deferred to 1.4.5:** WS-4-P2 Kerberos sealed RPC bind (multi-day crypto work,
+lands as `dcerpc 0.2.8` additive), WS-1-P3 MSSQL live validation, WS-2-P3
+DCShadow live push, WS-8-P2 real PFX export on `attack shadowcred`.
+
+### Report headlines
+
+- **In-report BloodHound-style control-path graph.** Every HTML report includes
+  a deterministic, self-contained SVG (`crates/report/src/graph_svg.rs`) — no
+  external CDN, no JS runtime — laid out longest-path-first, byte-stable across
+  runs (no clock, no RNG). Zero plumbing changes: the report was already carrying
+  the graph subgraph in `top_paths`.
+- **Full 58-check coverage matrix rendered in every report.** `scan` now uses
+  `run_all_with_coverage()` and the report exposes each check's `id`, whether it
+  fired, and how many findings it produced — a machine reader can tell "check
+  ran clean" from "check wasn't run". Complements WS-PROOF (1.4.3): fired
+  findings carry ground-truth evidence, absent ones now carry the negative signal.
+  Registry stays at 58 checks; 71 = distinct finding-ID literals (one check like
+  `VulnerableCertTemplates` emits `A-Esc1..16`).
+
+### New attacks / enum
+
+- **`attack dns`** — ADIDNS write over LDAP: `add-a` / `modify-a` /
+  `tombstone` / `delete`, `--dry-run` default-safe, records placed under
+  `DomainDnsZones` or `--forest ForestDnsZones`. Composes the
+  `adhammer_collector::dns_record::build_a_record` helper that landed in 1.4.2.
+- **`enum sccm` / `enum scom`** — Configuration Manager / Operations Manager
+  discovery over LDAP. Absent container = clean output ("not present"), not a
+  failure. Adds `Collector::search_subtree(base, filter, attrs) -> Vec<AdObject>`
+  as the reusable generic subtree helper.
+
+### Fixed
+
+- `adhammer` interactive mode now diagnoses the actual reason an LDAP bind
+  fails (untrusted cert, wrong credentials, wrong URL, unreachable host) instead
+  of printing a generic hint. First-touch operators on lab DCs with self-signed
+  certificates get a clear next step, not `Connection reset by peer`.
+
+### Engineering
+
+- 194 workspace tests / 0 failing (was 185, +9 new).
+- `cargo fmt --all --check` and `cargo clippy --workspace --all-targets
+  -- -D warnings` clean on the ship commit.
+- MSRV unchanged (1.87). No new external dependencies.
+
 ## [1.4.3] — 2026-08-25
 
 The **"prove it, cover it"** release. Extends the `1.4.2` trust-surface cleanup
