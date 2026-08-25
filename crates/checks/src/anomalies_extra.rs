@@ -284,6 +284,78 @@ impl Check for GuestEnabled {
     }
 }
 
+/// A user account whose `description` / `info` carries a password-like string — a classic place
+/// admins stash service-account creds in cleartext, readable by ANY authenticated user over LDAP.
+/// (WS-COVERAGE, 1.4.3.)
+pub struct PasswordInDescription;
+impl Check for PasswordInDescription {
+    fn id(&self) -> &'static str {
+        "A-PasswordInDescription"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("user") {
+            for attr in ["description", "info"] {
+                if let Some(v) = o.one(attr) {
+                    if looks_like_password(v) {
+                        affected.push(o.dn.clone());
+                        if evidence.len() < 25 {
+                            evidence.push(Evidence::new(format!("LDAP {}:{attr}", o.dn), v));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Password-like string in a user's description/info".into(),
+            category: Category::Anomalies,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 5,
+            affected,
+            evidence,
+            detail: "An account's description/info attribute holds a password-like value — cleartext \
+                     credentials any authenticated user can read over LDAP."
+                .into(),
+            impact: Some("Any domain user reads the attribute and obtains the credential directly — no cracking, instant access as that account.".into()),
+            remediation: "Remove secrets from description/info; rotate the exposed password; store credentials in a vault.".into(),
+        }]
+    }
+}
+
+/// Heuristic: a `pass`/`pwd` hint, or a spaceless 8-64 char string mixing ≥3 character classes.
+fn looks_like_password(s: &str) -> bool {
+    let s = s.trim();
+    let lower = s.to_ascii_lowercase();
+    if lower.contains("pass")
+        || lower.contains("pwd")
+        || lower.contains("pw:")
+        || lower.contains("pw=")
+    {
+        return true;
+    }
+    let len = s.chars().count();
+    if !(8..=64).contains(&len) || s.contains(' ') {
+        return false;
+    }
+    let classes = [
+        s.chars().any(|c| c.is_ascii_lowercase()),
+        s.chars().any(|c| c.is_ascii_uppercase()),
+        s.chars().any(|c| c.is_ascii_digit()),
+        s.chars().any(|c| !c.is_alphanumeric()),
+    ]
+    .iter()
+    .filter(|b| **b)
+    .count();
+    classes >= 3
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -390,6 +390,48 @@ fn is_privileged_sid(sid: &Sid) -> bool {
     )
 }
 
+/// Classic constrained delegation: an account with `msDS-AllowedToDelegateTo` can obtain service
+/// tickets to the listed SPNs as ANY user (S4U2Proxy) — a lateral-movement / privesc surface.
+/// (WS-COVERAGE, 1.4.3.)
+pub struct ConstrainedDelegation;
+impl Check for ConstrainedDelegation {
+    fn id(&self) -> &'static str {
+        "P-ConstrainedDelegation"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.objects.iter() {
+            let targets = o.all("msDS-AllowedToDelegateTo");
+            if !targets.is_empty() {
+                affected.push(o.dn.clone());
+                if evidence.len() < 25 {
+                    evidence.push(Evidence::new(
+                        format!("LDAP {}:msDS-AllowedToDelegateTo", o.dn),
+                        targets.join(", "),
+                    ));
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "Constrained delegation configured (msDS-AllowedToDelegateTo)".into(),
+            category: Category::PrivilegedAccounts,
+            severity: Severity::High,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 5,
+            affected,
+            evidence,
+            detail: "The account can request service tickets to the listed SPNs as ANY user (S4U2Proxy). If its credentials or a protocol-transition path are compromised, it impersonates privileged users to those services.".into(),
+            impact: Some("Attacker who controls this account runs S4U2Self+S4U2Proxy to impersonate a Domain Admin to the target service — lateral movement or Tier-0 access without the target's password.".into()),
+            remediation: "Scope delegation tightly; prefer resource-based constrained delegation; mark sensitive accounts 'account is sensitive and cannot be delegated' / add to Protected Users.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
