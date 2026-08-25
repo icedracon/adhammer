@@ -124,7 +124,7 @@ One binary, no Python runtime, no sidecar services. The reference DA kill chain 
 
 **🛡️ AD auditors / defenders**
 
-41 hygiene checks across four categories, MITRE ATT&CK-tagged, low-priv collection via `SD_FLAGS`. Reports as JSON, HTML, or a BloodHound-CE ingest bundle. Supported findings have matching PoCs; unsupported ones stay labeled potential instead of being overstated.
+50+ hygiene checks across four categories, MITRE ATT&CK-tagged, low-priv collection via `SD_FLAGS`. Reports as JSON, HTML, or a BloodHound-CE ingest bundle. Supported findings have matching PoCs; unsupported ones stay labeled potential instead of being overstated.
 
 </td>
 <td width="33%" valign="top">
@@ -195,7 +195,7 @@ Fast per-operation timings (see [BENCHMARKS.md](docs/BENCHMARKS.md) for the reco
     ┌─────────────────────────────────────────┐
     │                 AUDIT                   │
     │   LDAP + SD_FLAGS  →  Snapshot          │
-    │   41 hygiene checks + 15/16 ADCS ESC    │
+    │   50+ hygiene checks + 15/16 ADCS ESC   │
     └─────────────────────┬───────────────────┘
                           ▼
     ┌─────────────────────────────────────────┐
