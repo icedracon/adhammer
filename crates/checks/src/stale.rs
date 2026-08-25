@@ -318,6 +318,54 @@ impl Check for DuplicateSpn {
     }
 }
 
+/// A LAPS-managed computer whose password expiration time is in the past — LAPS has stopped
+/// rotating, so the local-admin password is stale (and may already be known). (WS-COVERAGE, 1.4.3.)
+pub struct LapsExpired;
+impl Check for LapsExpired {
+    fn id(&self) -> &'static str {
+        "S-LapsExpired"
+    }
+    fn run(&self, snap: &Snapshot, _g: &ControlGraph) -> Vec<Finding> {
+        let mut affected: Vec<String> = Vec::new();
+        let mut evidence: Vec<Evidence> = Vec::new();
+        for o in snap.iter_class("computer") {
+            let attr = if o.filetime("msLAPS-PasswordExpirationTime").is_some() {
+                "msLAPS-PasswordExpirationTime"
+            } else {
+                "ms-Mcs-AdmPwdExpirationTime"
+            };
+            // overdue > 1 day; < 10 years guards against an unset/epoch-0 value reading as expired.
+            if let Some(overdue) = age_days(o, attr) {
+                if (2..3650).contains(&overdue) {
+                    affected.push(o.dn.clone());
+                    if evidence.len() < 25 {
+                        evidence.push(Evidence::new(
+                            format!("LDAP {}:{attr}", o.dn),
+                            format!("expiration was {overdue} day(s) ago (LAPS not rotating)"),
+                        ));
+                    }
+                }
+            }
+        }
+        if affected.is_empty() {
+            return vec![];
+        }
+        vec![Finding {
+            id: self.id().into(),
+            title: "LAPS password expired (not rotating)".into(),
+            category: Category::StaleObjects,
+            severity: Severity::Medium,
+            mitre: vec![mitre::VALID_ACCOUNTS],
+            weight_bonus: affected.len() as u32 * 3,
+            affected,
+            evidence,
+            detail: "The LAPS password expiration time is in the past, so LAPS is failing to rotate the local-admin password — a stale credential that may already be known or dumped.".into(),
+            impact: Some("A local-admin password that stopped rotating is a durable, reusable credential for lateral movement — if it leaked once, it still works.".into()),
+            remediation: "Fix LAPS rotation (GPO / scheduled task / permissions) and force an immediate reset on the affected hosts.".into(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -65,6 +65,7 @@ pub fn registry() -> Vec<Box<dyn Check>> {
         Box::new(stale::PasswordNeverChanged),
         Box::new(stale::StaleComputers),
         Box::new(stale::MachinePasswordAge),
+        Box::new(stale::LapsExpired),
         Box::new(stale::DuplicateSpn),
         Box::new(hygiene::PrivilegedPasswordNeverExpires),
         Box::new(hygiene::DesOnlyAccounts),
