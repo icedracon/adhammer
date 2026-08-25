@@ -1363,7 +1363,11 @@ async fn run_action_with_brief(action: &Action, s: &Session) -> Result<()> {
                     start.elapsed().as_secs_f32()
                 ),
             );
-            crate::ui::field_err("reason", &format!("{e:#}"));
+            let reason = format!("{e:#}");
+            crate::ui::field_err("reason", &reason);
+            if let Some(diag) = diagnose_connection_error(&reason) {
+                crate::ui::field_err("cause", diag);
+            }
             if let Some(next) = action_failure_hint(action) {
                 crate::ui::field_err("next", next);
             }
@@ -1555,6 +1559,62 @@ fn action_next_hint(action: &Action) -> Option<&'static str> {
         Action::Scan => Some("If findings were interesting, rerun Auto / Guided to validate the strongest paths."),
         _ => Some("Proof is in the command output above. Guided mode is the best path when you need packaged artifacts."),
     }
+}
+
+/// Map a raw connection-failure string to a concrete "what actually went wrong" line, so the
+/// generic `next:` hint doesn't hide the actual cause. Runs against the already-formatted
+/// `anyhow` chain, so it catches both the ldap3/rustls surface text and the inner io::Error kind.
+fn diagnose_connection_error(reason: &str) -> Option<&'static str> {
+    let r = reason.to_ascii_lowercase();
+    // The classic Kali-vs-lab-DC case: LDAPS handshake fails cert verification, DC resets.
+    // "Connection reset by peer" over an ldaps:// URL is almost always this.
+    if (r.contains("connection reset") || r.contains("os error 104"))
+        && (r.contains("ldaps") || r.contains("tls") || r.contains("certificate"))
+    {
+        return Some(
+            "TLS/cert verification likely failed — rerun and answer YES to \"Skip LDAPS certificate verification (lab DC)?\", or pass --insecure, or use ldap:// on 389",
+        );
+    }
+    // Bare "connection reset" without a TLS marker: still most often a channel-binding / signing
+    // mismatch on LDAPS, or the DC refused the SASL/bind mid-negotiation.
+    if r.contains("connection reset") || r.contains("os error 104") {
+        return Some(
+            "DC reset the connection mid-bind — usually LDAP-signing/channel-binding enforcement or an untrusted TLS cert; try plain ldap://<host> or add --insecure",
+        );
+    }
+    // Cert-name / chain issues surface differently depending on the TLS backend.
+    if r.contains("certificate")
+        || r.contains("unknown ca")
+        || r.contains("self-signed")
+        || r.contains("certificateunknown")
+        || r.contains("bad certificate")
+    {
+        return Some(
+            "LDAPS certificate not trusted by this host — answer YES to skip cert verification on a lab DC, or install the DC's CA chain",
+        );
+    }
+    if r.contains("kerberos") || r.contains("krb") || r.contains("gssapi") || r.contains("preauth")
+    {
+        return Some(
+            "Kerberos negotiation failed — check clock skew (<5 min), realm case (UPPERCASE), and SPN/DNS resolution for the DC",
+        );
+    }
+    if r.contains("invalidcredentials") || r.contains("52e") || r.contains("logon failure") {
+        return Some(
+            "Bind rejected — bad username/password/domain (LDAP result 49 / SEC_E_LOGON_DENIED 0x8009030c)",
+        );
+    }
+    if r.contains("connection refused") || r.contains("os error 111") {
+        return Some(
+            "Port closed / service not listening — nmap the DC to confirm 389/636/445 are actually open",
+        );
+    }
+    if r.contains("timed out") || r.contains("timeout") {
+        return Some(
+            "Timeout — firewall dropping packets, or the DC is behind a slow path; retry with --insecure and plain ldap:// to isolate",
+        );
+    }
+    None
 }
 
 fn action_failure_hint(action: &Action) -> Option<&'static str> {
