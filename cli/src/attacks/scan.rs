@@ -305,6 +305,10 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         findings.extend(adhammer_sysvol::gptmpl::policy_findings(&policy));
     }
 
+    // WS-BHG (1.4.6): pre-render the BloodHound-style principal graph from the same ControlGraph
+    // we already built; Report just carries the SVG string (it never sees the graph itself).
+    let bh_svg = adhammer_report::graph_bh::to_svg(&graph);
+
     let mut report = Report::build(
         &snap.domain.domain_dn,
         findings,
@@ -312,7 +316,8 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         stats,
         &RiskConfig::default(),
     )
-    .with_coverage(coverage);
+    .with_coverage(coverage)
+    .with_bh_svg(bh_svg);
 
     // WS-19: baseline diff. Read a prior scan's JSON and tag NEW / RESOLVED / SEVERITY-CHANGED.
     // Best-effort: a missing/unparsable baseline warns to stderr and the scan still emits.

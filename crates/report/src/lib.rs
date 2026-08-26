@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 pub mod baseline;
 pub mod composite;
+pub mod graph_bh;
 pub mod graph_svg;
 pub use baseline::BaselineDiff;
 pub use composite::CompositeChain;
@@ -70,6 +71,12 @@ pub struct Report {
     /// unless the caller supplied it via [`Report::with_coverage`]; omitted from JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub coverage: Vec<CheckCoverage>,
+    /// WS-BHG (1.4.6): pre-rendered BloodHound-style principal-graph SVG string. Skipped from JSON
+    /// (SVG is an HTML artifact — the JSON caller should re-render locally if it wants a picture).
+    /// Callers hand it in via [`Report::with_bh_svg`], since `Report` does not carry a
+    /// `ControlGraph` reference (that lives one crate up and is not `Serialize`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bh_svg: String,
 }
 
 impl Report {
@@ -103,7 +110,15 @@ impl Report {
             composite_chains,
             baseline_diff: None,
             coverage: Vec::new(),
+            bh_svg: String::new(),
         }
+    }
+
+    /// WS-BHG: attach a pre-rendered BloodHound-style principal-graph SVG. Builder shape mirrors
+    /// [`Self::with_coverage`]. Caller renders via `adhammer_report::graph_bh::to_svg(&control_graph)`.
+    pub fn with_bh_svg(mut self, svg: String) -> Self {
+        self.bh_svg = svg;
+        self
     }
 
     /// WS-R2: attach the per-check coverage roster from `run_all_with_coverage`
@@ -216,6 +231,13 @@ impl Report {
              .chain p{{margin-top:6px;color:var(--muted)}}\
              @media (max-width:900px){{.stats{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .sev-grid{{grid-template-columns:repeat(2,minmax(140px,1fr))}} .meta{{grid-template-columns:1fr}} .wrap{{padding:24px 18px 42px}}}}\
              .graph-wrap{{overflow-x:auto;padding:6px 2px;margin-top:12px}}\
+             .bh-wrap{{width:100%;max-width:100%;overflow-x:auto;margin-top:12px}}\
+             .bh-graph{{width:100%;height:auto;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;color:var(--muted)}}\
+             .bh-edge{{stroke:var(--muted);stroke-width:1.4;opacity:0.6;color:var(--muted)}}\
+             .bh-node circle{{fill:var(--blue);stroke:var(--line);stroke-width:1.5}}\
+             .bh-node.bh-t0 circle{{fill:var(--red);stroke:var(--red);stroke-width:2}}\
+             .bh-node text{{fill:var(--text);font:11px ui-monospace,SFMono-Regular,Consolas,monospace;pointer-events:none}}\
+             .bh-footer{{fill:var(--muted);font:11px Inter,system-ui,sans-serif}}\
              svg.graph{{min-width:100%;height:auto;display:block}}\
              .node rect{{fill:var(--panel-2);stroke:var(--line);stroke-width:1.5}}\
              .node text{{fill:var(--text);font:600 12px Inter,system-ui,sans-serif;text-anchor:middle;dominant-baseline:middle}}\
@@ -267,6 +289,7 @@ impl Report {
              <section class=panel><h2>Findings</h2><p>Each card shows why the condition matters, what it affects, and the shortest remediation text needed to brief an operator or stakeholder.</p></section>\
              {findings_html}\
              {graph}\
+             {bh_graph}\
              {paths}\
              </div>",
             dom = html_escape(&self.domain),
@@ -286,7 +309,26 @@ impl Report {
             chains = self.chains_html(),
             findings_html = self.findings_html(),
             graph = self.graph_svg_panel(),
+            bh_graph = self.bh_graph_panel(),
             paths = self.paths_html(),
+        )
+    }
+
+    /// WS-BHG: the "Principal graph" panel — inline BloodHound-style SVG of every principal that
+    /// has an edge into/out of a Tier-0 node. Empty string when the caller didn't attach one.
+    fn bh_graph_panel(&self) -> String {
+        if self.bh_svg.is_empty() {
+            return String::new();
+        }
+        format!(
+            "<section class=panel><h2>Principal graph</h2>\
+             <p>Every principal with a direct control-edge into or out of a Tier-0 node — \
+             <span style=\"color:var(--red)\">Tier-0</span> in a horizontal row, neighbors on \
+             concentric rings. Hover any node for its SID; hover an edge for the control primitive. \
+             Pruned to the first {} — the footer shows total vs. drawn.</p>\
+             <div class=bh-wrap>{}</div></section>",
+            graph_bh::MAX_NODES_DOCS,
+            self.bh_svg
         )
     }
 

@@ -465,6 +465,24 @@ impl ControlGraph {
         (self.g.node_count(), self.g.edge_count())
     }
 
+    /// WS-BHG (1.4.6): iterator over every principal node — `(sid, label, tier0)`. Read-only
+    /// public view for the inline BloodHound-style graph renderer in `crates/report`. Order is
+    /// insertion order (stable per build).
+    pub fn nodes_view(&self) -> impl Iterator<Item = (&Sid, &str, bool)> {
+        self.g
+            .node_indices()
+            .map(|i| (&self.g[i].sid, self.g[i].label.as_str(), self.g[i].tier0))
+    }
+
+    /// WS-BHG (1.4.6): iterator over every edge — `(from_sid, to_sid, kind_name)`. Same read-only
+    /// view; string labels so the renderer never touches `EdgeKind` internals.
+    pub fn edges_view(&self) -> impl Iterator<Item = (&Sid, &Sid, &'static str)> {
+        self.g.edge_indices().map(|e| {
+            let (src, dst) = self.g.edge_endpoints(e).unwrap();
+            (&self.g[src].sid, &self.g[dst].sid, self.g[e].name())
+        })
+    }
+
     /// Direct `kind` edges from a non-Tier-0 principal into a Tier-0 node.
     pub fn direct_edges_to_tier0(&self, kind: EdgeKind) -> Vec<(String, String)> {
         let mut out = Vec::new();
