@@ -1,26 +1,25 @@
-//! # WS-4-P2 Session 1 — crypto primitives for AES256-CTS-HMAC-SHA1-96 sealed RPC bind.
+//! # WS-4-P2 Session 1 + 2 — crypto primitives for AES256-CTS-HMAC-SHA1-96 sealed RPC bind.
 //!
-//! This module implements the RFC 3961 / RFC 3962 crypto primitives that the
-//! `dcerpc::krb_seal::KrbSealer` trait impl (Session 2) will wire together into a
-//! `RpcTcp::bind_sealed_kerberos` / `call_sealed_kerberos` transport call (Session 3).
+//! This module implements the RFC 3961 / RFC 3962 crypto primitives that the dcerpc
+//! 0.2.8 `KrbSealer` trait impl (Session 3) will wire into a `RpcTcp::bind_sealed_kerberos`
+//! / `call_sealed_kerberos` transport call.
 //!
-//! What lands in **this** file (Session 1 scope):
-//! - [`nfold`] — RFC 3961 §5.2 n-fold operation. Turns an arbitrary-length key-usage
-//!   constant into a block-aligned pseudo-random value by rotating + 1's-complement-
-//!   adding until we have `n_bits` of output.
-//! - [`aes_cts_encrypt`] / [`aes_cts_decrypt`] — RFC 3962 §5 AES CTS-CBC (the CS3
-//!   ciphertext-stealing variant Kerberos uses). Handles the three cases: exactly one
-//!   block, exact multiple of block size, and general partial-final-block.
-//! - [`dr`] / [`dk`] — RFC 3961 §5.1 DR/DK key derivation, specialized to AES-256
-//!   where `random_to_key` is the identity (see RFC 3962 §4).
+//! What lands here:
+//! - [`nfold`] — RFC 3961 §5.2 n-fold operation.
+//! - [`aes_cts_encrypt`] / [`aes_cts_decrypt`] — RFC 3962 §5 AES CBC-CTS (CS3 variant).
+//! - [`dr`] / [`dk`] — RFC 3961 §5.1 DR/DK derivation, AES-256 (`random_to_key = id`).
+//! - [`hmac_sha1_96`] — RFC 2104 HMAC-SHA1 truncated to 96 bits.
+//! - [`derive_kc`] / [`derive_ke`] / [`derive_ki`] — RFC 3961 §5.3 subkey derivation
+//!   with the 5-byte `usage||0x99|0xAA|0x55` constant.
+//! - [`encrypt_message`] / [`decrypt_message`] — RFC 3961 §5.3 generic encrypt-then-
+//!   integrity primitive (`Ciphertext = AES-CTS(Ke, Confounder||Plain)`; `Sig =
+//!   HMAC-SHA1-96(Ki, Confounder||Plain)`; output = `Ciphertext || Sig`). This is the
+//!   raw primitive both KILE `EncryptedData` and GSS-API `wrap-token`-with-confidentiality
+//!   compose out of; it is what Session 3's KrbSealer will call once per PDU.
 //!
-//! What does **NOT** land here (deferred to Session 2+):
-//! - HMAC-SHA1-96 confounder + checksum (RFC 3961 §7 / RFC 3962 §4 profile — needs
-//!   the `hmac` + `sha1` deps already in this crate)
-//! - `KrbSealer` trait impl (`seal_pdu` / `unseal_pdu` / `auth_value_len`) that wraps
-//!   these primitives into the 16-byte-WRAP-header + AES-CTS + 12-byte-HMAC layout
-//! - The Kc / Ke / Ki subkey material derived via [`dk`] with the Kerberos usage
-//!   constants (which need the sealer to know the session key from the AP-REQ)
+//! What does **NOT** land here (deferred to Session 3+):
+//! - `KrbSealer` trait impl (dcerpc side — needs dcerpc 0.2.8 in a sibling repo)
+//! - Wrap-token header format + RRC rotation (dcerpc side, Session 3)
 //! - `RpcTcp::bind_sealed_kerberos` transport plumbing (dcerpc-side, Session 3)
 //!
 //! ## Testing philosophy for this session
@@ -38,9 +37,11 @@
 //! fault. That is the ultimate correctness proof; unit vectors here catch the fast
 //! failures early.
 
-#![allow(dead_code)] // wired up by Sessions 2/3 — kept as pub so those sessions can consume.
+#![allow(dead_code)] // wired up by Session 3 — kept as pub so the dcerpc-side KrbSealer can consume.
 
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+use hmac::{Hmac, Mac};
+use sha1::Sha1;
 
 /// AES-256 key size in bytes (RFC 3962 profile 18 uses AES-256-CTS-HMAC-SHA1-96).
 pub const AES256_KEY_LEN: usize = 32;
@@ -318,6 +319,158 @@ pub fn dk(key: &[u8], constant: &[u8]) -> Vec<u8> {
     dr(key, constant)
 }
 
+// ─── HMAC-SHA1-96 (RFC 2104 + RFC 3961 truncation) ───────────────────────────
+
+/// RFC 2104 HMAC-SHA1 truncated to the first 96 bits (12 bytes). RFC 3961's AES
+/// profile ("aes256-cts-hmac-sha1-96") uses this exact 12-byte MAC over the
+/// pre-encryption `Confounder || Plaintext` under the derived integrity subkey `Ki`.
+pub fn hmac_sha1_96(key: &[u8], data: &[u8]) -> [u8; 12] {
+    let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(key).expect("Hmac accepts any key length");
+    mac.update(data);
+    let full = mac.finalize().into_bytes();
+    let mut out = [0u8; 12];
+    out.copy_from_slice(&full[..12]);
+    out
+}
+
+// ─── Kerberos key-usage constants (RFC 4121 §2 for GSS; MS-KILE §3.1.5 for DCE-RPC) ─
+
+/// GSS acceptor → initiator direction, encryption. Peers that receive PDUs sent
+/// by the acceptor decrypt with keys derived at this usage.
+pub const KG_USAGE_ACCEPTOR_SEAL: u32 = 22;
+/// GSS acceptor → initiator direction, integrity.
+pub const KG_USAGE_ACCEPTOR_SIGN: u32 = 23;
+/// GSS initiator → acceptor direction, encryption. Clients writing sealed PDUs
+/// use keys derived at this usage.
+pub const KG_USAGE_INITIATOR_SEAL: u32 = 24;
+/// GSS initiator → acceptor direction, integrity.
+pub const KG_USAGE_INITIATOR_SIGN: u32 = 25;
+
+/// Build the 5-byte RFC 3961 §5.3 subkey-derivation constant: 4 big-endian usage
+/// bytes followed by a 1-byte subkey tag (`0x99` = checksum / `0xAA` = encryption /
+/// `0x55` = integrity).
+fn subkey_constant(usage: u32, tag: u8) -> [u8; 5] {
+    let u = usage.to_be_bytes();
+    [u[0], u[1], u[2], u[3], tag]
+}
+
+/// Derive Kc, the *checksum* subkey for a given usage number. Used by GSS `MIC`
+/// tokens and any bare-checksum callers; not used by the encrypt-then-integrity
+/// [`encrypt_message`] path (which uses Ke + Ki instead).
+pub fn derive_kc(session_key: &[u8], usage: u32) -> Vec<u8> {
+    dk(session_key, &subkey_constant(usage, 0x99))
+}
+
+/// Derive Ke, the *encryption* subkey for a given usage number.
+pub fn derive_ke(session_key: &[u8], usage: u32) -> Vec<u8> {
+    dk(session_key, &subkey_constant(usage, 0xAA))
+}
+
+/// Derive Ki, the *integrity* subkey for a given usage number.
+pub fn derive_ki(session_key: &[u8], usage: u32) -> Vec<u8> {
+    dk(session_key, &subkey_constant(usage, 0x55))
+}
+
+// ─── RFC 3961 §5.3 encrypt-then-integrity primitive ───────────────────────────
+
+/// Confounder length for AES256-CTS-HMAC-SHA1-96 (RFC 3962 §6 profile: one block).
+pub const CONFOUNDER_LEN: usize = AES_BLOCK_LEN;
+/// Truncated HMAC length for the -96 variant.
+pub const HMAC_TRUNC_LEN: usize = 12;
+
+/// Errors from [`decrypt_message`]. Wire-derived errors — a hostile server can
+/// trigger any of these, so every variant must be a graceful `Err`, never a panic.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum DecryptError {
+    /// Sealed message shorter than confounder + HMAC. The wire cannot possibly
+    /// carry both an encrypted confounder and a 12-byte tag in this many bytes.
+    TooShort { got: usize, need_at_least: usize },
+    /// HMAC-SHA1-96 tag verification failed. Either the ciphertext was tampered
+    /// with in flight or the wrong session key / usage number was used.
+    HmacMismatch,
+}
+
+impl core::fmt::Display for DecryptError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooShort { got, need_at_least } => {
+                write!(
+                    f,
+                    "sealed message too short: got {got} bytes, need at least {need_at_least}"
+                )
+            }
+            Self::HmacMismatch => write!(f, "HMAC-SHA1-96 tag verification failed"),
+        }
+    }
+}
+impl std::error::Error for DecryptError {}
+
+/// RFC 3961 §5.3 encrypt-then-integrity for the AES256-CTS-HMAC-SHA1-96 profile.
+///
+/// - Derive `Ke = DK(K, usage||0xAA)` and `Ki = DK(K, usage||0x55)`.
+/// - Prepend a caller-supplied 16-byte confounder to the plaintext.
+/// - Encrypt `E1 = Confounder||Plaintext` with AES-CTS (all-zero IV per RFC 3962 §4).
+/// - Compute `H1 = HMAC-SHA1-96(Ki, E1)` (over the *plaintext*, not the ciphertext —
+///   this is the RFC 3961 §5.3 mandate, not encrypt-then-mac in the modern sense).
+/// - Output `Ciphertext || H1` — length is `payload.len() + CONFOUNDER_LEN + HMAC_TRUNC_LEN`.
+///
+/// `confounder` is a parameter (not RNG'd internally) so tests can be deterministic
+/// and callers who want to hand the same one to a peer implementation can. In the
+/// production path Session 3 will fill it with `rand::rngs::OsRng` right before this call.
+pub fn encrypt_message(
+    session_key: &[u8],
+    usage: u32,
+    confounder: &[u8; CONFOUNDER_LEN],
+    payload: &[u8],
+) -> Vec<u8> {
+    let ke = derive_ke(session_key, usage);
+    let ki = derive_ki(session_key, usage);
+    let mut e1 = Vec::with_capacity(CONFOUNDER_LEN + payload.len());
+    e1.extend_from_slice(confounder);
+    e1.extend_from_slice(payload);
+    let ct = aes_cts_encrypt(&ke, &[0u8; AES_BLOCK_LEN], &e1);
+    let mac = hmac_sha1_96(&ki, &e1);
+    let mut out = Vec::with_capacity(ct.len() + HMAC_TRUNC_LEN);
+    out.extend_from_slice(&ct);
+    out.extend_from_slice(&mac);
+    out
+}
+
+/// Inverse of [`encrypt_message`]: split the trailing 12-byte HMAC, AES-CTS-decrypt
+/// the rest, recompute the HMAC over the recovered plaintext, compare in constant
+/// time, then strip the 16-byte confounder.
+///
+/// Constant-time comparison matters: a length-differentiated fast-fail would leak
+/// which HMAC bytes matched, letting an attacker forge tags one byte at a time.
+pub fn decrypt_message(
+    session_key: &[u8],
+    usage: u32,
+    sealed: &[u8],
+) -> Result<Vec<u8>, DecryptError> {
+    let need = CONFOUNDER_LEN + HMAC_TRUNC_LEN;
+    if sealed.len() < need {
+        return Err(DecryptError::TooShort {
+            got: sealed.len(),
+            need_at_least: need,
+        });
+    }
+    let ke = derive_ke(session_key, usage);
+    let ki = derive_ki(session_key, usage);
+    let (ct, tag) = sealed.split_at(sealed.len() - HMAC_TRUNC_LEN);
+    let e1 = aes_cts_decrypt(&ke, &[0u8; AES_BLOCK_LEN], ct);
+    let expect = hmac_sha1_96(&ki, &e1);
+    // Constant-time compare — OR every byte diff into one accumulator, check at end.
+    let mut diff: u8 = 0;
+    for i in 0..HMAC_TRUNC_LEN {
+        diff |= expect[i] ^ tag[i];
+    }
+    if diff != 0 {
+        return Err(DecryptError::HmacMismatch);
+    }
+    Ok(e1[CONFOUNDER_LEN..].to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,5 +579,148 @@ mod tests {
         // "fixes" dk() to do something else, this test catches the drift.
         let key = test_key256();
         assert_eq!(dk(&key, b"c-99"), dr(&key, b"c-99"));
+    }
+
+    // ─── HMAC-SHA1-96 ─────────────────────────────────────────────────────
+
+    #[test]
+    fn hmac_sha1_96_matches_rfc_2202_test_case_1() {
+        // RFC 2202 §3 test case 1: key = 0x0b x 20, data = "Hi There",
+        // HMAC-SHA1 = b617318655057264e28bc0b6fb378c8ef146be00
+        // First 12 bytes (HMAC-SHA1-96) = b617318655057264e28bc0b6.
+        let key = [0x0bu8; 20];
+        let got = hmac_sha1_96(&key, b"Hi There");
+        let want: [u8; 12] = [
+            0xb6, 0x17, 0x31, 0x86, 0x55, 0x05, 0x72, 0x64, 0xe2, 0x8b, 0xc0, 0xb6,
+        ];
+        assert_eq!(got, want);
+    }
+
+    // ─── Subkey derivation ────────────────────────────────────────────────
+
+    #[test]
+    fn subkeys_are_distinct_for_same_usage() {
+        // Kc/Ke/Ki with the same usage number MUST differ — the whole
+        // key-separation guarantee of RFC 3961 §5.3 rides on this. If two of them
+        // collide it means the tag byte (0x99/0xAA/0x55) is being ignored.
+        let key = test_key256();
+        let kc = derive_kc(&key, KG_USAGE_INITIATOR_SEAL);
+        let ke = derive_ke(&key, KG_USAGE_INITIATOR_SEAL);
+        let ki = derive_ki(&key, KG_USAGE_INITIATOR_SEAL);
+        assert_ne!(kc, ke);
+        assert_ne!(ke, ki);
+        assert_ne!(kc, ki);
+        // All three must be 32 bytes (AES-256 key length).
+        assert_eq!(kc.len(), AES256_KEY_LEN);
+        assert_eq!(ke.len(), AES256_KEY_LEN);
+        assert_eq!(ki.len(), AES256_KEY_LEN);
+    }
+
+    #[test]
+    fn subkeys_differ_across_usages() {
+        // Same tag, different usage number → different key. Otherwise integrity
+        // subkeys for signing initiator→acceptor could be reused acceptor→initiator.
+        let key = test_key256();
+        assert_ne!(
+            derive_ke(&key, KG_USAGE_INITIATOR_SEAL),
+            derive_ke(&key, KG_USAGE_ACCEPTOR_SEAL)
+        );
+    }
+
+    // ─── encrypt_message / decrypt_message round-trip ─────────────────────
+
+    fn test_confounder() -> [u8; CONFOUNDER_LEN] {
+        // Deterministic 16-byte confounder for test reproducibility. Production
+        // callers must supply an RNG-derived one; a fixed confounder in production
+        // would fatally leak plaintext prefixes across sealed messages.
+        let mut c = [0u8; CONFOUNDER_LEN];
+        for (i, b) in c.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(0x11) ^ 0xA5;
+        }
+        c
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip_short_payload() {
+        // The smallest "real" payload (< 1 block) — after prepending 16-byte
+        // confounder it becomes > 1 block, so AES-CTS' ≥-1-block precondition holds.
+        let key = test_key256();
+        let conf = test_confounder();
+        let plain = b"hello, sealed RPC world!";
+        let sealed = encrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &conf, plain);
+        assert_eq!(sealed.len(), plain.len() + CONFOUNDER_LEN + HMAC_TRUNC_LEN);
+        let round = decrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &sealed).unwrap();
+        assert_eq!(round, plain);
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip_various_lengths() {
+        let key = test_key256();
+        let conf = test_confounder();
+        for &len in &[0usize, 1, 15, 16, 17, 31, 32, 33, 47, 63, 64, 65, 1023] {
+            let plain: Vec<u8> = (0..len as u32).map(|i| ((i * 7) & 0xff) as u8).collect();
+            let sealed = encrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &conf, &plain);
+            let round = decrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &sealed).unwrap();
+            assert_eq!(round, plain, "roundtrip failed at len={len}");
+        }
+    }
+
+    #[test]
+    fn tampered_ciphertext_byte_fails_hmac() {
+        // Flipping any single byte of the sealed message MUST cause HMAC verification
+        // to fail. If it doesn't, the integrity check is silently broken and every
+        // downstream RPC call is defenseless against tampering.
+        let key = test_key256();
+        let conf = test_confounder();
+        let plain = b"payload-to-tamper-with";
+        let mut sealed = encrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &conf, plain);
+        // Flip a byte inside the ciphertext region (not the HMAC tail).
+        sealed[8] ^= 0x01;
+        match decrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &sealed) {
+            Err(DecryptError::HmacMismatch) => {}
+            other => panic!("expected HmacMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tampered_hmac_byte_fails_verification() {
+        let key = test_key256();
+        let conf = test_confounder();
+        let plain = b"another-payload";
+        let mut sealed = encrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &conf, plain);
+        let last = sealed.len() - 1;
+        sealed[last] ^= 0xff;
+        assert!(matches!(
+            decrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &sealed),
+            Err(DecryptError::HmacMismatch)
+        ));
+    }
+
+    #[test]
+    fn wrong_usage_number_fails_verification() {
+        // Encrypt as initiator, try to decrypt as acceptor — Ki differs so HMAC
+        // won't match. This proves the usage number is actually consumed by
+        // decrypt_message rather than ignored, which would silently share subkeys.
+        let key = test_key256();
+        let conf = test_confounder();
+        let plain = b"direction-matters";
+        let sealed = encrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &conf, plain);
+        assert!(matches!(
+            decrypt_message(&key, KG_USAGE_ACCEPTOR_SEAL, &sealed),
+            Err(DecryptError::HmacMismatch)
+        ));
+    }
+
+    #[test]
+    fn too_short_sealed_message_is_rejected_gracefully() {
+        // Anything shorter than CONFOUNDER_LEN + HMAC_TRUNC_LEN cannot possibly be a
+        // valid sealed message. A panicking indexer here would let a hostile server
+        // crash our RPC client with a truncated auth token — must be a clean Err.
+        let key = test_key256();
+        let short = vec![0u8; CONFOUNDER_LEN + HMAC_TRUNC_LEN - 1];
+        assert!(matches!(
+            decrypt_message(&key, KG_USAGE_INITIATOR_SEAL, &short),
+            Err(DecryptError::TooShort { .. })
+        ));
     }
 }
