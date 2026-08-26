@@ -112,6 +112,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
         severity: sev,
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: 0,
+        exchange: Vec::new(),
         affected: vec![val.clone()],
         evidence: vec![Evidence::new(
             format!("SYSVOL GptTmpl.inf default-policy [{id}]"),

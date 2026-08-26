@@ -80,6 +80,7 @@ mod tests {
             impact: None,
             remediation: String::new(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }
     }
 

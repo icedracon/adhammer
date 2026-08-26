@@ -207,6 +207,7 @@ impl EscHit {
             }),
             remediation: String::new(),
             weight_bonus: 20,
+            exchange: Vec::new(),
         }
     }
 }

@@ -72,6 +72,7 @@ impl Check for WeakPasswordPolicy {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: issues.len() as u32 * 3,
+            exchange: Vec::new(),
             affected: issues,
             evidence,
             detail: "The default domain password policy allows weak or long-lived credentials, easing brute-force and spray attacks.".into(),
@@ -107,6 +108,7 @@ impl Check for DsHeuristics {
                 severity: Severity::High,
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: 0,
+                exchange: Vec::new(),
                 affected: vec![format!("dSHeuristics = {h}")],
                 evidence: vec![Evidence::new(
                     format!("LDAP {h_dn}:dSHeuristics"),
@@ -126,6 +128,7 @@ impl Check for DsHeuristics {
                 severity: Severity::Medium,
                 mitre: vec![mitre::VALID_ACCOUNTS],
                 weight_bonus: 0,
+                exchange: Vec::new(),
                 affected: vec![format!("dSHeuristics = {h}")],
                 evidence: vec![Evidence::new(
                     format!("LDAP {h_dn}:dSHeuristics"),
@@ -186,6 +189,7 @@ impl Check for PreWindows2000Compat {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: broad_members.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "Everyone / Authenticated Users in this group grants near-anonymous read of sensitive attributes across the domain.".into(),
@@ -238,6 +242,7 @@ impl Check for ProtectedUsersUnused {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: vec!["Protected Users (0 members)".into()],
             evidence,
             detail: "Privileged accounts are not placed in Protected Users, so they remain exposed to credential theft (no RC4, no delegation, forced short TGT lifetime).".into(),
@@ -267,6 +272,7 @@ impl Check for GuestEnabled {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: vec![guest.dn.clone()],
             evidence: vec![Evidence::new(
                 format!("LDAP {}:userAccountControl", guest.dn),
@@ -318,6 +324,7 @@ impl Check for PasswordInDescription {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: affected.len() as u32 * 5,
+            exchange: Vec::new(),
             affected,
             evidence,
             detail: "An account's description/info attribute holds a password-like value — cleartext \
@@ -402,6 +409,7 @@ impl Check for WeakFineGrainedPolicy {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: affected.len() as u32 * 3,
+            exchange: Vec::new(),
             affected,
             evidence,
             detail: "A Password Settings Object overrides the domain policy for its target group with a short minimum length and/or no lockout — accounts under it are easier to spray or crack.".into(),
@@ -461,6 +469,7 @@ impl Check for CleartextSecretAttr {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: affected.len() as u32 * 5,
+            exchange: Vec::new(),
             affected,
             evidence,
             detail: "An object carries a password in userPassword/unixUserPassword — a cleartext or \
@@ -500,6 +509,7 @@ impl Check for DomainReversiblePwd {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 20,
+            exchange: Vec::new(),
             affected: vec![dn.clone()],
             evidence: vec![Evidence::new(
                 format!("LDAP {dn}:pwdProperties"),

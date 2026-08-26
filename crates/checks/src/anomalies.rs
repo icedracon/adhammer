@@ -40,6 +40,7 @@ impl Check for MachineAccountQuota {
             impact: Some("Any authenticated user can create up to that many computer objects, then abuse RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity) via the newly-created machine account to impersonate any user against any service the machine controls, including Tier-0.".into()),
             remediation: "Set ms-DS-MachineAccountQuota to 0 and delegate computer-join to a dedicated group.".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }]
     }
 }
@@ -75,6 +76,7 @@ impl Check for KrbtgtPasswordAge {
             impact: Some("The krbtgt hash signs every Kerberos TGT. If an attacker recovered it more than one rotation ago (via DCSync or NTDS dump), all TGTs they forge remain valid: golden-ticket persistence that survives password resets.".into()),
             remediation: "Rotate the krbtgt password twice (with >10h between rotations) using the Microsoft reset script.".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }]
     }
 }
@@ -113,6 +115,7 @@ impl Check for ReversibleEncryption {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 5,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "Reversible encryption stores a recoverable cleartext-equivalent of the password in the directory.".into(),
@@ -165,6 +168,7 @@ impl Check for Rc4Kerberos {
             severity: Severity::Medium,
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "RC4 (etype 23) TGS tickets crack far faster than AES; missing msDS-SupportedEncryptionTypes falls back to RC4.".into(),
@@ -212,6 +216,7 @@ impl Check for BadSuccessor {
             impact: Some("An account with CreateChild on any OU can create a dMSA pre-migrated from any target account (including Administrator). Requesting a TGT as the dMSA yields a ticket whose PAC carries the target's SIDs: instant impersonation.".into()),
             remediation: "Restrict CreateChild/Write on OUs that can host dMSA objects to Tier-0; audit msDS-ManagedAccountPrecededByLink.".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }]
     }
 }

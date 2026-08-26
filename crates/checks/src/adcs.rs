@@ -376,6 +376,7 @@ impl Check for WeakCertTemplateCrypto {
             severity,
             mitre: vec![mitre::CERT_ABUSE],
             weight_bonus: affected.len() as u32 * 4,
+            exchange: Vec::new(),
             affected,
             evidence,
             detail: "A certificate template mandates an RSA key smaller than 2048 bits. Certificates it issues are weak: 1024-bit is deprecated and 512-bit is factorable, so a forged or factored key defeats whatever the cert authorizes.".into(),
@@ -494,6 +495,7 @@ fn push(
         impact: impact.map(|s| s.to_string()),
         remediation: remediation.into(),
         weight_bonus: bonus,
+        exchange: Vec::new(),
     });
 }
 

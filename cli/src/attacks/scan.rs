@@ -286,6 +286,7 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
                          enforce SMB/LDAP signing to blunt the relay."
                             .into(),
                     weight_bonus: 30,
+                    exchange: Vec::new(),
                 });
             }
         }

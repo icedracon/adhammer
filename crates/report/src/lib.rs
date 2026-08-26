@@ -1033,6 +1033,7 @@ mod tests {
             impact: Some("test impact".into()),
             remediation: "test remediation".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }
     }
 

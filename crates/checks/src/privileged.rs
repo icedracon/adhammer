@@ -41,6 +41,7 @@ impl Check for AsrepRoastable {
             severity: Severity::High,
             mitre: vec![mitre::ASREP_ROAST],
             weight_bonus: hits.len() as u32 * 5,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "DONT_REQ_PREAUTH set: an unauthenticated attacker can request an AS-REP and crack it offline.".into(),
@@ -87,6 +88,7 @@ impl Check for KerberoastableAdmin {
             severity: Severity::Critical,
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: hits.len() as u32 * 10,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "Accounts holding an SPN can have a TGS requested by any authenticated user and cracked offline; these are also privileged.".into(),
@@ -134,6 +136,7 @@ impl Check for UnconstrainedDelegation {
             severity: Severity::Critical,
             mitre: vec![mitre::SILVER_TICKET],
             weight_bonus: hits.len() as u32 * 10,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "TRUSTED_FOR_DELEGATION lets the host cache TGTs of any user that authenticates to it — coercible into DC compromise.".into(),
@@ -190,6 +193,7 @@ impl Check for DcsyncPath {
             severity: Severity::Critical,
             mitre: vec![mitre::DCSYNC, mitre::VALID_ACCOUNTS],
             weight_bonus: close.len() as u32 * 8,
+            exchange: Vec::new(),
             affected: close
                 .iter()
                 .map(|p| format!("{} (cost {})", p.render(), p.cost))
@@ -240,6 +244,7 @@ impl Check for ShadowCredentialsPath {
             severity: Severity::Critical,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 10,
+            exchange: Vec::new(),
             affected: hits,
             evidence,
             detail: "Write access to msDS-KeyCredentialLink on a Tier-0 object lets an attacker register a key and PKINIT as that principal.".into(),

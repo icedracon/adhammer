@@ -50,6 +50,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
             impact: None,
             remediation: "External attack surface — restrict inbound to management scope.".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         });
     }
 
@@ -94,6 +95,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                     "Set dSHeuristics 7th char to 0 (default) to disable anonymous subtree read."
                         .into(),
                 weight_bonus: 0,
+                exchange: Vec::new(),
             });
         }
         Err(e) => tracing::warn!(%e, "RootDSE anonymous read failed"),
@@ -122,6 +124,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                 }),
                 remediation: "Enforce SMB signing on every server and DC via GPO.".into(),
                 weight_bonus: 0,
+                exchange: Vec::new(),
             });
         }
     }
@@ -151,6 +154,7 @@ pub async fn run(url: &str, insecure: bool) -> Result<AnonymousReport> {
                         "SRV records are required for AD site-aware routing — informational."
                             .into(),
                     weight_bonus: 0,
+                    exchange: Vec::new(),
                 });
             }
         }

@@ -94,6 +94,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           or restrict enrollment to a trusted group."
                 .into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc2 { template, .. } => Finding {
@@ -109,6 +110,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             impact: Some("Attacker enrolls a cert whose Any-Purpose EKU covers Client-Auth, then PKINITs it. Same outcome as ESC1: DA TGT from any low-priv account.".into()),
             remediation: "Constrain EKU set; require approval; restrict enrollment.".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc3 { template, .. } => Finding {
@@ -126,6 +128,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           approval; scope with application policies."
                 .into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc6 {
@@ -152,6 +155,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2) and restart the CA."
                 .into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc9 { template } => Finding {
@@ -168,6 +172,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation:
                 "Clear the flag; enforce Full strong certificate mapping on DCs (KB5014754).".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc13 {
@@ -189,6 +194,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation: "Audit msPKI-Certificate-Policy OID→group links; restrict enrollment."
                 .into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
         EscFinding::Esc15 { template } => Finding {
@@ -206,6 +212,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           patch."
                 .into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
             evidence: evidence_for(f),
         },
     }

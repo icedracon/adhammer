@@ -61,6 +61,7 @@ impl Check for PrivilegedPasswordNeverExpires {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 2,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "A privileged account with DONT_EXPIRE_PASSWORD keeps the same credential indefinitely — ideal for offline cracking, reuse, and breach persistence.".into(),
@@ -103,6 +104,7 @@ impl Check for DesOnlyAccounts {
             severity: Severity::Medium,
             mitre: vec![mitre::KERBEROASTING],
             weight_bonus: hits.len() as u32 * 3,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "USE_DES_KEY_ONLY forces 56-bit DES tickets, which are crackable in minutes and enable AS-REP/Kerberoast downgrade.".into(),
@@ -145,6 +147,7 @@ impl Check for ObsoleteFunctionalLevel {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: vec![dom.dn.clone()],
             evidence: vec![Evidence::new(
                 format!("LDAP {}:msDS-Behavior-Version", dom.dn),
@@ -190,6 +193,7 @@ impl Check for DisabledPrivileged {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "A disabled but adminCount=1 account keeps its AdminSDHolder-protected ACL; anyone who can re-enable it (or its password) gains a Tier-0 identity.".into(),
@@ -237,6 +241,7 @@ impl Check for NeverLoggedOn {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: vec![format!("{count} user objects")],
             evidence,
             detail: "Provisioned-but-unused accounts often keep their initial (weak/shared) password and are prime password-spray targets.".into(),
@@ -290,6 +295,7 @@ impl Check for PrimaryGroupPrivileged {
             severity: Severity::High,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 5,
+            exchange: Vec::new(),
             affected: hits
                 .iter()
                 .map(|(dn, r)| format!("{dn} (primaryGroupID={r})"))
@@ -337,6 +343,7 @@ impl Check for DormantPrivileged {
             severity: Severity::Medium,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: hits.len() as u32 * 3,
+            exchange: Vec::new(),
             affected: hits.iter().map(|(dn, _)| dn.clone()).collect(),
             evidence,
             detail: "An unused but privileged account draws no attention if compromised; dormant Tier-0 credentials are a favored persistence target.".into(),
@@ -371,6 +378,7 @@ impl Check for DefaultAdministratorActive {
             severity: Severity::Low,
             mitre: vec![mitre::VALID_ACCOUNTS],
             weight_bonus: 0,
+            exchange: Vec::new(),
             affected: vec![admin.dn.clone()],
             evidence: vec![Evidence::new(
                 format!("LDAP {}:lastLogonTimestamp", admin.dn),

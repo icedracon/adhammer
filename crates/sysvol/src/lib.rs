@@ -103,6 +103,7 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
         severity: Severity::Critical,
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: hits.len() as u32 * 10,
+        exchange: Vec::new(),
         affected,
         evidence,
         detail: "Group Policy Preferences store passwords encrypted with a Microsoft-published AES key; any authenticated user who can read SYSVOL can decrypt them.".into(),

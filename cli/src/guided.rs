@@ -829,6 +829,7 @@ fn laps_finding() -> Finding {
         impact: None,
         remediation: "Restrict read access to ms-Mcs-AdmPwd / msLAPS-Password to tier-appropriate admins; deploy encrypted (DPAPI-NG) LAPS.".into(),
         weight_bonus: 0,
+        exchange: Vec::new(),
     }
 }
 
@@ -847,6 +848,7 @@ fn esc8_finding() -> Finding {
         impact: None,
         remediation: "Disable HTTP web enrollment or require HTTPS + Extended Protection (EPA); enforce SMB/LDAP signing to blunt the relay.".into(),
         weight_bonus: 0,
+        exchange: Vec::new(),
     }
 }
 
@@ -865,6 +867,7 @@ fn posture_finding() -> Finding {
         impact: None,
         remediation: "Require LDAP signing and enforce LDAP channel binding (EPA) on every DC; disable the Print Spooler service on DCs.".into(),
         weight_bonus: 0,
+        exchange: Vec::new(),
     }
 }
 
@@ -1746,6 +1749,7 @@ mod tests {
             impact: None,
             remediation: "r".into(),
             weight_bonus: 0,
+            exchange: Vec::new(),
         }
     }
 
