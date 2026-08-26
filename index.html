@@ -345,11 +345,14 @@
     }
     .dragon-rig {
       position: absolute;
-      inset: -2% -7vw -2% 23vw;
+      top: 50%;
+      right: clamp(18px, 4vw, 64px);
+      width: min(62vw, 900px);
+      aspect-ratio: 16 / 9;
       z-index: 2;
       transform-style: preserve-3d;
       transform-origin: 67% 48%;
-      transform: perspective(1050px) translate3d(var(--tx), var(--ty), 0) rotateX(var(--rx)) rotateY(var(--ry));
+      transform: perspective(1050px) translate3d(var(--tx), calc(-50% + var(--ty)), 0) rotateX(var(--rx)) rotateY(var(--ry));
       transition: transform .12s linear;
       will-change: transform;
       pointer-events: none;
@@ -401,9 +404,28 @@
       mask-image: radial-gradient(ellipse at 72% 39%, #000 0 15%, rgba(0, 0, 0, .72) 26%, transparent 53%);
       animation: dragon-glint 4.8s ease-in-out infinite;
     }
+    .dragon-current {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      width: 100%;
+      height: 100%;
+      opacity: .92;
+      mix-blend-mode: screen;
+      transform: translateZ(118px);
+      -webkit-mask-image: url("assets/ice-dragon-graph.webp");
+      -webkit-mask-repeat: no-repeat;
+      -webkit-mask-position: right center;
+      -webkit-mask-size: contain;
+      mask-image: url("assets/ice-dragon-graph.webp");
+      mask-repeat: no-repeat;
+      mask-position: right center;
+      mask-size: contain;
+      pointer-events: none;
+    }
     .dragon-eye {
       position: absolute;
-      z-index: 4;
+      z-index: 5;
       left: 81.6%;
       top: 35.6%;
       width: 7px;
@@ -415,7 +437,7 @@
     }
     .dragon-heart {
       position: absolute;
-      z-index: 4;
+      z-index: 5;
       left: 67%;
       top: 53%;
       width: 9px;
@@ -424,6 +446,46 @@
       background: var(--proof-bright);
       box-shadow: 0 0 8px #fff, 0 0 22px var(--proof), 0 0 48px rgba(255, 67, 94, .72);
       animation: heart-live 1.7s ease-out infinite;
+    }
+    .dragon-breath {
+      position: absolute;
+      left: 85.4%;
+      top: 43.1%;
+      z-index: 5;
+      width: 26%;
+      height: 20%;
+      opacity: .9;
+      transform: translateZ(52px) rotate(12deg);
+      transform-origin: 0 50%;
+      pointer-events: none;
+    }
+    .dragon-breath::before {
+      content: "";
+      position: absolute;
+      left: -2%;
+      top: 39%;
+      width: 86%;
+      height: 23%;
+      opacity: 0;
+      border-radius: 50%;
+      background: linear-gradient(90deg, rgba(231, 251, 255, .58), rgba(121, 210, 255, .28) 38%, transparent);
+      clip-path: polygon(0 37%, 100% 0, 100% 100%, 0 63%);
+      filter: blur(5px) drop-shadow(0 0 12px rgba(121, 210, 255, .58));
+      transform-origin: left center;
+      animation: breath-core 5.8s ease-in-out infinite;
+    }
+    .dragon-breath i {
+      position: absolute;
+      left: 3%;
+      top: var(--vapor-y);
+      width: var(--vapor-size);
+      aspect-ratio: 1.9;
+      opacity: 0;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(229, 249, 255, .68), rgba(121, 210, 255, .2) 44%, transparent 72%);
+      filter: blur(5px) drop-shadow(0 0 8px rgba(121, 210, 255, .42));
+      animation: ice-vapor 5.8s ease-out infinite;
+      animation-delay: var(--vapor-delay);
     }
     @keyframes dragon-alive {
       0%, 100% { transform: translate3d(0, 3px, 0) rotateZ(-.18deg) scale3d(1, 1, 1); }
@@ -435,6 +497,19 @@
       50% { filter: saturate(1.05) contrast(1.14) brightness(.88) drop-shadow(0 30px 42px rgba(0, 5, 12, .78)) drop-shadow(0 0 48px rgba(46, 168, 255, .44)); }
     }
     @keyframes dragon-glint { 0%, 100% { opacity: .11; } 48% { opacity: .3; } 68% { opacity: .17; } }
+    @keyframes breath-core {
+      0%, 100% { opacity: .08; transform: scaleX(.16); }
+      18% { opacity: .56; transform: scaleX(.48); }
+      55% { opacity: .44; transform: scaleX(1); }
+      82% { opacity: .12; transform: scaleX(1.08); }
+    }
+    @keyframes ice-vapor {
+      0%, 100% { opacity: .04; transform: translate3d(0, 0, 0) scale(.28); }
+      18% { opacity: .4; }
+      48% { opacity: .7; }
+      78% { opacity: .18; transform: translate3d(70%, var(--vapor-drift), 0) scale(1.52); }
+      94% { opacity: .04; transform: translate3d(76%, var(--vapor-drift), 0) scale(1.62); }
+    }
     @keyframes aura-breathe { 0%, 100% { opacity: .56; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
     @keyframes eye-live { 0%, 8%, 100% { opacity: .5; transform: scale(.78); } 16%, 74% { opacity: 1; transform: scale(1.25); } 78% { opacity: .14; transform: scale(.2); } 82% { opacity: 1; transform: scale(1.25); } }
     @keyframes heart-live { 0% { opacity: .35; transform: scale(.7); } 42% { opacity: 1; transform: scale(1.22); } 100% { opacity: 0; transform: scale(3.7); } }
@@ -1164,7 +1239,7 @@
 
     @media (max-width: 1080px) {
       .hero-grid { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); }
-      .dragon-rig { inset: -2% -16vw -2% 18vw; }
+      .dragon-rig { top: 52%; right: 18px; width: min(70vw, 760px); }
       .hero-facts { grid-template-columns: repeat(2, 1fr); max-width: 520px; }
       .hero-fact:nth-child(3) { border-left: 0; }
       .hero-fact:nth-child(n+3) { border-top: 1px solid var(--line); }
@@ -1198,10 +1273,11 @@
           linear-gradient(180deg, #05070d 0 10%, rgba(5, 7, 13, .8) 24%, rgba(5, 7, 13, .16) 50%, rgba(5, 7, 13, .42) 76%, #05070d 100%),
           linear-gradient(90deg, rgba(5, 7, 13, .88), rgba(5, 7, 13, .26) 68%, transparent);
       }
-      .dragon-rig { inset: 16% -10% 2% -37%; }
+      .dragon-rig { top: 54%; right: 0; width: min(108vw, 720px); }
       .dragon-body { opacity: .58; }
       .dragon-shadow { opacity: .13; filter: blur(7px) brightness(.4) saturate(1.25); }
       .dragon-glint { opacity: .14; }
+      .dragon-current { opacity: .78; }
       #living-graph { opacity: .52; }
       .hero-facts { grid-column: 1; grid-row: 3; width: 100%; margin-top: 0; background: rgba(5, 7, 13, .66); backdrop-filter: blur(8px); }
       .hero-rail { position: relative; grid-template-columns: repeat(2, 1fr); margin-top: 0; }
@@ -1256,10 +1332,13 @@
           linear-gradient(180deg, #05070d 0 25%, rgba(5, 7, 13, .65) 43%, rgba(5, 7, 13, .28) 69%, #05070d 100%),
           linear-gradient(90deg, rgba(5, 7, 13, .78), rgba(5, 7, 13, .12) 78%, transparent);
       }
-      .dragon-rig { inset: 29% -18% 4% -75%; }
+      .dragon-rig { top: 58%; right: 2vw; width: min(125vw, 540px); }
       .dragon-shadow { display: none; }
       .dragon-body { opacity: .5; }
       .dragon-glint { opacity: .1; }
+      .dragon-current { opacity: .66; }
+      .dragon-breath { width: 34%; opacity: .82; }
+      .dragon-breath i:nth-child(3) { display: none; }
       #living-graph { opacity: .4; }
       .dragon-live-tag { left: 14px; right: auto; bottom: 4%; }
       .model-index { display: none; }
@@ -1374,13 +1453,19 @@
             <img class="dragon-layer dragon-shadow" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
             <img class="dragon-layer dragon-body" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
             <img class="dragon-layer dragon-glint" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
+            <canvas class="dragon-current" id="dragon-current"></canvas>
             <span class="dragon-eye"></span>
             <span class="dragon-heart"></span>
+            <span class="dragon-breath">
+              <i style="--vapor-y:22%;--vapor-size:40%;--vapor-delay:-.2s;--vapor-drift:-24%"></i>
+              <i style="--vapor-y:42%;--vapor-size:52%;--vapor-delay:-2.1s;--vapor-drift:8%"></i>
+              <i style="--vapor-y:5%;--vapor-size:34%;--vapor-delay:-4s;--vapor-drift:-42%"></i>
+            </span>
           </div>
         </div>
         <canvas id="living-graph" aria-hidden="true"></canvas>
-        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · graph pulse online</span></div>
-        <span class="model-index">3D living graph · pointer reactive</span>
+        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · electric veins online</span></div>
+        <span class="model-index">3D ice system · pointer reactive</span>
       </div>
 
       <div class="shell hero-grid">
@@ -1948,6 +2033,8 @@
         if (!stage || !canvas) return;
         var context = canvas.getContext("2d");
         var dragon = stage.querySelector(".dragon-rig");
+        var currentCanvas = stage.querySelector("#dragon-current");
+        var currentContext = currentCanvas ? currentCanvas.getContext("2d") : null;
         var interactionSurface = stage.closest(".hero") || stage;
         var random = seededRandom(8241);
         var nodes = [];
@@ -1956,6 +2043,9 @@
         var width = 0;
         var height = 0;
         var dpr = 1;
+        var currentWidth = 0;
+        var currentHeight = 0;
+        var currentDpr = 1;
         var running = false;
         var visible = true;
         var frame = 0;
@@ -1965,6 +2055,15 @@
         var targetY = 0;
         var rotX = 0;
         var rotY = 0;
+        var currentPaths = [
+          { start: [187, 548], curves: [[294, 602, 421, 602, 535, 536], [616, 490, 674, 463, 731, 413], [787, 364, 798, 286, 850, 221], [890, 171, 942, 182, 990, 236], [1004, 253, 1017, 273, 1026, 291]] },
+          { start: [665, 433], curves: [[603, 370, 545, 310, 481, 232], [418, 156, 329, 82, 225, 80], [164, 79, 96, 116, 44, 174]] },
+          { start: [637, 430], curves: [[548, 414, 470, 372, 397, 320], [326, 269, 231, 233, 119, 249]] },
+          { start: [829, 336], curves: [[891, 281, 966, 211, 1044, 151], [1097, 111, 1145, 89, 1180, 101]] },
+          { start: [861, 354], curves: [[940, 329, 1033, 345, 1093, 397], [1142, 440, 1164, 490, 1150, 536]] },
+          { start: [721, 448], curves: [[747, 501, 778, 558, 791, 635]] },
+          { start: [817, 432], curves: [[870, 479, 913, 534, 929, 631]] }
+        ];
 
         for (var i = 0; i < 48; i += 1) {
           var zone = i % 4;
@@ -2012,11 +2111,70 @@
           dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.25 : 1.5);
           var pixelWidth = Math.round(width * dpr);
           var pixelHeight = Math.round(height * dpr);
-          if (canvas.width === pixelWidth && canvas.height === pixelHeight) return;
-          canvas.width = pixelWidth;
-          canvas.height = pixelHeight;
-          context.setTransform(dpr, 0, 0, dpr, 0, 0);
+          if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+            canvas.width = pixelWidth;
+            canvas.height = pixelHeight;
+            context.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+          if (currentCanvas && currentContext) {
+            currentWidth = currentCanvas.clientWidth;
+            currentHeight = currentCanvas.clientHeight;
+            currentDpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.25 : 1.5);
+            var currentPixelWidth = Math.round(currentWidth * currentDpr);
+            var currentPixelHeight = Math.round(currentHeight * currentDpr);
+            if (currentCanvas.width !== currentPixelWidth || currentCanvas.height !== currentPixelHeight) {
+              currentCanvas.width = currentPixelWidth;
+              currentCanvas.height = currentPixelHeight;
+              currentContext.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
+            }
+          }
           draw(performance.now());
+        }
+        function traceCurrent(currentPath) {
+          currentContext.beginPath();
+          currentContext.moveTo(currentPath.start[0], currentPath.start[1]);
+          currentPath.curves.forEach(function (curve) {
+            currentContext.bezierCurveTo(curve[0], curve[1], curve[2], curve[3], curve[4], curve[5]);
+          });
+        }
+        function drawDragonCurrent(time) {
+          if (!currentContext || !currentWidth || !currentHeight) return;
+          currentContext.clearRect(0, 0, currentWidth, currentHeight);
+          currentContext.save();
+          currentContext.scale(currentWidth / 1200, currentHeight / 675);
+          currentContext.globalCompositeOperation = "lighter";
+          currentContext.lineCap = "round";
+          currentContext.lineJoin = "round";
+          currentPaths.forEach(function (currentPath, index) {
+            traceCurrent(currentPath);
+            currentContext.setLineDash([]);
+            currentContext.lineWidth = 1.3;
+            currentContext.shadowBlur = 0;
+            currentContext.strokeStyle = "rgba(65,178,255,.3)";
+            currentContext.stroke();
+
+            traceCurrent(currentPath);
+            currentContext.setLineDash(reduced ? [24, 76] : [18, 72]);
+            currentContext.lineDashOffset = reduced ? -index * 11 : -(time * .095 + index * 23);
+            currentContext.lineWidth = 2.15 + index % 3 * .42;
+            currentContext.shadowBlur = 18;
+            currentContext.shadowColor = "rgba(78,205,255,.92)";
+            var charge = reduced ? .7 : .7 + Math.max(0, Math.sin(time * .007 + index * 1.31)) * .3;
+            currentContext.strokeStyle = "rgba(171,241,255," + charge.toFixed(2) + ")";
+            currentContext.stroke();
+
+            if (!reduced) {
+              traceCurrent(currentPath);
+              currentContext.setLineDash([3, 87]);
+              currentContext.lineDashOffset = -(time * .18 + index * 29);
+              currentContext.lineWidth = 4.2;
+              currentContext.shadowBlur = 25;
+              currentContext.shadowColor = "rgba(201,242,255,1)";
+              currentContext.strokeStyle = "rgba(255,255,255,.92)";
+              currentContext.stroke();
+            }
+          });
+          currentContext.restore();
         }
         function project(node, time) {
           var yaw = rotY * .52;
@@ -2089,6 +2247,7 @@
             context.arc(px, py, 18, 0, Math.PI * 2);
             context.fill();
           }
+          drawDragonCurrent(time);
           if (dragon) {
             dragon.style.setProperty("--rx", (rotX * 20).toFixed(2) + "deg");
             dragon.style.setProperty("--ry", (rotY * 28).toFixed(2) + "deg");
