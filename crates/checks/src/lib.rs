@@ -88,11 +88,20 @@ pub fn registry() -> Vec<Box<dyn Check>> {
 }
 
 /// WS-WPT session 3c: for every finding that doesn't already carry a wire exchange (i.e. every
-/// LDAP-passive check — 50 of the 58), synthesize one from the collector's recorded SearchOp for
-/// the first affected DN. Active-probe checks (session 4) that already set `exchange` are left
-/// alone. One-place transform, so every current + future LDAP-passive check gets wire proof for
-/// free without any per-check code change.
+/// LDAP-passive check — 50 of the 58), synthesize one from the collector's recorded SearchOp.
+/// Active-probe checks (session 4) that already set `exchange` are left alone. One-place transform,
+/// so every current + future LDAP-passive check gets wire proof for free without any per-check
+/// code change.
+///
+/// **Session 4 (gate-strict) refinement**: some checks emit findings with formatted-string
+/// `affected` labels ("Schema Admins (N members)", "N computer objects", …) rather than DNs.
+/// For those, fall back to the domain root's search — which every scan captures — so the
+/// finding still shows the LDAP conversation that made it visible, not just adhammer's word.
 fn attach_wire_proof(snap: &Snapshot, findings: &mut [Finding]) {
+    // Fall-back wire: the domain-root sub search. Every scan runs it; every LDAP-passive
+    // finding is downstream of it. Empty when the collector wasn't instrumented (uninstrumented
+    // legacy path — leaves findings without exchange, same as before).
+    let fallback = snap.wire_for_dn(&snap.domain.domain_dn);
     for f in findings.iter_mut() {
         if !f.exchange.is_empty() {
             continue;
@@ -101,7 +110,11 @@ fn attach_wire_proof(snap: &Snapshot, findings: &mut [Finding]) {
             let wires = snap.wire_for_dn(dn);
             if !wires.is_empty() {
                 f.exchange = wires;
+                continue;
             }
+        }
+        if !fallback.is_empty() {
+            f.exchange = fallback.clone();
         }
     }
 }

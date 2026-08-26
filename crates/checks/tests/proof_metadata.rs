@@ -327,6 +327,47 @@ fn every_finding_carries_evidence_and_impact() {
     );
 }
 
+/// WS-WPT session 4 gate flip (strict): once the collector has recorded searches, every
+/// emitted finding MUST carry ≥1 wire exchange OR appear on the named legacy allowlist below.
+/// Any new check that emits a finding lacking exchange without being allowlisted fails CI.
+/// The allowlist exists so we can name known-legacy stragglers explicitly and shrink it over
+/// time — it is *not* a general escape hatch.
+///
+/// **Rule for adding to `LEGACY_NO_WIRE`**: paste the check id + a one-line reason. If a check
+/// uses formatted-string `affected` (not a DN) and there is no other natural wire source, that
+/// is the reason. When such a check gets a real wire source, delete its allowlist entry.
+/// Empty — the `attach_wire_proof` fallback (domain-root search) picks up every finding whose
+/// first-affected label isn't a resolvable DN. Kept as a `const` so a real regression that
+/// re-introduces a wire-less check can be pinned here with a one-line reason instead of being
+/// silently masked. **A non-empty allowlist is technical debt; treat additions as a bug to fix.**
+const LEGACY_NO_WIRE: &[&str] = &[];
+
+#[test]
+fn strict_wire_proof_gate_no_finding_without_wire_or_allowlist() {
+    // WS-WPT gate promoted from allowlist-everything to strict. Any finding that doesn't carry
+    // an exchange AND isn't named in LEGACY_NO_WIRE fails CI — that's what "for every future
+    // check" means in enforceable terms.
+    let snap = kitchen_sink_snapshot_with_searches();
+    let graph = ControlGraph::build(&snap);
+    let findings = adhammer_checks::run_all(&snap, &graph);
+    let mut offenders: Vec<String> = Vec::new();
+    for f in &findings {
+        if !f.exchange.is_empty() {
+            continue;
+        }
+        if LEGACY_NO_WIRE.contains(&f.id.as_str()) {
+            continue;
+        }
+        offenders.push(format!("{} ({})", f.id, f.title));
+    }
+    assert!(
+        offenders.is_empty(),
+        "WS-WPT strict gate: {} finding(s) missing wire exchange AND not on legacy allowlist:\n  - {}\nEither wire them up (add .with_wire(...) or ensure snap.wire_for_dn returns for the first affected DN), or add the id to LEGACY_NO_WIRE with a one-line reason.",
+        offenders.len(),
+        offenders.join("\n  - "),
+    );
+}
+
 #[test]
 fn every_ldap_finding_gets_wire_proof_when_collector_recorded() {
     // WS-WPT session 3c: once the collector has populated SearchOp + DN provenance, run_all
