@@ -39,9 +39,9 @@ pub(crate) async fn adcsenum(a: DnsArgs) -> Result<()> {
         let sp = ui::Spinner::start(format!("probing {host} web enrollment (ESC8)"));
         let hit = esc8_probe(host).await;
         match hit {
-            Some(d) => {
+            Some(p) => {
                 esc8 += 1;
-                sp.done_warn(&d);
+                sp.done_warn(&p.finding_text);
             }
             None => sp.done(&format!(
                 "{host}: ESC8 web enrollment not exposed over http/80"

@@ -239,10 +239,18 @@ fn is_esc8_response(resp: &str) -> bool {
         && (low.contains("negotiate") || low.contains("ntlm"))
 }
 
+/// WS-WPT: outcome of an ESC8 probe — the finding text plus the exact HTTP request/response
+/// exchange that produced the verdict, so downstream can attach `wire` to the Finding.
+pub(crate) struct Esc8Probe {
+    pub finding_text: String,
+    pub wire: Vec<adhammer_core::WireExchange>,
+}
+
 /// ESC8 detection: probe a CA host's web-enrollment endpoint over HTTP/80. A cleartext NTLM 401
 /// means the CA is relay-enrollable (coerce a machine → relay its NTLM to `/certsrv` → machine
-/// cert → PKINIT → its TGT). Returns the finding text, or None if not exposed on HTTP.
-pub(crate) async fn esc8_probe(host: &str) -> Option<String> {
+/// cert → PKINIT → its TGT). Returns the probe outcome + wire transcript, or None if not exposed.
+pub(crate) async fn esc8_probe(host: &str) -> Option<Esc8Probe> {
+    use adhammer_core::{WireExchange, WireLayer};
     use tokio::io::AsyncWriteExt;
     let mut s = connect(host, 80).await?;
     let req =
@@ -250,10 +258,36 @@ pub(crate) async fn esc8_probe(host: &str) -> Option<String> {
     s.write_all(req.as_bytes()).await.ok()?;
     let mut buf = [0u8; 2048];
     let n = read_some(&mut s, &mut buf).await;
-    is_esc8_response(&String::from_utf8_lossy(&buf[..n])).then(|| {
-        format!(
-            "ESC8: web enrollment at http://{host}/certsrv exposes NTLM over cleartext (relayable)"
+    let resp = String::from_utf8_lossy(&buf[..n]);
+
+    if !is_esc8_response(&resp) {
+        return None;
+    }
+
+    // WS-WPT: capture the actual conversation — request line + host, response status line +
+    // WWW-Authenticate — so the report shows "adhammer sent X, CA replied Y, that reply means
+    // NTLM-over-cleartext is enabled → relayable."
+    let status_line = resp.lines().next().unwrap_or("<no status>").to_string();
+    let www_auth = resp
+        .lines()
+        .find(|l| l.to_ascii_lowercase().starts_with("www-authenticate:"))
+        .unwrap_or("<no WWW-Authenticate header>")
+        .to_string();
+    let wire = vec![
+        WireExchange::sent(
+            WireLayer::Http,
+            format!("GET http://{host}/certsrv/certfnsh.asp"),
         )
+        .with_raw_bytes(req.as_bytes()),
+        WireExchange::recv(WireLayer::Http, format!("{status_line}  ·  {www_auth}"))
+            .with_raw_bytes(&buf[..n.min(512)]),
+    ];
+
+    Some(Esc8Probe {
+        finding_text: format!(
+            "ESC8: web enrollment at http://{host}/certsrv exposes NTLM over cleartext (relayable)"
+        ),
+        wire,
     })
 }
 

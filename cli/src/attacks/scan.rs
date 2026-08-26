@@ -268,8 +268,10 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
                     affected: vec![host.clone()],
                     evidence: vec![adhammer_core::Evidence::new(
                         format!("HTTP {host}/certsrv (ESC8 probe)"),
-                        probe,
+                        probe.finding_text.clone(),
                     )],
+                    // WS-WPT session 4: the actual GET/response transcript that produced this finding.
+                    exchange: probe.wire,
                     detail: format!(
                         "The CA at {host} exposes HTTP web enrollment with NTLM authentication \
                          over cleartext — a coerced machine's NTLM can be relayed for a cert, \
@@ -286,7 +288,6 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
                          enforce SMB/LDAP signing to blunt the relay."
                             .into(),
                     weight_bonus: 30,
-                    exchange: Vec::new(),
                 });
             }
         }
