@@ -1652,7 +1652,7 @@ fn action_next_hint(action: &Action) -> Option<&'static str> {
 /// Map a raw connection-failure string to a concrete "what actually went wrong" line, so the
 /// generic `next:` hint doesn't hide the actual cause. Runs against the already-formatted
 /// `anyhow` chain, so it catches both the ldap3/rustls surface text and the inner io::Error kind.
-fn diagnose_connection_error(reason: &str) -> Option<&'static str> {
+pub(crate) fn diagnose_connection_error(reason: &str) -> Option<&'static str> {
     let r = reason.to_ascii_lowercase();
     // The classic Kali-vs-lab-DC case: LDAPS handshake fails cert verification, DC resets.
     // "Connection reset by peer" over an ldaps:// URL is almost always this.
@@ -1700,6 +1700,34 @@ fn diagnose_connection_error(reason: &str) -> Option<&'static str> {
     if r.contains("timed out") || r.contains("timeout") {
         return Some(
             "Timeout — firewall dropping packets, or the DC is behind a slow path; retry with --insecure and plain ldap:// to isolate",
+        );
+    }
+    // Bind mid-negotiation drop (EOF/broken pipe): the DC read our BIND then closed
+    // rather than replying — typically an unsupported SASL mechanism or a hardened LDAPS
+    // that refused the auth level (signing/CBT) without an explicit LDAP-level fault code.
+    if r.contains("broken pipe")
+        || r.contains("unexpected eof")
+        || r.contains("os error 32")
+        || r.contains("os error 10054")
+    {
+        return Some(
+            "Server closed the connection mid-handshake — usually unsupported SASL mechanism or LDAP-signing/CBT rejection. Try `--gssapi` for Kerberos signing, or plain `ldap://` on 389 to isolate whether the TLS layer is the problem.",
+        );
+    }
+    // DNS resolution failure — often "no such host" / getaddrinfo errors surfaced by tokio.
+    if r.contains("no such host")
+        || r.contains("failed to lookup address")
+        || r.contains("nodename nor servname")
+        || r.contains("os error 11001")
+    {
+        return Some(
+            "Hostname didn't resolve — check your DNS points at the DC (or add it to /etc/hosts). Try `dig +short <host>` / `nslookup <host>`.",
+        );
+    }
+    // Fallback: raw I/O errors that didn't match a more specific branch.
+    if r.contains("i/o error") || r.contains("io error") {
+        return Some(
+            "Low-level I/O error at the socket layer — verify TCP reachability first (`nc -vz <host> <port>`), then retry with `--insecure` if the port is open but TLS is refusing.",
         );
     }
     None

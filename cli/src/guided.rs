@@ -196,7 +196,7 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         "step 1/4 - binding to {connect_host} as {}",
         a.user
     ));
-    let mut c = Collector::connect(&cfg).await?;
+    let mut c = connect_with_step_by_step(&cfg, &connect_host).await?;
     bind_phase.finish(ui::OutcomeKind::Validated, "LDAP bind established");
 
     let collect_phase =
@@ -1705,6 +1705,100 @@ fn url_host(url: &str) -> String {
         .to_string()
 }
 
+/// Break an LDAP URL into (host, port, is_tls). Handles both `ldap://host:389` and
+/// `ldaps://host:636`, defaulting the port to 389/636 when the URL omits it. Used by the
+/// step-by-step connect diagnostic so the operator sees the exact target we're probing.
+fn parse_url_target(url: &str) -> (String, u16, bool) {
+    let is_tls = url.starts_with("ldaps://");
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let hostport = after_scheme.split('/').next().unwrap_or("");
+    let mut parts = hostport.splitn(2, ':');
+    let host = parts.next().unwrap_or("").to_string();
+    let port = parts
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(if is_tls { 636 } else { 389 });
+    (host, port, is_tls)
+}
+
+/// Wrap `Collector::connect` with step-by-step narration so a failure names the exact
+/// stage that broke (TCP reachability vs LDAP bind) and prints an actionable "cause"
+/// line — instead of a single opaque "I/O error: Connection reset by peer" the operator
+/// can't diagnose. The first stage (TCP with a 5s timeout) separates "port closed / host
+/// down / firewall" from "bind negotiation refused"; the second wraps the ldap3 connect
+/// and pipes the anyhow chain through `diagnose_connection_error` for a specific hint.
+async fn connect_with_step_by_step(cfg: &LdapConfig, host_hint: &str) -> Result<Collector> {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+
+    let (parsed_host, port, is_tls) = parse_url_target(&cfg.url);
+    let host = if parsed_host.is_empty() {
+        host_hint.to_string()
+    } else {
+        parsed_host
+    };
+    let endpoint = format!("{host}:{port}");
+
+    // Attempt summary — surface every knob so a failure is diagnosable without asking.
+    ui::field_err("url", &cfg.url);
+    ui::field_err("endpoint", &endpoint);
+    ui::field_err("bind", &cfg.bind_dn);
+    ui::field_err("tls", if is_tls { "yes (ldaps)" } else { "no (ldap)" });
+    ui::field_err(
+        "cert-verify",
+        if cfg.insecure {
+            "skipped (--insecure)"
+        } else {
+            "enforced (default; add --insecure for lab CAs)"
+        },
+    );
+    ui::field_err(
+        "sasl",
+        if cfg.gssapi {
+            "GSSAPI/Kerberos"
+        } else {
+            "simple (BIND w/ password)"
+        },
+    );
+
+    // Stage 1: raw TCP — clarifies "port closed / firewall / down" vs "bind refused".
+    let tcp = ui::Spinner::start(format!("stage 1/2 TCP connect {endpoint}"));
+    match timeout(Duration::from_secs(5), TcpStream::connect(&endpoint)).await {
+        Ok(Ok(_)) => tcp.done(&format!("TCP {endpoint} reachable")),
+        Ok(Err(e)) => {
+            tcp.done(&format!("TCP {endpoint} REFUSED"));
+            return Err(anyhow::anyhow!(
+                "TCP connect to {endpoint} failed: {e}\n  → cause: port closed / service not listening / firewall drop\n  → next: `nc -vz {host} {port}` from this host to confirm; if closed, verify DC service state or open the port"
+            ));
+        }
+        Err(_) => {
+            tcp.done(&format!("TCP {endpoint} TIMEOUT (>5s)"));
+            return Err(anyhow::anyhow!(
+                "TCP connect to {endpoint} timed out (5s)\n  → cause: firewall dropping packets, or a routing/NAT issue between this host and the DC\n  → next: `ping {host}` (or `traceroute {host}`) — if ping fails, it's the network path; if ping works but the port times out, it's a firewall rule"
+            ));
+        }
+    }
+
+    // Stage 2: full LDAP bind (TLS handshake + BIND + optional SASL). Only reached when
+    // the TCP handshake proved the endpoint accepts connections at all.
+    let bind = ui::Spinner::start("stage 2/2 LDAP bind (TLS handshake + BIND)");
+    match Collector::connect(cfg).await {
+        Ok(c) => {
+            bind.done("LDAP bind established");
+            Ok(c)
+        }
+        Err(e) => {
+            bind.done("LDAP bind FAILED");
+            let reason = format!("{e:#}");
+            let diag = crate::interactive::diagnose_connection_error(&reason).unwrap_or(
+                "unknown failure at the LDAP layer — verify --user format (DOMAIN\\user or user@REALM), the password, and (for LDAPS) the cert trust chain (or add --insecure for a lab CA)",
+            );
+            Err(anyhow::anyhow!("{reason}\n  → cause: {diag}"))
+        }
+    }
+}
+
 fn dns_from_dn(dn: &str) -> String {
     dn.split(',')
         .filter_map(|p| {
@@ -1734,6 +1828,38 @@ mod tests {
         assert_eq!(url_host("ldaps://192.168.10.1:636"), "192.168.10.1");
         assert_eq!(dns_from_dn("DC=testlab,DC=local"), "testlab.local");
         assert_eq!(netbios_from_dn("DC=testlab,DC=local"), "TESTLAB");
+    }
+
+    #[test]
+    fn parse_url_target_covers_scheme_and_default_ports() {
+        // Explicit port.
+        assert_eq!(
+            parse_url_target("ldaps://dc.corp:636"),
+            ("dc.corp".to_string(), 636, true)
+        );
+        assert_eq!(
+            parse_url_target("ldap://dc.corp:389"),
+            ("dc.corp".to_string(), 389, false)
+        );
+        // Default ports when omitted.
+        assert_eq!(
+            parse_url_target("ldaps://dc.corp"),
+            ("dc.corp".to_string(), 636, true)
+        );
+        assert_eq!(
+            parse_url_target("ldap://dc.corp"),
+            ("dc.corp".to_string(), 389, false)
+        );
+        // Trailing path shouldn't confuse the parser.
+        assert_eq!(
+            parse_url_target("ldaps://dc.corp:636/dc=corp,dc=local"),
+            ("dc.corp".to_string(), 636, true)
+        );
+        // IPv4 endpoint on non-standard port (the operator override case).
+        assert_eq!(
+            parse_url_target("ldap://10.0.0.1:1389"),
+            ("10.0.0.1".to_string(), 1389, false)
+        );
     }
 
     fn f(id: &str, affected: &[&str]) -> Finding {
