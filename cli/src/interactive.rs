@@ -13,6 +13,7 @@ use crate::attacks::asktgt::{asktgt, AsktgtArgs};
 use crate::attacks::badsuccessor::{badsuccessor, BadsuccessorArgs};
 use crate::attacks::coerce::{coerce, CoerceArgs, CoercePipe};
 use crate::attacks::dcsync::{dcsync, DcsyncArgs};
+use crate::attacks::dns::{dns as attack_dns, DnsAction, DnsArgs as AttackDnsArgs};
 use crate::attacks::esc1::{esc1, Esc1Args};
 use crate::attacks::esc4::{esc4, Esc4Args};
 use crate::attacks::exec_pack::{exec_cmd, wmiexec_cmd, ExecArgs};
@@ -39,6 +40,7 @@ use crate::enums::dns::{dnsenum, DnsArgs};
 use crate::enums::esc_registry::{esc_registry_scan, EscArgs};
 use crate::enums::net::{netenum, NetArgs};
 use crate::enums::posture::{posture_scan, PostureArgs};
+use crate::enums::sccm::{sccmenum, scomenum, SysCenterArgs};
 use crate::enums::sessions::{sessions, SessionsArgs};
 
 /// Default Domain-Admin group RID set embedded in forged tickets.
@@ -83,6 +85,9 @@ enum Action {
     Dcshadow,
     Constrained,
     Mssql,
+    AttackDns,
+    EnumSccm,
+    EnumScom,
     ShowRoadmap,
     WipeSession,
     Exit,
@@ -132,6 +137,14 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
             (
                 "Zerologon — CVE-2020-1472 SAFE detection (no reset)",
                 Action::Zerologon,
+            ),
+            (
+                "SCCM — enumerate CN=System Management (Management Points, site codes)",
+                Action::EnumSccm,
+            ),
+            (
+                "SCOM — enumerate CN=OperationsManager (mgmt servers, gateways)",
+                Action::EnumScom,
             ),
         ],
     ),
@@ -193,6 +206,10 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
             (
                 "MSSQL — xp_cmdshell / EXECUTE AS impersonation",
                 Action::Mssql,
+            ),
+            (
+                "ADIDNS write — add/modify/tombstone/delete A record (dry-run gated)",
+                Action::AttackDns,
             ),
         ],
     ),
@@ -576,6 +593,71 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 user: s.username.clone(),
                 password: s.password.clone(),
                 insecure: s.insecure,
+            })
+            .await
+        }
+        Action::EnumSccm => {
+            sccmenum(SysCenterArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
+            })
+            .await
+        }
+        Action::EnumScom => {
+            scomenum(SysCenterArgs {
+                url: s.ldap_url(),
+                user: s.username.clone(),
+                password: s.password.clone(),
+                insecure: s.insecure,
+            })
+            .await
+        }
+        Action::AttackDns => {
+            let actions = [
+                DnsAction::AddA,
+                DnsAction::ModifyA,
+                DnsAction::Tombstone,
+                DnsAction::Delete,
+            ];
+            let labels = ["add-a", "modify-a", "tombstone", "delete"];
+            let ai = prompt_select("ADIDNS action", &labels, 0)?;
+            let name: String = Input::new()
+                .with_prompt("Record name (relative like `www`, or FQDN)")
+                .interact_text()?;
+            let need_ip = matches!(actions[ai], DnsAction::AddA | DnsAction::ModifyA);
+            let ip: String = if need_ip {
+                Input::new()
+                    .with_prompt("IPv4 address (a.b.c.d)")
+                    .interact_text()?
+            } else {
+                String::new()
+            };
+            let forest = Confirm::new()
+                .with_prompt("Target ForestDnsZones instead of DomainDnsZones?")
+                .default(false)
+                .interact()?;
+            // Interactive default = dry-run ON (mirrors the "no destructive writes without explicit
+            // ack" pattern used for Zerologon detection). Operator can opt out with the confirm.
+            let live = Confirm::new()
+                .with_prompt("Perform the write LIVE against the DC (No = dry-run)?")
+                .default(false)
+                .interact()?;
+            attack_dns(AttackDnsArgs {
+                auth: crate::shared_args::OptAuth {
+                    url: Some(s.ldap_url()),
+                    user: Some(s.username.clone()),
+                    password: Some(s.password.clone()),
+                    insecure: s.insecure,
+                },
+                action: actions[ai],
+                name,
+                ip,
+                zone: None,
+                forest,
+                ttl: 3600,
+                dry_run: !live,
             })
             .await
         }
@@ -1446,6 +1528,9 @@ fn action_name(action: &Action) -> &'static str {
         Action::Dcshadow => "DCShadow detector",
         Action::Constrained => "Constrained delegation",
         Action::Mssql => "MSSQL",
+        Action::AttackDns => "ADIDNS write",
+        Action::EnumSccm => "SCCM enumeration",
+        Action::EnumScom => "SCOM enumeration",
         Action::ShowRoadmap => "Roadmap",
         Action::WipeSession => "Wipe session",
         Action::Exit => "Exit",
@@ -1464,6 +1549,8 @@ fn action_mode(action: &Action) -> &'static str {
         | Action::EnumEsc
         | Action::EnumPosture
         | Action::EnumSessions
+        | Action::EnumSccm
+        | Action::EnumScom
         | Action::Unconstrained
         | Action::Dcshadow
         | Action::Zerologon => "passive / low-impact",
@@ -1489,7 +1576,8 @@ fn action_mode(action: &Action) -> &'static str {
         | Action::Coerce
         | Action::Dcsync
         | Action::Shadowcred
-        | Action::Badsuccessor => "active / impacting",
+        | Action::Badsuccessor
+        | Action::AttackDns => "active / impacting",
         Action::ShowRoadmap | Action::WipeSession | Action::Exit => "session",
     }
 }
