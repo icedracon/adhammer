@@ -1,42 +1,105 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ADhammer standalone mark — 512×512 square, scales cleanly to 16/32/64/128/256 px.
+    Single-hue blue-cyan (site accent #2ea8ff) on near-black ground.
+    Palette matches https://icedracon.github.io/adhammer/
+  -->
   <defs>
-    <style>
-      .bg { fill: #05070d; }
-      .panel { fill: #0b111b; }
-      .line { fill: none; stroke: #3db2ff; stroke-width: 12; stroke-linecap: square; stroke-linejoin: miter; }
-      .thin { fill: none; stroke: #1f5f93; stroke-width: 2; stroke-linecap: square; }
-      .text-main { fill: #d8ecff; font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 44px; letter-spacing: 10px; }
-      .text-sub { fill: #3db2ff; font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 14px; letter-spacing: 6px; }
-    </style>
+    <radialGradient id="lg-bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" style="stop-color:#0a1626"/>
+      <stop offset="70%" style="stop-color:#06101c"/>
+      <stop offset="100%" style="stop-color:#05070d"/>
+    </radialGradient>
+    <linearGradient id="lg-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8fd4ff"/>
+      <stop offset="50%" style="stop-color:#2ea8ff"/>
+      <stop offset="100%" style="stop-color:#0a3d80"/>
+    </linearGradient>
+    <linearGradient id="lg-hex" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2ea8ff;stop-opacity:0.95"/>
+      <stop offset="100%" style="stop-color:#0a3d80;stop-opacity:0.95"/>
+    </linearGradient>
+    <filter id="lg-glow-strong" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="lg-glow-soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
 
-  <rect class="bg" width="512" height="512" rx="88"/>
-  <rect class="panel" x="32" y="32" width="448" height="448" rx="72"/>
+  <rect width="512" height="512" rx="96" fill="url(#lg-bg)"/>
 
-  <g opacity="0.22">
-    <path class="thin" d="M 96 128 L 416 128"/>
-    <path class="thin" d="M 96 256 L 416 256"/>
-    <path class="thin" d="M 96 384 L 416 384"/>
-    <path class="thin" d="M 128 96 L 128 416"/>
-    <path class="thin" d="M 256 96 L 256 416"/>
-    <path class="thin" d="M 384 96 L 384 416"/>
+  <!-- Subtle grid overlay for cyber texture. -->
+  <g opacity="0.10" stroke="#2ea8ff" stroke-width="1" fill="none">
+    <path d="M 0 128 L 512 128 M 0 256 L 512 256 M 0 384 L 512 384"/>
+    <path d="M 128 0 L 128 512 M 256 0 L 256 512 M 384 0 L 384 512"/>
   </g>
 
-  <g opacity="0.85">
-    <path class="line" d="M 84 84 L 120 84 M 84 84 L 84 120"/>
-    <path class="line" d="M 428 84 L 392 84 M 428 84 L 428 120"/>
-    <path class="line" d="M 84 428 L 120 428 M 84 428 L 84 392"/>
-    <path class="line" d="M 428 428 L 392 428 M 428 428 L 428 392"/>
+  <!-- Radial energy rays around center (echoes site logo). -->
+  <g transform="translate(256, 256)" opacity="0.55">
+    <g fill="none" stroke="#2ea8ff" stroke-width="1.5" stroke-linecap="round">
+      <line x1="0" y1="-206" x2="0" y2="-176" opacity="0.9"/>
+      <line x1="0" y1="206"  x2="0" y2="176"  opacity="0.9"/>
+      <line x1="-206" y1="0" x2="-176" y2="0" opacity="0.9"/>
+      <line x1="206"  y1="0" x2="176"  y2="0" opacity="0.9"/>
+      <line x1="-146" y1="-146" x2="-125" y2="-125" opacity="0.6"/>
+      <line x1="146"  y1="-146" x2="125"  y2="-125" opacity="0.6"/>
+      <line x1="-146" y1="146"  x2="-125" y2="125"  opacity="0.6"/>
+      <line x1="146"  y1="146"  x2="125"  y2="125"  opacity="0.6"/>
+    </g>
   </g>
 
-  <g transform="translate(256 214)">
-    <path class="line" d="M -92 -42 H 72 V 30 H -92 Z"/>
-    <path class="line" d="M 0 42 V 132"/>
-    <path class="line" d="M -120 -70 L -92 -42"/>
-    <path class="line" d="M 72 -42 L 104 -74"/>
-    <path class="line" d="M -48 30 V -8"/>
+  <!-- Outer hexagon frame. -->
+  <g transform="translate(256, 256)" filter="url(#lg-glow-soft)">
+    <polygon
+      points="0,-180 156,-90 156,90 0,180 -156,90 -156,-90"
+      fill="none"
+      stroke="url(#lg-hex)"
+      stroke-width="10"
+      stroke-linejoin="round"/>
   </g>
 
-  <text class="text-main" x="256" y="394" text-anchor="middle">AD</text>
-  <text class="text-sub" x="256" y="430" text-anchor="middle">HAMMER</text>
+  <!-- Inner hexagon (echo). -->
+  <g transform="translate(256, 256)" opacity="0.35">
+    <polygon
+      points="0,-140 121,-70 121,70 0,140 -121,70 -121,-70"
+      fill="none"
+      stroke="#2ea8ff"
+      stroke-width="1.5"
+      stroke-linejoin="round"/>
+  </g>
+
+  <!-- Corner brackets (cyber signature). -->
+  <g stroke="#2ea8ff" stroke-width="3" fill="none" opacity="0.6">
+    <path d="M 40 40 L 40 82 M 40 40 L 82 40"/>
+    <path d="M 472 40 L 472 82 M 472 40 L 430 40"/>
+    <path d="M 40 472 L 40 430 M 40 472 L 82 472"/>
+    <path d="M 472 472 L 472 430 M 472 472 L 430 472"/>
+  </g>
+
+  <!-- Hammer. -->
+  <g transform="translate(256, 236)" filter="url(#lg-glow-strong)">
+    <rect x="-88" y="-46" width="176" height="92" rx="12"
+          fill="none" stroke="url(#lg-accent)" stroke-width="7" stroke-linejoin="round"/>
+    <rect x="-72" y="-32" width="144" height="64" rx="6"
+          fill="#2ea8ff" opacity="0.12"/>
+    <circle cx="0" cy="0" r="9" fill="url(#lg-accent)"/>
+    <circle cx="0" cy="0" r="4" fill="#05070d"/>
+    <rect x="-11" y="46" width="22" height="112" rx="5"
+          fill="none" stroke="url(#lg-accent)" stroke-width="6" stroke-linejoin="round"/>
+    <!-- Impact lines — symmetric blue this time. -->
+    <line x1="-124" y1="-14" x2="-152" y2="-42" stroke="#8fd4ff" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+    <line x1="-118" y1="14" x2="-148" y2="30" stroke="#2ea8ff" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+    <line x1="124" y1="-14" x2="152" y2="-42" stroke="#8fd4ff" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+    <line x1="118" y1="14" x2="148" y2="30" stroke="#2ea8ff" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+  </g>
 </svg>
