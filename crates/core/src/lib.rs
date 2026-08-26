@@ -12,4 +12,4 @@ pub use finding::{
 };
 pub use object::AdObject;
 pub use sid::{Guid, Sid};
-pub use snapshot::Snapshot;
+pub use snapshot::{SearchOp, Snapshot};
