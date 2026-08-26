@@ -7,11 +7,12 @@
 //! plus sidecar JSON / HTML / text artifacts for automation, screenshots, and client handoff.
 
 use crate::ui;
-use adhammer_checks::run_all;
+use adhammer_checks::run_all_with_coverage;
 use adhammer_collector::{Collector, LdapConfig};
 use adhammer_core::finding::{Category, Finding, Severity};
 use adhammer_core::snapshot::Snapshot;
 use adhammer_graph::ControlGraph;
+use adhammer_report::CheckCoverage;
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input};
 use serde::Serialize;
@@ -222,10 +223,28 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     );
 
     let checks_phase = ui::Phase::start("step 4/4 - running supported security checks");
-    let mut findings = run_all(&snap, &graph); // already sorted by score, desc
+    // WS-0b: coverage roster in the guided/auto artifact — same call `scan` uses (WS-R2),
+    // so the exported bundle carries the 58-check matrix (not just the tripped findings).
+    let cov_raw = run_all_with_coverage(&snap, &graph);
+    let coverage: Vec<CheckCoverage> = cov_raw
+        .iter()
+        .map(|(id, fs)| CheckCoverage {
+            id: (*id).to_string(),
+            findings: fs.len(),
+        })
+        .collect();
+    let mut findings: Vec<Finding> = cov_raw.into_iter().flat_map(|(_, fs)| fs).collect();
+    findings.sort_by_key(|f| std::cmp::Reverse(f.score()));
+    let tripped = coverage.iter().filter(|c| c.findings > 0).count();
     checks_phase.finish(
         ui::OutcomeKind::Validated,
-        &format!("{} passive finding(s)", findings.len()),
+        &format!(
+            "{} passive finding(s) — {} checks ran, {} tripped, {} clean",
+            findings.len(),
+            coverage.len(),
+            tripped,
+            coverage.len() - tripped
+        ),
     );
 
     let ctx = Ctx {
@@ -528,10 +547,10 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     }
 
     let artifacts = artifact_paths(&a.out);
-    let report = build_report(&snap, &results, &impact_yes);
-    let json = build_json_report(&snap, &results, &impact_yes);
-    let html = build_html_report(&snap, &results, &impact_yes);
-    let txt = build_text_report(&snap, &results);
+    let report = build_report(&snap, &results, &impact_yes, &coverage);
+    let json = build_json_report(&snap, &results, &impact_yes, &coverage);
+    let html = build_html_report(&snap, &results, &impact_yes, &coverage);
+    let txt = build_text_report(&snap, &results, &coverage);
     let export_choice = if a.yes {
         ExportChoice::FullBundle
     } else {
@@ -1000,11 +1019,13 @@ fn build_report(
     snap: &Snapshot,
     results: &[(Finding, Outcome)],
     impact_ids: &std::collections::HashSet<String>,
+    coverage: &[CheckCoverage],
 ) -> String {
     let (v, at, d, p) = tally(results);
     let mut s = String::new();
     s.push_str("# ADhammer — guided assessment report\n\n");
     s.push_str(&format!("**Domain:** `{}`\n\n", snap.domain.domain_dn));
+    s.push_str(&coverage_md_block(coverage));
     s.push_str(&format!(
         "**Summary:** {} finding(s) — **{v} validated (PoC)**, {at} attempted, {d} declined, {p} potential.\n\n",
         results.len()
@@ -1073,6 +1094,76 @@ struct GuidedArtifactReport {
     domain: String,
     summary: GuidedArtifactSummary,
     findings: Vec<GuidedArtifactFinding>,
+    /// WS-0b: the 58-check coverage matrix (same shape as `scan`'s WS-R2 output), so the exported
+    /// artifact carries "checked X, clean" not just the tripped findings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    coverage: Vec<CheckCoverage>,
+}
+
+/// WS-0b: shared coverage-matrix renderers so the guided/auto artifacts mirror the primary
+/// `scan` report shape (`coverage_md` / `coverage_html` in `crates/report`).
+fn coverage_md_block(cov: &[CheckCoverage]) -> String {
+    if cov.is_empty() {
+        return String::new();
+    }
+    let tripped = cov.iter().filter(|c| c.findings > 0).count();
+    let clean = cov.len() - tripped;
+    let mut out = format!(
+        "## Check coverage\n\nAll {} passive checks ran — **{} tripped**, **{} clean**.\n\n| Check | Result |\n|---|---|\n",
+        cov.len(), tripped, clean
+    );
+    for c in cov {
+        let status = if c.findings > 0 {
+            format!("{} finding(s)", c.findings)
+        } else {
+            "clean".to_string()
+        };
+        out.push_str(&format!("| `{}` | {} |\n", c.id, status));
+    }
+    out.push('\n');
+    out
+}
+
+fn coverage_html_block(cov: &[CheckCoverage]) -> String {
+    if cov.is_empty() {
+        return String::new();
+    }
+    let tripped = cov.iter().filter(|c| c.findings > 0).count();
+    let clean = cov.len() - tripped;
+    let mut rows = String::new();
+    for c in cov {
+        let (klass, status) = if c.findings > 0 {
+            ("tripped", format!("{} finding(s)", c.findings))
+        } else {
+            ("clean", "clean".to_string())
+        };
+        rows.push_str(&format!(
+            "<tr class=\"cov-{klass}\"><td><code>{}</code></td><td>{status}</td></tr>",
+            c.id.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        ));
+    }
+    format!(
+        "<section class=\"panel\"><h2>Check coverage</h2>\
+         <p>All {} passive checks ran — <b>{} tripped</b>, <b>{} clean</b>.</p>\
+         <table class=\"cov\"><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>\
+         </section>",
+        cov.len(), tripped, clean
+    )
+}
+
+fn coverage_text_line(cov: &[CheckCoverage]) -> String {
+    if cov.is_empty() {
+        return String::new();
+    }
+    let tripped = cov.iter().filter(|c| c.findings > 0).count();
+    format!(
+        "Coverage: {} checks ran, {} tripped, {} clean\n",
+        cov.len(),
+        tripped,
+        cov.len() - tripped
+    )
 }
 
 #[derive(Serialize)]
@@ -1253,6 +1344,7 @@ fn build_json_report(
     snap: &Snapshot,
     results: &[(Finding, Outcome)],
     impact_ids: &std::collections::HashSet<String>,
+    coverage: &[CheckCoverage],
 ) -> String {
     let (validated, attempted, declined, potential) = tally(results);
     let findings = results
@@ -1290,6 +1382,7 @@ fn build_json_report(
             potential,
         },
         findings,
+        coverage: coverage.to_vec(),
     };
     serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into())
 }
@@ -1298,6 +1391,7 @@ fn build_html_report(
     snap: &Snapshot,
     results: &[(Finding, Outcome)],
     impact_ids: &std::collections::HashSet<String>,
+    coverage: &[CheckCoverage],
 ) -> String {
     let (validated, attempted, declined, potential) = tally(results);
     let domain_dns = dns_from_dn(&snap.domain.domain_dn);
@@ -1349,6 +1443,7 @@ fn build_html_report(
     }
 
     let mut body = String::new();
+    body.push_str(&coverage_html_block(coverage));
     for (f, o) in results {
         let impact = if impact_ids.contains(&f.id) {
             f.impact
@@ -1504,13 +1599,18 @@ fn current_utc_date() -> String {
     format!("{year:04}-{m:02}-{d:02}")
 }
 
-fn build_text_report(snap: &Snapshot, results: &[(Finding, Outcome)]) -> String {
+fn build_text_report(
+    snap: &Snapshot,
+    results: &[(Finding, Outcome)],
+    coverage: &[CheckCoverage],
+) -> String {
     let (validated, attempted, declined, potential) = tally(results);
     let mut out = String::new();
     out.push_str(&format!(
         "ADhammer guided summary — {}\n\n",
         snap.domain.domain_dn
     ));
+    out.push_str(&coverage_text_line(coverage));
     out.push_str(&format!(
         "Findings: {} total | {} validated | {} attempted | {} declined | {} potential\n\n",
         results.len(),
