@@ -303,13 +303,33 @@ impl Collector {
     /// A missing Public Key Services container (no ADCS) is tolerated, not fatal.
     pub async fn collect(mut self) -> Result<Snapshot> {
         let mut objects = Vec::new();
+        // WS-WPT session 3b: record every LDAP search the collector runs + which DNs it
+        // populated, so LDAP-passive checks can synthesize a wire-exchange proof from the
+        // same source of truth. Fully additive — legacy callers just see the same Snapshot.
+        let mut searches: Vec<adhammer_core::SearchOp> = Vec::new();
+        let mut dn_links: Vec<(String, usize)> = Vec::new();
 
         let base = self.base_dn.clone();
-        self.search_into(&base, "(objectClass=*)", &mut objects)
-            .await?;
+        self.search_into(
+            &base,
+            "(objectClass=*)",
+            &mut objects,
+            &mut searches,
+            &mut dn_links,
+        )
+        .await?;
 
         let pki_base = format!("CN=Public Key Services,CN=Services,{}", self.config_dn);
-        if let Err(e) = self.search_into(&pki_base, PKI_FILTER, &mut objects).await {
+        if let Err(e) = self
+            .search_into(
+                &pki_base,
+                PKI_FILTER,
+                &mut objects,
+                &mut searches,
+                &mut dn_links,
+            )
+            .await
+        {
             tracing::warn!(%e, "AD CS container not collected (no PKI, or access denied)");
         }
 
@@ -317,25 +337,53 @@ impl Collector {
             "CN=Directory Service,CN=Windows NT,CN=Services,{}",
             self.config_dn
         );
-        if let Err(e) = self.search_base_into(&ds, &mut objects).await {
+        if let Err(e) = self
+            .search_base_into(&ds, &mut objects, &mut searches, &mut dn_links)
+            .await
+        {
             tracing::warn!(%e, "Directory Service object not collected");
         }
 
         let domain = self.domain_info(&objects);
-        Ok(Snapshot::new(domain, objects))
+        let mut snap = Snapshot::new(domain, objects);
+        for op in searches {
+            snap.record_search(op);
+        }
+        for (dn, idx) in dn_links {
+            snap.link_dn_to_search(&dn, idx);
+        }
+        Ok(snap)
     }
 
     /// Base-scope read of a single object (e.g. the Directory Service heuristics object).
-    async fn search_base_into(&mut self, base: &str, out: &mut Vec<AdObject>) -> Result<()> {
+    async fn search_base_into(
+        &mut self,
+        base: &str,
+        out: &mut Vec<AdObject>,
+        searches: &mut Vec<adhammer_core::SearchOp>,
+        dn_links: &mut Vec<(String, usize)>,
+    ) -> Result<()> {
+        let search_idx = searches.len();
         self.ldap.with_controls(sd_flags_control());
         let (rs, _) = self
             .ldap
             .search(base, Scope::Base, "(objectClass=*)", ATTRS.to_vec())
             .await?
             .success()?;
+        let mut count = 0usize;
         for e in rs {
-            out.push(to_object(SearchEntry::construct(e)));
+            let obj = to_object(SearchEntry::construct(e));
+            dn_links.push((obj.dn.clone(), search_idx));
+            out.push(obj);
+            count += 1;
         }
+        searches.push(adhammer_core::SearchOp {
+            base_dn: base.into(),
+            filter: "(objectClass=*)".into(),
+            attrs: ATTRS.iter().map(|s| (*s).into()).collect(),
+            returned_count: count,
+            scope: "base".into(),
+        });
         Ok(())
     }
 
@@ -344,7 +392,10 @@ impl Collector {
         base: &str,
         filter: &str,
         out: &mut Vec<AdObject>,
+        searches: &mut Vec<adhammer_core::SearchOp>,
+        dn_links: &mut Vec<(String, usize)>,
     ) -> Result<()> {
+        let search_idx = searches.len();
         let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
             Box::new(EntriesOnly::new()),
             Box::new(PagedResults::new(1000)),
@@ -354,10 +405,21 @@ impl Collector {
             .ldap
             .streaming_search_with(adapters, base, Scope::Subtree, filter, ATTRS.to_vec())
             .await?;
+        let mut count = 0usize;
         while let Some(entry) = stream.next().await? {
-            out.push(to_object(SearchEntry::construct(entry)));
+            let obj = to_object(SearchEntry::construct(entry));
+            dn_links.push((obj.dn.clone(), search_idx));
+            out.push(obj);
+            count += 1;
         }
         stream.finish().await.success().ok();
+        searches.push(adhammer_core::SearchOp {
+            base_dn: base.into(),
+            filter: filter.into(),
+            attrs: ATTRS.iter().map(|s| (*s).into()).collect(),
+            returned_count: count,
+            scope: "sub".into(),
+        });
         Ok(())
     }
 
