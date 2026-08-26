@@ -576,6 +576,7 @@ impl Report {
                        <h3>{title}</h3>\
                        <div class=meta><div class=k>Why</div><div>{detail}</div></div>\
                        {evidence}\
+                       {wire}\
                        {mitre}\
                        <div class=meta><div class=k>Affected</div><div>{affected}</div></div>\
                        {impact}\
@@ -617,6 +618,7 @@ impl Report {
                             .collect();
                         format!("<div class=meta><div class=k>Evidence (ground truth)</div><div>{rows}</div></div>")
                     },
+                    wire = wire_html(&f.exchange),
                     mitre = mitre,
                     affected = affected_html(&f.affected),
                     impact = impact,
@@ -789,6 +791,7 @@ impl Report {
                         ));
                     }
                 }
+                out.push_str(&wire_md(&f.exchange));
                 if let Some(impact) = &f.impact {
                     out.push_str(&format!("- Impact: {}\n", collapse_ws(impact)));
                 }
@@ -881,6 +884,10 @@ impl Report {
                     cap_line(&collapse_ws(&e.value), 96)
                 ));
             }
+            // WS-WPT session 2: one-line wire-exchange summary under each finding when present.
+            if let Some(line) = wire_txt_line(&f.exchange) {
+                out.push_str(&format!("         wire  : {}\n", cap_line(&line, 160)));
+            }
         }
 
         out.push('\n');
@@ -971,6 +978,90 @@ pub(crate) fn html_escape(s: &str) -> String {
 fn collapse_ws(s: &str) -> String {
     // Squash internal newlines/tabs so MD list items and TXT lines stay single-line.
     s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// WS-WPT session 2: HTML render for a finding's wire-exchange transcript. Returns "" when the
+/// exchange is empty (renders as nothing — keeps the finding card compact for pre-WPT checks).
+/// Rendered as an expandable `<details>` block so the report stays scannable but full transcripts
+/// are one click away.
+fn wire_html(exchange: &[adhammer_core::WireExchange]) -> String {
+    if exchange.is_empty() {
+        return String::new();
+    }
+    let rows: String = exchange
+        .iter()
+        .map(|w| {
+            let arrow = match w.direction {
+                adhammer_core::WireDirection::Sent => "→",
+                adhammer_core::WireDirection::Recv => "←",
+            };
+            let opnum = w
+                .opnum
+                .map(|n| format!(" <span class=muted>opnum={n}</span>"))
+                .unwrap_or_default();
+            let hex = w
+                .raw_hex
+                .as_ref()
+                .map(|h| format!("<div class=wire-hex><code>{}</code></div>", html_escape(h)))
+                .unwrap_or_default();
+            format!(
+                "<div class=wire-frame><span class=chip>{layer:?}</span> <b>{arrow}</b> <code>{summary}</code>{opnum}{hex}</div>",
+                layer = w.layer,
+                arrow = arrow,
+                summary = html_escape(&w.summary),
+                opnum = opnum,
+                hex = hex,
+            )
+        })
+        .collect();
+    format!(
+        "<div class=meta><div class=k>Wire exchange</div><div><details class=wire><summary>{} frame(s) — click to expand</summary>{rows}</details></div></div>",
+        exchange.len(),
+    )
+}
+
+/// WS-WPT session 2: Markdown lines for the wire exchange under a finding. Empty string when
+/// the finding has no exchange (pre-WPT checks). One `- wire: ...` bullet per frame.
+fn wire_md(exchange: &[adhammer_core::WireExchange]) -> String {
+    if exchange.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("- Wire exchange:\n");
+    for w in exchange {
+        let arrow = match w.direction {
+            adhammer_core::WireDirection::Sent => "→",
+            adhammer_core::WireDirection::Recv => "←",
+        };
+        let opnum = w.opnum.map(|n| format!(" [opnum {n}]")).unwrap_or_default();
+        out.push_str(&format!(
+            "  - `{:?}` {arrow} {}{opnum}\n",
+            w.layer,
+            collapse_ws(&w.summary),
+        ));
+        if let Some(hex) = &w.raw_hex {
+            out.push_str(&format!(
+                "    - raw (hex, capped): `{}`\n",
+                collapse_ws(hex)
+            ));
+        }
+    }
+    out
+}
+
+/// WS-WPT session 2: single one-liner for the text summary — "wire: LAYER → summary".
+/// Empty when the finding has no exchange. Capped by the caller.
+fn wire_txt_line(exchange: &[adhammer_core::WireExchange]) -> Option<String> {
+    let first = exchange.first()?;
+    let arrow = match first.direction {
+        adhammer_core::WireDirection::Sent => "→",
+        adhammer_core::WireDirection::Recv => "←",
+    };
+    Some(format!(
+        "{:?} {} {}",
+        first.layer,
+        arrow,
+        collapse_ws(&first.summary)
+    ))
 }
 
 /// Truncate `s` to at most `max` chars (char-boundary safe), appending `…` when it was cut.
@@ -1226,6 +1317,46 @@ mod tests {
         assert!(txt.contains("[CRIT]"));
         assert!(txt.contains("Chains: 1 present"));
         assert!(txt.contains("See report.md"));
+    }
+
+    #[test]
+    fn wire_exchange_renders_in_html_md_and_txt() {
+        // WS-WPT session 2: a finding with WireExchange renders in every text format.
+        use adhammer_core::{WireExchange, WireLayer};
+        let f = mk_finding("A-Rc4Kerberos", Severity::Medium, "RC4 Kerberos")
+            .with_evidence(
+                "LDAP CN=svc,DC=corp:msDS-SupportedEncryptionTypes",
+                "0x4 (RC4 only)",
+            )
+            .with_wire(WireExchange::sent(
+                WireLayer::Ldap,
+                "search base=DC=corp filter=(&(objectClass=user)(servicePrincipalName=*))",
+            ))
+            .with_wires([WireExchange::recv(
+                WireLayer::Ldap,
+                "3 entries — 1 with msDS-SupportedEncryptionTypes=0x4",
+            )]);
+        let r = empty_report(vec![f]);
+
+        let html = r.to_html();
+        assert!(
+            html.contains("Wire exchange"),
+            "html missing wire block\n{html}"
+        );
+        assert!(
+            html.contains("<details class=wire"),
+            "html wire not <details>"
+        );
+
+        let md = r.to_markdown();
+        assert!(
+            md.contains("- Wire exchange:"),
+            "md missing wire section\n{md}"
+        );
+        assert!(md.contains("`Ldap`"), "md wire missing layer label\n{md}");
+
+        let txt = r.to_text_summary(5);
+        assert!(txt.contains("wire  :"), "txt missing wire line\n{txt}");
     }
 
     #[test]
