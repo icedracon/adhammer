@@ -71,7 +71,7 @@ ldap3       = { version = "0.11", default-features = false }
 petgraph    = "0.6"
 clap        = { version = "4", features = ["derive"] }
 tracing     = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # crypto / kerberos (roasting layer)
 picky-krb   = "0.9"

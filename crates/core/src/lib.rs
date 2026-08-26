@@ -3,6 +3,7 @@
 
 pub mod finding;
 pub mod object;
+pub mod redact;
 pub mod sid;
 pub mod snapshot;
 
@@ -11,5 +12,6 @@ pub use finding::{
     WireLayer,
 };
 pub use object::AdObject;
+pub use redact::Redacted;
 pub use sid::{Guid, Sid};
 pub use snapshot::{SearchOp, Snapshot};

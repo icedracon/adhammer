@@ -57,6 +57,20 @@ struct Cli {
     #[arg(long, global = true)]
     text: bool,
 
+    /// Verbose progress narration — surfaces each major step (LDAP bind, collect phases,
+    /// check batches, wire probes). Enables `info`-level tracing across adhammer's own
+    /// crates; protocol crates stay at `warn`. Secrets in traced structs stay redacted
+    /// (`***`) via the `Redacted<T>` wrapper. Overrides `RUST_LOG` if set.
+    #[arg(long, global = true)]
+    verbose: bool,
+
+    /// Debug-level tracing — everything `--verbose` surfaces PLUS wire-layer detail from
+    /// the transport crates (dcerpc, smb2-client, ntlmssp). For bug reports and deep
+    /// diagnosis. Secrets stay redacted (`***`) — `Redacted<T>`-wrapped fields never
+    /// appear in the debug stream. Wins over `--verbose` and `RUST_LOG` when both are set.
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     cmd: Option<Command>,
 }
@@ -429,11 +443,39 @@ fn enable_windows_console() {
 #[cfg(not(windows))]
 fn enable_windows_console() {}
 
+/// Build the tracing-subscriber env filter honoring `--verbose` / `--debug` / `RUST_LOG`.
+/// Order of precedence: `--debug` (wins) > `--verbose` > `RUST_LOG` env > default (`warn`).
+/// `--debug` deliberately does NOT enable `ldap3=debug` — that crate can log bind payloads
+/// containing credentials; secrets stay off the wire per the `Redacted<T>` discipline.
+fn build_tracing_filter(verbose: bool, debug: bool) -> tracing_subscriber::EnvFilter {
+    use tracing_subscriber::EnvFilter;
+    if debug {
+        // adhammer + protocol crates at debug; ldap3 stays at warn (creds-in-payload risk).
+        EnvFilter::try_new(
+            "warn,adhammer=debug,adhammer_collector=debug,adhammer_checks=debug,\
+             adhammer_graph=debug,adhammer_kerberos=debug,adhammer_report=debug,\
+             dcerpc=debug,smb2_client=debug,ntlmssp=debug,ldap3=warn",
+        )
+        .expect("static filter is well-formed")
+    } else if verbose {
+        EnvFilter::try_new(
+            "warn,adhammer=info,adhammer_collector=info,adhammer_checks=info,\
+             adhammer_graph=info,adhammer_kerberos=info,adhammer_report=info,dcerpc=warn",
+        )
+        .expect("static filter is well-formed")
+    } else {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     enable_windows_console();
-    tracing_subscriber::fmt().with_target(false).init();
     let cli = Cli::parse();
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_env_filter(build_tracing_filter(cli.verbose, cli.debug))
+        .init();
 
     // Register the SOCKS5 pivot (if any) before any connection is made. Every owned transport
     // (smb2-client, dcerpc) and the in-tree TCP dials consult this global.
