@@ -238,7 +238,13 @@ fn render_svg(nodes: &[BhNode], edges: &[BhEdge], g: &ControlGraph) -> String {
          <path d=\"M0,0 L10,5 L0,10 z\" fill=\"currentColor\"/></marker></defs>",
     );
 
+    // WS-BHG-INTERACT (1.4.6): wrap the drawn scene in a translatable/scalable group so the
+    // interaction JS can pan (mouse drag) and zoom (wheel) without touching individual nodes.
+    // The <g id="bh-scene"> transform is set by JS on load; static SVG (no JS) renders identity.
+    svg.push_str("<g id=\"bh-scene\">");
+
     // Edges first (drawn under nodes). Deterministic ordering ensures byte-stable output.
+    // Each edge carries data-from / data-to so the click-highlight code can find its endpoints.
     for e in edges {
         let (Some(a), Some(b)) = (
             nodes.iter().find(|n| n.sid == e.from_sid),
@@ -247,16 +253,19 @@ fn render_svg(nodes: &[BhNode], edges: &[BhEdge], g: &ControlGraph) -> String {
             continue;
         };
         svg.push_str(&format!(
-            "<line class=\"bh-edge\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" \
+            "<line class=\"bh-edge\" data-from=\"{fs}\" data-to=\"{ts}\" \
+             x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" \
              marker-end=\"url(#bh-arrow)\"><title>{}</title></line>",
             a.x,
             a.y,
             b.x,
             b.y,
-            html_escape(&format!("{} → {} : {}", a.label, b.label, e.kind))
+            html_escape(&format!("{} → {} : {}", a.label, b.label, e.kind)),
+            fs = html_escape(&e.from_sid),
+            ts = html_escape(&e.to_sid),
         ));
     }
-    // Nodes on top.
+    // Nodes on top. data-sid drives the click-highlight code below.
     for n in nodes {
         let cls = if n.tier0 { "bh-node bh-t0" } else { "bh-node" };
         let short = n.label.chars().take(14).collect::<String>()
@@ -266,7 +275,7 @@ fn render_svg(nodes: &[BhNode], edges: &[BhEdge], g: &ControlGraph) -> String {
                 ""
             };
         svg.push_str(&format!(
-            "<g class=\"{cls}\" transform=\"translate({},{})\"><title>{}</title>\
+            "<g class=\"{cls}\" data-sid=\"{sid}\" transform=\"translate({},{})\" tabindex=\"0\"><title>{}</title>\
              <circle r=\"{NODE_R}\"></circle>\
              <text text-anchor=\"middle\" y=\"{}\">{}</text></g>",
             n.x,
@@ -274,10 +283,14 @@ fn render_svg(nodes: &[BhNode], edges: &[BhEdge], g: &ControlGraph) -> String {
             html_escape(&format!("{} · {} · tier0={}", n.label, n.sid, n.tier0)),
             NODE_R + 14,
             html_escape(&short),
+            sid = html_escape(&n.sid),
         ));
     }
 
-    // Footer text: what was shown vs the full graph, so a report reader knows when the view is pruned.
+    // Close the pan/zoom-able scene wrapper.
+    svg.push_str("</g>");
+
+    // Footer text sits OUTSIDE #bh-scene so it doesn't zoom/pan with the graph.
     let pruned = total_n.saturating_sub(drawn_n);
     let footer = if pruned == 0 {
         format!("full principal graph — {drawn_n} nodes, {drawn_e} edges")
@@ -292,9 +305,96 @@ fn render_svg(nodes: &[BhNode], edges: &[BhEdge], g: &ControlGraph) -> String {
         CANVAS_H - 8,
         html_escape(&footer)
     ));
+
+    // WS-BHG-INTERACT: inline pan/zoom/click handler. Kept small (~1 KB minified-ish), no deps.
+    // Static SVG (JS off) still renders + hovers work; interaction is progressive-enhancement.
+    svg.push_str("<script><![CDATA[");
+    svg.push_str(INTERACT_JS);
+    svg.push_str("]]></script>");
     svg.push_str("</svg>");
     svg
 }
+
+/// WS-BHG-INTERACT (1.4.6 follow-up): the inline JS for pan (mouse drag), zoom (mouse wheel),
+/// and click-to-highlight-neighbors on the principal graph. Self-contained, no deps, byte-stable
+/// (no timestamp or randomness in the source). ~1 KB uncompressed.
+///
+/// Design:
+/// - Pan: mousedown on the SVG background sets a drag origin; mousemove updates
+///   `translate(tx,ty)` on `#bh-scene`.
+/// - Zoom: wheel on the SVG multiplies a `scale` (clamped 0.4..4.0); origin at cursor for
+///   natural focused zoom.
+/// - Click node: dims every unrelated node + edge by adding a `bh-dim` class; clicking blank
+///   background clears the selection. Neighbor lookup uses the `data-sid` on nodes and
+///   `data-from` / `data-to` on edges (both emitted by the Rust renderer).
+///
+/// Keyboard: Escape clears the selection. Focus rings on nodes work because we emit
+/// `tabindex="0"` on each node group.
+const INTERACT_JS: &str = r#"
+(function(){
+  var svg = document.currentScript && document.currentScript.ownerSVGElement;
+  if (!svg) return;
+  var scene = svg.querySelector('#bh-scene');
+  if (!scene) return;
+  var tx = 0, ty = 0, s = 1;
+  var drag = null;
+  function apply(){ scene.setAttribute('transform', 'translate(' + tx + ',' + ty + ') scale(' + s + ')'); }
+  svg.addEventListener('mousedown', function(e){
+    if (e.button !== 0) return;
+    if (e.target.closest('.bh-node')) return; // node click, not pan
+    drag = { x: e.clientX, y: e.clientY, tx: tx, ty: ty };
+    svg.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', function(e){
+    if (!drag) return;
+    tx = drag.tx + (e.clientX - drag.x);
+    ty = drag.ty + (e.clientY - drag.y);
+    apply();
+  });
+  window.addEventListener('mouseup', function(){
+    drag = null;
+    svg.style.cursor = '';
+  });
+  svg.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var factor = e.deltaY < 0 ? 1.15 : (1/1.15);
+    var ns = Math.max(0.4, Math.min(4.0, s * factor));
+    // Zoom about cursor: keep the point under the cursor stationary.
+    var rect = svg.getBoundingClientRect();
+    var vb = svg.viewBox.baseVal;
+    var cx = (e.clientX - rect.left) / rect.width * vb.width;
+    var cy = (e.clientY - rect.top) / rect.height * vb.height;
+    tx = cx - (cx - tx) * (ns / s);
+    ty = cy - (cy - ty) * (ns / s);
+    s = ns;
+    apply();
+  }, { passive: false });
+  function clearSel(){
+    scene.querySelectorAll('.bh-dim').forEach(function(el){ el.classList.remove('bh-dim'); });
+  }
+  scene.addEventListener('click', function(e){
+    var g = e.target.closest('.bh-node');
+    if (!g) { clearSel(); return; }
+    var sid = g.getAttribute('data-sid');
+    var neighbors = new Set([sid]);
+    scene.querySelectorAll('.bh-edge').forEach(function(edge){
+      var f = edge.getAttribute('data-from'), t = edge.getAttribute('data-to');
+      if (f === sid) neighbors.add(t);
+      if (t === sid) neighbors.add(f);
+    });
+    scene.querySelectorAll('.bh-node').forEach(function(n){
+      if (neighbors.has(n.getAttribute('data-sid'))) n.classList.remove('bh-dim');
+      else n.classList.add('bh-dim');
+    });
+    scene.querySelectorAll('.bh-edge').forEach(function(edge){
+      var f = edge.getAttribute('data-from'), t = edge.getAttribute('data-to');
+      if (f === sid || t === sid) edge.classList.remove('bh-dim');
+      else edge.classList.add('bh-dim');
+    });
+  });
+  window.addEventListener('keydown', function(e){ if (e.key === 'Escape') clearSel(); });
+})();
+"#;
 
 /// The CSS block that themes the graph SVG. Included once by `to_html()` next to the existing
 /// `graph_svg` styles; reuses the report's design tokens (WS-THEME) so light/dark just work.
@@ -339,5 +439,28 @@ mod tests {
         assert!(css.contains("var(--panel-2)"));
         assert!(css.contains("var(--text)"));
         assert!(css.contains("var(--red)"), "Tier-0 nodes need red accent");
+    }
+
+    #[test]
+    fn interact_js_is_self_contained_and_covers_pan_zoom_click() {
+        // WS-BHG-INTERACT: the pan/zoom/click JS is inline in the SVG. Sanity that the code
+        // was actually inlined and doesn't require any external dep or a CDN.
+        let js = INTERACT_JS;
+        // Pan handlers
+        assert!(js.contains("mousedown"));
+        assert!(js.contains("mousemove"));
+        assert!(js.contains("mouseup"));
+        // Zoom handler
+        assert!(js.contains("wheel"));
+        // Click-highlight: dims neighbors, keyboard Esc clears
+        assert!(js.contains("bh-dim"));
+        assert!(js.contains("Escape"));
+        // Rule enforcement: no external references
+        assert!(!js.contains("http://"), "no external URLs allowed");
+        assert!(!js.contains("https://"), "no external URLs allowed");
+        assert!(
+            !js.to_ascii_lowercase().contains("cdn"),
+            "no CDN references"
+        );
     }
 }

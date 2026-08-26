@@ -237,6 +237,10 @@ impl Report {
              .bh-node circle{{fill:var(--blue);stroke:var(--line);stroke-width:1.5}}\
              .bh-node.bh-t0 circle{{fill:var(--red);stroke:var(--red);stroke-width:2}}\
              .bh-node text{{fill:var(--text);font:11px ui-monospace,SFMono-Regular,Consolas,monospace;pointer-events:none}}\
+             .bh-node{{cursor:pointer}}\
+             .bh-graph{{cursor:grab}}\
+             .bh-dim{{opacity:0.15;transition:opacity 120ms}}\
+             .bh-node:not(.bh-dim),.bh-edge:not(.bh-dim){{transition:opacity 120ms}}\
              .bh-footer{{fill:var(--muted);font:11px Inter,system-ui,sans-serif}}\
              svg.graph{{min-width:100%;height:auto;display:block}}\
              .node rect{{fill:var(--panel-2);stroke:var(--line);stroke-width:1.5}}\
