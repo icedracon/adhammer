@@ -851,6 +851,21 @@ impl Report {
                 title = collapse_ws(&f.title),
                 obj = obj,
             ));
+            // WS-PROOF-70 part 2: every tripped finding shows its impact + first ground-truth
+            // evidence, capped so the summary stays legible.
+            if let Some(impact) = f.impact.as_deref() {
+                out.push_str(&format!(
+                    "         impact: {}\n",
+                    cap_line(&collapse_ws(impact), 160)
+                ));
+            }
+            if let Some(e) = f.evidence.first() {
+                out.push_str(&format!(
+                    "         proof : {} = {}\n",
+                    cap_line(&collapse_ws(&e.source), 60),
+                    cap_line(&collapse_ws(&e.value), 96)
+                ));
+            }
         }
 
         out.push('\n');
@@ -941,6 +956,17 @@ pub(crate) fn html_escape(s: &str) -> String {
 fn collapse_ws(s: &str) -> String {
     // Squash internal newlines/tabs so MD list items and TXT lines stay single-line.
     s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Truncate `s` to at most `max` chars (char-boundary safe), appending `…` when it was cut.
+fn cap_line(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 /// Best-effort UTC calendar date (`YYYY-MM-DD`) — no chrono dep; direct epoch math.
@@ -1184,6 +1210,25 @@ mod tests {
         assert!(txt.contains("[CRIT]"));
         assert!(txt.contains("Chains: 1 present"));
         assert!(txt.contains("See report.md"));
+    }
+
+    #[test]
+    fn plaintext_summary_carries_proof_and_impact_lines() {
+        // WS-PROOF-70 part 2: every top-N finding shows impact + first evidence in the txt summary.
+        let f = mk_finding("A-Rc4Kerberos", Severity::Medium, "RC4 Kerberos").with_evidence(
+            "LDAP CN=svc,DC=corp:msDS-SupportedEncryptionTypes",
+            "0x4 (RC4 only)",
+        );
+        let txt = empty_report(vec![f]).to_text_summary(5);
+        assert!(
+            txt.contains("impact:"),
+            "expected 'impact:' line under finding\nfull txt:\n{txt}"
+        );
+        assert!(
+            txt.contains("proof :"),
+            "expected 'proof :' line under finding\nfull txt:\n{txt}"
+        );
+        assert!(txt.contains("msDS-SupportedEncryptionTypes"));
     }
 
     #[test]
