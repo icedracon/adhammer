@@ -11,7 +11,7 @@
   <link rel="canonical" href="https://icedracon.github.io/adhammer/">
   <meta name="theme-color" content="#05070d">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="preload" href="assets/ice-dragon.webp" as="image" type="image/webp">
+  <link rel="preload" href="assets/ice-dragon-graph.webp" as="image" type="image/webp">
   <meta property="og:title" content="ADhammer — See the domain. Prove the path.">
   <meta property="og:description" content="An open-source Rust engine for Active Directory collection, control-path analysis, supported validation, and evidence-first reporting.">
   <meta property="og:type" content="website">
@@ -201,9 +201,9 @@
       z-index: -4;
       pointer-events: none;
       background:
-        radial-gradient(circle at 68% 40%, rgba(46, 168, 255, .16), transparent 29rem),
-        radial-gradient(circle at 86% 64%, rgba(255, 67, 94, .07), transparent 22rem),
-        linear-gradient(115deg, #05070d 0 41%, rgba(5, 7, 13, .62) 65%, #05070d 100%);
+        radial-gradient(circle at 72% 42%, rgba(46, 168, 255, .2), transparent 31rem),
+        radial-gradient(circle at 84% 62%, rgba(255, 67, 94, .075), transparent 23rem),
+        linear-gradient(115deg, #05070d 0 34%, rgba(5, 7, 13, .66) 64%, #05070d 100%);
     }
     .hero::after {
       content: "";
@@ -218,7 +218,8 @@
       position: relative;
       z-index: 5;
       display: grid;
-      grid-template-columns: minmax(0, .82fr) minmax(520px, 1.18fr);
+      grid-template-columns: minmax(0, 660px) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
       align-items: center;
       min-height: min(760px, calc(100svh - 160px));
     }
@@ -290,6 +291,8 @@
     }
     .quiet-link:hover { color: var(--white); border-color: var(--proof); }
     .hero-facts {
+      position: relative;
+      z-index: 8;
       display: grid;
       grid-column: 1;
       grid-row: 2;
@@ -298,6 +301,7 @@
       margin-top: 52px;
       border-top: 1px solid var(--line);
       border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(5, 7, 13, .78), rgba(5, 7, 13, .26));
     }
     .hero-fact { padding: 15px 14px 15px 0; }
     .hero-fact + .hero-fact { padding-left: 14px; border-left: 1px solid var(--line); }
@@ -305,23 +309,25 @@
     .hero-fact span { display: block; margin-top: 7px; color: var(--muted); font: 500 9px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 
     .living-stage {
-      position: relative;
-      z-index: 3;
-      grid-column: 2;
-      grid-row: 1 / 3;
-      width: calc(100% + 96px);
-      aspect-ratio: 1.42;
-      margin-left: -30px;
-      perspective: 1400px;
-      pointer-events: auto;
+      position: absolute;
+      inset: 76px 0 90px;
+      z-index: 1;
+      width: auto;
+      margin: 0;
+      perspective: 1100px;
+      overflow: hidden;
+      pointer-events: none;
       user-select: none;
       --rx: 0deg;
       --ry: 0deg;
+      --tx: 0px;
+      --ty: 0px;
     }
     .living-stage::before {
       content: "";
       position: absolute;
-      inset: 13% 3% 2% 4%;
+      inset: 14% -3% -2% 28%;
+      z-index: 0;
       border: 1px solid rgba(121, 210, 255, .12);
       border-radius: 50%;
       transform: perspective(900px) rotateX(67deg) rotateZ(-7deg);
@@ -330,47 +336,78 @@
     .living-stage::after {
       content: "";
       position: absolute;
-      inset: 15% 7%;
-      z-index: -1;
-      background: radial-gradient(circle at 46% 47%, rgba(46, 168, 255, .19), transparent 62%);
-      filter: blur(28px);
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, #05070d 0 18%, rgba(5, 7, 13, .97) 30%, rgba(5, 7, 13, .7) 44%, rgba(5, 7, 13, .14) 65%, transparent 78%),
+        linear-gradient(180deg, rgba(5, 7, 13, .62), transparent 17%, transparent 72%, #05070d 100%);
     }
     .dragon-rig {
       position: absolute;
-      inset: 2% -2% 1% -2%;
+      inset: -2% -7vw -2% 23vw;
       z-index: 2;
       transform-style: preserve-3d;
-      transform: perspective(1200px) rotateX(var(--rx)) rotateY(var(--ry));
+      transform-origin: 67% 48%;
+      transform: perspective(1050px) translate3d(var(--tx), var(--ty), 0) rotateX(var(--rx)) rotateY(var(--ry));
       transition: transform .12s linear;
       will-change: transform;
       pointer-events: none;
     }
-    .dragon-float { position: absolute; inset: 0; transform-style: preserve-3d; animation: dragon-alive 6.2s ease-in-out infinite; }
-    .dragon-body {
+    .dragon-float {
       position: absolute;
-      inset: 5% 0 0;
-      width: 100%;
-      height: 90%;
-      object-fit: contain;
-      opacity: .92;
-      filter: saturate(.82) contrast(1.06) brightness(.86) drop-shadow(0 20px 28px rgba(0, 5, 12, .74)) drop-shadow(0 0 26px rgba(46, 168, 255, .24));
-      animation: dragon-energy 4.8s ease-in-out infinite;
+      inset: 0;
+      transform-style: preserve-3d;
+      animation: dragon-alive 6.4s ease-in-out infinite;
     }
     .dragon-aura {
       position: absolute;
-      inset: 14% 8% 6%;
-      z-index: -1;
+      inset: 10% 4% 4%;
+      z-index: 0;
       border-radius: 50%;
-      background: radial-gradient(circle at 46% 48%, rgba(121, 210, 255, .23), rgba(46, 168, 255, .06) 42%, transparent 70%);
-      filter: blur(24px);
-      animation: aura-breathe 5.6s ease-in-out infinite;
+      background: radial-gradient(circle at 63% 46%, rgba(121, 210, 255, .25), rgba(46, 168, 255, .07) 40%, transparent 70%);
+      filter: blur(28px);
+      animation: aura-breathe 5.8s ease-in-out infinite;
+    }
+    .dragon-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: right center;
+      pointer-events: none;
+    }
+    .dragon-shadow {
+      z-index: 1;
+      opacity: .25;
+      filter: blur(10px) brightness(.42) saturate(1.4) drop-shadow(0 32px 42px rgba(0, 5, 12, .86));
+      transform: translate3d(26px, 30px, -100px) scale(.98);
+    }
+    .dragon-body {
+      z-index: 2;
+      opacity: .72;
+      filter: saturate(.88) contrast(1.12) brightness(.78) drop-shadow(0 24px 36px rgba(0, 5, 12, .82)) drop-shadow(0 0 34px rgba(46, 168, 255, .29));
+      transform: translateZ(24px);
+      animation: dragon-energy 4.8s ease-in-out infinite;
+    }
+    .dragon-glint {
+      z-index: 3;
+      opacity: .2;
+      mix-blend-mode: screen;
+      filter: saturate(1.2) brightness(1.42) contrast(1.08);
+      transform: translate3d(7px, -6px, 96px) scale(.992);
+      -webkit-mask-image: radial-gradient(ellipse at 72% 39%, #000 0 15%, rgba(0, 0, 0, .72) 26%, transparent 53%);
+      mask-image: radial-gradient(ellipse at 72% 39%, #000 0 15%, rgba(0, 0, 0, .72) 26%, transparent 53%);
+      animation: dragon-glint 4.8s ease-in-out infinite;
     }
     .dragon-eye {
       position: absolute;
-      left: 30.4%;
-      top: 30.2%;
-      width: 8px;
-      height: 8px;
+      z-index: 4;
+      left: 81.6%;
+      top: 35.6%;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #fff;
       box-shadow: 0 0 5px #fff, 0 0 13px var(--ice), 0 0 30px var(--blue);
@@ -378,8 +415,9 @@
     }
     .dragon-heart {
       position: absolute;
-      left: 47%;
-      top: 51%;
+      z-index: 4;
+      left: 67%;
+      top: 53%;
       width: 9px;
       height: 9px;
       border-radius: 50%;
@@ -387,36 +425,22 @@
       box-shadow: 0 0 8px #fff, 0 0 22px var(--proof), 0 0 48px rgba(255, 67, 94, .72);
       animation: heart-live 1.7s ease-out infinite;
     }
-    .dragon-breath {
-      position: absolute;
-      left: 6%;
-      top: 31%;
-      width: 28%;
-      height: 18%;
-      opacity: 0;
-      transform: rotate(-10deg) scaleX(.2);
-      transform-origin: right center;
-      background: linear-gradient(90deg, transparent, rgba(121, 210, 255, .06) 25%, rgba(201, 242, 255, .42));
-      clip-path: polygon(0 35%, 100% 47%, 100% 55%, 0 80%);
-      filter: blur(4px);
-      animation: frost-breath 6.2s ease-in-out infinite;
-    }
     @keyframes dragon-alive {
-      0%, 100% { transform: translate3d(0, 2px, 0) scale3d(1, 1, 1); }
-      45% { transform: translate3d(0, -10px, 22px) scale3d(1.012, 1.022, 1); }
-      58% { transform: translate3d(0, -7px, 15px) scale3d(1.006, 1.012, 1); }
+      0%, 100% { transform: translate3d(0, 3px, 0) rotateZ(-.18deg) scale3d(1, 1, 1); }
+      44% { transform: translate3d(0, -12px, 28px) rotateZ(.24deg) scale3d(1.014, 1.024, 1); }
+      60% { transform: translate3d(0, -8px, 18px) rotateZ(.08deg) scale3d(1.007, 1.014, 1); }
     }
     @keyframes dragon-energy {
-      0%, 100% { filter: saturate(.82) contrast(1.06) brightness(.86) drop-shadow(0 20px 28px rgba(0, 5, 12, .74)) drop-shadow(0 0 22px rgba(46, 168, 255, .2)); }
-      50% { filter: saturate(1.03) contrast(1.08) brightness(.98) drop-shadow(0 27px 34px rgba(0, 5, 12, .72)) drop-shadow(0 0 42px rgba(46, 168, 255, .42)); }
+      0%, 100% { filter: saturate(.88) contrast(1.12) brightness(.76) drop-shadow(0 24px 36px rgba(0, 5, 12, .82)) drop-shadow(0 0 28px rgba(46, 168, 255, .24)); }
+      50% { filter: saturate(1.05) contrast(1.14) brightness(.88) drop-shadow(0 30px 42px rgba(0, 5, 12, .78)) drop-shadow(0 0 48px rgba(46, 168, 255, .44)); }
     }
+    @keyframes dragon-glint { 0%, 100% { opacity: .11; } 48% { opacity: .3; } 68% { opacity: .17; } }
     @keyframes aura-breathe { 0%, 100% { opacity: .56; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
     @keyframes eye-live { 0%, 8%, 100% { opacity: .5; transform: scale(.78); } 16%, 74% { opacity: 1; transform: scale(1.25); } 78% { opacity: .14; transform: scale(.2); } 82% { opacity: 1; transform: scale(1.25); } }
     @keyframes heart-live { 0% { opacity: .35; transform: scale(.7); } 42% { opacity: 1; transform: scale(1.22); } 100% { opacity: 0; transform: scale(3.7); } }
-    @keyframes frost-breath { 0%, 58%, 100% { opacity: 0; transform: rotate(-10deg) scaleX(.16); } 66% { opacity: .18; } 74% { opacity: .56; transform: rotate(-10deg) scaleX(1); } 84% { opacity: 0; transform: rotate(-10deg) scaleX(1.1); } }
     .dragon-live-tag {
       position: absolute;
-      left: 4%;
+      right: 4%;
       bottom: 7%;
       z-index: 6;
       display: flex;
@@ -429,13 +453,14 @@
     }
     .dragon-live-tag i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: eye-live 2s ease-in-out infinite; }
     .dragon-live-tag b { color: var(--ice-bright); font-weight: 600; }
-    }
     #living-graph {
       position: absolute;
       inset: 0;
       z-index: 3;
       width: 100%;
       height: 100%;
+      opacity: .68;
+      transform: translateZ(78px);
       pointer-events: none;
     }
     .model-index {
@@ -1138,8 +1163,8 @@
     .js .reveal.in { opacity: 1; transform: none; }
 
     @media (max-width: 1080px) {
-      .hero-grid { grid-template-columns: minmax(0, .92fr) minmax(420px, 1.08fr); }
-      .living-stage { width: calc(100% + 58px); margin-left: -18px; }
+      .hero-grid { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); }
+      .dragon-rig { inset: -2% -16vw -2% 18vw; }
       .hero-facts { grid-template-columns: repeat(2, 1fr); max-width: 520px; }
       .hero-fact:nth-child(3) { border-left: 0; }
       .hero-fact:nth-child(n+3) { border-top: 1px solid var(--line); }
@@ -1157,14 +1182,28 @@
       .nav-links { display: none; }
       .nav-source { margin-left: auto; padding: 10px 12px; }
       .hero { min-height: auto; padding: 104px 0 0; align-items: start; }
-      .hero-grid { display: flex; flex-direction: column; min-height: auto; }
-      .hero-copy { max-width: 640px; padding-top: 12px; }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(180px, 1fr) auto;
+        min-height: max(740px, calc(100svh - 68px));
+        padding-bottom: 22px;
+      }
+      .hero-copy { grid-column: 1; grid-row: 1; max-width: 640px; padding-top: 12px; }
       .hero h1 { font-size: clamp(54px, 14vw, 86px); }
       .hero-lede { max-width: 550px; }
-      .living-stage { width: min(100%, 760px); margin: 26px auto 6px; aspect-ratio: 1.42; }
-      .hero-facts { order: 3; width: 100%; margin-top: 18px; background: rgba(5, 7, 13, .6); backdrop-filter: blur(8px); }
-      .living-stage { order: 2; }
-      .hero-copy { order: 1; }
+      .living-stage { inset: 68px 0 144px; width: auto; margin: 0; opacity: .8; }
+      .living-stage::after {
+        background:
+          linear-gradient(180deg, #05070d 0 10%, rgba(5, 7, 13, .8) 24%, rgba(5, 7, 13, .16) 50%, rgba(5, 7, 13, .42) 76%, #05070d 100%),
+          linear-gradient(90deg, rgba(5, 7, 13, .88), rgba(5, 7, 13, .26) 68%, transparent);
+      }
+      .dragon-rig { inset: 16% -10% 2% -37%; }
+      .dragon-body { opacity: .58; }
+      .dragon-shadow { opacity: .13; filter: blur(7px) brightness(.4) saturate(1.25); }
+      .dragon-glint { opacity: .14; }
+      #living-graph { opacity: .52; }
+      .hero-facts { grid-column: 1; grid-row: 3; width: 100%; margin-top: 0; background: rgba(5, 7, 13, .66); backdrop-filter: blur(8px); }
       .hero-rail { position: relative; grid-template-columns: repeat(2, 1fr); margin-top: 0; }
       .rail-item { min-height: 72px; padding: 14px 16px; }
       .rail-item:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
@@ -1204,15 +1243,26 @@
       .brand img { width: 32px; height: 32px; }
       .nav-source span { display: none; }
       .hero { min-height: auto; padding-top: 94px; }
+      .hero-grid { min-height: max(700px, calc(100svh - 68px)); }
       .hero h1 { font-size: clamp(51px, 16.4vw, 76px); }
       .hero-actions { align-items: flex-start; flex-direction: column; gap: 16px; }
       .hero-facts { grid-template-columns: 1fr 1fr; }
       .hero-fact { padding: 12px 8px 12px 0; }
       .hero-fact + .hero-fact { padding-left: 8px; }
       .hero-fact b { font-size: 11px; }
-      .living-stage { width: calc(100% + 30px); margin: 24px -15px 0; }
-      .dragon-live-tag { left: 7%; bottom: 2%; }
-      .model-index { right: 3%; top: 4%; }
+      .living-stage { inset: 68px 0 144px; }
+      .living-stage::after {
+        background:
+          linear-gradient(180deg, #05070d 0 25%, rgba(5, 7, 13, .65) 43%, rgba(5, 7, 13, .28) 69%, #05070d 100%),
+          linear-gradient(90deg, rgba(5, 7, 13, .78), rgba(5, 7, 13, .12) 78%, transparent);
+      }
+      .dragon-rig { inset: 29% -18% 4% -75%; }
+      .dragon-shadow { display: none; }
+      .dragon-body { opacity: .5; }
+      .dragon-glint { opacity: .1; }
+      #living-graph { opacity: .4; }
+      .dragon-live-tag { left: 14px; right: auto; bottom: 4%; }
+      .model-index { display: none; }
       .hero-rail { grid-template-columns: repeat(2, 1fr); }
       .rail-item b { font-size: 11px; }
       .section-head { margin-bottom: 50px; }
@@ -1317,6 +1367,22 @@
 
   <main id="content">
     <section class="hero" id="top">
+      <div class="living-stage" id="living-stage" aria-label="Animated ice dragon behind a live three-dimensional directory graph">
+        <div class="dragon-rig" aria-hidden="true">
+          <div class="dragon-float">
+            <div class="dragon-aura"></div>
+            <img class="dragon-layer dragon-shadow" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
+            <img class="dragon-layer dragon-body" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
+            <img class="dragon-layer dragon-glint" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675">
+            <span class="dragon-eye"></span>
+            <span class="dragon-heart"></span>
+          </div>
+        </div>
+        <canvas id="living-graph" aria-hidden="true"></canvas>
+        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · graph pulse online</span></div>
+        <span class="model-index">3D living graph · pointer reactive</span>
+      </div>
+
       <div class="shell hero-grid">
         <div class="hero-copy reveal">
           <span class="eyebrow">Open-source Rust · Active Directory security engineering</span>
@@ -1328,20 +1394,6 @@
           </div>
         </div>
 
-        <div class="living-stage" id="living-stage" aria-label="Animated ice dragon with a live three-dimensional directory graph">
-          <div class="dragon-rig" aria-hidden="true">
-            <div class="dragon-float">
-              <div class="dragon-aura"></div>
-              <img class="dragon-body" src="assets/ice-dragon.webp" alt="" width="1100" height="619">
-              <span class="dragon-eye"></span>
-              <span class="dragon-heart"></span>
-              <span class="dragon-breath"></span>
-            </div>
-          </div>
-          <canvas id="living-graph" aria-hidden="true"></canvas>
-          <div class="dragon-live-tag"><i></i><span><b>Alive</b> · graph pulse online</span></div>
-          <span class="model-index">3D living graph · pointer reactive</span>
-        </div>
         <div class="hero-facts" aria-label="ADhammer overview">
           <div class="hero-fact"><b>50+ checks</b><span>four audit categories</span></div>
           <div class="hero-fact"><b>15 / 16 AD CS</b><span>coverage classes</span></div>
@@ -1411,7 +1463,7 @@
           </div>
 
           <div class="schema-wrap" data-scene="0" aria-label="Animated ice-dragon architecture schema for the selected engine method">
-            <img class="schema-dragon" src="assets/ice-dragon.webp" alt="" width="1100" height="619" aria-hidden="true">
+            <img class="schema-dragon" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675" aria-hidden="true">
             <canvas id="schema-canvas" aria-hidden="true"></canvas>
             <div class="schema-chrome">
               <div class="schema-top"><span>ADHAMMER / CONTROL MODEL</span><strong id="schema-status">COLLECTING</strong></div>
@@ -1896,6 +1948,7 @@
         if (!stage || !canvas) return;
         var context = canvas.getContext("2d");
         var dragon = stage.querySelector(".dragon-rig");
+        var interactionSurface = stage.closest(".hero") || stage;
         var random = seededRandom(8241);
         var nodes = [];
         var edges = [];
@@ -2037,8 +2090,10 @@
             context.fill();
           }
           if (dragon) {
-            dragon.style.setProperty("--rx", (rotX * 4).toFixed(2) + "deg");
-            dragon.style.setProperty("--ry", (rotY * 5).toFixed(2) + "deg");
+            dragon.style.setProperty("--rx", (rotX * 20).toFixed(2) + "deg");
+            dragon.style.setProperty("--ry", (rotY * 28).toFixed(2) + "deg");
+            dragon.style.setProperty("--tx", (rotY * 46).toFixed(2) + "px");
+            dragon.style.setProperty("--ty", (rotX * 36).toFixed(2) + "px");
           }
         }
         function loop(time) {
@@ -2059,13 +2114,13 @@
           running = false;
           if (raf) window.cancelAnimationFrame(raf);
         }
-        stage.addEventListener("pointermove", function (event) {
-          if (reduced) return;
-          var rect = stage.getBoundingClientRect();
+        interactionSurface.addEventListener("pointermove", function (event) {
+          if (reduced || event.pointerType === "touch") return;
+          var rect = interactionSurface.getBoundingClientRect();
           targetY = ((event.clientX - rect.left) / rect.width - .5) * .42;
           targetX = -((event.clientY - rect.top) / rect.height - .5) * .32;
         }, { passive: true });
-        stage.addEventListener("pointerleave", function () { targetX = 0; targetY = 0; }, { passive: true });
+        interactionSurface.addEventListener("pointerleave", function () { targetX = 0; targetY = 0; }, { passive: true });
         if ("ResizeObserver" in window) new ResizeObserver(resize).observe(stage);
         else window.addEventListener("resize", resize, { passive: true });
         if ("IntersectionObserver" in window) {
