@@ -1,80 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
-  <!--
-    ADhammer README banner — 1200×400, blue-cyan single-hue.
-    Palette + typography match https://icedracon.github.io/adhammer/
-    (accent #2ea8ff on near-black #05070d, Manrope + IBM Plex Mono).
-  -->
   <defs>
-    <radialGradient id="bnr-bg" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" style="stop-color:#0a1626"/>
-      <stop offset="70%" style="stop-color:#06101c"/>
-      <stop offset="100%" style="stop-color:#05070d"/>
-    </radialGradient>
-    <linearGradient id="bnr-accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#8fd4ff"/>
-      <stop offset="50%" style="stop-color:#2ea8ff"/>
-      <stop offset="100%" style="stop-color:#0a3d80"/>
-    </linearGradient>
-    <linearGradient id="bnr-sep" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
-      <stop offset="50%" style="stop-color:#2ea8ff;stop-opacity:0.7"/>
-      <stop offset="100%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
-    </linearGradient>
-    <filter id="bnr-glow">
-      <feGaussianBlur stdDeviation="2.5" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
+    <style>
+      .bg { fill: #05070d; }
+      .panel { fill: #0a1018; }
+      .grid { fill: none; stroke: #12304b; stroke-width: 1; opacity: 0.26; }
+      .frame { fill: none; stroke: #3db2ff; stroke-width: 2; stroke-linecap: square; }
+      .mark { fill: none; stroke: #3db2ff; stroke-width: 8; stroke-linecap: square; stroke-linejoin: miter; }
+      .word { fill: #dcecff; font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 92px; letter-spacing: 6px; font-weight: 700; }
+      .slash { fill: #3db2ff; }
+      .tag { fill: #86cfff; font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 22px; letter-spacing: 3px; }
+      .sub { fill: #3db2ff; font-family: 'IBM Plex Mono', 'Courier New', monospace; font-size: 14px; letter-spacing: 5px; opacity: 0.86; }
+    </style>
   </defs>
 
-  <rect width="1200" height="400" fill="url(#bnr-bg)"/>
+  <rect class="bg" width="1200" height="400"/>
+  <rect class="panel" x="20" y="20" width="1160" height="360"/>
 
-  <!-- Faint grid. -->
-  <g opacity="0.08" stroke="#2ea8ff" stroke-width="1" fill="none">
-    <path d="M 0 100 L 1200 100 M 0 200 L 1200 200 M 0 300 L 1200 300"/>
-    <path d="M 200 0 L 200 400 M 400 0 L 400 400 M 600 0 L 600 400 M 800 0 L 800 400 M 1000 0 L 1000 400"/>
+  <g>
+    <path class="grid" d="M 20 110 H 1180"/>
+    <path class="grid" d="M 20 200 H 1180"/>
+    <path class="grid" d="M 20 290 H 1180"/>
+    <path class="grid" d="M 220 20 V 380"/>
+    <path class="grid" d="M 420 20 V 380"/>
+    <path class="grid" d="M 620 20 V 380"/>
+    <path class="grid" d="M 820 20 V 380"/>
+    <path class="grid" d="M 1020 20 V 380"/>
   </g>
 
-  <!-- Left decorative bracket. -->
-  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
-    <path d="M 60 60 L 60 100 M 60 60 L 100 60"/>
-    <path d="M 60 340 L 60 300 M 60 340 L 100 340"/>
-  </g>
-  <!-- Right decorative bracket. -->
-  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
-    <path d="M 1140 60 L 1140 100 M 1140 60 L 1100 60"/>
-    <path d="M 1140 340 L 1140 300 M 1140 340 L 1100 340"/>
+  <g opacity="0.92">
+    <path class="frame" d="M 64 64 H 102 M 64 64 V 102"/>
+    <path class="frame" d="M 1136 64 H 1098 M 1136 64 V 102"/>
+    <path class="frame" d="M 64 336 H 102 M 64 336 V 298"/>
+    <path class="frame" d="M 1136 336 H 1098 M 1136 336 V 298"/>
   </g>
 
-  <!-- Wordmark AD // HAMMER (visual '//' separator matches site). -->
-  <g filter="url(#bnr-glow)">
-    <text x="600" y="215" text-anchor="middle"
-          font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
-          font-weight="800"
-          font-size="118"
-          letter-spacing="6"
-          fill="url(#bnr-accent)">AD<tspan fill="#2ea8ff" font-weight="300" opacity="0.55">//</tspan>HAMMER</text>
+  <g transform="translate(180 122)">
+    <path class="mark" d="M 0 0 H 92 V 40 H 0 Z"/>
+    <path class="mark" d="M 46 52 V 116"/>
+    <path class="mark" d="M -18 -18 L 0 0"/>
+    <path class="mark" d="M 92 0 L 112 -20"/>
   </g>
 
-  <!-- Underline stroke — echoes site's evidence/trace metaphor. -->
-  <line x1="380" y1="248" x2="820" y2="248" stroke="url(#bnr-sep)" stroke-width="1.5"/>
-
-  <!-- Tagline. -->
-  <text x="600" y="295" text-anchor="middle"
-        font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
-        font-weight="500"
-        font-size="26"
-        letter-spacing="1"
-        fill="#e6f2ff"
-        opacity="0.88">Collect the directory. Validate supported paths.</text>
-
-  <!-- Sub-caption. -->
-  <text x="600" y="335" text-anchor="middle"
-        font-family="'IBM Plex Mono', 'Courier New', ui-monospace, monospace"
-        font-size="14"
-        letter-spacing="4"
-        fill="#2ea8ff"
-        opacity="0.7">ONE BINARY · EVIDENCE-FIRST REPORTS · RUST PROTOCOL CRATES</text>
+  <text class="word" x="314" y="188">AD<tspan class="slash">//</tspan>HAMMER</text>
+  <text class="tag" x="314" y="244">active directory assessment</text>
+  <text class="sub" x="314" y="292">COLLECT · TRACE · PROVE</text>
 </svg>
