@@ -8,9 +8,67 @@
 //! re-run the ACL walk. The two produce complementary outputs and both feed
 //! the same `Finding` sink.
 
-use adhammer_core::finding::{mitre, Category, Severity};
+use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::Finding;
 use ms_crtd::{detect_esc, CertTemplate, EscFinding};
+
+/// WS-PROOF-70: ground-truth evidence for every ms-crtd-derived ESC finding — the exact template
+/// (or CA) + attribute state that ms-crtd's detector matched on. One row per finding so a reviewer
+/// can grep the LDAP dump and confirm without adhammer's word.
+fn evidence_for(f: &EscFinding) -> Vec<Evidence> {
+    match f {
+        EscFinding::Esc1 {
+            template,
+            client_auth_eku,
+            spn_supplied,
+        } => vec![Evidence::new(
+            format!("ms-crtd template {template}: msPKI-Certificate-Name-Flag + pKIExtendedKeyUsage"),
+            format!("ENROLLEE_SUPPLIES_SUBJECT/SAN set; client_auth_eku={client_auth_eku}; spn_supplied={spn_supplied}"),
+        )],
+        EscFinding::Esc2 { template, .. } => vec![Evidence::new(
+            format!("ms-crtd template {template}: pKIExtendedKeyUsage"),
+            "Any-Purpose (2.5.29.37.0) or empty EKU set — cert usable for auth",
+        )],
+        EscFinding::Esc3 { template, .. } => vec![Evidence::new(
+            format!("ms-crtd template {template}: pKIExtendedKeyUsage"),
+            "Certificate-Request-Agent EKU (1.3.6.1.4.1.311.20.2.1) present",
+        )],
+        EscFinding::Esc6 {
+            ca_name,
+            template_names,
+            ..
+        } => vec![Evidence::new(
+            format!("ms-crtd CA {ca_name}: policy EditFlags"),
+            format!(
+                "EDITF_ATTRIBUTESUBJECTALTNAME2 (0x00040000) set; affects {} published template(s)",
+                template_names.len()
+            ),
+        )],
+        EscFinding::Esc9 { template } => vec![Evidence::new(
+            format!("ms-crtd template {template}: msPKI-Enrollment-Flag"),
+            "CT_FLAG_NO_SECURITY_EXTENSION (0x00080000) set — issued certs lack the szOID_NTDS_CA_SECURITY_EXT SID binding",
+        )],
+        EscFinding::Esc13 {
+            template,
+            policy_oids,
+        } => vec![Evidence::new(
+            format!("ms-crtd template {template}: msPKI-Certificate-Policy"),
+            format!(
+                "{} issuance policy OID(s): {}",
+                policy_oids.len(),
+                policy_oids
+                    .iter()
+                    .map(|o| o.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )],
+        EscFinding::Esc15 { template } => vec![Evidence::new(
+            format!("ms-crtd template {template}: msPKI-Template-Schema-Version"),
+            "1 (schema-v1 — application-policy injection via CSR is possible; CVE-2024-49019)",
+        )],
+    }
+}
 
 /// Turn one ms-crtd `EscFinding` into an adhammer `Finding`.
 fn to_finding(f: &EscFinding) -> Finding {
@@ -36,7 +94,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           or restrict enrollment to a trusted group."
                 .into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc2 { template, .. } => Finding {
             id: "A-Esc2-ms-crtd".into(),
@@ -51,7 +109,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             impact: Some("Attacker enrolls a cert whose Any-Purpose EKU covers Client-Auth, then PKINITs it. Same outcome as ESC1: DA TGT from any low-priv account.".into()),
             remediation: "Constrain EKU set; require approval; restrict enrollment.".into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc3 { template, .. } => Finding {
             id: "A-Esc3-ms-crtd".into(),
@@ -68,7 +126,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           approval; scope with application policies."
                 .into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc6 {
             ca_name,
@@ -94,7 +152,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           policy\\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2) and restart the CA."
                 .into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc9 { template } => Finding {
             id: "A-Esc9-ms-crtd".into(),
@@ -110,7 +168,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation:
                 "Clear the flag; enforce Full strong certificate mapping on DCs (KB5014754).".into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc13 {
             template,
@@ -131,7 +189,7 @@ fn to_finding(f: &EscFinding) -> Finding {
             remediation: "Audit msPKI-Certificate-Policy OID→group links; restrict enrollment."
                 .into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
         EscFinding::Esc15 { template } => Finding {
             id: "A-Esc15-ms-crtd".into(),
@@ -148,7 +206,7 @@ fn to_finding(f: &EscFinding) -> Finding {
                           patch."
                 .into(),
             weight_bonus: 0,
-            evidence: Vec::new(),
+            evidence: evidence_for(f),
         },
     }
 }

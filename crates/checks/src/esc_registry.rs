@@ -196,7 +196,15 @@ impl EscHit {
             affected: vec![],
             detail: self.detail,
             evidence: ev,
-            impact: None,
+            // WS-PROOF-70: matched impact per ESC id — no finding without a "what happens if unfixed" line.
+            impact: Some(match self.id {
+                "A-Esc6" => "The CA globally accepts caller-supplied SAN (EDITF_ATTRIBUTESUBJECTALTNAME2). Every enrollable template becomes ESC1-shaped: request a cert with SAN=Administrator@corp.local and PKINIT for a Domain Admin TGT.".into(),
+                "A-Esc7" => "A broad principal holds CA management rights (Manage CA / Manage Certificates) on the CA object. They can issue arbitrary certificates, approve pending requests, or reconfigure the PKI — full CA takeover.".into(),
+                "A-Esc10" => "DC certificate mapping is weak (StrongCertificateBindingEnforcement != 2). A certificate with weak SAN mapping (paired with ESC9 / ESC14) impersonates the mapped account via PKINIT.".into(),
+                "A-Esc11" => "ICPR (the certificate-enrollment RPC) is exposed without RPC_C_AUTHN_LEVEL_PKT_PRIVACY. An attacker who relays the RPC can inject or modify requests and receive certificates as arbitrary principals.".into(),
+                "A-Esc16" => "The certificate Security Extension (szOID_NTDS_CA_SECURITY_EXT) is globally disabled. Every issued certificate lacks the SID binding — weak-mapping impersonation (ESC9 / ESC14) works domain-wide.".into(),
+                _ => "CA-side ESC registry misconfiguration — issued certificates or the enrollment RPC lack the hardening the ESC class covers, enabling downstream impersonation or CA takeover.".into(),
+            }),
             remediation: String::new(),
             weight_bonus: 20,
         }
