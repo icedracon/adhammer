@@ -108,15 +108,51 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
     if a.anonymous {
         return scan_anonymous(a).await;
     }
+    let mut checklist = ui::StageChecklist::new([
+        "LDAP connect + collect",
+        "control-path graph",
+        "security checks",
+        "composite chains + baseline diff",
+        "write report",
+    ]);
+    let result = scan_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("Scan stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .to_string();
+            checklist.mark_current_failed(brief);
+            checklist.render("Scan stages (failed)");
+        }
+    }
+    result
+}
 
+async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     let sp = ui::Spinner::start("collecting AD objects over LDAP");
     let snap = Collector::connect(&config(&a)).await?.collect().await?;
     sp.done(&format!("{} AD object(s) collected", snap.objects.len()));
+    checklist.record_ok(
+        "LDAP connect + collect",
+        format!("{} object(s)", snap.objects.len()),
+    );
     tracing::info!(objects = snap.objects.len(), "collected");
 
     let graph = ControlGraph::build(&snap);
     let stats = graph.stats();
     let paths = graph.paths_to_tier0();
+    checklist.record_ok(
+        "control-path graph",
+        format!(
+            "{} node(s) · {} edge(s) · {} path(s) to Tier-0",
+            stats.0,
+            stats.1,
+            paths.len()
+        ),
+    );
     // WS-R2: run every check with per-check coverage so the report can show the whole audit
     // surface (tripped vs clean), then flatten to the scored finding list the rest expects.
     let coverage_raw = adhammer_checks::run_all_with_coverage(&snap, &graph);
@@ -126,6 +162,17 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
         .collect();
     let mut findings: Vec<_> = coverage_raw.into_iter().flat_map(|(_, fs)| fs).collect();
     findings.sort_by_key(|f| std::cmp::Reverse(f.score()));
+    let tripped = coverage.iter().filter(|(_, n)| *n > 0).count();
+    checklist.record_ok(
+        "security checks",
+        format!(
+            "{} finding(s) · {} checks ran · {} tripped · {} clean",
+            findings.len(),
+            coverage.len(),
+            tripped,
+            coverage.len() - tripped
+        ),
+    );
     {
         let crit = findings
             .iter()
@@ -399,6 +446,11 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
             println!("{body}");
         }
     }
+    checklist.record_ok(
+        "composite chains + baseline diff",
+        "computed as part of Report::build",
+    );
+    checklist.record_ok("write report", format!("{format} · {} bytes", body.len()));
     Ok(())
 }
 

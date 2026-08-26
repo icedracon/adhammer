@@ -363,6 +363,181 @@ pub fn finish_card(title: &str, lines: &[(&str, String)]) {
     hold_for(Pace::Critical);
 }
 
+/// The state of one stage in a [`StageChecklist`]. `Pending` is the default at construction;
+/// stages that never got the chance to run stay `Pending` and render as "NOT ATTEMPTED" so
+/// the operator sees exactly where the pipeline broke. `Failed` carries the short reason
+/// (one line) — the full error surfaces via the usual `reason:` / `cause:` fields separately.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StageStatus {
+    Pending,
+    Ok(String),
+    Skipped(String),
+    Failed(String),
+}
+
+/// Ordered checklist of the stages a scan/auto/single-attack pipeline walks — DNS, TCP,
+/// TLS, LDAP bind, collect, graph, checks, validate, export. Emitted at end-of-run as a
+/// visual "here is everything that happened" panel so a broken run says WHICH stage broke
+/// and which downstream stages never ran (rather than a single error line with no map).
+///
+/// Usage pattern: build with the ordered stage names at pipeline start (either full
+/// happy-path list or the subset a specific action walks), mark each with `record_ok` /
+/// `record_skipped` / `record_failed` as the pipeline advances, then call [`Self::render`]
+/// at completion — success OR failure. Unrecorded stages stay `Pending` and print as
+/// "NOT ATTEMPTED", which is exactly the story the operator needs on a failure path.
+///
+/// Cheap type — just a `Vec<(String, StageStatus)>` in-memory. No persistence. Distinct
+/// from [`WireExchange`](adhammer_core::WireExchange) tracking (which lives per-finding
+/// in the report) — this is the run-level story, not the check-level story.
+pub struct StageChecklist {
+    stages: Vec<(String, StageStatus)>,
+}
+
+impl StageChecklist {
+    /// Build with the ordered stage names the pipeline will walk. Extra stages can be
+    /// appended later via [`Self::push_stage`] when a run-time branch adds a step
+    /// (e.g. the guided flow's "validate + PoC" only runs if the operator picks at least
+    /// one finding to demo).
+    pub fn new<S: Into<String>>(stages: impl IntoIterator<Item = S>) -> Self {
+        StageChecklist {
+            stages: stages
+                .into_iter()
+                .map(|s| (s.into(), StageStatus::Pending))
+                .collect(),
+        }
+    }
+
+    /// Append a stage that wasn't in the initial list (branches added mid-run).
+    #[allow(dead_code)] // public API — call sites arrive as observability chapter wires in
+    pub fn push_stage<S: Into<String>>(&mut self, name: S) {
+        self.stages.push((name.into(), StageStatus::Pending));
+    }
+
+    fn set(&mut self, name: &str, status: StageStatus) {
+        if let Some(slot) = self.stages.iter_mut().find(|(n, _)| n == name) {
+            slot.1 = status;
+        } else {
+            self.stages.push((name.to_string(), status));
+        }
+    }
+
+    /// Mark `name` as successful with a short one-line summary (e.g. "295 objects", "16
+    /// findings", "20 paths to Tier-0"). Idempotent — a second record on the same stage
+    /// overwrites the first.
+    pub fn record_ok(&mut self, name: &str, summary: impl Into<String>) {
+        self.set(name, StageStatus::Ok(summary.into()));
+    }
+
+    /// Mark `name` as deliberately skipped (e.g. RRP registry probe when Remote Registry
+    /// is off). Renders differently from "not attempted" — skipped is a considered choice,
+    /// pending is a failure downstream.
+    pub fn record_skipped(&mut self, name: &str, why: impl Into<String>) {
+        self.set(name, StageStatus::Skipped(why.into()));
+    }
+
+    /// Mark `name` as failed with a short one-line reason (e.g. "TCP 636 REFUSED",
+    /// "bind rejected: LDAP result 49"). Downstream stages that haven't been recorded
+    /// stay `Pending` and render as "NOT ATTEMPTED" at [`Self::render`] time.
+    pub fn record_failed(&mut self, name: &str, why: impl Into<String>) {
+        self.set(name, StageStatus::Failed(why.into()));
+    }
+
+    /// True if every recorded stage is `Ok` (Pending / Skipped / Failed all count as
+    /// "not fully green"). Useful for the card's title marker.
+    #[allow(dead_code)] // public API — used by future observability wire (see 1.4.7 plan)
+    pub fn all_ok(&self) -> bool {
+        self.stages
+            .iter()
+            .all(|(_, s)| matches!(s, StageStatus::Ok(_)))
+    }
+
+    /// Mark the first `Pending` stage as `Failed(why)` — the shape a top-level catch
+    /// wrapper uses when the pipeline bubbled an error via `?` without a per-stage
+    /// match. Returns `true` if a stage was actually marked (there was a pending one).
+    /// The stages BEHIND the newly-failed one stay pending → render as NOT ATTEMPTED,
+    /// which is exactly the "here's where we stopped" story an operator needs.
+    pub fn mark_current_failed(&mut self, why: impl Into<String>) -> bool {
+        let idx = self
+            .stages
+            .iter()
+            .position(|(_, s)| matches!(s, StageStatus::Pending));
+        if let Some(i) = idx {
+            let name = self.stages[i].0.clone();
+            self.record_failed(&name, why);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Render the checklist to stderr as a run-end diagnostic panel. Uses the shared
+    /// `field_err` styling so it visually rhymes with the existing "Run complete" cards.
+    /// Every stage prints on its own line with a ✓/○/⚠/✗ marker so a visual scan of the
+    /// output immediately shows where the pipeline broke.
+    pub fn render(&self, title: &str) {
+        header_err(title);
+        for (name, status) in &self.stages {
+            let (marker, tone_text) = match status {
+                StageStatus::Ok(summary) => ("✓", summary.clone()),
+                StageStatus::Skipped(why) => ("○", format!("skipped — {why}")),
+                StageStatus::Failed(why) => ("✗", format!("FAILED — {why}")),
+                StageStatus::Pending => ("○", "NOT ATTEMPTED".to_string()),
+            };
+            field_err(name, &format!("{marker}  {tone_text}"));
+            beat_for(Pace::Normal);
+        }
+        hold_for(Pace::Critical);
+    }
+}
+
+// Kept inline (not moved to file end) because it documents the type it tests — moving
+// it would separate the tests from the impl by ~200 lines of unrelated spinner/pace code.
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod stage_checklist_tests {
+    use super::{StageChecklist, StageStatus};
+
+    #[test]
+    fn stages_start_pending_then_record_updates() {
+        let mut c = StageChecklist::new(["A", "B", "C"]);
+        assert!(matches!(c.stages[0].1, StageStatus::Pending));
+        c.record_ok("A", "done");
+        c.record_failed("B", "boom");
+        assert!(matches!(c.stages[0].1, StageStatus::Ok(_)));
+        assert!(matches!(c.stages[1].1, StageStatus::Failed(_)));
+        // C stays Pending — renders as NOT ATTEMPTED on failure paths.
+        assert!(matches!(c.stages[2].1, StageStatus::Pending));
+    }
+
+    #[test]
+    fn all_ok_is_true_only_when_every_stage_is_ok() {
+        let mut c = StageChecklist::new(["A", "B"]);
+        c.record_ok("A", "1");
+        assert!(!c.all_ok(), "one pending should keep all_ok false");
+        c.record_ok("B", "2");
+        assert!(c.all_ok());
+        c.record_skipped("B", "no need");
+        assert!(!c.all_ok(), "skipped is not ok");
+    }
+
+    #[test]
+    fn push_stage_appends_and_record_can_target_it() {
+        let mut c = StageChecklist::new(["A"]);
+        c.push_stage("B");
+        c.record_ok("B", "extra");
+        assert_eq!(c.stages.len(), 2);
+        assert!(matches!(c.stages[1].1, StageStatus::Ok(_)));
+    }
+
+    #[test]
+    fn record_on_unknown_name_appends_instead_of_silently_dropping() {
+        // Guards against typos hiding a stage record — better to see an extra line than lose data.
+        let mut c = StageChecklist::new(["A"]);
+        c.record_ok("Typoed", "oops");
+        assert_eq!(c.stages.len(), 2);
+    }
+}
+
 fn dim_err(s: &str) -> String {
     paint(stderr_tty(), DIM, s)
 }

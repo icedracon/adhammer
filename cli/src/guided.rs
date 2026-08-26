@@ -177,7 +177,36 @@ mod redact_tests {
     }
 }
 
-pub async fn guided(mut a: GuidedArgs) -> Result<()> {
+/// Public entry point — thin wrapper that owns the per-run [`ui::StageChecklist`] and
+/// always renders the stages panel at end-of-run (success OR failure), so the operator
+/// sees the full pipeline as a ✓/✗/NOT-ATTEMPTED checklist rather than a single opaque
+/// error line. The heavy lifting lives in [`guided_impl`].
+pub async fn guided(a: GuidedArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "LDAP bind",
+        "collect AD objects",
+        "control-path graph",
+        "security checks",
+        "validate + PoC",
+        "export bundle",
+    ]);
+    let result = guided_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("Stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .to_string();
+            checklist.mark_current_failed(brief);
+            checklist.render("Stages (failed)");
+        }
+    }
+    result
+}
+
+async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
     let cfg = LdapConfig {
         url: a.url.clone(),
@@ -198,6 +227,7 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     ));
     let mut c = connect_with_step_by_step(&cfg, &connect_host).await?;
     bind_phase.finish(ui::OutcomeKind::Validated, "LDAP bind established");
+    checklist.record_ok("LDAP bind", format!("{connect_host} — established"));
 
     let collect_phase =
         ui::Phase::start("step 2/4 - collecting AD objects (users, groups, computers, GPOs, ACLs)");
@@ -213,6 +243,10 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
         ui::OutcomeKind::Validated,
         &format!("{} directory object(s) collected", snap.objects.len()),
     );
+    checklist.record_ok(
+        "collect AD objects",
+        format!("{} object(s)", snap.objects.len()),
+    );
 
     let graph_phase = ui::Phase::start("step 3/4 - building control-path graph to Tier-0");
     let graph = ControlGraph::build(&snap);
@@ -220,6 +254,10 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     graph_phase.finish(
         ui::OutcomeKind::Validated,
         &format!("{} control-path(s) to Tier-0", paths.len()),
+    );
+    checklist.record_ok(
+        "control-path graph",
+        format!("{} path(s) to Tier-0", paths.len()),
     );
 
     let checks_phase = ui::Phase::start("step 4/4 - running supported security checks");
@@ -236,6 +274,14 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     let mut findings: Vec<Finding> = cov_raw.into_iter().flat_map(|(_, fs)| fs).collect();
     findings.sort_by_key(|f| std::cmp::Reverse(f.score()));
     let tripped = coverage.iter().filter(|c| c.findings > 0).count();
+    let checks_summary = format!(
+        "{} finding(s) · {} checks ran · {} tripped · {} clean",
+        findings.len(),
+        coverage.len(),
+        tripped,
+        coverage.len() - tripped
+    );
+    checklist.record_ok("security checks", checks_summary);
     checks_phase.finish(
         ui::OutcomeKind::Validated,
         &format!(
@@ -556,7 +602,27 @@ pub async fn guided(mut a: GuidedArgs) -> Result<()> {
     } else {
         prompt_export_choice()?
     };
+    // Record the validate + PoC stage from the actual results tally (validated / declined /
+    // potential). Skipped when the operator picked no findings AND nothing was auto-run.
+    let (validated_n, attempted_n, declined_n, potential_n) = tally(&results);
+    if validated_n + attempted_n + declined_n > 0 {
+        checklist.record_ok(
+            "validate + PoC",
+            format!(
+                "{validated_n} validated · {attempted_n} attempted · {declined_n} declined · {potential_n} potential"
+            ),
+        );
+    } else {
+        checklist.record_skipped("validate + PoC", "no findings selected for validation");
+    }
+
     let exported = write_artifacts(export_choice, &artifacts, &report, &json, &html, &txt)?;
+    if exported.is_empty() {
+        checklist.record_skipped("export bundle", "export declined at prompt");
+    } else {
+        let paths: Vec<String> = exported.iter().map(|(k, _)| (*k).to_string()).collect();
+        checklist.record_ok("export bundle", paths.join(" + "));
+    }
     show_finish_card(&results, &impact_yes, &exported);
     Ok(())
 }
