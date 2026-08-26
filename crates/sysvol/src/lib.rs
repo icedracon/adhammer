@@ -96,6 +96,27 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
             )
         })
         .collect();
+    // WS-WPT session 4c: per-file SMB read frames (cap 25) — the report shows the exact SYSVOL
+    // paths the scan opened, not just a claim of "GPP cpasswords found."
+    let exchange: Vec<adhammer_core::WireExchange> = hits
+        .iter()
+        .take(25)
+        .flat_map(|h| {
+            [
+                adhammer_core::WireExchange::sent(
+                    adhammer_core::WireLayer::Smb,
+                    format!("SMB2 CREATE + READ {}", h.file.display()),
+                ),
+                adhammer_core::WireExchange::recv(
+                    adhammer_core::WireLayer::Smb,
+                    format!(
+                        "file present · GPP XML with cpassword blob (user={})",
+                        h.user.as_deref().unwrap_or("<no user>")
+                    ),
+                ),
+            ]
+        })
+        .collect();
     Some(Finding {
         id: "A-GppPassword".into(),
         title: "Recoverable GPP cpassword in SYSVOL (MS14-025)".into(),
@@ -103,11 +124,19 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
         severity: Severity::Critical,
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: hits.len() as u32 * 10,
-        exchange: Vec::new(),
+        exchange,
         affected,
         evidence,
         detail: "Group Policy Preferences store passwords encrypted with a Microsoft-published AES key; any authenticated user who can read SYSVOL can decrypt them.".into(),
-        impact: None,
+        // WS-PROOF-70 was gated on the check registry; sysvol emits Findings outside `registry()`,
+        // so it can drift without CI catching it. Fill impact here — the same "no finding without
+        // impact" contract applies to every emitter.
+        impact: Some(
+            "Any authenticated domain user reads SYSVOL, decrypts the GPP cpassword with the \
+             Microsoft-published AES key (MS14-025), and logs in as the target account — often a \
+             local admin baked into a preferences deployment. Trivial credential theft from a \
+             read-only foothold.".into(),
+        ),
         remediation: "Remove the offending GPP XML files, rotate the exposed credentials, and stop using GPP to set passwords (KB2962486).".into(),
     })
 }

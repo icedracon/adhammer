@@ -105,22 +105,35 @@ fn int(map: &HashMap<String, String>, suffix: &str) -> Option<i64> {
 /// Derive findings from the merged default-policy registry values.
 pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
     let mut out = Vec::new();
-    let f = |id: &str, title: String, sev, detail: &str, rem: &str, val: String| Finding {
+    let f = |id: &str, title: String, sev, detail: &str, impact: &str, rem: &str, val: String| {
+        Finding {
         id: id.into(),
         title,
         category: Category::Anomalies,
         severity: sev,
         mitre: vec![mitre::VALID_ACCOUNTS],
         weight_bonus: 0,
-        exchange: Vec::new(),
+        // WS-WPT session 4c: the SMB read of GptTmpl.inf on SYSVOL that produced this policy value.
+        exchange: vec![
+            adhammer_core::WireExchange::sent(
+                adhammer_core::WireLayer::Smb,
+                "SMB2 CREATE + READ \\\\dc\\SYSVOL\\<domain>\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\MACHINE\\Microsoft\\Windows NT\\SecEdit\\GptTmpl.inf",
+            ),
+            adhammer_core::WireExchange::recv(
+                adhammer_core::WireLayer::Smb,
+                format!("default-policy INF returned; value {val}"),
+            ),
+        ],
         affected: vec![val.clone()],
         evidence: vec![Evidence::new(
             format!("SYSVOL GptTmpl.inf default-policy [{id}]"),
             val,
         )],
         detail: detail.into(),
-        impact: None,
+        // WS-PROOF-70 contract — every emitter, not just registry() checks, must ship impact.
+        impact: Some(impact.into()),
         remediation: rem.into(),
+    }
     };
 
     // LmCompatibilityLevel: 5 = NTLMv2 only. <3 permits LM/NTLMv1.
@@ -128,6 +141,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
         if l < 3 {
             out.push(f("A-NtlmV1", "LM/NTLMv1 authentication permitted".into(), Severity::High,
                 "LmCompatibilityLevel < 3 lets clients/DCs accept LM and NTLMv1, which are trivially crackable and relayable.",
+                "Attacker captures an LM/NTLMv1 challenge-response and cracks it near-instantly (LM's 7-char split + no salt); resulting hash pivots or relays to any NTLM-accepting service in the domain.",
                 "Set LmCompatibilityLevel to 5 (send NTLMv2 only, refuse LM & NTLM).", format!("LmCompatibilityLevel = {l}")));
         } else if l < 5 {
             out.push(f(
@@ -135,6 +149,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
                 "NTLM not restricted to NTLMv2-only".into(),
                 Severity::Medium,
                 "LmCompatibilityLevel < 5 still accepts downgraded NTLM in some paths.",
+                "Downgraded NTLMv1 still available in some negotiation paths — an attacker who forces the downgrade recovers cleartext-equivalent credentials.",
                 "Set LmCompatibilityLevel to 5.",
                 format!("LmCompatibilityLevel = {l}"),
             ));
@@ -145,6 +160,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
         if v < 2 {
             out.push(f("A-LdapSigning", "LDAP server signing not required".into(), Severity::High,
                 "LDAPServerIntegrity < 2 allows unsigned LDAP binds, enabling NTLM relay to LDAP (e.g. to AD CS / RBCD).",
+                "A coerced machine's NTLM is relayed to this DC over LDAP — attacker writes msDS-AllowedToActOnBehalfOfOtherIdentity (RBCD) or plants a Shadow Credential on Tier-0, then PKINITs for a DA TGT.",
                 "Set 'Domain controller: LDAP server signing requirements' to Require signing (LDAPServerIntegrity=2).",
                 format!("LDAPServerIntegrity = {v}")));
         }
@@ -153,12 +169,14 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
     if int(map, r"lanmanserver\parameters\requiresecuritysignature") == Some(0) {
         out.push(f("A-SmbSigning", "SMB signing not required (server)".into(), Severity::High,
             "RequireSecuritySignature=0 lets attackers relay/tamper with SMB, a prerequisite for many NTLM-relay chains.",
+            "Coerced NTLM (PetitPotam, PrinterBug, DFSCoerce) is relayable to this host over SMB — attacker gains file-server or LSA-secret read, or pivots via SCM to code exec.",
             "Require SMB signing on servers (and DCs) via the default policy.", "LanManServer RequireSecuritySignature = 0".into()));
     }
     // NoLMHash: 1 = do not store LM hash.
     if int(map, r"\lsa\nolmhash") == Some(0) {
         out.push(f("A-LmHashStored", "LM hashes stored in the directory".into(), Severity::Medium,
             "NoLMHash=0 stores weak LM hashes for account passwords, crackable near-instantly.",
+            "Anyone who dumps NTDS.dit (DCSync or offline extract) gets LM hashes for every account — cracked to plaintext in seconds/minutes on modern GPUs.",
             "Set 'Network security: Do not store LAN Manager hash value' (NoLMHash=1) and reset passwords.",
             "NoLMHash = 0".into()));
     }
@@ -166,6 +184,7 @@ pub fn policy_findings(map: &HashMap<String, String>) -> Vec<Finding> {
     if int(map, r"netlogon\parameters\requiresignorseal") == Some(0) {
         out.push(f("A-NetlogonSeal", "Netlogon secure channel signing/sealing not enforced".into(), Severity::High,
             "RequireSignOrSeal=0 weakens the Netlogon secure channel, part of the exposure surface around CVE-2020-1472 (Zerologon).",
+            "Unsigned/unsealed Netlogon leaves the DC exposed to the Zerologon (CVE-2020-1472) family: unauthenticated attacker resets the DC machine-account password and DCSyncs the domain.",
             "Require Netlogon secure channel signing/sealing and apply DC enforcement updates.", "Netlogon RequireSignOrSeal = 0".into()));
     }
     out
