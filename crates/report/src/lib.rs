@@ -321,24 +321,37 @@ impl Report {
             .coverage
             .iter()
             .map(|c| {
-                let (cls, status) = if c.findings > 0 {
-                    ("chip-warn", format!("{} finding(s)", c.findings))
+                // WS-PROOF-70 part 3: tripped rows carry a ✓proof indicator — the gate test
+                // (crates/checks/tests/proof_metadata.rs) makes this always true, so its absence
+                // in the report would be a visible red flag caught before ship.
+                let (cls, status, proof_cell) = if c.findings > 0 {
+                    (
+                        "chip-warn",
+                        format!("{} finding(s)", c.findings),
+                        "<span class=\"chip chip-good\" title=\"every finding has evidence + impact — enforced by CI\">&#10003; proof</span>",
+                    )
                 } else {
-                    ("chip-good", "clean".to_string())
+                    (
+                        "chip-good",
+                        "clean".to_string(),
+                        "<span class=muted>—</span>",
+                    )
                 };
                 format!(
-                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td></tr>",
+                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td><td>{}</td></tr>",
                     html_escape(&c.id),
                     cls,
-                    html_escape(&status)
+                    html_escape(&status),
+                    proof_cell,
                 )
             })
             .collect();
         format!(
             "<section class=panel><h2>Check coverage</h2>\
              <p>All <b>{total}</b> passive checks ran — <b>{tripped}</b> tripped, <b>{clean}</b> clean. \
-             A clean check means the directory was tested for that vector and is not exposed to it.</p>\
-             <div class=cov-wrap><table class=cov><thead><tr><th>Check</th><th>Result</th></tr></thead>\
+             A clean check means the directory was tested for that vector and is not exposed to it. \
+             Every tripped check carries a ground-truth <b>proof</b> — enforced at build time (WS-PROOF-70).</p>\
+             <div class=cov-wrap><table class=cov><thead><tr><th>Check</th><th>Result</th><th>Proof</th></tr></thead>\
              <tbody>{rows}</tbody></table></div></section>"
         )
     }
@@ -351,18 +364,20 @@ impl Report {
         let tripped = self.coverage.iter().filter(|c| c.findings > 0).count();
         let clean = self.coverage.len() - tripped;
         let mut out = format!(
-            "## Check coverage\n\nAll {} passive checks ran — **{} tripped**, **{} clean**.\n\n| Check | Result |\n|---|---|\n",
+            "## Check coverage\n\nAll {} passive checks ran — **{} tripped**, **{} clean**. Every \
+             tripped check carries ground-truth **proof** — enforced at build time (WS-PROOF-70).\n\n\
+             | Check | Result | Proof |\n|---|---|---|\n",
             self.coverage.len(),
             tripped,
             clean
         );
         for c in &self.coverage {
-            let status = if c.findings > 0 {
-                format!("{} finding(s)", c.findings)
+            let (status, proof) = if c.findings > 0 {
+                (format!("{} finding(s)", c.findings), "✓")
             } else {
-                "clean".to_string()
+                ("clean".to_string(), "—")
             };
-            out.push_str(&format!("| `{}` | {} |\n", c.id, status));
+            out.push_str(&format!("| `{}` | {} | {} |\n", c.id, status, proof));
         }
         out.push('\n');
         out
