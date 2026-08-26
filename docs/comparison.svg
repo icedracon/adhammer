@@ -51,7 +51,7 @@
     <rect x="60" y="170" width="340" height="180" rx="8" fill="#0f1420" stroke="#00ffd5" stroke-width="1.3" fill-opacity="0.5" stroke-opacity="0.6"/>
     <text x="80" y="196" font-size="14" font-weight="bold" fill="#00ffd5" letter-spacing="4">▸ AUDIT</text>
     <text x="80" y="218" font-size="11" fill="#e8ecf1">LDAP + SD_FLAGS   ·   low-priv collect</text>
-    <text x="80" y="236" font-size="11" fill="#e8ecf1">41 hygiene checks · 4 categories</text>
+    <text x="80" y="236" font-size="11" fill="#e8ecf1">58 hygiene checks · 4 categories</text>
     <text x="80" y="254" font-size="11" fill="#e8ecf1">ADCS ESC1-15 rule pack (15/16)</text>
     <text x="80" y="272" font-size="11" fill="#e8ecf1">ADIDNS · SYSVOL · trusts · gMSA</text>
     <text x="80" y="290" font-size="11" fill="#e8ecf1">MITRE ATT&amp;CK tag per finding</text>
@@ -79,7 +79,7 @@
     <rect x="220" y="390" width="460" height="76" rx="8" fill="#0d1a24" stroke="url(#am-chain)" stroke-width="1.4" stroke-opacity="0.85"/>
     <text x="240" y="416" font-size="13" font-weight="bold" fill="#00ffd5" letter-spacing="4">▸ WIRE — from-scratch pure Rust</text>
     <text x="240" y="438" font-size="11" fill="#e8ecf1">DCE/RPC · NDR · NTLM · SMB2 · Kerberos · SASL · SSPI</text>
-    <text x="240" y="456" font-size="11" fill="#f7c948">61 icedracon crates on crates.io  ·  18k+ downloads</text>
+    <text x="240" y="456" font-size="11" fill="#f7c948">64 icedracon crates on crates.io  ·  20k+ downloads</text>
 
     <!-- WIRE → REPORT -->
     <line x1="450" y1="466" x2="450" y2="498" stroke="#7b2ff7" stroke-width="1.6" opacity="0.85" marker-end="url(#am-arrow)"/>

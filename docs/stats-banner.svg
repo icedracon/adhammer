@@ -34,7 +34,7 @@
 
   <!-- Stat 1: Checks -->
   <g transform="translate(120, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent)" filter="url(#sb-glow)">41</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent)" filter="url(#sb-glow)">58</text>
     <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AUDIT CHECKS</text>
     <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">+ MITRE tags</text>
   </g>

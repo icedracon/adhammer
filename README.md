@@ -10,7 +10,7 @@
 
 <p align="center"><b>See the domain. Understand the proof.</b></p>
 
-<p align="center"><sub>One static binary. 43 standalone protocol crates. Live evidence, not dashboard theatre.</sub></p>
+<p align="center"><sub>One static binary. 46 standalone protocol crates. Live evidence, not dashboard theatre.</sub></p>
 
 <p align="center">
   <a href="https://icedracon.github.io/adhammer/"><b>&nbsp;SITE&nbsp;</b></a>
@@ -32,7 +32,7 @@
 </p>
 
 <p align="center">
-  <sub><b>61 standalone crates + 12-crate workspace</b> · <b>validation ledger in <code>docs/VALIDATION.md</code></b> · <b>Rust 1.87</b> · MIT</sub>
+  <sub><b>64 standalone crates + 12-crate workspace</b> · <b>validation ledger in <code>docs/VALIDATION.md</code></b> · <b>Rust 1.87</b> · MIT</sub>
 </p>
 
 <br/>
@@ -95,17 +95,29 @@ Every finding in the report is either an unvalidated audit hit or an evidence-ba
 
 <br/>
 
-## ✨ What's new in 1.4.4
+## ✨ What's new in 1.4.5
 
-The **"read the whole picture"** release — every scan report now ships a visual control-path graph and a complete coverage matrix inline, so you see what was checked and what tripped, not just the hits. Adds the last two offensive carryovers from 1.4.3 and sharpens the first-touch connection experience.
+The **"finish the picture, open the ecosystem"** release. Interactive Auto/Single-attack menus now surface the new verbs from 1.4.4, the exported `auto` bundle carries the same 58-check coverage matrix the primary `scan` report already had, and three brand-new standalone protocol crates land alongside adhammer — real code, live-validated on Server 2022 and Server 2025 DCs.
+
+- **Interactive menu now surfaces `attack dns`, `enum sccm`, `enum scom`** — the 1.4.4 verbs were CLI-only; the guided front door now dispatches to them cleanly, so an operator driving `adhammer` (no args) reaches every capability without reading the man page.
+- **`auto` / guided bundle carries the full 58-check coverage matrix** — the exported `auto-report.{json,md,html,txt}` now shows "checked X, N tripped, M clean" for every check (matching what `scan` already had in 1.4.4); the JSON artifact carries a `coverage[]` array of 58 rows.
+- **Three new standalone icedracon crates on crates.io** — [`ms-scmr`](https://crates.io/crates/ms-scmr) 0.1.0 (Service Control Manager remote — foundation for pure-Rust remote-service management from Linux), [`ccache-io`](https://crates.io/crates/ccache-io) 0.1.0 (MIT-Kerberos `ccache` + `.kirbi` codec — every Rust Kerberos toolchain finally has a shared interop format), [`ms-bkrp`](https://crates.io/crates/ms-bkrp) 0.1.1 (BackupKey Remote Protocol — DPAPI master-key recovery for DFIR + post-DA persistence audits).
+- **Clearer LDAP-failure diagnostics** (carried in the 1.4.5 line) — a failed bind names the actual cause (TLS/cert, channel binding, reachability), so first-touch setup from Kali or PowerShell is faster to debug.
+
+Live-validated end-to-end against **Server 2022 and Server 2025** DCs: scan finds real findings with evidence, `attack dns --dry-run` resolves the correct `DomainDnsZones` DN, `enum sccm` correctly reports "not present → clean" on a lab without SCCM.
+
+Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+
+<br/>
+
+### Previously — what 1.4.4 added
+
+The **"read the whole picture"** release — every scan report now ships a visual control-path graph and a complete coverage matrix inline, so you see what was checked and what tripped, not just the hits.
 
 - **In-report control-path graph** — the HTML report renders the cheapest attack paths to Tier-0 as a self-contained SVG (no external libraries, no CDN), laid out deterministically so two scans of the same domain diff cleanly.
 - **Full coverage matrix in every report** — all 58 checks appear with their status (`tripped` / `clean`) plus evidence, in JSON / HTML / Markdown / terminal — the completeness signal a report needs (*"checked X, clean"*), so a reviewer sees where there is *and isn't* a finding.
 - **`attack dns`** — write ADIDNS records (`add-a` / `modify-a` / `tombstone` / `delete`) over LDAP, `--dry-run` by default so the intended change prints before anything is written.
 - **`enum sccm` / `enum scom`** — discover Configuration Manager and Operations Manager footholds from the directory; an absent container reports *not present* instead of erroring.
-- **Clearer connection failures** — a failed LDAP bind now names the actual cause (TLS/cert, channel binding, reachability) instead of a generic hint, so first-touch setup from Kali / PowerShell is faster to debug.
-
-Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
 
 <br/>
 
@@ -131,7 +143,7 @@ Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub R
 
 **🔴 Red team operators**
 
-One binary, no Python runtime, no sidecar services. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated for supported paths across Server 2022 and Server 2025, with version-specific limitations called out explicitly (e.g. LDAP-path DCShadow on 2019+).
+One binary, no Python runtime, no sidecar services. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated for supported paths across Server 2022 and Server 2025 — the two OS versions the lab exercises every release.
 
 </td>
 <td width="33%" valign="top">
@@ -145,7 +157,7 @@ One binary, no Python runtime, no sidecar services. The reference DA kill chain 
 
 **🦀 Rust developers**
 
-61 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
+64 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
 
 </td>
 </tr>
@@ -507,12 +519,12 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 ## 🧱 Built on a from-scratch Rust ecosystem
 
 <p align="center">
-  <img src="docs/ecosystem.svg" alt="ADhammer application on top of icedracon — 61 standalone pure-Rust MS protocol crates" width="100%"/>
+  <img src="docs/ecosystem.svg" alt="ADhammer application on top of icedracon — 64 standalone pure-Rust MS protocol crates" width="100%"/>
 </p>
 
 <br/>
 
-ADhammer is one binary on top of **61 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **20k+**.
+ADhammer is one binary on top of **64 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **20k+**.
 
 **Two brands, one project:**
 
@@ -527,8 +539,8 @@ ADhammer is one binary on top of **61 standalone icedracon crates**, each doing 
 |:---|:---|
 | **Transport** | [`dcerpc`](https://crates.io/crates/dcerpc) · [`smb2-client`](https://crates.io/crates/smb2-client) · [`ms-ndr`](https://crates.io/crates/ms-ndr) |
 | **Auth / crypto** | [`ntlmssp`](https://crates.io/crates/ntlmssp) · [`credssp`](https://crates.io/crates/credssp) · [`dpapi-ng`](https://crates.io/crates/dpapi-ng) · [`dpapi-offline`](https://crates.io/crates/dpapi-offline) · [`ms-gkdi`](https://crates.io/crates/ms-gkdi) |
-| **Kerberos** | [`ms-pac`](https://crates.io/crates/ms-pac) · [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) · [`ms-kile-fast`](https://crates.io/crates/ms-kile-fast) · [`ms-pkca`](https://crates.io/crates/ms-pkca) |
-| **DCE/RPC protocols** | [`ms-drsr`](https://crates.io/crates/ms-drsr) · [`ms-nrpc`](https://crates.io/crates/ms-nrpc) · [`ms-samr`](https://crates.io/crates/ms-samr) · [`ms-lsat`](https://crates.io/crates/ms-lsat) · [`ms-tsch`](https://crates.io/crates/ms-tsch) · [`ms-even6`](https://crates.io/crates/ms-even6) · [`ms-tds`](https://crates.io/crates/ms-tds) · [`ms-coerce`](https://crates.io/crates/ms-coerce) |
+| **Kerberos** | [`ms-pac`](https://crates.io/crates/ms-pac) · [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) · [`ms-kile-fast`](https://crates.io/crates/ms-kile-fast) · [`ms-pkca`](https://crates.io/crates/ms-pkca) · [`ccache-io`](https://crates.io/crates/ccache-io) *(new — MIT ccache + .kirbi codec)* |
+| **DCE/RPC protocols** | [`ms-drsr`](https://crates.io/crates/ms-drsr) · [`ms-nrpc`](https://crates.io/crates/ms-nrpc) · [`ms-samr`](https://crates.io/crates/ms-samr) · [`ms-lsat`](https://crates.io/crates/ms-lsat) · [`ms-tsch`](https://crates.io/crates/ms-tsch) · [`ms-even6`](https://crates.io/crates/ms-even6) · [`ms-tds`](https://crates.io/crates/ms-tds) · [`ms-coerce`](https://crates.io/crates/ms-coerce) · [`ms-scmr`](https://crates.io/crates/ms-scmr) *(new)* · [`ms-bkrp`](https://crates.io/crates/ms-bkrp) *(new)* |
 | **AD CS** | [`ms-crtd`](https://crates.io/crates/ms-crtd) · [`ms-icpr`](https://crates.io/crates/ms-icpr) · [`ms-csra`](https://crates.io/crates/ms-csra) |
 | **NTDS / secrets** | [`ese-parser`](https://crates.io/crates/ese-parser) · [`ntds-parse`](https://crates.io/crates/ntds-parse) · [`lsass-parse`](https://crates.io/crates/lsass-parse) |
 | **AD / GPO / audit** | [`ad-acl`](https://crates.io/crates/ad-acl) · [`msldap-ext`](https://crates.io/crates/msldap-ext) · [`gpo`](https://crates.io/crates/gpo) · [`gpo-forge`](https://crates.io/crates/gpo-forge) · [`preg`](https://crates.io/crates/preg) · [`ms-dnsp`](https://crates.io/crates/ms-dnsp) · [`ms-fve`](https://crates.io/crates/ms-fve) · [`ms-rodc`](https://crates.io/crates/ms-rodc) |

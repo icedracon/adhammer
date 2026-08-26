@@ -35,7 +35,7 @@
   <path d="M 1176 696 L 1176 664 M 1176 696 L 1144 696" stroke="#7b2ff7" stroke-width="2.2" fill="none" opacity="0.9"/>
 
   <!-- Header -->
-  <text x="600" y="50" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="20" font-weight="bold" fill="#00ffd5" letter-spacing="5" filter="url(#ec-glow)">ICEDRACON ECOSYSTEM · 61 CRATES</text>
+  <text x="600" y="50" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="20" font-weight="bold" fill="#00ffd5" letter-spacing="5" filter="url(#ec-glow)">ICEDRACON ECOSYSTEM · 64 CRATES</text>
   <text x="600" y="72" text-anchor="middle" font-family="'Courier New', monospace" font-size="11" fill="#8892a4" letter-spacing="3">pure-Rust implementations of Microsoft security protocols — cargo add any layer, skip the rest</text>
 
   <g font-family="'Courier New', monospace">
@@ -108,6 +108,7 @@
     <text x="540" y="465" font-size="11" fill="#e8ecf1">ms-pac-forge</text>
     <text x="540" y="485" font-size="11" fill="#e8ecf1">ms-kile-fast</text>
     <text x="540" y="505" font-size="11" fill="#e8ecf1">ms-pkca</text>
+    <text x="540" y="525" font-size="11" fill="#e8ecf1">ccache-io</text>
     <text x="540" y="555" font-size="10" fill="#f7c948">+ Golden · Silver ·</text>
     <text x="540" y="567" font-size="10" fill="#f7c948">Diamond · Sapphire</text>
 
@@ -115,11 +116,11 @@
     <rect x="740" y="390" width="160" height="180" rx="6" fill="#0f1420" stroke="#00ffd5" stroke-width="1" fill-opacity="0.45" stroke-opacity="0.55"/>
     <text x="820" y="414" text-anchor="middle" font-size="12" font-weight="bold" fill="#00ffd5" letter-spacing="3">MS-RPC PROTOCOLS</text>
     <line x1="760" y1="424" x2="880" y2="424" stroke="#00ffd5" stroke-width="0.5" opacity="0.5"/>
-    <text x="760" y="445" font-size="11" fill="#e8ecf1">ms-drsr</text>
-    <text x="760" y="465" font-size="11" fill="#e8ecf1">ms-nrpc</text>
-    <text x="760" y="485" font-size="11" fill="#e8ecf1">ms-samr</text>
-    <text x="760" y="505" font-size="11" fill="#e8ecf1">ms-lsat · ms-tsch</text>
-    <text x="760" y="525" font-size="11" fill="#e8ecf1">ms-even6 · ms-coerce</text>
+    <text x="760" y="445" font-size="11" fill="#e8ecf1">ms-drsr · ms-nrpc</text>
+    <text x="760" y="465" font-size="11" fill="#e8ecf1">ms-samr · ms-lsat</text>
+    <text x="760" y="485" font-size="11" fill="#e8ecf1">ms-tsch · ms-even6</text>
+    <text x="760" y="505" font-size="11" fill="#e8ecf1">ms-coerce · ms-scmr</text>
+    <text x="760" y="525" font-size="11" fill="#e8ecf1">ms-bkrp</text>
     <text x="760" y="555" font-size="10" fill="#f7c948">+ DCSync · Zerologon</text>
     <text x="760" y="567" font-size="10" fill="#f7c948">safe-detect · coerce</text>
 
@@ -137,7 +138,7 @@
 
     <!-- Bottom footer bar -->
     <rect x="80" y="610" width="1040" height="50" rx="8" fill="#0d1321" stroke="url(#ec-chain)" stroke-width="1.2" stroke-opacity="0.85"/>
-    <text x="600" y="634" text-anchor="middle" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="5">61 CRATES. ONE PROTOCOL ECOSYSTEM.</text>
+    <text x="600" y="634" text-anchor="middle" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="5">64 CRATES. ONE PROTOCOL ECOSYSTEM.</text>
     <text x="600" y="652" text-anchor="middle" font-size="10" fill="#8892a4" letter-spacing="3">every crate MIT-licensed · every crate ships a "does NOT do" section · every crate `cargo add`-able on its own</text>
   </g>
 </svg>
