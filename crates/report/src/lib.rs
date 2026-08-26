@@ -160,13 +160,15 @@ impl Report {
         format!(
             "<!doctype html><meta charset=utf-8><title>ADhammer report — {dom}</title>\
              <style>\
-             :root{{color-scheme:dark;--bg:#0b1020;--panel:#131a2c;--panel-2:#10172a;--line:#2c3657;--text:#e8edf7;--muted:#98a4c7;--green:#5be49b;--amber:#ffcf66;--red:#ff6b7f;--blue:#7cc9ff;}}\
+             :root{{color-scheme:light dark;--bg:#f7f8fc;--panel:#ffffff;--panel-2:#eef1f7;--line:#d8dde8;--text:#1a1f2c;--muted:#5a6577;--green:#0f7a4d;--amber:#996100;--red:#c62838;--blue:#1e5aa6;--code-bg:#eef1f7;--hop-bg:rgba(238,241,247,0.55);}}\
+             @media (prefers-color-scheme: dark){{:root:not([data-theme=\"light\"]){{color-scheme:dark;--bg:#0b1020;--panel:#131a2c;--panel-2:#10172a;--line:#2c3657;--text:#e8edf7;--muted:#98a4c7;--green:#5be49b;--amber:#ffcf66;--red:#ff6b7f;--blue:#7cc9ff;--code-bg:#0d1323;--hop-bg:rgba(11,16,32,0.45);}}}}\
+             :root[data-theme=\"dark\"]{{color-scheme:dark;--bg:#0b1020;--panel:#131a2c;--panel-2:#10172a;--line:#2c3657;--text:#e8edf7;--muted:#98a4c7;--green:#5be49b;--amber:#ffcf66;--red:#ff6b7f;--blue:#7cc9ff;--code-bg:#0d1323;--hop-bg:rgba(11,16,32,0.45);}}\
              *{{box-sizing:border-box}}\
              body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 Inter,Segoe UI,system-ui,sans-serif}}\
              .wrap{{max-width:1240px;margin:0 auto;padding:32px 24px 56px}}\
              h1,h2,h3,p{{margin:0}}\
              code,pre{{font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}}\
-             code{{background:#0d1323;padding:3px 6px;border-radius:6px}}\
+             code{{background:var(--code-bg);padding:3px 6px;border-radius:6px}}\
              section{{margin-top:28px}}\
              .hero{{margin-bottom:10px}}\
              .hero p{{margin-top:12px;color:var(--muted);max-width:900px}}\
@@ -203,9 +205,11 @@ impl Report {
              .path{{padding:18px 20px;margin:0 0 16px}}\
              .path-head{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}}\
              .route{{font-weight:700;font-size:16px}}\
-             .hop{{margin:12px 0 0;padding:12px 14px;border-left:3px solid var(--line);background:rgba(11,16,32,.45);border-radius:0 8px 8px 0}}\
+             .hop{{margin:12px 0 0;padding:12px 14px;border-left:3px solid var(--line);background:var(--hop-bg);border-radius:0 8px 8px 0}}\
              .hop-top{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}}\
-             .cmd{{display:block;margin-top:10px;padding:10px 12px;background:#0d1323;border:1px solid var(--line);border-radius:8px;overflow:auto}}\
+             .cmd{{display:block;margin-top:10px;padding:10px 12px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;overflow:auto}}\
+             .theme-toggle{{position:fixed;top:16px;right:16px;z-index:100;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:999px;padding:6px 12px;cursor:pointer;font:12px Inter,system-ui,sans-serif;box-shadow:0 2px 6px rgba(0,0,0,0.12);user-select:none}}\
+             .theme-toggle:hover{{border-color:var(--muted)}}\
              .todo{{color:var(--amber);font-style:italic;margin-top:10px}}\
              .fix{{margin-top:10px;color:var(--green)}}\
              .chain{{padding:14px 16px;margin:0 0 12px}}\
@@ -228,6 +232,10 @@ impl Report {
              .cov th,.cov td{{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}}\
              .cov th{{color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.04em}}\
              </style>\
+             <button type=button class=theme-toggle id=theme-toggle aria-label=\"Toggle light/dark theme\" title=\"Toggle theme\">\u{2600}\u{FE0F} / \u{1F319}</button>\
+             <script>\
+             (function(){{try{{var k='adhammer-theme';var s=localStorage.getItem(k);if(s==='light'||s==='dark'){{document.documentElement.setAttribute('data-theme',s);}}var b=document.getElementById('theme-toggle');if(!b)return;b.addEventListener('click',function(){{var d=document.documentElement;var cur=d.getAttribute('data-theme');var mp=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var isDark=cur==='dark'||(!cur&&mp);var next=isDark?'light':'dark';d.setAttribute('data-theme',next);try{{localStorage.setItem(k,next);}}catch(e){{}}}});}}catch(e){{}}}})();\
+             </script>\
              <div class=wrap>\
              <div class=hero>\
                <div class=hero-head>\
@@ -1063,6 +1071,43 @@ mod tests {
         let html = r.to_html();
         assert!(html.contains("Attack graph"));
         assert!(html.contains("<svg class=graph"));
+    }
+
+    #[test]
+    fn html_carries_light_and_dark_theme_layers() {
+        // WS-THEME (1.4.6): the report ships a token-layered palette so it can render in both
+        // light (default `:root`) and dark (`@media (prefers-color-scheme: dark)` +
+        // `[data-theme="dark"]` override) — plus a toggle button + inline JS that flips the
+        // `data-theme` attribute and remembers the choice in `localStorage`. Everything
+        // self-contained: no CDN, no external CSS, matches the report's no-external-requests rule.
+        let html = empty_report(vec![]).to_html();
+        // Bare :root defines LIGHT (default). Any consumer with prefers-color-scheme unset gets it.
+        assert!(
+            html.contains(":root{color-scheme:light dark;--bg:#f7f8fc"),
+            "light palette must be on bare :root as the default"
+        );
+        // prefers-color-scheme: dark path.
+        assert!(
+            html.contains("@media (prefers-color-scheme: dark)"),
+            "dark palette must live under prefers-color-scheme"
+        );
+        // Explicit override selector for the toggle.
+        assert!(
+            html.contains(":root[data-theme=\"dark\"]"),
+            "toggle must have a matching selector"
+        );
+        // Toggle UI + JS + localStorage.
+        assert!(html.contains("class=theme-toggle"), "toggle button missing");
+        assert!(
+            html.contains("adhammer-theme"),
+            "localStorage key for theme persistence missing"
+        );
+        // Tokens the JS/CSS both need — the sanity that no hardcoded hex remained on hop/code/cmd.
+        assert!(html.contains("--code-bg") && html.contains("--hop-bg"));
+        assert!(
+            !html.contains("background:#0d1323"),
+            "hardcoded code bg must be token-driven"
+        );
     }
 
     #[test]
