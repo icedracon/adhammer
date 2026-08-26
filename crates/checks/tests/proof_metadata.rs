@@ -263,6 +263,26 @@ fn kitchen_sink_snapshot() -> Snapshot {
     )
 }
 
+/// WS-WPT session 3c: same kitchen-sink but with the collector's SearchOp log pre-populated,
+/// so `attach_wire_proof` in `run_all` can synthesize wire evidence for LDAP-passive findings.
+fn kitchen_sink_snapshot_with_searches() -> Snapshot {
+    use adhammer_core::SearchOp;
+    let mut snap = kitchen_sink_snapshot();
+    let idx = snap.record_search(SearchOp {
+        base_dn: "DC=corp,DC=local".into(),
+        filter: "(objectClass=*)".into(),
+        attrs: vec!["objectClass".into(), "userAccountControl".into()],
+        returned_count: snap.objects.len(),
+        scope: "sub".into(),
+    });
+    // Link every object DN in the fixture to that search (mirrors what the real collector does).
+    let dns: Vec<String> = snap.objects.iter().map(|o| o.dn.clone()).collect();
+    for dn in dns {
+        snap.link_dn_to_search(&dn, idx);
+    }
+    snap
+}
+
 /// The single assertion. If it panics, the failure message tells you WHICH check emitted a
 /// finding without evidence or impact — no scrolling stack traces.
 fn assert_provable(check_id: &'static str, f: &Finding) {
@@ -304,5 +324,35 @@ fn every_finding_carries_evidence_and_impact() {
     assert!(
         total_findings >= 12,
         "kitchen-sink fixture only produced {total_findings} findings; the fixture is too thin to stress WS-PROOF-70 (was expecting ≥12).",
+    );
+}
+
+#[test]
+fn every_ldap_finding_gets_wire_proof_when_collector_recorded() {
+    // WS-WPT session 3c: once the collector has populated SearchOp + DN provenance, run_all
+    // attaches a wire-exchange to every LDAP-passive finding automatically. The gate for the
+    // "every check has wire proof" promise — extends WS-PROOF-70's assertion by one clause.
+    let snap = kitchen_sink_snapshot_with_searches();
+    let graph = ControlGraph::build(&snap);
+    let findings = adhammer_checks::run_all(&snap, &graph);
+    let mut wired = 0usize;
+    for f in &findings {
+        // Every finding whose first affected DN was captured by the collector must now carry
+        // ≥ 1 wire exchange frame (the synthesized LDAP search).
+        let first_dn = f.affected.first();
+        if let Some(dn) = first_dn {
+            if !snap.wire_for_dn(dn).is_empty() {
+                assert!(
+                    !f.exchange.is_empty(),
+                    "check emitted finding {} for DN {} but exchange is empty — attach_wire_proof regressed",
+                    f.id, dn,
+                );
+                wired += 1;
+            }
+        }
+    }
+    assert!(
+        wired >= 8,
+        "expected ≥8 findings to receive synthesized wire proof; got {wired}. Fixture linkage broken."
     );
 }

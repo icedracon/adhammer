@@ -87,9 +87,29 @@ pub fn registry() -> Vec<Box<dyn Check>> {
     ]
 }
 
+/// WS-WPT session 3c: for every finding that doesn't already carry a wire exchange (i.e. every
+/// LDAP-passive check — 50 of the 58), synthesize one from the collector's recorded SearchOp for
+/// the first affected DN. Active-probe checks (session 4) that already set `exchange` are left
+/// alone. One-place transform, so every current + future LDAP-passive check gets wire proof for
+/// free without any per-check code change.
+fn attach_wire_proof(snap: &Snapshot, findings: &mut [Finding]) {
+    for f in findings.iter_mut() {
+        if !f.exchange.is_empty() {
+            continue;
+        }
+        if let Some(dn) = f.affected.first() {
+            let wires = snap.wire_for_dn(dn);
+            if !wires.is_empty() {
+                f.exchange = wires;
+            }
+        }
+    }
+}
+
 /// Run every rule and flatten. `graph` is built once by the caller.
 pub fn run_all(snap: &Snapshot, graph: &ControlGraph) -> Vec<Finding> {
     let mut out: Vec<Finding> = registry().iter().flat_map(|c| c.run(snap, graph)).collect();
+    attach_wire_proof(snap, &mut out);
     out.sort_by_key(|f| std::cmp::Reverse(f.score()));
     out
 }
@@ -104,6 +124,10 @@ pub fn run_all_with_coverage(
 ) -> Vec<(&'static str, Vec<Finding>)> {
     registry()
         .iter()
-        .map(|c| (c.id(), c.run(snap, graph)))
+        .map(|c| {
+            let mut fs = c.run(snap, graph);
+            attach_wire_proof(snap, &mut fs);
+            (c.id(), fs)
+        })
         .collect()
 }
