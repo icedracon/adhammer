@@ -32,39 +32,39 @@
   <rect width="1200" height="140" rx="8" fill="url(#sb-grid)" opacity="0.4"/>
   <rect x="0" y="0" width="1200" height="2" rx="1" fill="url(#sb-accent)" opacity="0.3"/>
 
-  <!-- Stat 1: Checks -->
+  <!-- Stat 1: Collection -->
   <g transform="translate(120, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent)" filter="url(#sb-glow)">58</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AUDIT CHECKS</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">+ MITRE tags</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="url(#sb-accent)" filter="url(#sb-glow)">LOW-PRIV</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">COLLECT</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">LDAP + SD_FLAGS</text>
   </g>
 
-  <!-- Stat 2: AD CS ESC -->
+  <!-- Stat 2: Graph -->
   <g transform="translate(330, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">15/16</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">AD CS ESC</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">classes covered</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">TIER-0</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">GRAPH</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">control-path tracing</text>
   </g>
 
-  <!-- Stat 3: Median latency (evergreen numeric — no comparison) -->
+  <!-- Stat 3: Validation -->
   <g transform="translate(540, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="#00ffd5" filter="url(#sb-glow)">&lt;100</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">MS MEDIAN</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">on Server 2025</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="#00ffd5" filter="url(#sb-glow)">PROOF</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">SUPPORTED VALIDATION</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">captured evidence</text>
   </g>
 
-  <!-- Stat 4: Ecosystem crates (evergreen — "40+" stays true through growth) -->
+  <!-- Stat 4: Reporting -->
   <g transform="translate(750, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">40+</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">CRATES</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">on crates.io</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="url(#sb-accent2)" filter="url(#sb-glow)">REPORT</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">JSON · HTML · BH-CE</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">handoff ready</text>
   </g>
 
-  <!-- Stat 5: Pure Rust (evergreen — never changes) -->
+  <!-- Stat 5: Protocol stack -->
   <g transform="translate(960, 70)">
-    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="42" font-weight="bold" fill="url(#sb-purple)" filter="url(#sb-glow)">100%</text>
-    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">RUST</text>
-    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">no C-lib FFI</text>
+    <text text-anchor="middle" y="-15" font-family="'Courier New', monospace" font-size="28" font-weight="bold" fill="url(#sb-purple)" filter="url(#sb-glow)">RUST</text>
+    <text text-anchor="middle" y="15" font-family="'Courier New', monospace" font-size="13" fill="#5a6577" letter-spacing="2">PUBLISHED STACK</text>
+    <text text-anchor="middle" y="35" font-family="'Courier New', monospace" font-size="10" fill="#3a4557">reusable protocol crates</text>
   </g>
 
   <!-- Dividers between stats -->

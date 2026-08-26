@@ -40,8 +40,8 @@
   </g>
 
   <!-- Title block -->
-  <text x="150" y="98" font-family="'Courier New', 'Fira Code', monospace" font-size="42" font-weight="bold" fill="#00ffd5" letter-spacing="4" filter="url(#sk-glow)">adhammer 1.3.9</text>
-  <text x="150" y="132" font-family="'Courier New', monospace" font-size="15" fill="#8892a4" letter-spacing="3">Active Directory security assessment · pure Rust · one static binary</text>
+  <text x="150" y="98" font-family="'Courier New', 'Fira Code', monospace" font-size="42" font-weight="bold" fill="#00ffd5" letter-spacing="4" filter="url(#sk-glow)">adhammer</text>
+  <text x="150" y="132" font-family="'Courier New', monospace" font-size="15" fill="#8892a4" letter-spacing="3">Active Directory assessment · evidence-first · one static binary</text>
 
   <line x1="90" y1="170" x2="1110" y2="170" stroke="url(#sk-chain)" stroke-width="1.4" opacity="0.7"/>
 
@@ -50,35 +50,35 @@
 
     <!-- Tile 1: Session hunt -->
     <rect x="90" y="200" width="500" height="130" rx="8" fill="#0f1420" stroke="#00ffd5" stroke-width="1.2" fill-opacity="0.5" stroke-opacity="0.55"/>
-    <text x="112" y="230" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ SESSION HUNT — three angles</text>
-    <text x="112" y="256" font-size="14" fill="#e8ecf1">enum sessions   SRVSVC NetrSessionEnum</text>
-    <text x="112" y="278" font-size="14" fill="#e8ecf1">enum wkssvc     WKSSVC NetrWkstaUserEnum</text>
-    <text x="112" y="300" font-size="14" fill="#e8ecf1">enum hku        MS-RRP HKU walk (no admin)</text>
-    <text x="112" y="320" font-size="12" fill="#f7c948">dedup + machine filter on by default</text>
+    <text x="112" y="230" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ LOW-PRIV COLLECTION</text>
+    <text x="112" y="256" font-size="14" fill="#e8ecf1">collect the directory over LDAP + SD_FLAGS</text>
+    <text x="112" y="278" font-size="14" fill="#e8ecf1">surface posture, privilege, AD CS, DNS</text>
+    <text x="112" y="300" font-size="14" fill="#e8ecf1">build the graph before touching impact</text>
+    <text x="112" y="320" font-size="12" fill="#f7c948">audit first, operator choice second</text>
 
     <!-- Tile 2: JSON envelope -->
     <rect x="610" y="200" width="500" height="130" rx="8" fill="#0f1420" stroke="#7b2ff7" stroke-width="1.2" fill-opacity="0.5" stroke-opacity="0.55"/>
-    <text x="632" y="230" font-size="15" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ --json ENVELOPE</text>
-    <text x="632" y="256" font-size="14" fill="#e8ecf1">AttackResult wrapper on every subcommand</text>
-    <text x="632" y="278" font-size="14" fill="#e8ecf1">pipe cleanly into jq or CI</text>
-    <text x="632" y="300" font-size="14" fill="#e8ecf1">sessions cached DPAPI-encrypted at rest</text>
-    <text x="632" y="320" font-size="12" fill="#f7c948">--old skips the credential wizard</text>
+    <text x="632" y="230" font-size="15" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ MACHINE-CLEAN OUTPUT</text>
+    <text x="632" y="256" font-size="14" fill="#e8ecf1">JSON stays scriptable and deterministic</text>
+    <text x="632" y="278" font-size="14" fill="#e8ecf1">interactive narration belongs to humans</text>
+    <text x="632" y="300" font-size="14" fill="#e8ecf1">operator flows and CI flows stay separate</text>
+    <text x="632" y="320" font-size="12" fill="#f7c948">clean stdout contract</text>
 
     <!-- Tile 3: ESC scan pack -->
     <rect x="90" y="350" width="500" height="130" rx="8" fill="#0f1420" stroke="#7b2ff7" stroke-width="1.2" fill-opacity="0.5" stroke-opacity="0.55"/>
-    <text x="112" y="380" font-size="15" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ ADCS SCAN PACK</text>
-    <text x="112" y="406" font-size="14" fill="#e8ecf1">ESC6 / 7 / 8 / 10 / 11 / 16 wired to scan</text>
-    <text x="112" y="428" font-size="14" fill="#e8ecf1">MS-RRP registry probes for CA + DC config</text>
-    <text x="112" y="450" font-size="14" fill="#e8ecf1">HTTP probe for ESC8 web enrollment</text>
-    <text x="112" y="470" font-size="12" fill="#f7c948">plus offline ESC1-15 rule pack</text>
+    <text x="112" y="380" font-size="15" font-weight="bold" fill="#a259ff" letter-spacing="3">▸ SUPPORTED VALIDATION</text>
+    <text x="112" y="406" font-size="14" fill="#e8ecf1">supported findings can capture proof</text>
+    <text x="112" y="428" font-size="14" fill="#e8ecf1">unsupported paths stay marked potential</text>
+    <text x="112" y="450" font-size="14" fill="#e8ecf1">validation truth lives in the ledger</text>
+    <text x="112" y="470" font-size="12" fill="#f7c948">honest claims over inflated coverage</text>
 
     <!-- Tile 4: Wire hardening -->
     <rect x="610" y="350" width="500" height="130" rx="8" fill="#0f1420" stroke="#00ffd5" stroke-width="1.2" fill-opacity="0.5" stroke-opacity="0.55"/>
-    <text x="632" y="380" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ WIRE — dcerpc 0.2.5</text>
-    <text x="632" y="406" font-size="14" fill="#e8ecf1">bounded-alloc preflight — srvsvc + rrp + wkssvc</text>
-    <text x="632" y="428" font-size="14" fill="#e8ecf1">no more Vec::with_capacity(u32::MAX) → OOM</text>
-    <text x="632" y="450" font-size="14" fill="#e8ecf1">regression tests + live-validated on 2022 + 2025</text>
-    <text x="632" y="470" font-size="12" fill="#f7c948">61 icedracon crates · 18k downloads</text>
+    <text x="632" y="380" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="3">▸ PURE-RUST STACK</text>
+    <text x="632" y="406" font-size="14" fill="#e8ecf1">published protocol crates under the binary</text>
+    <text x="632" y="428" font-size="14" fill="#e8ecf1">reuse the wire layer outside adhammer</text>
+    <text x="632" y="450" font-size="14" fill="#e8ecf1">same philosophy across Kali and Windows</text>
+    <text x="632" y="470" font-size="12" fill="#f7c948">portable operator workflow</text>
 
     <!-- Bottom credit banner -->
     <rect x="90" y="510" width="1020" height="58" rx="8" fill="#0d1321" stroke="url(#sk-chain)" stroke-width="1.3" stroke-opacity="0.85"/>
@@ -86,6 +86,6 @@
     <text x="205" y="535" font-size="13" fill="#e8ecf1">wkssvc + rrp OpenHKU/logged_on_sids by</text>
     <text x="565" y="535" font-size="13" font-weight="bold" fill="#f7c948">@g0h4n_0</text>
     <text x="640" y="535" font-size="13" fill="#e8ecf1">(Quentin Texier · Red Team Operator @ RandoriSec)</text>
-    <text x="115" y="555" font-size="11" fill="#5a6577">github.com/icedracon/adhammer  ·  cargo install adhammer  ·  static binary, Kali or Windows</text>
+    <text x="115" y="555" font-size="11" fill="#5a6577">github.com/icedracon/adhammer  ·  cargo install adhammer  ·  evidence-first Active Directory assessment</text>
   </g>
 </svg>

@@ -35,7 +35,7 @@
   <path d="M 1176 696 L 1176 664 M 1176 696 L 1144 696" stroke="#7b2ff7" stroke-width="2.2" fill="none" opacity="0.9"/>
 
   <!-- Header -->
-  <text x="600" y="50" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="20" font-weight="bold" fill="#00ffd5" letter-spacing="5" filter="url(#ec-glow)">ICEDRACON ECOSYSTEM · 64 CRATES</text>
+  <text x="600" y="50" text-anchor="middle" font-family="'Courier New', 'Fira Code', monospace" font-size="20" font-weight="bold" fill="#00ffd5" letter-spacing="5" filter="url(#ec-glow)">ICEDRACON ECOSYSTEM · PUBLISHED CRATES</text>
   <text x="600" y="72" text-anchor="middle" font-family="'Courier New', monospace" font-size="11" fill="#8892a4" letter-spacing="3">pure-Rust implementations of Microsoft security protocols — cargo add any layer, skip the rest</text>
 
   <g font-family="'Courier New', monospace">
@@ -138,7 +138,7 @@
 
     <!-- Bottom footer bar -->
     <rect x="80" y="610" width="1040" height="50" rx="8" fill="#0d1321" stroke="url(#ec-chain)" stroke-width="1.2" stroke-opacity="0.85"/>
-    <text x="600" y="634" text-anchor="middle" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="5">64 CRATES. ONE PROTOCOL ECOSYSTEM.</text>
+    <text x="600" y="634" text-anchor="middle" font-size="15" font-weight="bold" fill="#00ffd5" letter-spacing="5">PUBLISHED CRATES. ONE PROTOCOL ECOSYSTEM.</text>
     <text x="600" y="652" text-anchor="middle" font-size="10" fill="#8892a4" letter-spacing="3">every crate MIT-licensed · every crate ships a "does NOT do" section · every crate `cargo add`-able on its own</text>
   </g>
 </svg>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#08111d"/>
+      <stop offset="100%" style="stop-color:#05070d"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#9be7ff"/>
+      <stop offset="55%" style="stop-color:#2ea8ff"/>
+      <stop offset="100%" style="stop-color:#0a3d80"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#ffd26a"/>
+      <stop offset="100%" style="stop-color:#f7c948"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#142033" stroke-width="0.5"/>
+    </pattern>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)" opacity="0.42"/>
+
+  <path d="M 40 40 L 40 74 M 40 40 L 74 40" stroke="#2ea8ff" stroke-width="2.2" fill="none" opacity="0.9"/>
+  <path d="M 1240 40 L 1240 74 M 1240 40 L 1206 40" stroke="#2ea8ff" stroke-width="2.2" fill="none" opacity="0.9"/>
+  <path d="M 40 600 L 40 566 M 40 600 L 74 600" stroke="#7b2ff7" stroke-width="2.2" fill="none" opacity="0.9"/>
+  <path d="M 1240 600 L 1240 566 M 1240 600 L 1206 600" stroke="#7b2ff7" stroke-width="2.2" fill="none" opacity="0.9"/>
+
+  <text x="72" y="84" font-family="'Courier New', monospace" font-size="24" fill="#8c96a8" letter-spacing="2">adhammer  ·  active directory assessment</text>
+
+  <text x="72" y="228" font-family="Manrope, 'Segoe UI', sans-serif" font-size="72" font-weight="800" fill="#edf4ff">Collect the directory.</text>
+  <text x="72" y="314" font-family="Manrope, 'Segoe UI', sans-serif" font-size="72" font-weight="800" fill="url(#cyan)" filter="url(#glow)">Validate supported paths.</text>
+
+  <text x="72" y="390" font-family="'Courier New', monospace" font-size="28" fill="#dce7f4">Low-priv collection  ·  Tier-0 graph  ·  Evidence-first reporting</text>
+  <text x="72" y="438" font-family="'Courier New', monospace" font-size="24" fill="#8c96a8">JSON  ·  HTML  ·  BloodHound-CE  ·  validation ledger backed</text>
+
+  <g font-family="'Courier New', monospace">
+    <rect x="72" y="492" width="350" height="70" rx="8" fill="#0d1522" stroke="#1f9ce6" stroke-width="1.5"/>
+    <text x="98" y="522" font-size="18" font-weight="bold" fill="#2ea8ff" letter-spacing="2">OBSERVE</text>
+    <text x="98" y="548" font-size="18" fill="#dce7f4">collect and score the estate</text>
+
+    <rect x="456" y="492" width="350" height="70" rx="8" fill="#0d1522" stroke="#7b2ff7" stroke-width="1.5"/>
+    <text x="482" y="522" font-size="18" font-weight="bold" fill="#b788ff" letter-spacing="2">PROVE</text>
+    <text x="482" y="548" font-size="18" fill="#dce7f4">capture proof for supported findings</text>
+
+    <rect x="840" y="492" width="368" height="70" rx="8" fill="#0d1522" stroke="#f7c948" stroke-width="1.5"/>
+    <text x="866" y="522" font-size="18" font-weight="bold" fill="url(#gold)" letter-spacing="2">EXPORT</text>
+    <text x="866" y="548" font-size="18" fill="#dce7f4">handoff-ready report artifacts</text>
+  </g>
+
+  <text x="72" y="604" font-family="'Courier New', monospace" font-size="20" fill="#48d66b">github.com/icedracon/adhammer</text>
+  <text x="1208" y="604" text-anchor="end" font-family="'Courier New', monospace" font-size="20" fill="#8c96a8">MIT · authorized research</text>
+</svg>

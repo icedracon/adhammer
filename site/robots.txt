@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://icedracon.github.io/adhammer/sitemap.xml

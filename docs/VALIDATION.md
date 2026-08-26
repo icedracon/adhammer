@@ -1,6 +1,6 @@
 # ADhammer Validation Ledger
 
-This file is the local release truth source for `1.4.3`.
+This file is the local release truth source for the `1.4.5` release line.
 
 No public claim should exceed the status recorded here.
 

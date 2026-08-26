@@ -3,14 +3,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/banner.svg" alt="AD//HAMMER — See the domain. Understand the proof." width="100%"/>
+  <img src="docs/banner.svg" alt="ADhammer — collect the directory, validate supported paths." width="100%"/>
 </p>
 
 <h3 align="center">Open-source Rust · Active Directory pentest tool</h3>
 
-<p align="center"><b>See the domain. Understand the proof.</b></p>
+<p align="center"><b>Collect the directory. Validate supported paths.</b></p>
 
-<p align="center"><sub>One static binary. 46 standalone protocol crates. Live evidence, not dashboard theatre.</sub></p>
+<p align="center"><sub>One static binary. Evidence-first reporting. Published Rust protocol crates.</sub></p>
 
 <p align="center">
   <a href="https://icedracon.github.io/adhammer/"><b>&nbsp;SITE&nbsp;</b></a>
@@ -32,14 +32,14 @@
 </p>
 
 <p align="center">
-  <sub><b>64 standalone crates + 12-crate workspace</b> · <b>validation ledger in <code>docs/VALIDATION.md</code></b> · <b>Rust 1.87</b> · MIT</sub>
+  <sub><b>validation ledger in <code>docs/VALIDATION.md</code></b> · <b>release notes in <code>CHANGELOG.md</code></b> · MIT</sub>
 </p>
 
 <br/>
 
 ## The idea
 
-> **Evidence over assumption.** No dashboard theatre. No vague alerts. Just the system, explained.
+> **Evidence over assumption.** Collect the directory, trace the path, and validate supported findings with captured proof.
 
 ADhammer collects the domain, graphs every control path that ends at Tier-0, then *proves* the interesting ones with the same protocol code the attacker would use. One continuous session from LDAP recon to a signed AS-REP on disk. Findings you can hand to a customer with the exact byte sequence that produced them.
 
@@ -89,49 +89,23 @@ The difference matters:
 
 | Not | But |
 |:---:|:---:|
-| *"probably exploitable"* | ***"validated against this DC"*** |
+| *"potential path"* | ***"supported validation captured proof"*** |
 
-Every finding in the report is either an unvalidated audit hit or an evidence-backed proof — real `$krb5tgs$` hash, real replicated `krbtgt` secret, real `ISSUED` cert. Defenders know which paths are theoretical and which have actually been walked.
-
-<br/>
-
-## ✨ What's new in 1.4.5
-
-The **"finish the picture, open the ecosystem"** release. Interactive Auto/Single-attack menus now surface the new verbs from 1.4.4, the exported `auto` bundle carries the same 58-check coverage matrix the primary `scan` report already had, and three brand-new standalone protocol crates land alongside adhammer — real code, live-validated on Server 2022 and Server 2025 DCs.
-
-- **Interactive menu now surfaces `attack dns`, `enum sccm`, `enum scom`** — the 1.4.4 verbs were CLI-only; the guided front door now dispatches to them cleanly, so an operator driving `adhammer` (no args) reaches every capability without reading the man page.
-- **`auto` / guided bundle carries the full 58-check coverage matrix** — the exported `auto-report.{json,md,html,txt}` now shows "checked X, N tripped, M clean" for every check (matching what `scan` already had in 1.4.4); the JSON artifact carries a `coverage[]` array of 58 rows.
-- **Three new standalone icedracon crates on crates.io** — [`ms-scmr`](https://crates.io/crates/ms-scmr) 0.1.0 (Service Control Manager remote — foundation for pure-Rust remote-service management from Linux), [`ccache-io`](https://crates.io/crates/ccache-io) 0.1.0 (MIT-Kerberos `ccache` + `.kirbi` codec — every Rust Kerberos toolchain finally has a shared interop format), [`ms-bkrp`](https://crates.io/crates/ms-bkrp) 0.1.1 (BackupKey Remote Protocol — DPAPI master-key recovery for DFIR + post-DA persistence audits).
-- **Clearer LDAP-failure diagnostics** (carried in the 1.4.5 line) — a failed bind names the actual cause (TLS/cert, channel binding, reachability), so first-touch setup from Kali or PowerShell is faster to debug.
-
-Live-validated end-to-end against **Server 2022 and Server 2025** DCs: scan finds real findings with evidence, `attack dns --dry-run` resolves the correct `DomainDnsZones` DN, `enum sccm` correctly reports "not present → clean" on a lab without SCCM.
-
-Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+Every finding in the report is either an audit observation, a supported validation with proof, or a path that still needs operator context. Defenders can see what was observed, what was proven, and what remains validation owed.
 
 <br/>
 
-### Previously — what 1.4.4 added
+## Release Truth
 
-The **"read the whole picture"** release — every scan report now ships a visual control-path graph and a complete coverage matrix inline, so you see what was checked and what tripped, not just the hits.
+The current workspace version is **1.4.5**.
 
-- **In-report control-path graph** — the HTML report renders the cheapest attack paths to Tier-0 as a self-contained SVG (no external libraries, no CDN), laid out deterministically so two scans of the same domain diff cleanly.
-- **Full coverage matrix in every report** — all 58 checks appear with their status (`tripped` / `clean`) plus evidence, in JSON / HTML / Markdown / terminal — the completeness signal a report needs (*"checked X, clean"*), so a reviewer sees where there is *and isn't* a finding.
-- **`attack dns`** — write ADIDNS records (`add-a` / `modify-a` / `tombstone` / `delete`) over LDAP, `--dry-run` by default so the intended change prints before anything is written.
-- **`enum sccm` / `enum scom`** — discover Configuration Manager and Operations Manager footholds from the directory; an absent container reports *not present* instead of erroring.
+Public claims for ADhammer should follow three rules:
 
-<br/>
+- **Release-specific changes live in [CHANGELOG.md](CHANGELOG.md).**
+- **Validation status lives in [docs/VALIDATION.md](docs/VALIDATION.md).**
+- **No public copy should claim more than the validation ledger supports.**
 
-### Previously — what 1.4.3 added
-
-The **"prove it, cover it"** release — every finding now carries the ground-truth server artifact that substantiates it, the passive-detection registry grew from 41 to 58 checks, and scans can diff against a prior run. On top of the interactive-UX pass that makes the binary easier to drive from Kali, PowerShell, and `cmd`.
-
-- **Ground-truth evidence on every finding** — each finding carries the raw server/client artifact that proves it (the exact LDAP attribute value, registry key, cert-template flag, or wire status), rendered in the JSON, HTML, Markdown, and terminal reports. *"You have X"* becomes *"the server returned Y, which is X"* — a reviewer can verify each finding by hand from the evidence.
-- **Wider passive coverage (41 → 58 checks)** — new evidence-backed rules: constrained delegation targeting a DC (Critical), broad principals directly in Tier-0, Key Admins / Enterprise Key Admins, foreign and computer accounts in privileged groups, cleartext-secret attributes, weak certificate-template key sizes, expired LAPS, and privileged accounts missing from Protected Users.
-- **Baseline diff** — `scan --baseline <prior.json>` tags findings `NEW` / `RESOLVED` / `SEVERITY-CHANGED` by (rule id, affected object), across every report format — track drift between assessments.
-- **Narrated guided flow** — Auto / Guided shows a connection summary, named phases with timing, clearer clean/finding states, proof snippets, export choices, and a finish card; shell-safe numbered prompts; single-attack preflight brief and timed result frame.
-- **JSON contract preserved** — human narration on the operator path, `--json` stays machine-clean. Validation ledger stays honest in [docs/VALIDATION.md](docs/VALIDATION.md).
-
-Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+That keeps the README useful across release lines without turning the first screen into a moving archive.
 
 <br/>
 
@@ -143,7 +117,7 @@ Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive: **[GitHub R
 
 **🔴 Red team operators**
 
-One binary, no Python runtime, no sidecar services. The reference DA kill chain (scan → DCSync → Golden → SYSTEM) runs in under a minute on the lab DC. Works from Kali or straight off a Windows jump box. Attack primitives are spec-shaped and live-validated for supported paths across Server 2022 and Server 2025 — the two OS versions the lab exercises every release.
+One binary, no Python runtime, no sidecar services. Works from Kali or straight off a Windows jump box. Supported validation paths are exercised in an authorized lab and tracked in the validation ledger instead of being overstated in marketing copy.
 
 </td>
 <td width="33%" valign="top">
@@ -157,7 +131,7 @@ One binary, no Python runtime, no sidecar services. The reference DA kill chain 
 
 **🦀 Rust developers**
 
-64 standalone icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
+Published icedracon protocol crates on crates.io, each `cargo add`-able. Compose your own DCE/RPC stack, forge PACs, decrypt LAPS blobs, or emit BloodHound JSON — pick the layer that fits, skip the rest. See the **[ecosystem section](#-built-on-a-from-scratch-rust-ecosystem)**.
 
 </td>
 </tr>
@@ -199,7 +173,7 @@ Fast per-operation timings (see [BENCHMARKS.md](docs/BENCHMARKS.md) for the reco
 <br/>
 
 <p align="center">
-  <img src="docs/comparison.svg" alt="ADhammer capability overview — audit, attack, wire, report + DA kill chain" width="100%"/>
+  <img src="docs/comparison.svg" alt="ADhammer operator map — collect, graph, validate supported findings, report" width="100%"/>
 </p>
 
 <br/>
@@ -519,12 +493,12 @@ Every finding carries a **MITRE ATT&CK** technique (T1558.003, T1003.006, T1649,
 ## 🧱 Built on a from-scratch Rust ecosystem
 
 <p align="center">
-  <img src="docs/ecosystem.svg" alt="ADhammer application on top of icedracon — 64 standalone pure-Rust MS protocol crates" width="100%"/>
+  <img src="docs/ecosystem.svg" alt="ADhammer application on top of icedracon — published pure-Rust protocol crates" width="100%"/>
 </p>
 
 <br/>
 
-ADhammer is one binary on top of **64 standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, MIT-licensed, works standalone. Combined ecosystem downloads: **20k+**.
+ADhammer is one binary on top of **published standalone icedracon crates**, each doing one job well and each `cargo add`-able on its own. Every crate ships an explicit *"what this does NOT do"* section, is MIT-licensed, and works standalone. Exact crate counts and download totals change over time; the important constant is that the protocol stack is reusable outside the binary.
 
 **Two brands, one project:**
 
