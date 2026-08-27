@@ -1,6 +1,6 @@
 # ADhammer
 
-> ADhammer is an open-source (MIT) Rust tool for Active Directory assessment. It collects a domain over LDAP, builds a control-path graph to Tier-0, validates supported findings with captured proof, and reports findings as JSON, HTML, Markdown, and BloodHound-CE. It ships as one static binary and is also usable as a Rust library.
+> ADhammer is an open-source (MIT) Active Directory pentest and security-assessment tool in Rust. It collects a domain over LDAP, builds an attack-path graph to Tier-0, validates supported findings with captured proof, and reports findings as JSON, HTML, Markdown, and BloodHound-CE. It ships as one static binary and is also usable as a Rust library.
 
 ## What it is
 - Language: Rust. Single static binary; install with `cargo install adhammer`.
