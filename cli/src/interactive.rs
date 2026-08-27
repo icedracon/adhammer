@@ -1418,35 +1418,52 @@ fn prompt_select<T: AsRef<str>>(prompt: &str, items: &[T], default: usize) -> Re
 }
 
 async fn run_action_with_brief(action: &Action, s: &Session) -> Result<()> {
+    // Per-action stage checklist. Mirrors auto-mode's `scan`/`guided` checklists so
+    // interactive users get the same "which stage stopped the pipeline" story.
+    // Three generic stages fit every action shape: preflight-brief → execute → post-run.
+    // Actions that internally have richer stages (spray = target + auth + attempt +
+    // detect-lockout, dcsync = bind + drs + save) can be enriched later by threading
+    // `&mut StageChecklist` down; the outer 3-stage wrap gives every action at least
+    // the run-level visibility for free.
+    let mut checklist =
+        crate::ui::StageChecklist::new(["preflight brief", "execute action", "post-run outcome"]);
     show_action_brief(action, s);
+    checklist.record_ok("preflight brief", "action + mode announced");
     crate::ui::hold();
     let start = Instant::now();
+    let card_title = format!("{} stages", action_name(action));
+    let card_title_failed = format!("{} stages (failed)", action_name(action));
     match dispatch(action, s).await {
         Ok(()) => {
+            let elapsed = start.elapsed().as_secs_f32();
+            checklist.record_ok("execute action", format!("{elapsed:.1}s"));
             crate::ui::outcome(
                 crate::ui::OutcomeKind::Validated,
-                &format!(
-                    "{} completed ({:.1}s)",
-                    action_name(action),
-                    start.elapsed().as_secs_f32()
-                ),
+                &format!("{} completed ({elapsed:.1}s)", action_name(action)),
             );
             if let Some(next) = action_next_hint(action) {
                 crate::ui::field_err("next", next);
             }
+            checklist.record_ok("post-run outcome", "validated");
+            checklist.render(&card_title);
             pause_after_action()?;
             Ok(())
         }
         Err(e) => {
+            let elapsed = start.elapsed().as_secs_f32();
+            let reason = format!("{e:#}");
+            let brief = reason
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
             crate::ui::outcome(
                 crate::ui::OutcomeKind::Failed,
-                &format!(
-                    "{} failed ({:.1}s)",
-                    action_name(action),
-                    start.elapsed().as_secs_f32()
-                ),
+                &format!("{} failed ({elapsed:.1}s)", action_name(action)),
             );
-            let reason = format!("{e:#}");
             crate::ui::field_err("reason", &reason);
             if let Some(diag) = diagnose_connection_error(&reason) {
                 crate::ui::field_err("cause", diag);
@@ -1454,6 +1471,7 @@ async fn run_action_with_brief(action: &Action, s: &Session) -> Result<()> {
             if let Some(next) = action_failure_hint(action) {
                 crate::ui::field_err("next", next);
             }
+            checklist.render(&card_title_failed);
             pause_after_action()?;
             Err(e)
         }
