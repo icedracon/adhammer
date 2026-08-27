@@ -56,6 +56,13 @@ pub(crate) struct CheckKrbSealArgs {
     /// what we need to iterate to a byte-compatible wire layout in Session 4.
     #[arg(long)]
     pub try_call: bool,
+    /// Use the TGS-REP ticket session key as the sealer's base key instead of the
+    /// authenticator's random subkey. RFC 4121 §2 says when the AP-REQ authenticator
+    /// carries a subkey, both peers derive Ke/Ki from it; but if MS-KILE / DC01 in
+    /// practice uses the ticket session key regardless, our HMAC mismatches without
+    /// this flag. Fast toggle for the Session-4 crypto-key hypothesis.
+    #[arg(long)]
+    pub use_ticket_key: bool,
 }
 
 pub(crate) async fn check_krb_seal(mut a: CheckKrbSealArgs) -> Result<()> {
@@ -148,10 +155,22 @@ async fn run(a: &mut CheckKrbSealArgs, checklist: &mut ui::StageChecklist) -> Re
         "pipe file handle acquired",
     );
 
-    // Step 5: sealed Kerberos BIND on the pipe with the RPC ticket's 32-byte AES256 subkey.
+    // Step 5: sealed Kerberos BIND on the pipe.
     let (spnego_rpc, subkey_rpc) =
         build_ap_req_gss_aes256(&st_rpc).context("build AES256 AP-REQ for RPC bind")?;
-    let sealer = Box::new(AesCts96Sealer::new_initiator(subkey_rpc, false));
+    let base_key: [u8; 32] = if a.use_ticket_key {
+        // MS-KILE DCE-RPC path: derive Ke/Ki from the TGS-REP ticket session key,
+        // ignoring the subkey we generated in the authenticator. RFC 4121 §2 says
+        // "if authenticator has subkey, use it", but MS-KILE in the wild sometimes
+        // uses ticket session key for the DCE-RPC seal even when auth subkey exists.
+        // We check st_rpc.session_key is 32 bytes (AES256 ticket).
+        st_rpc.session_key.as_slice().try_into().context(
+            "ticket session key is not 32 bytes (AES256) — TGS-REQ may have returned RC4/AES128",
+        )?
+    } else {
+        subkey_rpc
+    };
+    let sealer = Box::new(AesCts96Sealer::new_initiator(base_key, false));
     let mut pipe = SmbPipe::new(&mut smb, pipe_id);
     // LSARPC abstract syntax (MS-LSAT / MS-LSAD) — this is the interface \PIPE\lsarpc serves.
     // {12345778-1234-abcd-ef00-0123456789ab} v0.0 — the well-known LSA interface UUID.
