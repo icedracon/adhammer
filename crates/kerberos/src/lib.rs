@@ -12,6 +12,8 @@ use adhammer_core::snapshot::Snapshot;
 // WS-4-P2 dcerpc 0.2.8 sealer — Session 1: crypto primitives (n-fold, AES-CTS, DR/DK).
 // Session 2 wires the KrbSealer trait impl on top; Session 3 hooks it into RpcTcp.
 pub mod rpc_seal;
+// WS-4-P2 Session 3 — dcerpc KrbSealer trait impl consuming rpc_seal primitives.
+pub mod rpc_sealer;
 use anyhow::{anyhow, bail, Result};
 
 use picky_asn1::bit_string::BitString;
