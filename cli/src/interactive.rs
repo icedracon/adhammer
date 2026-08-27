@@ -435,15 +435,15 @@ fn setup_wizard() -> Result<Session> {
         domain: domain.trim().to_string(),
         dc: dc.trim().to_string(),
         username: username.trim().to_string(),
-        password,
-        nt_hash,
+        password: adhammer_core::Redacted::new(password),
+        nt_hash: nt_hash.map(adhammer_core::Redacted::new),
         insecure,
     })
 }
 
 /// The session's NT hash as `Option<String>` for the pass-the-hash-capable actions.
 fn sess_hash(s: &Session) -> Option<String> {
-    s.nt_hash.clone()
+    s.nt_hash.as_ref().map(|h| h.expose().clone())
 }
 
 fn save_session_for_interactive(sess: &Session) -> Result<()> {
@@ -487,7 +487,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             crate::guided::guided(crate::guided::GuidedArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
                 host: Some(s.dc.clone()),
                 domain: Some(s.netbios()),
@@ -525,7 +525,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 nt_hash: sess_hash(s),
             })
@@ -541,7 +541,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 nt_hash: sess_hash(s),
                 name,
@@ -591,7 +591,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             dnsenum(DnsArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
             })
             .await
@@ -600,7 +600,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             sccmenum(SysCenterArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
             })
             .await
@@ -609,7 +609,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             scomenum(SysCenterArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
             })
             .await
@@ -648,7 +648,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 auth: crate::shared_args::OptAuth {
                     url: Some(s.ldap_url()),
                     user: Some(s.username.clone()),
-                    password: Some(s.password.clone()),
+                    password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
                 },
                 action: actions[ai],
@@ -665,7 +665,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             adcsenum(DnsArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
             })
             .await
@@ -679,7 +679,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 ca,
             })
@@ -691,7 +691,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
             })
             .await
@@ -745,7 +745,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 auth: crate::shared_args::OptAuth {
                     url: Some(s.ldap_url()),
                     user: Some(s.username.clone()),
-                    password: Some(s.password.clone()),
+                    password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
                 },
                 action: actions[ai],
@@ -775,7 +775,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 listener,
                 pipe,
@@ -823,7 +823,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 target: if target.is_empty() {
                     None
@@ -886,7 +886,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 nt_hash: sess_hash(s),
                 command,
@@ -903,7 +903,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 nt_hash: sess_hash(s),
                 command,
@@ -924,7 +924,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host,
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 port: 5985,
                 nt_hash: sess_hash(s),
@@ -938,7 +938,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 nt_hash: sess_hash(s),
             })
@@ -951,7 +951,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             gmsa(GmsaArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
                 target,
             })
@@ -966,7 +966,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             laps(LapsArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: s.insecure,
                 target,
             })
@@ -990,7 +990,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host: s.dc.clone(),
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 ca,
                 template,
@@ -1010,10 +1010,10 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_initial_text(format!("{}.ccache", s.username))
                 .interact_text()?;
             // Password auth → AES256; hash-only session → overpass-the-hash (RC4).
-            let (password, nt_hash) = if s.password.is_empty() {
+            let (password, nt_hash) = if s.password.expose().is_empty() {
                 (None, sess_hash(s))
             } else {
-                (Some(s.password.clone()), None)
+                (Some(s.password.expose().clone()), None)
             };
             asktgt(AsktgtArgs {
                 user: s.username.clone(),
@@ -1137,9 +1137,9 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host,
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
-                nt_hash: s.nt_hash.clone(),
+                nt_hash: s.nt_hash.as_ref().map(|h| h.expose().clone()),
                 include_machine: false,
             })
             .await
@@ -1173,7 +1173,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             shadowcred(ShadowcredArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: true,
                 target,
                 pkinit,
@@ -1196,7 +1196,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             esc4(Esc4Args {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: true,
                 template,
                 enrollee: None,
@@ -1217,7 +1217,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             badsuccessor(BadsuccessorArgs {
                 url: s.ldap_url(),
                 user: s.username.clone(),
-                password: s.password.clone(),
+                password: s.password.expose().clone(),
                 insecure: true,
                 container: if container.is_empty() {
                     None
@@ -1292,7 +1292,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     host,
                     domain: s.netbios(),
                     user: s.username.clone(),
-                    password: s.password.clone(),
+                    password: s.password.expose().clone(),
                 },
                 query,
                 port,
@@ -1315,7 +1315,7 @@ async fn fetch_key_and_sid(
     key_label: &str,
 ) -> Result<(String, String)> {
     // A hash-only session can't DCSync/LSAT-bind here, so go straight to manual entry.
-    let auto = if s.password.is_empty() {
+    let auto = if s.password.expose().is_empty() {
         false
     } else {
         prompt_confirm(
@@ -1331,7 +1331,8 @@ async fn fetch_key_and_sid(
     }
 
     // Key via DCSync (DRSUAPI over sealed RPC).
-    let mut drs = ms_drsr::DrsSession::bind(&s.dc, &s.netbios(), &s.username, &s.password).await?;
+    let mut drs =
+        ms_drsr::DrsSession::bind(&s.dc, &s.netbios(), &s.username, s.password.expose()).await?;
     let (_rid, _nt, kerb) = drs.dcsync(&s.netbios(), account).await?;
     let key = kerb
         .iter()
@@ -1348,7 +1349,7 @@ async fn fetch_key_and_sid(
 /// Resolve `account` to a SID over LSAT and strip the RID to yield the domain SID string.
 async fn lookup_domain_sid(s: &Session, account: &str) -> Result<String> {
     let mut smb = smb2_client::SmbClient::connect(&s.dc).await?;
-    smb.login(&s.dc, &s.netbios(), &s.username, &s.password)
+    smb.login(&s.dc, &s.netbios(), &s.username, s.password.expose())
         .await?;
     smb.tree_connect(&format!("\\\\{}\\IPC$", s.dc)).await?;
     let pipe = smb.open_pipe("lsarpc").await?;

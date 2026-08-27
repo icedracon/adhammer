@@ -68,6 +68,21 @@ impl<T> From<T> for Redacted<T> {
     }
 }
 
+/// Transparent Serialize — a `Redacted<T>` serializes exactly as `T` would. This lets us
+/// wrap existing persisted fields (e.g. the on-disk Session file) without changing the
+/// wire format. If a struct instead wants a "***" placeholder in its serialized form,
+/// use `#[serde(serialize_with = "...")]` at the field rather than making Redacted lie.
+impl<T: serde::Serialize> serde::Serialize for Redacted<T> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Redacted<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        T::deserialize(d).map(Redacted)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +136,21 @@ mod tests {
         let dbg = format!("{opt:?}");
         assert!(dbg.contains("***"));
         assert!(!dbg.contains("secret-token"));
+    }
+
+    #[test]
+    fn serde_is_transparent() {
+        // Serializing a Redacted<T> must produce the same output as serializing the raw
+        // T — otherwise persistent Session files break the moment a field is wrapped.
+        let raw: String = "hunter2".into();
+        let wrapped = Redacted::new(raw.clone());
+        assert_eq!(
+            serde_json::to_string(&wrapped).unwrap(),
+            serde_json::to_string(&raw).unwrap(),
+        );
+        // Round-trip: deserialize a plain JSON string back into a Redacted<String>.
+        let s = "\"round-trip\"";
+        let back: Redacted<String> = serde_json::from_str(s).unwrap();
+        assert_eq!(back.expose(), "round-trip");
     }
 }
