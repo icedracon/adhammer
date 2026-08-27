@@ -410,8 +410,8 @@
       z-index: 4;
       width: 100%;
       height: 100%;
-      opacity: .92;
-      mix-blend-mode: screen;
+      opacity: .98;
+      mix-blend-mode: normal;
       transform: translateZ(118px);
       -webkit-mask-image: url("assets/ice-dragon-graph.webp");
       -webkit-mask-repeat: no-repeat;
@@ -534,7 +534,7 @@
       z-index: 3;
       width: 100%;
       height: 100%;
-      opacity: .68;
+      opacity: .24;
       transform: translateZ(78px);
       pointer-events: none;
     }
@@ -1277,8 +1277,8 @@
       .dragon-body { opacity: .58; }
       .dragon-shadow { opacity: .13; filter: blur(7px) brightness(.4) saturate(1.25); }
       .dragon-glint { opacity: .14; }
-      .dragon-current { opacity: .78; }
-      #living-graph { opacity: .52; }
+      .dragon-current { opacity: .82; }
+      #living-graph { opacity: .18; }
       .hero-facts { grid-column: 1; grid-row: 3; width: 100%; margin-top: 0; background: rgba(5, 7, 13, .66); backdrop-filter: blur(8px); }
       .hero-rail { position: relative; grid-template-columns: repeat(2, 1fr); margin-top: 0; }
       .rail-item { min-height: 72px; padding: 14px 16px; }
@@ -1336,10 +1336,10 @@
       .dragon-shadow { display: none; }
       .dragon-body { opacity: .5; }
       .dragon-glint { opacity: .1; }
-      .dragon-current { opacity: .66; }
+      .dragon-current { opacity: .72; }
       .dragon-breath { width: 34%; opacity: .82; }
       .dragon-breath i:nth-child(3) { display: none; }
-      #living-graph { opacity: .4; }
+      #living-graph { opacity: .12; }
       .dragon-live-tag { left: 14px; right: auto; bottom: 4%; }
       .model-index { display: none; }
       .hero-rail { grid-template-columns: repeat(2, 1fr); }
@@ -1464,7 +1464,7 @@
           </div>
         </div>
         <canvas id="living-graph" aria-hidden="true"></canvas>
-        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · electric veins online</span></div>
+        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · cryogenic circulation online</span></div>
         <span class="model-index">3D ice system · pointer reactive</span>
       </div>
 
@@ -2056,13 +2056,38 @@
         var rotX = 0;
         var rotY = 0;
         var currentPaths = [
-          { start: [187, 548], curves: [[294, 602, 421, 602, 535, 536], [616, 490, 674, 463, 731, 413], [787, 364, 798, 286, 850, 221], [890, 171, 942, 182, 990, 236], [1004, 253, 1017, 273, 1026, 291]] },
-          { start: [665, 433], curves: [[603, 370, 545, 310, 481, 232], [418, 156, 329, 82, 225, 80], [164, 79, 96, 116, 44, 174]] },
-          { start: [637, 430], curves: [[548, 414, 470, 372, 397, 320], [326, 269, 231, 233, 119, 249]] },
-          { start: [829, 336], curves: [[891, 281, 966, 211, 1044, 151], [1097, 111, 1145, 89, 1180, 101]] },
-          { start: [861, 354], curves: [[940, 329, 1033, 345, 1093, 397], [1142, 440, 1164, 490, 1150, 536]] },
-          { start: [721, 448], curves: [[747, 501, 778, 558, 791, 635]] },
-          { start: [817, 432], curves: [[870, 479, 913, 534, 929, 631]] }
+          { tier: 0, delay: 0, start: [800, 358], curves: [[783, 378, 751, 401, 731, 413], [674, 463, 616, 490, 535, 536], [421, 602, 294, 602, 187, 548]] },
+          { tier: 1, delay: 470, start: [187, 548], curves: [[153, 522, 122, 518, 110, 543], [96, 578, 141, 613, 196, 614], [253, 615, 301, 582, 329, 538], [347, 512, 354, 478, 349, 447]] },
+          { tier: 0, delay: 0, start: [800, 358], curves: [[814, 319, 824, 258, 850, 221], [890, 171, 942, 182, 990, 236], [1004, 253, 1017, 273, 1026, 291]] },
+
+          { tier: 1, delay: 0, start: [800, 358], curves: [[760, 382, 710, 417, 665, 433]] },
+          { tier: 1, delay: 145, start: [665, 433], curves: [[618, 393, 579, 352, 545, 310], [523, 281, 500, 254, 481, 232], [431, 175, 376, 116, 329, 82], [286, 70, 252, 75, 225, 80], [164, 79, 96, 116, 44, 174]] },
+          { tier: 2, delay: 145, start: [665, 433], curves: [[610, 421, 550, 391, 493, 354], [458, 337, 428, 326, 397, 320], [326, 269, 231, 233, 119, 249]] },
+          { tier: 2, delay: 270, start: [545, 310], curves: [[485, 298, 424, 278, 365, 253], [305, 227, 237, 212, 168, 219], [113, 225, 73, 244, 44, 270]] },
+          { tier: 2, delay: 345, start: [481, 232], curves: [[425, 205, 361, 187, 297, 180], [229, 173, 164, 180, 104, 211]] },
+          { tier: 2, delay: 250, start: [493, 354], curves: [[439, 383, 392, 424, 357, 471], [327, 511, 278, 539, 225, 548]] },
+          { tier: 3, delay: 390, start: [365, 253], curves: [[342, 282, 326, 313, 319, 348]] },
+          { tier: 3, delay: 430, start: [297, 180], curves: [[275, 211, 259, 246, 254, 280]] },
+          { tier: 3, delay: 500, start: [168, 219], curves: [[155, 248, 146, 283, 145, 320]] },
+
+          { tier: 1, delay: 0, start: [800, 358], curves: [[810, 350, 820, 342, 829, 336]] },
+          { tier: 1, delay: 55, start: [829, 336], curves: [[858, 311, 890, 282, 918, 256], [959, 217, 1004, 179, 1044, 151], [1097, 111, 1145, 89, 1180, 101]] },
+          { tier: 2, delay: 55, start: [829, 336], curves: [[870, 327, 910, 326, 950, 329], [1004, 334, 1057, 360, 1093, 397], [1142, 440, 1164, 490, 1150, 536]] },
+          { tier: 2, delay: 195, start: [918, 256], curves: [[970, 260, 1020, 278, 1064, 307], [1105, 336, 1135, 374, 1151, 420]] },
+          { tier: 2, delay: 300, start: [1044, 151], curves: [[1085, 177, 1114, 208, 1135, 244]] },
+          { tier: 3, delay: 355, start: [1064, 307], curves: [[1085, 337, 1099, 370, 1103, 405]] },
+
+          { tier: 2, delay: 205, start: [850, 221], curves: [[826, 184, 809, 144, 812, 108], [813, 83, 824, 62, 840, 47]] },
+          { tier: 2, delay: 285, start: [905, 190], curves: [[889, 150, 890, 115, 908, 81], [920, 59, 936, 43, 952, 31]] },
+          { tier: 3, delay: 380, start: [990, 236], curves: [[986, 236, 982, 239, 979, 240]] },
+          { tier: 2, delay: 380, start: [990, 236], curves: [[976, 254, 960, 270, 938, 284]] },
+
+          { tier: 1, delay: 115, start: [731, 413], curves: [[686, 449, 652, 490, 626, 531], [603, 566, 586, 603, 579, 642]] },
+          { tier: 1, delay: 115, start: [731, 413], curves: [[720, 449, 728, 486, 748, 519], [771, 554, 788, 594, 791, 635]] },
+          { tier: 1, delay: 40, start: [800, 358], curves: [[807, 383, 812, 410, 817, 432], [870, 479, 913, 534, 929, 631]] },
+          { tier: 3, delay: 490, start: [579, 615], curves: [[566, 626, 556, 638, 550, 646]] },
+          { tier: 3, delay: 500, start: [791, 608], curves: [[780, 621, 770, 634, 764, 642]] },
+          { tier: 3, delay: 500, start: [929, 606], curves: [[918, 621, 908, 634, 900, 642]] }
         ];
 
         for (var i = 0; i < 48; i += 1) {
@@ -2137,42 +2162,71 @@
             currentContext.bezierCurveTo(curve[0], curve[1], curve[2], curve[3], curve[4], curve[5]);
           });
         }
+        function currentPathLength(currentPath) {
+          if (currentPath.length) return currentPath.length;
+          var total = 0;
+          var fromX = currentPath.start[0];
+          var fromY = currentPath.start[1];
+          currentPath.curves.forEach(function (curve) {
+            var previousX = fromX;
+            var previousY = fromY;
+            for (var sample = 1; sample <= 14; sample += 1) {
+              var amount = sample / 14;
+              var inverse = 1 - amount;
+              var sampleX = inverse * inverse * inverse * fromX + 3 * inverse * inverse * amount * curve[0] + 3 * inverse * amount * amount * curve[2] + amount * amount * amount * curve[4];
+              var sampleY = inverse * inverse * inverse * fromY + 3 * inverse * inverse * amount * curve[1] + 3 * inverse * amount * amount * curve[3] + amount * amount * amount * curve[5];
+              total += Math.hypot(sampleX - previousX, sampleY - previousY);
+              previousX = sampleX;
+              previousY = sampleY;
+            }
+            fromX = curve[4];
+            fromY = curve[5];
+          });
+          currentPath.length = Math.max(1, total);
+          return currentPath.length;
+        }
         function drawDragonCurrent(time) {
           if (!currentContext || !currentWidth || !currentHeight) return;
           currentContext.clearRect(0, 0, currentWidth, currentHeight);
           currentContext.save();
           currentContext.scale(currentWidth / 1200, currentHeight / 675);
-          currentContext.globalCompositeOperation = "lighter";
           currentContext.lineCap = "round";
           currentContext.lineJoin = "round";
-          currentPaths.forEach(function (currentPath, index) {
+          currentPaths.forEach(function (currentPath) {
+            var vesselWidths = [7, 4.6, 2.6, 1.25];
+            var vesselWidth = vesselWidths[currentPath.tier];
+            var vesselPulse = reduced ? .84 : .82 + Math.sin(time * .0022 - currentPath.delay * .003) * .08;
+
+            currentContext.globalCompositeOperation = "source-over";
             traceCurrent(currentPath);
             currentContext.setLineDash([]);
-            currentContext.lineWidth = 1.3;
-            currentContext.shadowBlur = 0;
-            currentContext.strokeStyle = "rgba(65,178,255,.3)";
+            currentContext.lineWidth = vesselWidth + 2.2;
+            currentContext.shadowBlur = currentPath.tier < 2 ? 5 : 2;
+            currentContext.shadowColor = "rgba(8,70,94,.58)";
+            currentContext.strokeStyle = "rgba(5,52,72,.72)";
             currentContext.stroke();
 
             traceCurrent(currentPath);
-            currentContext.setLineDash(reduced ? [24, 76] : [18, 72]);
-            currentContext.lineDashOffset = reduced ? -index * 11 : -(time * .095 + index * 23);
-            currentContext.lineWidth = 2.15 + index % 3 * .42;
-            currentContext.shadowBlur = 18;
-            currentContext.shadowColor = "rgba(78,205,255,.92)";
-            var charge = reduced ? .7 : .7 + Math.max(0, Math.sin(time * .007 + index * 1.31)) * .3;
-            currentContext.strokeStyle = "rgba(171,241,255," + charge.toFixed(2) + ")";
+            currentContext.setLineDash([]);
+            currentContext.lineWidth = vesselWidth * vesselPulse;
+            currentContext.shadowBlur = currentPath.tier === 0 ? 8 : currentPath.tier === 1 ? 6 : 4;
+            currentContext.shadowColor = "rgba(52,190,224,.68)";
+            currentContext.strokeStyle = "rgba(47,159,190," + (currentPath.tier === 3 ? .56 : .72).toFixed(2) + ")";
             currentContext.stroke();
 
-            if (!reduced) {
-              traceCurrent(currentPath);
-              currentContext.setLineDash([3, 87]);
-              currentContext.lineDashOffset = -(time * .18 + index * 29);
-              currentContext.lineWidth = 4.2;
-              currentContext.shadowBlur = 25;
-              currentContext.shadowColor = "rgba(201,242,255,1)";
-              currentContext.strokeStyle = "rgba(255,255,255,.92)";
-              currentContext.stroke();
-            }
+            traceCurrent(currentPath);
+            var routeLength = currentPathLength(currentPath);
+            var chargeLengths = [42, 34, 24, 14];
+            var chargeLength = chargeLengths[currentPath.tier];
+            currentContext.setLineDash(reduced ? [] : [chargeLength, Math.max(1, routeLength - chargeLength + 1)]);
+            var pulseDistance = reduced ? 0 : Math.max(0, time - currentPath.delay) * .22 % routeLength;
+            currentContext.lineDashOffset = reduced ? 0 : -pulseDistance;
+            currentContext.lineWidth = vesselWidth * 1.08;
+            currentContext.shadowBlur = currentPath.tier === 0 ? 8 : currentPath.tier === 1 ? 6 : 4;
+            currentContext.shadowColor = "rgba(201,242,255,1)";
+            currentContext.globalCompositeOperation = "lighter";
+            currentContext.strokeStyle = "rgba(225,250,255," + (reduced ? .45 : .86).toFixed(2) + ")";
+            currentContext.stroke();
           });
           currentContext.restore();
         }
