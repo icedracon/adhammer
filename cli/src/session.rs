@@ -27,6 +27,12 @@ pub struct Session {
     /// Skip TLS verification for lab LDAPS
     #[serde(default)]
     pub insecure: bool,
+    /// LDAP URL override — when the setup wizard probes the DC and finds LDAPS (636) is
+    /// closed or resetting the TLS handshake, it stores an explicit `ldap://<dc>:389` URL
+    /// here so all interactive-launched attacks use the working transport. Omitted when
+    /// LDAPS on 636 works; then `ldap_url()` falls back to the standard `ldaps://<dc>:636`.
+    #[serde(default)]
+    pub ldap_url_override: Option<String>,
 }
 
 impl Session {
@@ -43,7 +49,11 @@ impl Session {
     }
 
     pub fn ldap_url(&self) -> String {
-        format!("ldaps://{}:636", self.dc)
+        if let Some(u) = &self.ldap_url_override {
+            u.clone()
+        } else {
+            format!("ldaps://{}:636", self.dc)
+        }
     }
 
     pub fn scan_args(&self) -> ScanArgs {

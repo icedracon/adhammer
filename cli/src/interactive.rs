@@ -431,14 +431,71 @@ fn setup_wizard() -> Result<Session> {
     let insecure = prompt_confirm("Skip LDAPS certificate verification (lab DC)?", true)
         .context("insecure prompt")?;
 
+    // Probe LDAPS (636) reachability, fall back to plain LDAP (389) when the DC has no
+    // TLS certificate or the handshake is refused. Common on Server 2019/2022 lab DCs
+    // that were built without an ADCS role — those refuse 636 with `Connection reset by
+    // peer` mid-handshake, so any interactive path hardcoded to `ldaps://<dc>:636` dies
+    // before the first bind. CLI callers who pass `--url ldap://<dc>:389 --insecure`
+    // sidestep this; the wizard now does the same automatically.
+    let dc_clean = dc.trim().to_string();
+    let ldap_url_override = probe_ldap_scheme(&dc_clean);
+    if ldap_url_override.is_some() {
+        crate::ui::warn(&format!(
+            "LDAPS (636) unreachable on {dc_clean}; falling back to plain LDAP on 389 (lab DCs without ADCS commonly do this). \
+             LDAPS-only writes (gMSA, LAPS) will fail until the DC gets a cert."
+        ));
+    }
+
     Ok(Session {
         domain: domain.trim().to_string(),
-        dc: dc.trim().to_string(),
+        dc: dc_clean,
         username: username.trim().to_string(),
         password: adhammer_core::Redacted::new(password),
         nt_hash: nt_hash.map(adhammer_core::Redacted::new),
         insecure,
+        ldap_url_override,
     })
+}
+
+/// Probe `ldaps://<dc>:636`; return `Some("ldap://<dc>:389")` if the LDAPS handshake
+/// isn't going to work (port closed, connection reset, no listener). Returns `None`
+/// when LDAPS is available so the caller falls through to the default `ldap_url()`.
+///
+/// Uses a plain TCP connect + short read: LDAPS servers always respond to a TCP SYN
+/// with SYN-ACK and then wait for the ClientHello. If we see RST or timeout, LDAPS is
+/// not the right transport. 3-second budget so the wizard stays snappy.
+fn probe_ldap_scheme(dc: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr = format!("{dc}:636");
+    let deadline = Duration::from_secs(3);
+    match TcpStream::connect_timeout(
+        &addr.parse().ok().or_else(|| {
+            // hostnames: resolve then connect
+            std::net::ToSocketAddrs::to_socket_addrs(&addr)
+                .ok()
+                .and_then(|mut it| it.next())
+        })?,
+        deadline,
+    ) {
+        Ok(mut stream) => {
+            stream.set_read_timeout(Some(deadline)).ok();
+            // Send a minimal TLS ClientHello prefix; if the server RSTs immediately, it
+            // doesn't speak TLS on 636 (some lab DCs listen on 636 but reject TLS).
+            let hello = [0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00];
+            if stream.write_all(&hello).is_err() {
+                return Some(format!("ldap://{dc}:389"));
+            }
+            let mut buf = [0u8; 1];
+            match stream.read(&mut buf) {
+                Ok(0) => Some(format!("ldap://{dc}:389")), // clean close = no TLS
+                Ok(_) => None,                             // got server hello prefix
+                Err(_) => Some(format!("ldap://{dc}:389")), // timeout or RST
+            }
+        }
+        Err(_) => Some(format!("ldap://{dc}:389")),
+    }
 }
 
 /// The session's NT hash as `Option<String>` for the pass-the-hash-capable actions.
