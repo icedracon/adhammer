@@ -360,10 +360,13 @@ fn self_signed_cert(
     Ok((cert, sid))
 }
 
-/// Result of a successful PKINIT AS-exchange.
+/// Result of a successful PKINIT AS-exchange. Session key + full ccache blob are wrapped
+/// in [`adhammer_core::Redacted`] so a stray `{tgt:?}` (if a downstream ever adds Debug)
+/// prints `***` instead of leaking either the Kerberos session key or the encrypted-under-
+/// user-key ccache material.
 pub struct PkinitTgt {
-    pub ccache: Vec<u8>,
-    pub session_key: Vec<u8>,
+    pub ccache: adhammer_core::Redacted<Vec<u8>>,
+    pub session_key: adhammer_core::Redacted<Vec<u8>>,
     pub end_time: String,
     pub sname: String,
 }
@@ -656,8 +659,8 @@ pub async fn pkinit_with_cert(
         enc_part.0.end_time.0 .0.second(),
     );
     Ok(PkinitTgt {
-        ccache,
-        session_key,
+        ccache: adhammer_core::Redacted::new(ccache),
+        session_key: adhammer_core::Redacted::new(session_key),
         end_time,
         sname: format!("krbtgt/{realm}"),
     })

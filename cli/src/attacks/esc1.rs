@@ -89,7 +89,7 @@ pub(crate) async fn esc1(a: Esc1Args) -> Result<()> {
             {
                 Ok(tgt) => {
                     let ccache = format!("{subject}.ccache");
-                    std::fs::write(&ccache, &tgt.ccache)?;
+                    std::fs::write(&ccache, tgt.ccache.expose())?;
                     println!("[+] PKINIT OK — TGT obtained as {subject}; ccache → {ccache}");
                     println!(
                         "    KRB5CCNAME={ccache} → use for Kerberos auth (dcsync, exec via -k, …)"

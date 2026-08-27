@@ -147,7 +147,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         let tgt =
             adhammer_kerberos::pkinit::pkinit_authenticate(&a.target, &realm, &kdc, &pem).await?;
         let cc_path = format!("{}.ccache", a.target);
-        std::fs::write(&cc_path, &tgt.ccache)?;
+        std::fs::write(&cc_path, tgt.ccache.expose())?;
         println!(
             "[+] PKINIT succeeded — TGT for {}@{} (via {})",
             a.target, realm, tgt.sname
