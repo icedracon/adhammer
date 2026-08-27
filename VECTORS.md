@@ -266,7 +266,7 @@ is out of scope).
 | Cross-domain / forest trust paths | 🔶 | Trust *checks* exist; graph is single-domain |
 | Tier model customization | ❌ | Hardcoded Tier-0 RIDs |
 | BloodHound export (JSON) | ✅ | `scan --bloodhound out.zip` (BloodHound CE v5 ingest format) |
-| BloodHound OpenGraph custom edges | Low | Custom node types + shipped Cypher queries for adhammer-specific findings (post-1.4.6, standalone crate) |
+| BloodHound OpenGraph custom edges | Low | Custom node types + shipped Cypher queries for adhammer-specific findings (future standalone crate) |
 | Historical diff (scan over time) | ❌ | |
 
 ### UX / product
@@ -294,9 +294,9 @@ is out of scope).
 
 | Vector | Priority | Notes |
 |--------|----------|-------|
-| MSSQL impersonation chain (deep) | Medium | Beyond basic exec — `EXECUTE AS`, linked-server, `xp_cmdshell`, cross-DB ownership chains (target: 1.4.6). Basic MSSQL exec in 1.4.1 WS-1. |
-| Exchange RPC-over-HTTP pillage | Low | Autodiscover secret leak + mailbox enum (target: 1.4.6) |
-| Group Policy full-decrypt pack | Low | Beyond `cpassword` — `Registry.xml` / `Drives.xml` / full `Groups.xml` (target: 1.4.6) |
+| MSSQL impersonation chain (deep) | Medium | Beyond basic exec — `EXECUTE AS`, linked-server, `xp_cmdshell`, cross-DB ownership chains (future work). Basic MSSQL exec is supported. |
+| Exchange RPC-over-HTTP pillage | Low | Autodiscover secret leak + mailbox enum (future work) |
+| Group Policy full-decrypt pack | Low | Beyond `cpassword` — `Registry.xml` / `Drives.xml` / full `Groups.xml` (future work) |
 
 ### Standalone tools (outside adhammer scope, separate crates)
 
@@ -320,23 +320,15 @@ is out of scope).
 Pass-the-ticket, constrained delegation, GMSA read, SVCCTL exec, cert enrollment (ESC1) and
 full-domain DCSync from the original list are **shipped in v1.0.0**. Everything previously
 slotted for v1.5.x has been absorbed into the **1.4.x family** — the entire remaining
-backlog ships as 1.4.1 → 1.4.6 with no 1.5.x milestone. Full slotting in
-[.agents/adhammer-future.md](.agents/adhammer-future.md).
+backlog is evaluated incrementally against validation capacity and operator safety.
 
 - **v1.0** (shipped) — from-scratch DCE/RPC · Kerberos · SMB2 · NTLM stack · roasting, DCSync,
   golden/silver tickets, PtH/PtT/OtH, shadow creds/PKINIT, ADCS ESC1, SVCCTL exec, coerce.
 - **v1.1–v1.3** (shipped) — LAPS · WinRM · WMI · atexec · session-hunting · BadSuccessor
   (Server 2025 dMSA) · ADCS ESC1/3/4/6/15 · DCShadow-prep (LDAP path — dead on 2019+) · fuzz.
-- **v1.4.1** *(local, yanked public slot)* — MSSQL lateral · DCShadow-modern (DRSUAPI) · report/output work
-  (DRSUAPI) · cross-forest Kerberos · sealed dcerpc bind · DACL Attacks II · bulk `GetNCChanges`.
-- **v1.4.2** *(local release candidate)* — yanked-slot replacement + trust-surface cleanup for JSON, docs, graph executors, and password contracts before publish
-  (trust-key extract → cross-forest golden) · LDAP CB + SMB3 encryption probes · `krb-listen`
-  standalone crate · legacy DC validation matrix (2016/2019/2022).
-- **v1.4.3** *(local release candidate)* — narrated interactive UX polish, shell-safe prompts, export/finish flow, and attack preflight/result framing.
-- **v1.4.4** *(planned)* — UnPAC-the-hash · DFSCoerce · ShadowCoerce · Golden gMSA · KeyList · DCC1.
-- **v1.4.4** *(planned)* — MITM6 / DHCPv6 · KrbRelay · EAP relay · poison-at-scale.
-- **v1.4.5** *(planned)* — DPAPI backup key · SID history · Skeleton Key · DSRM · shadowcred tracker.
-- **v1.4.6** *(planned)* — MSSQL deep · Exchange pillage · GPP full-decrypt.
+- **Current release** — see the versioned changelog and release notes for the supported surface.
+- **Future work** — additional protocol coverage, deeper reporting, and post-DA research remain
+  exploratory until they have tests, documented limits, and authorized lab validation.
 
 ---
 

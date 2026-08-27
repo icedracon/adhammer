@@ -1075,7 +1075,7 @@ mod tests {
 
     #[test]
     fn html_carries_light_and_dark_theme_layers() {
-        // WS-THEME (1.4.6): the report ships a token-layered palette so it can render in both
+        // The report ships a token-layered palette so it can render in both
         // light (default `:root`) and dark (`@media (prefers-color-scheme: dark)` +
         // `[data-theme="dark"]` override) — plus a toggle button + inline JS that flips the
         // `data-theme` attribute and remembers the choice in `localStorage`. Everything
