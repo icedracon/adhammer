@@ -6,6 +6,8 @@ use clap::Parser;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::ui;
+
 #[derive(Parser)]
 pub(crate) struct SprayArgs {
     /// KDC `host[:port]`
@@ -31,9 +33,48 @@ pub(crate) struct SprayArgs {
 }
 
 /// Kerberos password spray: one password across a user list, classified by KDC response.
-pub(crate) async fn spray(mut a: SprayArgs) -> Result<()> {
+///
+/// Wraps `spray_impl` with a rich per-stage checklist so the run-end card breaks the
+/// operation into "resolve password → load user list → spray → summary" instead of a
+/// single opaque "execute action" line. Failure at any stage lands as
+/// `mark_current_failed` on that stage, so the operator sees exactly where the pipeline
+/// stopped (bad users file vs bad KDC vs bad password).
+pub(crate) async fn spray(a: SprayArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "resolve password",
+        "load user list",
+        "spray against KDC",
+        "summary",
+    ]);
+    let result = spray_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("Spray stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("Spray stages (failed)");
+        }
+    }
+    result
+}
+
+async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use adhammer_kerberos::{check_credential, CredResult};
     a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    checklist.record_ok(
+        "resolve password",
+        if a.password.is_empty() {
+            "empty — AS-REP-only mode"
+        } else {
+            "resolved"
+        },
+    );
 
     let users: Vec<String> = if let Some(path) = a.users.strip_prefix('@') {
         std::fs::read_to_string(path)
@@ -60,6 +101,7 @@ pub(crate) async fn spray(mut a: SprayArgs) -> Result<()> {
     if users.is_empty() {
         anyhow::bail!("no users to spray (empty --users)");
     }
+    checklist.record_ok("load user list", format!("{} user(s)", users.len()));
     eprintln!(
         "[*] spraying {} user(s) against {} @ {} …",
         users.len(),
@@ -134,5 +176,19 @@ pub(crate) async fn spray(mut a: SprayArgs) -> Result<()> {
             a.lockout_threshold, a.lockout_window
         );
     }
+    // Spray-against-KDC always completes if we got here — even if 0 users matched, we
+    // successfully talked to the KDC. Report the outcome shape.
+    checklist.record_ok(
+        "spray against KDC",
+        format!("{valid} valid · {asrep} AS-REP · {disabled} disabled · {other} error(s)"),
+    );
+    checklist.record_ok(
+        "summary",
+        if a.lockout_threshold > 0 {
+            format!("lockout guard: {guarded} skipped")
+        } else {
+            "no lockout guard".to_string()
+        },
+    );
     Ok(())
 }
