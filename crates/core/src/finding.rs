@@ -352,5 +352,4 @@ mod wire_tests {
         assert_eq!(f.exchange.len(), 3);
         assert_eq!(f.exchange[2].opnum, Some(15));
     }
-
 }

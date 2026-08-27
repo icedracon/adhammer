@@ -5,6 +5,95 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.6] — 2026-08-27
+
+The **"proof on every line, graph on every report"** release. Every finding a scan
+produces now carries three layers of proof — the interpreted evidence (WS-PROOF),
+the ground-truth artifact, and the wire-level exchange that produced it — and any
+new check that skips them fails CI (WS-PROOF-70 + WS-WPT strict gates). The HTML
+report grows a full BloodHound-style principal graph with pan/zoom/click alongside
+the existing attack-paths view. The interactive attack surface (six subcommands)
+gets rich per-stage checklists that name the exact failing pipeline step.
+
+- **WS-THEME** — HTML report ships with a light/dark toggle; both themes are legible
+  (WCAG AA) and every element (SVG graph, coverage matrix, chips) themes via CSS
+  tokens.
+- **WS-PROOF-70** (three parts) — every one of the 58 registry checks carries a
+  non-empty `evidence` and `impact` field; the CLI text summary emits `impact:` and
+  `proof:` lines under every top finding; the coverage matrix row for a tripped check
+  shows a `✓ proof` chip. Enforced by a CI gate test that walks `registry()` against
+  a kitchen-sink fixture — a new check without evidence + impact fails `cargo test`.
+- **WS-WPT — wire-proof transcripts on every finding** — every `Finding` gains an
+  `exchange: Vec<WireExchange>` field (additive, `serde(skip_serializing_if =
+  "Vec::is_empty")`). The LDAP collector records every search it runs and links each
+  DN to the search that captured it; `run_all` auto-attaches the synthesized
+  (Sent search + Recv count) exchange to every LDAP-passive finding — 50 of 58
+  checks get wire proof without any per-check code change. Active probes (ESC8 HTTP,
+  ESC-registry MS-RRP, SYSVOL SMB) record their own bespoke `Sent`/`Recv` frames at
+  the probe site. Rendered as an expandable `<details>` block in HTML, collapsible
+  section in MD, one-line `wire:` in txt, full array in JSON. Strict CI gate with
+  an **empty legacy allowlist** — any future finding without wire proof fails the
+  build.
+- **WS-BHG — BloodHound-style principal graph** — new `<h2>Principal graph</h2>`
+  panel below the WS-R1 attack-paths view. Tier-0 nodes on a horizontal centerline,
+  neighbors on concentric rings (pruned to ≤250 nodes for legibility). Deterministic
+  layout via a 32-slice integer cosine LUT so two scans of the same domain produce
+  byte-identical SVG. Inline (~1 KB) vanilla-JS interaction layer: pan on mouse drag,
+  zoom about cursor on wheel (clamped 0.4× – 4×), click a node to highlight neighbors
+  and dim the rest, Escape clears. Self-contained — no d3, no CDN. Static SVG stays
+  fully legible with JS off.
+- **Rich stage checklists for six more attack subcommands** — `asktgt`, `gmsa`,
+  `silver`, `golden`, `laps`, `ptt` (pass-the-ticket) now show per-stage progress
+  and land `mark_current_failed` on the exact failing step. Same pattern already
+  shipped for `spray`, `dcsync`, `roast`. The operator sees where the pipeline
+  stopped instead of one opaque "execute action" line.
+- **`Redacted<T>` secret-hiding newtype + `--verbose` / `--debug` tracing filters** —
+  session credentials wrapped so `{:?}` prints `***`; verbose tracing surfaces every
+  major step and debug adds wire-layer detail from `dcerpc`/`smb2-client`/`ntlmssp`
+  without leaking `Redacted`-wrapped secrets to the debug stream.
+- **End-of-run stage checklist card** — `scan`, `auto`, and interactive-mode
+  operations render the same StageChecklist shape at exit.
+- **LDAP first-touch UX** — step-by-step connect diagnostic with expanded error
+  causes (TLS/cert, channel binding, reachability) so the first bind failure names
+  the actual root cause instead of a generic hint.
+- **WS-4-P2 sealed Kerberos RPC bind — primitives + BIND verified** — RFC 3961/3962
+  crypto primitives, HMAC + subkey derivation, `AesCts96Sealer` implementation of
+  `dcerpc::KrbSealer`. The BIND path is byte-correct against Windows Server 2025
+  (BIND_ACK live-verified against DC01). The sealed REQUEST WRAP-token layout is
+  not yet finalized — the `check krb-seal` diagnostic subcommand is **hidden from
+  `--help`** and marked `[SCAFFOLDING]`. Closure lands in 1.4.7 once a Windows-client
+  → DC Wireshark capture is available. Downstream `ms-dcom` / `ms-wmi` fills are
+  gated on the same closure.
+
+Full changelog: **[CHANGELOG.md](CHANGELOG.md)** · release archive:
+**[GitHub Releases](https://github.com/icedracon/adhammer/releases)**.
+
+## [1.4.5] — 2026-08-26
+
+The **"three new libs on crates.io"** release — carried the interactive menu
+polish forward and shipped three brand-new standalone icedracon protocol crates
+alongside the workspace.
+
+- **Interactive menu now surfaces `attack dns`, `enum sccm`, `enum scom`** — the
+  1.4.4 verbs were CLI-only; the guided front door now dispatches to them cleanly.
+- **`auto` / guided bundle carries the full 58-check coverage matrix** — the
+  exported `auto-report.{json,md,html,txt}` now shows "checked X, N tripped,
+  M clean" (matching what `scan` already had in 1.4.4); the JSON artifact carries a
+  `coverage[]` array of 58 rows.
+- **[`ms-scmr`](https://crates.io/crates/ms-scmr) 0.1.0** — MS-SCMR (Service
+  Control Manager Remote) client foundation. Pure-Rust remote-service management
+  from Linux.
+- **[`ccache-io`](https://crates.io/crates/ccache-io) 0.1.0** — MIT-Kerberos
+  `ccache` + Windows `.kirbi` codec. Every Rust Kerberos toolchain finally has a
+  shared interop format.
+- **[`ms-bkrp`](https://crates.io/crates/ms-bkrp) 0.1.1** — MS-BKRP (BackupKey
+  Remote Protocol). DPAPI master-key recovery for DFIR + post-DA persistence audits.
+- **LDAP-failure diagnostics** — a failed bind names the actual cause (TLS/cert,
+  channel binding, reachability), so first-touch setup from Kali or PowerShell is
+  faster to debug.
+
+Live-validated end-to-end against Server 2022 and Server 2025 DCs.
+
 ## [1.4.4] — 2026-08-26
 
 The **"read the whole picture"** release. Every scan now ships a visual

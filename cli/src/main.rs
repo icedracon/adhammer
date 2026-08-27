@@ -57,17 +57,15 @@ struct Cli {
     #[arg(long, global = true)]
     text: bool,
 
-    /// Verbose progress narration — surfaces each major step (LDAP bind, collect phases,
-    /// check batches, wire probes). Enables `info`-level tracing across adhammer's own
-    /// crates; protocol crates stay at `warn`. Secrets in traced structs stay redacted
-    /// (`***`) via the `Redacted<T>` wrapper. Overrides `RUST_LOG` if set.
-    #[arg(long, global = true)]
-    verbose: bool,
+    /// Stackable verbosity like nmap's `-v/-vv/-vvv`. `-v` = info (major step narration),
+    /// `-vv` = debug (info + wire-layer detail from dcerpc/smb2-client/ntlmssp), `-vvv` =
+    /// trace (everything, including per-attribute LDAP decode). Overrides `RUST_LOG`.
+    /// Secrets in traced structs stay redacted (`***`) via `Redacted<T>` at every level.
+    /// Long-form alias: `--verbose` == `-v`, `--debug` == `-vv`. Legacy compatibility.
+    #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
+    verbosity: u8,
 
-    /// Debug-level tracing — everything `--verbose` surfaces PLUS wire-layer detail from
-    /// the transport crates (dcerpc, smb2-client, ntlmssp). For bug reports and deep
-    /// diagnosis. Secrets stay redacted (`***`) — `Redacted<T>`-wrapped fields never
-    /// appear in the debug stream. Wins over `--verbose` and `RUST_LOG` when both are set.
+    /// Legacy alias for `-vv`. Kept for backward compatibility. Prefer `-vv` or `--verbose --verbose`.
     #[arg(long, global = true)]
     debug: bool,
 
@@ -104,10 +102,13 @@ enum CheckCmd {
     /// collected from LDAP. Complements `scan` — no ACL walk, just the
     /// template-shape checks straight out of `ms-crtd::detect_esc`.
     Adcs(checks::adcs::CheckAdcsArgs),
-    /// WS-4-P2 Session 4 live-DC probe: AES256-CTS-HMAC-SHA1-96 sealed BIND on
-    /// \PIPE\lsarpc. Reports success or the exact fault code — used to iterate
-    /// the sealer's wire format against a real DC.
-    #[command(name = "krb-seal")]
+    /// [SCAFFOLDING] WS-4-P2 live-DC probe: AES256-CTS-HMAC-SHA1-96 sealed BIND on \PIPE\lsarpc.
+    /// The BIND path is byte-correct against Windows Server 2025 (BIND_ACK verified live), but the
+    /// **sealed REQUEST WRAP-token layout is not yet finalized** — `--try-call` will fault
+    /// STATUS_INVALID_HANDLE (0xc00000ae) on the first opnum. Closure lands in 1.4.7 once a
+    /// Windows-client → DC Wireshark capture provides the byte-level reference. Hidden from
+    /// `--help` output; call by name if you want to iterate.
+    #[command(name = "krb-seal", hide = true)]
     KrbSeal(checks::krb_seal::CheckKrbSealArgs),
 }
 
@@ -448,28 +449,42 @@ fn enable_windows_console() {
 #[cfg(not(windows))]
 fn enable_windows_console() {}
 
-/// Build the tracing-subscriber env filter honoring `--verbose` / `--debug` / `RUST_LOG`.
-/// Order of precedence: `--debug` (wins) > `--verbose` > `RUST_LOG` env > default (`warn`).
-/// `--debug` deliberately does NOT enable `ldap3=debug` — that crate can log bind payloads
-/// containing credentials; secrets stay off the wire per the `Redacted<T>` discipline.
-fn build_tracing_filter(verbose: bool, debug: bool) -> tracing_subscriber::EnvFilter {
+/// Build the tracing-subscriber env filter honoring nmap-style stackable verbosity flags.
+/// - `-v` (or `--verbose`) = info: adhammer + own crates at `info`, protocol at `warn`.
+/// - `-vv` (or `--debug` legacy alias, or `--verbose --verbose`) = debug: info PLUS
+///   `dcerpc`/`smb2-client`/`ntlmssp` at `debug` (wire-layer detail for bug reports).
+/// - `-vvv` = trace: everything, incl. per-attribute LDAP decode + NDR field tracing.
+/// - No flag = default `warn` (or honor `RUST_LOG` when set).
+///
+/// `ldap3` is **pinned at `warn`** at every level — it can log bind payloads containing
+/// credentials in the clear. Secrets stay off the trace per the `Redacted<T>` discipline.
+fn build_tracing_filter(verbosity: u8, debug_alias: bool) -> tracing_subscriber::EnvFilter {
     use tracing_subscriber::EnvFilter;
-    if debug {
-        // adhammer + protocol crates at debug; ldap3 stays at warn (creds-in-payload risk).
-        EnvFilter::try_new(
+    // Fold the legacy `--debug` alias into the numeric verbosity: --debug means at least -vv.
+    let level = if debug_alias {
+        verbosity.max(2)
+    } else {
+        verbosity
+    };
+    match level {
+        0 => EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        1 => EnvFilter::try_new(
+            "warn,adhammer=info,adhammer_collector=info,adhammer_checks=info,\
+             adhammer_graph=info,adhammer_kerberos=info,adhammer_report=info,dcerpc=warn",
+        )
+        .expect("static filter is well-formed"),
+        2 => EnvFilter::try_new(
             "warn,adhammer=debug,adhammer_collector=debug,adhammer_checks=debug,\
              adhammer_graph=debug,adhammer_kerberos=debug,adhammer_report=debug,\
              dcerpc=debug,smb2_client=debug,ntlmssp=debug,ldap3=warn",
         )
-        .expect("static filter is well-formed")
-    } else if verbose {
-        EnvFilter::try_new(
-            "warn,adhammer=info,adhammer_collector=info,adhammer_checks=info,\
-             adhammer_graph=info,adhammer_kerberos=info,adhammer_report=info,dcerpc=warn",
+        .expect("static filter is well-formed"),
+        _ => EnvFilter::try_new(
+            "info,adhammer=trace,adhammer_collector=trace,adhammer_checks=trace,\
+             adhammer_graph=trace,adhammer_kerberos=trace,adhammer_report=trace,\
+             adhammer_sysvol=trace,dcerpc=trace,smb2_client=trace,ntlmssp=trace,ldap3=warn",
         )
-        .expect("static filter is well-formed")
-    } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))
+        .expect("static filter is well-formed"),
     }
 }
 
@@ -479,7 +494,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt()
         .with_target(false)
-        .with_env_filter(build_tracing_filter(cli.verbose, cli.debug))
+        .with_env_filter(build_tracing_filter(cli.verbosity, cli.debug))
         .init();
 
     // Register the SOCKS5 pivot (if any) before any connection is made. Every owned transport
