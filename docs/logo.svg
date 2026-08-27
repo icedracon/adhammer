@@ -1,105 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!--
-    ADhammer standalone mark — 512×512 square, scales cleanly to 16/32/64/128/256 px.
-    Single-hue blue-cyan (site accent #2ea8ff) on near-black ground.
-    Palette matches https://icedracon.github.io/adhammer/
-  -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ADhammer mark</title>
+  <desc id="desc">A steel hammer over a red AD monogram on a black operator-style field.</desc>
   <defs>
-    <radialGradient id="lg-bg" cx="50%" cy="50%" r="60%">
-      <stop offset="0%" style="stop-color:#0a1626"/>
-      <stop offset="70%" style="stop-color:#06101c"/>
-      <stop offset="100%" style="stop-color:#05070d"/>
-    </radialGradient>
-    <linearGradient id="lg-accent" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#8fd4ff"/>
-      <stop offset="50%" style="stop-color:#2ea8ff"/>
-      <stop offset="100%" style="stop-color:#0a3d80"/>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f4f2"/>
+      <stop offset="0.48" stop-color="#9ea3a5"/>
+      <stop offset="1" stop-color="#454b50"/>
     </linearGradient>
-    <linearGradient id="lg-hex" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#2ea8ff;stop-opacity:0.95"/>
-      <stop offset="100%" style="stop-color:#0a3d80;stop-opacity:0.95"/>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff3434"/>
+      <stop offset="1" stop-color="#9b0808"/>
     </linearGradient>
-    <filter id="lg-glow-strong" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <filter id="lg-glow-soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
+    <pattern id="scanlines" width="8" height="8" patternUnits="userSpaceOnUse">
+      <path d="M0 7.5H8" stroke="#fff" stroke-opacity=".035"/>
+    </pattern>
   </defs>
 
-  <rect width="512" height="512" rx="96" fill="url(#lg-bg)"/>
-
-  <!-- Subtle grid overlay for cyber texture. -->
-  <g opacity="0.10" stroke="#2ea8ff" stroke-width="1" fill="none">
-    <path d="M 0 128 L 512 128 M 0 256 L 512 256 M 0 384 L 512 384"/>
-    <path d="M 128 0 L 128 512 M 256 0 L 256 512 M 384 0 L 384 512"/>
+  <rect width="512" height="512" rx="76" fill="#030405"/>
+  <rect x="16" y="16" width="480" height="480" rx="62" fill="#090b0e" stroke="#25292d" stroke-width="3"/>
+  <g fill="none" stroke="#8f1116" stroke-width="2" opacity=".42">
+    <circle cx="256" cy="256" r="184"/>
+    <circle cx="256" cy="256" r="154" stroke-dasharray="4 12"/>
+    <path d="M256 34V478M34 256H478"/>
+  </g>
+  <g fill="none" stroke="#e11a20" stroke-width="4">
+    <path d="M48 92V48H92M420 48H464V92M48 420V464H92M420 464H464V420"/>
   </g>
 
-  <!-- Radial energy rays around center (echoes site logo). -->
-  <g transform="translate(256, 256)" opacity="0.55">
-    <g fill="none" stroke="#2ea8ff" stroke-width="1.5" stroke-linecap="round">
-      <line x1="0" y1="-206" x2="0" y2="-176" opacity="0.9"/>
-      <line x1="0" y1="206"  x2="0" y2="176"  opacity="0.9"/>
-      <line x1="-206" y1="0" x2="-176" y2="0" opacity="0.9"/>
-      <line x1="206"  y1="0" x2="176"  y2="0" opacity="0.9"/>
-      <line x1="-146" y1="-146" x2="-125" y2="-125" opacity="0.6"/>
-      <line x1="146"  y1="-146" x2="125"  y2="-125" opacity="0.6"/>
-      <line x1="-146" y1="146"  x2="-125" y2="125"  opacity="0.6"/>
-      <line x1="146"  y1="146"  x2="125"  y2="125"  opacity="0.6"/>
-    </g>
-  </g>
+  <!-- The monogram is the hammer body: A is the striking face, D is the handle-side mass. -->
+  <path d="M115 332L207 126H269L361 332H307L286 283H190L169 332H115ZM210 239H266L238 174L210 239Z" fill="url(#red)" stroke="#ff4545" stroke-width="3"/>
+  <path d="M284 153H345C381 153 405 176 405 211V271C405 307 381 332 345 332H284V286H337C349 286 356 278 356 266V216C356 204 349 196 337 196H284V153Z" fill="#bd1117" stroke="#ff4545" stroke-width="3"/>
+  <path d="M278 153V332" stroke="#5f080c" stroke-width="8"/>
 
-  <!-- Outer hexagon frame. -->
-  <g transform="translate(256, 256)" filter="url(#lg-glow-soft)">
-    <polygon
-      points="0,-180 156,-90 156,90 0,180 -156,90 -156,-90"
-      fill="none"
-      stroke="url(#lg-hex)"
-      stroke-width="10"
-      stroke-linejoin="round"/>
-  </g>
-
-  <!-- Inner hexagon (echo). -->
-  <g transform="translate(256, 256)" opacity="0.35">
-    <polygon
-      points="0,-140 121,-70 121,70 0,140 -121,70 -121,-70"
-      fill="none"
-      stroke="#2ea8ff"
-      stroke-width="1.5"
-      stroke-linejoin="round"/>
-  </g>
-
-  <!-- Corner brackets (cyber signature). -->
-  <g stroke="#2ea8ff" stroke-width="3" fill="none" opacity="0.6">
-    <path d="M 40 40 L 40 82 M 40 40 L 82 40"/>
-    <path d="M 472 40 L 472 82 M 472 40 L 430 40"/>
-    <path d="M 40 472 L 40 430 M 40 472 L 82 472"/>
-    <path d="M 472 472 L 472 430 M 472 472 L 430 472"/>
-  </g>
-
-  <!-- Hammer. -->
-  <g transform="translate(256, 236)" filter="url(#lg-glow-strong)">
-    <rect x="-88" y="-46" width="176" height="92" rx="12"
-          fill="none" stroke="url(#lg-accent)" stroke-width="7" stroke-linejoin="round"/>
-    <rect x="-72" y="-32" width="144" height="64" rx="6"
-          fill="#2ea8ff" opacity="0.12"/>
-    <circle cx="0" cy="0" r="9" fill="url(#lg-accent)"/>
-    <circle cx="0" cy="0" r="4" fill="#05070d"/>
-    <rect x="-11" y="46" width="22" height="112" rx="5"
-          fill="none" stroke="url(#lg-accent)" stroke-width="6" stroke-linejoin="round"/>
-    <!-- Impact lines — symmetric blue this time. -->
-    <line x1="-124" y1="-14" x2="-152" y2="-42" stroke="#8fd4ff" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
-    <line x1="-118" y1="14" x2="-148" y2="30" stroke="#2ea8ff" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
-    <line x1="124" y1="-14" x2="152" y2="-42" stroke="#8fd4ff" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
-    <line x1="118" y1="14" x2="148" y2="30" stroke="#2ea8ff" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
-  </g>
+  <!-- Steel hammer head, physically locking the red AD body into one mark. -->
+  <path d="M94 126C94 89 122 66 158 66H315V112H171C157 112 149 119 146 137L140 166H94V126Z" fill="url(#steel)" stroke="#e0e3e3" stroke-width="4"/>
+  <path d="M315 66H382V166H315V66Z" fill="url(#steel)" stroke="#e0e3e3" stroke-width="4"/>
+  <path d="M124 126H315M124 141H315" stroke="#555b60" stroke-width="3" opacity=".8"/>
+  <circle cx="276" cy="89" r="8" fill="#16191b" stroke="#596065" stroke-width="3"/>
+  <path d="M382 92V140" stroke="#a10d12" stroke-width="5"/>
+  <rect x="16" y="16" width="480" height="480" rx="62" fill="url(#scanlines)"/>
 </svg>

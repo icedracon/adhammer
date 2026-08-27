@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/logo.svg'
+      - 'docs/banner.svg'
+      - 'docs/social-preview.png'
+      - 'docs/social-preview.svg'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -26,12 +30,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Stage Pages artifact
+        shell: bash
+        run: |
+          rm -rf _site
+          mkdir -p _site/docs
+          cp -R site/. _site/
+          cp docs/social-preview.png _site/docs/social-preview.png
+          cp docs/social-preview.svg _site/docs/social-preview.svg
+          cp docs/logo.svg _site/docs/logo.svg
+          cp docs/banner.svg _site/docs/banner.svg
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

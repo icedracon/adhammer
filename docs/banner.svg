@@ -1,80 +1,52 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
-  <!--
-    ADhammer README banner — 1200×400, blue-cyan single-hue.
-    Palette + typography match https://icedracon.github.io/adhammer/
-    (accent #2ea8ff on near-black #05070d, Manrope + IBM Plex Mono).
-  -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">AD//HAMMER</title>
+  <desc id="desc">ADhammer: collect the directory and validate supported attack paths with evidence-first reports.</desc>
   <defs>
-    <radialGradient id="bnr-bg" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" style="stop-color:#0a1626"/>
-      <stop offset="70%" style="stop-color:#06101c"/>
-      <stop offset="100%" style="stop-color:#05070d"/>
-    </radialGradient>
-    <linearGradient id="bnr-accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#8fd4ff"/>
-      <stop offset="50%" style="stop-color:#2ea8ff"/>
-      <stop offset="100%" style="stop-color:#0a3d80"/>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1f1ef"/>
+      <stop offset="0.5" stop-color="#a7abad"/>
+      <stop offset="1" stop-color="#4b5054"/>
     </linearGradient>
-    <linearGradient id="bnr-sep" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
-      <stop offset="50%" style="stop-color:#2ea8ff;stop-opacity:0.7"/>
-      <stop offset="100%" style="stop-color:#2ea8ff;stop-opacity:0.15"/>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff3838"/>
+      <stop offset="1" stop-color="#9d090d"/>
     </linearGradient>
-    <filter id="bnr-glow">
-      <feGaussianBlur stdDeviation="2.5" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" fill="none" stroke="#a00d14" stroke-opacity=".22"/>
+      <path d="M40 0V80M0 40H80" stroke="#fff" stroke-opacity=".018"/>
+    </pattern>
+    <pattern id="scanlines" width="8" height="8" patternUnits="userSpaceOnUse">
+      <path d="M0 7.5H8" stroke="#fff" stroke-opacity=".035"/>
+    </pattern>
   </defs>
 
-  <rect width="1200" height="400" fill="url(#bnr-bg)"/>
-
-  <!-- Faint grid. -->
-  <g opacity="0.08" stroke="#2ea8ff" stroke-width="1" fill="none">
-    <path d="M 0 100 L 1200 100 M 0 200 L 1200 200 M 0 300 L 1200 300"/>
-    <path d="M 200 0 L 200 400 M 400 0 L 400 400 M 600 0 L 600 400 M 800 0 L 800 400 M 1000 0 L 1000 400"/>
+  <rect width="1200" height="400" fill="#020304"/>
+  <rect x="18" y="18" width="1164" height="364" fill="#090b0e" stroke="#292d31" stroke-width="3"/>
+  <rect x="20" y="20" width="1160" height="360" fill="url(#grid)"/>
+  <g fill="none" stroke="#e21a20" stroke-width="3">
+    <path d="M42 72V42H72M1128 42H1158V72M42 328V358H72M1128 358H1158V328"/>
+  </g>
+  <g fill="none" stroke="#9d1117" stroke-width="2" opacity=".52">
+    <circle cx="1034" cy="201" r="135"/>
+    <circle cx="1034" cy="201" r="100" stroke-dasharray="3 12"/>
+    <path d="M1034 48V354M881 201H1187"/>
   </g>
 
-  <!-- Left decorative bracket. -->
-  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
-    <path d="M 60 60 L 60 100 M 60 60 L 100 60"/>
-    <path d="M 60 340 L 60 300 M 60 340 L 100 340"/>
-  </g>
-  <!-- Right decorative bracket. -->
-  <g stroke="#2ea8ff" stroke-width="2" fill="none" opacity="0.5">
-    <path d="M 1140 60 L 1140 100 M 1140 60 L 1100 60"/>
-    <path d="M 1140 340 L 1140 300 M 1140 340 L 1100 340"/>
+  <!-- Compact hammer mark for the left rail. -->
+  <g transform="translate(70 116)">
+    <path d="M0 0C0-26 21-42 47-42H106V-9H55C43-9 38-1 36 13L33 31H0V0Z" fill="url(#steel)" stroke="#e2e4e4" stroke-width="3"/>
+    <path d="M106-42H145V31H106Z" fill="url(#steel)" stroke="#e2e4e4" stroke-width="3"/>
+    <path d="M18 143L58 45H83L123 143H99L91 123H50L42 143H18ZM58 103H83L70 70Z" fill="url(#red)" stroke="#ff4040" stroke-width="2"/>
+    <path d="M91 45H113C132 45 143 57 143 75V113C143 131 132 143 113 143H91V119H109C115 119 119 115 119 109V79C119 73 115 69 109 69H91Z" fill="#bc1117" stroke="#ff4040" stroke-width="2"/>
   </g>
 
-  <!-- Wordmark AD // HAMMER (visual '//' separator matches site). -->
-  <g filter="url(#bnr-glow)">
-    <text x="600" y="215" text-anchor="middle"
-          font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
-          font-weight="800"
-          font-size="118"
-          letter-spacing="6"
-          fill="url(#bnr-accent)">AD<tspan fill="#2ea8ff" font-weight="300" opacity="0.55">//</tspan>HAMMER</text>
-  </g>
-
-  <!-- Underline stroke — echoes site's evidence/trace metaphor. -->
-  <line x1="380" y1="248" x2="820" y2="248" stroke="url(#bnr-sep)" stroke-width="1.5"/>
-
-  <!-- Tagline. -->
-  <text x="600" y="295" text-anchor="middle"
-        font-family="Manrope, 'Segoe UI', Inter, system-ui, sans-serif"
-        font-weight="500"
-        font-size="26"
-        letter-spacing="1"
-        fill="#e6f2ff"
-        opacity="0.88">Collect the directory. Validate supported paths.</text>
-
-  <!-- Sub-caption. -->
-  <text x="600" y="335" text-anchor="middle"
-        font-family="'IBM Plex Mono', 'Courier New', ui-monospace, monospace"
-        font-size="14"
-        letter-spacing="4"
-        fill="#2ea8ff"
-        opacity="0.7">ONE BINARY · EVIDENCE-FIRST REPORTS · RUST PROTOCOL CRATES</text>
+  <text x="270" y="186" font-family="Arial Black, Impact, sans-serif" font-size="108" font-weight="900" letter-spacing="1" fill="url(#steel)">AD</text>
+  <text x="438" y="186" font-family="Arial Black, Impact, sans-serif" font-size="108" font-weight="900" letter-spacing="1" fill="#ed1b24">//</text>
+  <text x="568" y="186" font-family="Arial Black, Impact, sans-serif" font-size="108" font-weight="900" letter-spacing="1" fill="url(#red)">HAMMER</text>
+  <path d="M270 211H1118" stroke="#d51a20" stroke-width="2" opacity=".72"/>
+  <text x="272" y="253" font-family="Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="2" fill="#f0f0ed">COLLECT THE DIRECTORY.</text>
+  <text x="690" y="253" font-family="Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="2" fill="#ef2329">VALIDATE SUPPORTED PATHS.</text>
+  <text x="274" y="296" font-family="Consolas, 'Courier New', monospace" font-size="14" letter-spacing="4" fill="#c7c9c8">ONE BINARY  /  EVIDENCE-FIRST REPORTS  /  RUST PROTOCOL CRATES</text>
+  <text x="274" y="337" font-family="Consolas, 'Courier New', monospace" font-size="14" letter-spacing="3" fill="#ef2329">ADHAMMER.EXE  &gt;  SEE THE DOMAIN. UNDERSTAND THE PROOF.</text>
+  <rect x="18" y="18" width="1164" height="364" fill="url(#scanlines)"/>
 </svg>
