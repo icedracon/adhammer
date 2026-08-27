@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.4.5"
+version = "1.4.6"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -35,7 +35,7 @@ ntlmssp      = "0.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
-dcerpc       = "0.2.7"
+dcerpc       = "0.2.8"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack icpr-esc1` (ms-icpr),
 # and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
@@ -47,16 +47,16 @@ ms-gkdi      = "0.1"
 # and EXECUTE AS impersonation chains over an NTLM-authenticated session.
 ms-tds       = "0.1.1"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.4.5" }
-adhammer-collector = { path = "crates/collector", version = "1.4.5", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.4.5" }
-adhammer-graph     = { path = "crates/graph",     version = "1.4.5" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.5" }
-adhammer-report    = { path = "crates/report",    version = "1.4.5" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.5" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.4.5" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.5" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.4.5" }
+adhammer-core      = { path = "crates/core",      version = "1.4.6" }
+adhammer-collector = { path = "crates/collector", version = "1.4.6", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.4.6" }
+adhammer-graph     = { path = "crates/graph",     version = "1.4.6" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.6" }
+adhammer-report    = { path = "crates/report",    version = "1.4.6" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.6" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.4.6" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.6" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.4.6" }
 
 # external
 serde       = { version = "1", features = ["derive"] }
@@ -89,9 +89,6 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-# [patch.crates-io] for 1.4.6 LOCAL Kerberos-sealed-DCE-RPC development. Points at
-# sibling dcerpc dir where SmbPipe::bind_sealed_kerberos + call_sealed_kerberos and
-# their RpcTcp mirrors live (Session 3 part-B). REMOVE before any push — CI and
-# downstream users don't have sibling dirs. Un-comment on the next 1.4.6 sync.
-[patch.crates-io]
-dcerpc = { path = "../dcerpc" }
+# [patch.crates-io] removed 2026-08-27 — dcerpc 0.2.8 shipped to crates.io with the
+# Kerberos-sealed-DCE-RPC transport methods + BIND_NAK reason + DC-quirk BIND_ACK
+# tolerance. Workspace consumes from crates.io directly now.

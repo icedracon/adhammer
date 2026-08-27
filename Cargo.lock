@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
  "serde",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -89,16 +89,17 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "windows-sddl",
 ]
 
 [[package]]
 name = "adhammer-graph"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -109,10 +110,12 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
+ "aes",
  "anyhow",
+ "dcerpc",
  "hex",
  "hmac",
  "md-5",
@@ -133,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "anyhow",
  "ntlmssp",
@@ -144,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -154,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -170,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "aes",
  "cbc",
@@ -184,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.4.5"
+version = "1.4.6"
 dependencies = [
  "adhammer-core",
  "aes",
@@ -664,9 +667,9 @@ dependencies = [
 
 [[package]]
 name = "dcerpc"
-version = "0.2.5"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723798ad2f222c7f2a6328979837fd6b42286c2eafa8a42b7d15651263fd80f7"
+checksum = "756cf5b5425f2eb3419ddeefd4bdf4a56ccd36c0cee4f31f872f0597f1c09c9a"
 dependencies = [
  "aes",
  "des",
@@ -1320,6 +1323,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1420,9 +1432,9 @@ dependencies = [
 
 [[package]]
 name = "ms-ndr"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2605dcce42b622ec08a5ccf22b8fc9254619f4dbebf611a4376d0450e388850d"
+checksum = "040c36f13ed63c508641b44fa2eb2084669f4564b7db7e7d7bde85b8edc6eed8"
 dependencies = [
  "thiserror 2.0.20",
 ]
@@ -2640,10 +2652,14 @@ version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
+ "matchers",
  "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
  "tracing-log",
 ]
