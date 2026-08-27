@@ -20,7 +20,7 @@ Head-to-head benchmark harness — **ADhammer** vs the standard AD offensive too
 ## Run
 
 ```bash
-HOST=10.0.0.1 DOMAIN=corp.local USER=administrator PW='P@ssw0rd' ./run_bench.sh
+HOST=10.0.0.1 DOMAIN=corp.local USER=administrator PW="$ADHAMMER_BENCH_PASSWORD" ./run_bench.sh
 python render_results.py
 ```
 

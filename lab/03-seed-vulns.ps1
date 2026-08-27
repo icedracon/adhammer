@@ -1,9 +1,16 @@
 #Requires -RunAsAdministrator
+param(
+    [SecureString]$SeedPassword
+)
+
 # Run on the promoted DC (elevated). Seeds objects that trigger ADhammer's checks.
 Import-Module ActiveDirectory
 $ErrorActionPreference = 'Continue'   # keep going if one item already exists
 
-$pw     = ConvertTo-SecureString 'P@ssw0rd123!' -AsPlainText -Force
+if (-not $SeedPassword) {
+    $SeedPassword = Read-Host 'Password for seeded lab accounts (lab only)' -AsSecureString
+}
+$pw     = $SeedPassword
 $domain = (Get-ADDomain).DNSRoot
 
 function New-LabUser($name, [switch]$NeverExpire) {
@@ -64,5 +71,5 @@ $xml = @'
 $xml | Out-File -FilePath "$dir\Groups.xml" -Encoding utf8
 
 Write-Host "`nSeed complete. From the host run:"
-Write-Host "  adhammer scan  --url ldap://10.0.0.10:389 --user CORP\Administrator --password 'LabPassw0rd!2024' --sysvol \\$domain\SYSVOL"
-Write-Host "  adhammer roast --url ldap://10.0.0.10:389 --user CORP\Administrator --password 'LabPassw0rd!2024' --kdc 10.0.0.10"
+Write-Host "  adhammer scan  --url ldap://10.0.0.10:389 --user CORP\Administrator --password '<LAB_PASSWORD>' --sysvol \\$domain\SYSVOL"
+Write-Host "  adhammer roast --url ldap://10.0.0.10:389 --user CORP\Administrator --password '<LAB_PASSWORD>' --kdc 10.0.0.10"

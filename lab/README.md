@@ -20,8 +20,8 @@ recreates it.
 ## Credentials created
 
 - Forest/domain: `corp.local` / NetBIOS `CORP`
-- DSRM + domain admin: `CORP\Administrator` (set during install), password used in scripts: `LabPassw0rd!2024`
-- Seeded service/user passwords: `P@ssw0rd123!`
+- DSRM + domain admin: `CORP\Administrator` (set during install; never commit it)
+- Seeded service/user passwords: entered interactively when `03-seed-vulns.ps1` runs
 
 ## Findings the seed produces
 
@@ -45,8 +45,8 @@ for trust checks, `dMSA` on Server 2025 for badSuccessor.
 
 ```powershell
 $dc = '10.0.0.10'
-.\target\release\adhammer.exe scan  --url "ldap://$dc:389" --user 'CORP\Administrator' --password 'LabPassw0rd!2024' --sysvol "\\corp.local\SYSVOL"
-.\target\release\adhammer.exe attack roast --url "ldaps://$dc:636" --user 'CORP\Administrator' --password 'LabPassw0rd!2024' --insecure --kdc $dc
+.\target\release\adhammer.exe scan  --url "ldap://$dc:389" --user 'CORP\Administrator' --password '<LAB_PASSWORD>' --sysvol "\\corp.local\SYSVOL"
+.\target\release\adhammer.exe attack roast --url "ldaps://$dc:636" --user 'CORP\Administrator' --password '<LAB_PASSWORD>' --insecure --kdc $dc
 ```
 
 Expected first breakages to debug (my predictions): simple bind may be refused if the DC

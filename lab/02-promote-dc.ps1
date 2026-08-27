@@ -7,7 +7,7 @@ $DcName   = 'DC01'
 $DcIp     = '10.0.0.10'
 $Domain   = 'corp.local'
 $NetBios  = 'CORP'
-$DsrmPw   = 'LabPassw0rd!2024'
+$DsrmPw   = Read-Host 'DSRM password (lab only)' -AsSecureString
 
 if ($env:COMPUTERNAME -ne $DcName) {
     # ---- phase 1: network + rename, then reboot ----
@@ -26,7 +26,7 @@ else {
     Import-Module ADDSDeployment
     Install-ADDSForest `
         -DomainName $Domain -DomainNetbiosName $NetBios `
-        -SafeModeAdministratorPassword (ConvertTo-SecureString $DsrmPw -AsPlainText -Force) `
+        -SafeModeAdministratorPassword $DsrmPw `
         -InstallDns -Force
     # Install-ADDSForest reboots automatically. After it comes back, run 03-seed-vulns.ps1.
 }

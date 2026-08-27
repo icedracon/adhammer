@@ -37,3 +37,20 @@ esc1.crt.key.pem
 *.crt
 .env
 .env.*
+
+# Internal planning and agent state — never publish.
+.agents/
+CLAUDE.md
+
+# Benchmark transcripts can contain credentials, hashes, and target details.
+bench/*.log
+
+# Local build, test, recording, and patch artifacts.
+target-*/
+*.exe
+.local-install/
+.playwright-cli/
+video-work/
+patches/
+lab/validation-*/
+meta.json
