@@ -266,9 +266,29 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
     let cov_raw = run_all_with_coverage(&snap, &graph);
     let coverage: Vec<CheckCoverage> = cov_raw
         .iter()
-        .map(|(id, fs)| CheckCoverage {
-            id: (*id).to_string(),
-            findings: fs.len(),
+        .map(|(id, fs)| {
+            // Populate title/impact/remediation/mitre from the first Finding when tripped,
+            // fall back to describe_check() for clean rows (1.4.6 WS-COVERAGE-META).
+            if let Some(f) = fs.first() {
+                CheckCoverage {
+                    id: (*id).to_string(),
+                    findings: fs.len(),
+                    title: f.title.clone(),
+                    hypothetical_impact: f.impact.clone().unwrap_or_default(),
+                    remediation: f.remediation.clone(),
+                    mitre: f.mitre.iter().map(|m| m.id.to_string()).collect(),
+                }
+            } else {
+                let m = adhammer_report::describe_check(id);
+                CheckCoverage {
+                    id: (*id).to_string(),
+                    findings: 0,
+                    title: m.title.into(),
+                    hypothetical_impact: m.hypothetical_impact.into(),
+                    remediation: m.remediation.into(),
+                    mitre: m.mitre.iter().map(|s| s.to_string()).collect(),
+                }
+            }
         })
         .collect();
     let mut findings: Vec<Finding> = cov_raw.into_iter().flat_map(|(_, fs)| fs).collect();

@@ -41,13 +41,35 @@ fn cat_key(c: Category) -> &'static str {
     }
 }
 
+mod check_meta;
+pub use check_meta::describe as describe_check;
+
 /// WS-R2: one row of the coverage matrix — a registry check id and how many findings it
 /// produced this run (0 = the check ran and the directory is **clean** for that vector).
 /// Turns "here are the hits" into "here is everything we checked, and the result of each."
+///
+/// **1.4.6 addition** (`title`/`hypothetical_impact`/`remediation`/`mitre`): every row (tripped
+/// AND clean) carries the check's description so an operator can verify "this check DID look
+/// for X, saw nothing, so nothing is really there" — rather than wondering whether the check
+/// is buggy. When tripped, the fields mirror the first emitted Finding. When clean, they come
+/// from `crate::check_meta::describe(id)` static fallback.
 #[derive(Serialize, Clone, Debug)]
 pub struct CheckCoverage {
     pub id: String,
     pub findings: usize,
+    /// Short human-readable title. Empty string if unknown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// If this check *were* to trip on this directory, what would the impact be?
+    /// Empty string if unknown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hypothetical_impact: String,
+    /// Remediation guidance. Empty string if unknown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub remediation: String,
+    /// MITRE ATT&CK technique IDs this check maps to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -124,12 +146,39 @@ impl Report {
     /// WS-R2: attach the per-check coverage roster from `run_all_with_coverage`
     /// (`(check_id, findings_count)`), so the report shows every check that ran — tripped
     /// or clean — not only the positive hits. Additive builder, mirrors [`Self::with_baseline`].
+    ///
+    /// **1.4.6**: each row's `title` / `hypothetical_impact` / `remediation` / `mitre` is filled
+    /// from either (a) the check's first emitted Finding if tripped, or (b) a static describe()
+    /// fallback for clean rows. Lets an operator inspect what a clean check *would* have flagged
+    /// so they can rule out check-code bugs — "not tripping" vs "check is buggy".
     pub fn with_coverage(mut self, cov: Vec<(&'static str, usize)>) -> Self {
         self.coverage = cov
             .into_iter()
-            .map(|(id, findings)| CheckCoverage {
-                id: id.to_string(),
-                findings,
+            .map(|(id, findings)| {
+                // If tripped, mirror the first Finding's title/impact/mitre/remediation.
+                if findings > 0 {
+                    if let Some(f) = self.findings.iter().find(|f| f.id == id) {
+                        return CheckCoverage {
+                            id: id.to_string(),
+                            findings,
+                            title: f.title.clone(),
+                            hypothetical_impact: f.impact.clone().unwrap_or_default(),
+                            remediation: f.remediation.clone(),
+                            mitre: f.mitre.iter().map(|m| m.id.to_string()).collect(),
+                        };
+                    }
+                }
+                // Clean row (or tripped but the Finding wasn't in self.findings — shouldn't
+                // happen): fall back to the static describe() lookup.
+                let meta = describe_check(id);
+                CheckCoverage {
+                    id: id.to_string(),
+                    findings,
+                    title: meta.title.into(),
+                    hypothetical_impact: meta.hypothetical_impact.into(),
+                    remediation: meta.remediation.into(),
+                    mitre: meta.mitre.iter().map(|s| s.to_string()).collect(),
+                }
             })
             .collect();
         self
@@ -355,7 +404,11 @@ impl Report {
         )
     }
 
-    /// WS-R2: HTML "Check coverage" panel — the full registry roster (tripped vs clean).
+    /// WS-R2 + 1.4.6 WS-COVERAGE-META: HTML "Check coverage" panel — the full registry roster
+    /// (tripped vs clean). Each row is expandable via `<details>` to show the check's title,
+    /// hypothetical impact ("what would happen if this had tripped"), remediation, and MITRE
+    /// techniques — populated from the tripped Finding (if any) or from
+    /// [`crate::describe_check`] fallback for clean rows.
     fn coverage_html(&self) -> String {
         if self.coverage.is_empty() {
             return String::new();
@@ -367,9 +420,6 @@ impl Report {
             .coverage
             .iter()
             .map(|c| {
-                // WS-PROOF-70 part 3: tripped rows carry a ✓proof indicator — the gate test
-                // (crates/checks/tests/proof_metadata.rs) makes this always true, so its absence
-                // in the report would be a visible red flag caught before ship.
                 let (cls, status, proof_cell) = if c.findings > 0 {
                     (
                         "chip-warn",
@@ -383,20 +433,60 @@ impl Report {
                         "<span class=muted>—</span>",
                     )
                 };
+                // Build the expandable card body — title + hypothetical impact + remediation +
+                // MITRE. Skip fields that are empty so unknown check IDs (in the fallback table)
+                // gracefully render just the ID row.
+                let mut card = String::new();
+                if !c.title.is_empty() {
+                    card.push_str(&format!(
+                        "<div class=cov-title>{}</div>",
+                        html_escape(&c.title)
+                    ));
+                }
+                let impact_label = if c.findings > 0 { "Impact" } else { "Hypothetical impact (what would happen if this had tripped)" };
+                if !c.hypothetical_impact.is_empty() {
+                    card.push_str(&format!(
+                        "<div class=cov-field><b>{impact_label}:</b> {}</div>",
+                        html_escape(&c.hypothetical_impact)
+                    ));
+                }
+                if !c.remediation.is_empty() {
+                    card.push_str(&format!(
+                        "<div class=cov-field><b>Remediation:</b> {}</div>",
+                        html_escape(&c.remediation)
+                    ));
+                }
+                if !c.mitre.is_empty() {
+                    let chips: String = c
+                        .mitre
+                        .iter()
+                        .map(|m| format!("<span class=\"chip chip-info\">{}</span>", html_escape(m)))
+                        .collect();
+                    card.push_str(&format!("<div class=cov-field><b>MITRE:</b> {chips}</div>"));
+                }
+                let details = if card.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "<tr class=cov-details><td colspan=3><details><summary>Details</summary><div class=cov-card>{card}</div></details></td></tr>"
+                    )
+                };
                 format!(
-                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td><td>{}</td></tr>",
+                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td><td>{}</td></tr>{}",
                     html_escape(&c.id),
                     cls,
                     html_escape(&status),
                     proof_cell,
+                    details,
                 )
             })
             .collect();
         format!(
             "<section class=panel><h2>Check coverage</h2>\
              <p>All <b>{total}</b> passive checks ran — <b>{tripped}</b> tripped, <b>{clean}</b> clean. \
-             A clean check means the directory was tested for that vector and is not exposed to it. \
-             Every tripped check carries a ground-truth <b>proof</b> — enforced at build time (WS-PROOF-70).</p>\
+             Click <em>Details</em> on any row to see what the check was looking for and its hypothetical \
+             impact, so a clean row is verifiable (not just \"the check didn't trip — maybe it's buggy\"). \
+             Every tripped row carries a ground-truth <b>proof</b> block; WS-PROOF-70 enforces this at CI time.</p>\
              <div class=cov-wrap><table class=cov><thead><tr><th>Check</th><th>Result</th><th>Proof</th></tr></thead>\
              <tbody>{rows}</tbody></table></div></section>"
         )
