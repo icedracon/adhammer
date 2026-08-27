@@ -671,11 +671,13 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
 }
 
 /// AES256 variant of [`build_ap_req_gss`] — generates a 32-byte AES256 subkey (etype 18)
-/// and puts it in the authenticator, returning the SPNEGO blob and the 32-byte subkey
-/// that both parties will use as the base session key. Needed by the WS-4-P2 DCE-RPC
-/// KrbSealer path (`adhammer_kerberos::rpc_sealer::AesCts96Sealer`) which derives Ke/Ki
-/// via RFC 3961 §5.3 DK — that requires a full AES256 key, not the 16-byte AES128 one
-/// [`build_ap_req_gss`] emits for SMB signing.
+/// and returns the RAW GSS-Kerberos token (not SPNEGO-wrapped) plus the subkey.
+///
+/// Windows DCE-RPC BIND with `auth_type = RPC_C_AUTHN_GSS_KERBEROS (0x10)` requires the
+/// raw form; SPNEGO wrapping there trips a BIND_NAK. If a caller instead needs the
+/// SPNEGO-wrapped form (e.g. `RPC_C_AUTHN_GSS_NEGOTIATE (0x09)` or SMB SESSION_SETUP),
+/// wrap the returned raw bytes via `crate::gss::spnego_krb5_init(ap_req_der)` — passing
+/// the raw AP-REQ DER, not this function's output.
 pub fn build_ap_req_gss_aes256(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 32])> {
     let mut subkey = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut subkey);
@@ -722,7 +724,7 @@ pub fn build_ap_req_gss_aes256(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 32])
         )),
     });
     let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
-    Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
+    Ok((crate::gss::gss_krb5_aprep(&ap_der), subkey))
 }
 
 // ---------------------------------------------------------------------------

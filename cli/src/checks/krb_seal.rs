@@ -25,11 +25,15 @@ use crate::ui;
 
 #[derive(Parser)]
 pub(crate) struct CheckKrbSealArgs {
-    /// DC hostname or IP. Used verbatim as the SMB target and as the `<dc>` half of
-    /// the `cifs/<dc>` SPN — pass the exact name the DC advertises in its SPNs, not
-    /// a shortname or CNAME, or Kerberos rejects the AP-REQ with `KRB_AP_ERR_TKT_INV`.
+    /// DC hostname or IP for the TCP + SMB target. Can be either — the workstation
+    /// just needs to route to it.
     #[arg(long)]
     pub host: String,
+    /// SPN hostname override (goes into `cifs/<spn_host>`). Defaults to `--host`.
+    /// Set this when `--host` is an IP the workstation reaches directly, but the DC's
+    /// SPNs use its DNS name (mismatch → `KRB_AP_ERR_TKT_INV` from the KDC).
+    #[arg(long)]
+    pub spn_host: Option<String>,
     /// NetBIOS domain, e.g. TESTLAB.
     #[arg(long)]
     pub domain: String,
@@ -100,10 +104,11 @@ async fn run(a: &mut CheckKrbSealArgs, checklist: &mut ui::StageChecklist) -> Re
     // (Tgt::crealm is private — use the realm we passed in for the display.)
     checklist.record_ok("asktgt (AS-REP)", format!("TGT for {}@{}", a.user, a.realm));
 
-    // Step 2: two service tickets for cifs/<host>. One drives SMB, the other the pipe bind.
-    // Two separate tickets avoid Windows' AP-REQ replay-cache rejecting the second (same
-    // (cname, sname, ctime) tuple within a few seconds is treated as a replay).
-    let spn = format!("cifs/{}", a.host);
+    // Step 2: two service tickets for cifs/<spn_host>. One drives SMB, the other the pipe
+    // bind. Two separate tickets avoid Windows' AP-REQ replay-cache rejecting the second
+    // (same cname+sname+ctime tuple treated as a replay).
+    let spn_host = a.spn_host.clone().unwrap_or_else(|| a.host.clone());
+    let spn = format!("cifs/{spn_host}");
     let st_smb = get_service_ticket(&tgt, &spn, &a.kdc)
         .await
         .with_context(|| format!("TGS for {spn} (SMB leg)"))?;

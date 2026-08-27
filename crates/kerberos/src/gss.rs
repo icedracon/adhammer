@@ -35,7 +35,13 @@ const KRB5_OID: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x12, 0x01, 0x02, 0x02];
 
 /// Wrap a raw AP-REQ DER as the GSS-Kerberos mechToken:
 /// `[APPLICATION 0] { OID krb5, TOK_ID=0x0100, AP-REQ }`.
-fn gss_krb5_aprep(ap_req_der: &[u8]) -> Vec<u8> {
+///
+/// This is the RAW GSS-Kerberos form (RFC 4121 §4.1) — not SPNEGO-wrapped. Windows
+/// DCE-RPC BINDs with `auth_type = RPC_C_AUTHN_GSS_KERBEROS (0x10)` expect this
+/// exact shape; the SPNEGO-wrapped form is only for `RPC_C_AUTHN_GSS_NEGOTIATE
+/// (0x09)`. Sending SPNEGO where raw is expected trips a BIND_NAK reject_reason=2
+/// (local_limit_exceeded — Windows' generic auth-format-mismatch signal).
+pub fn gss_krb5_aprep(ap_req_der: &[u8]) -> Vec<u8> {
     let mut inner = Vec::new();
     inner.extend_from_slice(&tlv(0x06, KRB5_OID)); // thisMech
     inner.extend_from_slice(&[0x01, 0x00]); // TOK_ID = AP-REQ
