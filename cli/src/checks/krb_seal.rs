@@ -168,13 +168,15 @@ async fn run(a: &mut CheckKrbSealArgs, checklist: &mut ui::StageChecklist) -> Re
         .context("DCE-RPC BIND with sealed Kerberos")?;
     checklist.record_ok("DCE-RPC BIND sealed Kerberos", "BIND_ACK received");
 
-    // Step 6: optional first sealed call.
+    // Step 6: optional first sealed call — use dcerpc's already-hand-marshaled
+    // encode_open_policy2 stub (SystemName=NULL, empty ObjectAttributes, MAXIMUM_ALLOWED
+    // desired access) so the server actually has a valid NDR stub to decode. Sending an
+    // empty buffer here tears the pipe down on NDR-decode failure BEFORE the sealed-
+    // REQUEST HMAC has a chance to be verified — which masked the crypto errors we
+    // needed to see.
     if a.try_call {
-        // LsarOpenPolicy2 (opnum 44) — minimal argument shape: NDR-marshaled
-        // ObjectAttributes(empty) + DesiredAccessMask. Adjust after live probe.
-        // For scaffolding, send an empty stub and let the server tell us what
-        // it expected — the error path is the datum, not the success path.
-        match pipe.call_sealed_kerberos(44, &[]).await {
+        let stub = dcerpc::lsat::encode_open_policy2();
+        match pipe.call_sealed_kerberos(44, &stub).await {
             Ok(resp) => {
                 checklist.record_ok(
                     "LsarOpenPolicy2 (opnum 44)",

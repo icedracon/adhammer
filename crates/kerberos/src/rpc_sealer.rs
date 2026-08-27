@@ -42,11 +42,20 @@ use crate::rpc_seal::{
 use dcerpc::krb_seal::{KrbSealer, WrapToken, AES_SHA1_CHECKSUM_LEN, WRAP_HEADER_LEN};
 use dcerpc::{Result as DcerpcResult, RpcError};
 
-/// MS-KILE DCE-RPC auth_value for AES256-CTS-HMAC-SHA1-96:
-/// `WrapHeader(16) || Confounder_ct(16) || HMAC(12)` = 44 bytes. Note this is 16 bytes
-/// larger than dcerpc's own `AES_SHA1_AUTH_VALUE_LEN = 28` hint — that hint was defined
-/// before the confounder-on-wire requirement was verified against a real DC.
-pub const MS_KILE_AUTH_VALUE_LEN: usize = WRAP_HEADER_LEN + AES_BLOCK_LEN + AES_SHA1_CHECKSUM_LEN;
+/// RRC value used by DCE-RPC AES256-CTS-HMAC-SHA1-96: `HMAC(12) + wrap-header(16) = 28`.
+/// Per RFC 4121 §4.2.5, rotating the encrypted-plus-checksum right by RRC moves the
+/// wrap-header ciphertext + HMAC to the front, which is where DCE-RPC's auth_value
+/// picks them up. Higher-RRC layouts (or unrotated) are legal in RFC but Windows uses
+/// this specific value for the DCE-style transport.
+pub const DCE_RPC_KRB5_RRC: u16 = (AES_SHA1_CHECKSUM_LEN + WRAP_HEADER_LEN) as u16;
+
+/// MS-KILE DCE-RPC auth_value for AES256-CTS-HMAC-SHA1-96 (per RFC 4121 §4.2.5 rotated
+/// layout): `WrapHeader(16, outer, RRC=28) || E(header_inner)(16) || HMAC(12) ||
+/// E(confounder)(16)` = 60 bytes. Confounder-ct + wrap-header-ct + HMAC are rotated
+/// out of the encrypted portion by RRC=28 so the sealed_stub in the PDU body preserves
+/// its N-byte length while auth_value carries the rest.
+pub const MS_KILE_AUTH_VALUE_LEN: usize =
+    WRAP_HEADER_LEN + WRAP_HEADER_LEN + AES_SHA1_CHECKSUM_LEN + AES_BLOCK_LEN;
 
 /// Which side of the Kerberos context this sealer represents. Determines which
 /// RFC 4121 §2 key-usage number is used for the *sending* direction — the receive
@@ -135,50 +144,66 @@ impl AesCts96Sealer {
         c
     }
 
-    /// The buffer both seal_pdu and unseal_pdu HMAC over per RFC 3961 §5.3 style with the
-    /// MS-KILE layout: `Confounder || Stub_plaintext || WrapHeader`.
-    fn hmac_input(
-        confounder: &[u8; AES_BLOCK_LEN],
-        stub: &[u8],
-        wrap_bytes: &[u8; WRAP_HEADER_LEN],
-    ) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(AES_BLOCK_LEN + stub.len() + WRAP_HEADER_LEN);
-        buf.extend_from_slice(confounder);
-        buf.extend_from_slice(stub);
-        buf.extend_from_slice(wrap_bytes);
-        buf
+    /// Zero out the RFC 4121 §4.2.6.5 "MIC-relevant" fields of the wrap header (Filler,
+    /// EC, RRC) before it's fed into the encryption / HMAC computation. The OUTER wrap
+    /// header on the wire keeps its real RRC/EC — only the INNER copy that's encrypted
+    /// alongside the confounder+stub has these fields zeroed. Both sides do this so both
+    /// arrive at the same plaintext for verify.
+    fn wrap_header_for_hmac(mut wrap_bytes: [u8; WRAP_HEADER_LEN]) -> [u8; WRAP_HEADER_LEN] {
+        wrap_bytes[4] = 0; // EC hi
+        wrap_bytes[5] = 0; // EC lo
+        wrap_bytes[6] = 0; // RRC hi
+        wrap_bytes[7] = 0; // RRC lo
+        wrap_bytes
     }
 }
 
 impl KrbSealer for AesCts96Sealer {
     fn seal_pdu(&mut self, _sign_over: &[u8], stub: &[u8]) -> (Vec<u8>, Vec<u8>) {
-        let wrap = WrapToken::sealed(
+        // Outer wrap header — RRC=28 declares the rotation we're about to apply.
+        let mut wrap = WrapToken::sealed(
             self.role.sends_as_acceptor(),
             self.acceptor_subkey,
             self.send_seq,
         );
+        wrap.rrc = DCE_RPC_KRB5_RRC;
         let wrap_bytes = wrap.encode();
+        // Inner wrap header (identical fields, but RRC/EC/Filler zeroed per RFC 4121 §4.2.6.5).
+        let wrap_bytes_inner = Self::wrap_header_for_hmac(wrap_bytes);
 
         let ke = derive_ke(&self.session_key, self.role.send_usage());
         let ki = derive_ki(&self.session_key, self.role.send_usage());
 
-        // MS-KILE: encrypt Confounder(16) || Stub(N) as one AES-CTS unit.
+        // RFC 4121 §4.2.4 plaintext-to-encrypt = Confounder(16) || Stub(N) || WrapHeader_inner(16).
+        // Length N + 32.
         let confounder = self.confounder_for(self.send_seq);
-        let mut e1 = Vec::with_capacity(AES_BLOCK_LEN + stub.len());
-        e1.extend_from_slice(&confounder);
-        e1.extend_from_slice(stub);
-        let ct = aes_cts_encrypt(&ke, &[0u8; AES_BLOCK_LEN], &e1);
-        debug_assert_eq!(ct.len(), AES_BLOCK_LEN + stub.len());
-        let confounder_ct = &ct[..AES_BLOCK_LEN];
-        let sealed_stub = ct[AES_BLOCK_LEN..].to_vec();
+        let mut plaintext = Vec::with_capacity(AES_BLOCK_LEN + stub.len() + WRAP_HEADER_LEN);
+        plaintext.extend_from_slice(&confounder);
+        plaintext.extend_from_slice(stub);
+        plaintext.extend_from_slice(&wrap_bytes_inner);
+        let ct = aes_cts_encrypt(&ke, &[0u8; AES_BLOCK_LEN], &plaintext);
+        debug_assert_eq!(ct.len(), AES_BLOCK_LEN + stub.len() + WRAP_HEADER_LEN);
+        // HMAC is computed over the *plaintext* per RFC 3961 §5.3 style.
+        let mac = hmac_sha1_96(&ki, &plaintext);
 
-        let mac = hmac_sha1_96(&ki, &Self::hmac_input(&confounder, stub, &wrap_bytes));
+        // Assemble unrotated encrypted-plus-checksum: [ct(N+32) || HMAC(12)]. Length N+44.
+        // Layout: [E(conf)(16) | E(stub)(N) | E(hdr)(16) | HMAC(12)]
+        // RRC=28 right-rotation moves the last 28 bytes (E(hdr) + HMAC) to the front:
+        //   rotated = [E(hdr)(16) | HMAC(12) | E(conf)(16) | E(stub)(N)]
+        // DCE-RPC then splits: last N bytes → sealed_stub in PDU body,
+        //                     first 44 bytes prefixed with outer WrapHeader(16) → auth_value.
+        let e_conf = &ct[..AES_BLOCK_LEN];
+        let e_stub = &ct[AES_BLOCK_LEN..AES_BLOCK_LEN + stub.len()];
+        let e_hdr = &ct[AES_BLOCK_LEN + stub.len()..];
+        debug_assert_eq!(e_hdr.len(), WRAP_HEADER_LEN);
 
-        // Wire auth_value = WrapHeader(16) || Confounder_ct(16) || HMAC(12) = 44 bytes.
         let mut auth_value = Vec::with_capacity(MS_KILE_AUTH_VALUE_LEN);
-        auth_value.extend_from_slice(&wrap_bytes);
-        auth_value.extend_from_slice(confounder_ct);
-        auth_value.extend_from_slice(&mac);
+        auth_value.extend_from_slice(&wrap_bytes); // outer header (RRC=28)
+        auth_value.extend_from_slice(e_hdr); // 16
+        auth_value.extend_from_slice(&mac); // 12
+        auth_value.extend_from_slice(e_conf); // 16
+        debug_assert_eq!(auth_value.len(), MS_KILE_AUTH_VALUE_LEN);
+        let sealed_stub = e_stub.to_vec();
 
         self.send_seq = self.send_seq.wrapping_add(1);
         (sealed_stub, auth_value)
@@ -209,10 +234,23 @@ impl KrbSealer for AesCts96Sealer {
                 wrap.snd_seq, self.recv_seq
             )));
         }
+        // We support only the DCE-RPC RRC=28 layout for now. A stricter check helps
+        // catch peers that use a different rotation — better to fail loud than to
+        // silently misreassemble.
+        if wrap.rrc != DCE_RPC_KRB5_RRC {
+            return Err(RpcError::Protocol(format!(
+                "WRAP rrc {} != DCE-RPC expected {DCE_RPC_KRB5_RRC}",
+                wrap.rrc
+            )));
+        }
 
-        let confounder_ct = &auth_value[WRAP_HEADER_LEN..WRAP_HEADER_LEN + AES_BLOCK_LEN];
-        let mac_bytes = &auth_value[WRAP_HEADER_LEN + AES_BLOCK_LEN
-            ..WRAP_HEADER_LEN + AES_BLOCK_LEN + AES_SHA1_CHECKSUM_LEN];
+        // auth_value layout (rotated): outer_header(16) || E(hdr)(16) || HMAC(12) || E(conf)(16).
+        let outer_off = WRAP_HEADER_LEN;
+        let e_hdr = &auth_value[outer_off..outer_off + WRAP_HEADER_LEN];
+        let mac_bytes = &auth_value
+            [outer_off + WRAP_HEADER_LEN..outer_off + WRAP_HEADER_LEN + AES_SHA1_CHECKSUM_LEN];
+        let e_conf = &auth_value[outer_off + WRAP_HEADER_LEN + AES_SHA1_CHECKSUM_LEN..];
+
         let sealed_stub =
             pdu_no_auth
                 .get(stub_off..stub_off + stub_len)
@@ -224,23 +262,29 @@ impl KrbSealer for AesCts96Sealer {
         let ke = derive_ke(&self.session_key, self.role.recv_usage());
         let ki = derive_ki(&self.session_key, self.role.recv_usage());
 
-        // Reconstruct Confounder_ct || Stub_ct and decrypt as one AES-CTS unit.
-        let mut ct = Vec::with_capacity(AES_BLOCK_LEN + stub_len);
-        ct.extend_from_slice(confounder_ct);
+        // Reconstruct unrotated ciphertext: E(conf)(16) || E(stub)(N) || E(hdr)(16). Length N+32.
+        let mut ct = Vec::with_capacity(AES_BLOCK_LEN + stub_len + WRAP_HEADER_LEN);
+        ct.extend_from_slice(e_conf);
         ct.extend_from_slice(sealed_stub);
-        let e1 = aes_cts_decrypt(&ke, &[0u8; AES_BLOCK_LEN], &ct);
-        debug_assert_eq!(e1.len(), AES_BLOCK_LEN + stub_len);
-        let confounder: [u8; AES_BLOCK_LEN] =
-            e1[..AES_BLOCK_LEN].try_into().expect("block-sized prefix");
-        let stub_plain = e1[AES_BLOCK_LEN..].to_vec();
+        ct.extend_from_slice(e_hdr);
+        let plaintext = aes_cts_decrypt(&ke, &[0u8; AES_BLOCK_LEN], &ct);
+        debug_assert_eq!(plaintext.len(), AES_BLOCK_LEN + stub_len + WRAP_HEADER_LEN);
+        let stub_plain = plaintext[AES_BLOCK_LEN..AES_BLOCK_LEN + stub_len].to_vec();
+        let inner_hdr_recovered = &plaintext[AES_BLOCK_LEN + stub_len..];
 
-        let wrap_bytes: [u8; WRAP_HEADER_LEN] = auth_value[..WRAP_HEADER_LEN]
+        // Recovered inner header should match the outer header with EC/RRC/Filler zeroed.
+        let outer_wrap_bytes: [u8; WRAP_HEADER_LEN] = auth_value[..WRAP_HEADER_LEN]
             .try_into()
             .expect("checked above");
-        let expect = hmac_sha1_96(
-            &ki,
-            &Self::hmac_input(&confounder, &stub_plain, &wrap_bytes),
-        );
+        let expected_inner = Self::wrap_header_for_hmac(outer_wrap_bytes);
+        if inner_hdr_recovered != expected_inner {
+            return Err(RpcError::Protocol(
+                "recovered inner WRAP header mismatches outer".into(),
+            ));
+        }
+
+        // HMAC verify over the recovered plaintext.
+        let expect = hmac_sha1_96(&ki, &plaintext);
         let mut diff: u8 = 0;
         for i in 0..AES_SHA1_CHECKSUM_LEN {
             diff |= expect[i] ^ mac_bytes[i];
