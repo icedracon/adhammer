@@ -27,11 +27,25 @@ venv/
 auto-report.md
 adhammer-report.*
 adhammer-pentest-report.*
+adhammer-pentest-report-*
 *-rebuilt.html
 report.json
 report.html
 report-summary.txt
 reports/
+
+# private development notes and evidence — never commit
+.agents/
+CLAUDE.md
+bench/*.log
+target-*/
+.local-install/
+.playwright-cli/
+video-work/
+patches/
+lab/validation-*/
+meta.json
+*.exe
 esc1.crt
 esc1.crt.key.pem
 *.crt
