@@ -8,3 +8,4 @@
 //! The split from `main.rs` landed in arch-0 (batch 4, post-1.3.10).
 
 pub(crate) mod adcs;
+pub(crate) mod krb_seal;

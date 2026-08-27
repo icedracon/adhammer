@@ -89,5 +89,9 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-# [patch.crates-io] removed for 1.4.1 ship — ms-pac-forge 0.1.3,
-# ms-drsr 0.2.0, ms-tds 0.1.1 published (currently YANKED; un-yank before push).
+# [patch.crates-io] for 1.4.6 LOCAL Kerberos-sealed-DCE-RPC development. Points at
+# sibling dcerpc dir where SmbPipe::bind_sealed_kerberos + call_sealed_kerberos and
+# their RpcTcp mirrors live (Session 3 part-B). REMOVE before any push — CI and
+# downstream users don't have sibling dirs. Un-comment on the next 1.4.6 sync.
+[patch.crates-io]
+dcerpc = { path = "../dcerpc" }

@@ -104,6 +104,11 @@ enum CheckCmd {
     /// collected from LDAP. Complements `scan` — no ACL walk, just the
     /// template-shape checks straight out of `ms-crtd::detect_esc`.
     Adcs(checks::adcs::CheckAdcsArgs),
+    /// WS-4-P2 Session 4 live-DC probe: AES256-CTS-HMAC-SHA1-96 sealed BIND on
+    /// \PIPE\lsarpc. Reports success or the exact fault code — used to iterate
+    /// the sealer's wire format against a real DC.
+    #[command(name = "krb-seal")]
+    KrbSeal(checks::krb_seal::CheckKrbSealArgs),
 }
 
 // CheckAdcsArgs moved to `checks::adcs` in arch-0.
@@ -681,6 +686,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Mssql(a)) => attacks::mssql::mssql(a).await,
         Command::Attack(AttackCmd::Dns(a)) => attacks::dns::dns(a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
+        Command::Check(CheckCmd::KrbSeal(a)) => checks::krb_seal::check_krb_seal(a).await,
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,
         Command::Setup(setup::SetupCmd::Krb5(a)) => setup::krb5::run(a).await,

@@ -670,6 +670,61 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
     Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
 }
 
+/// AES256 variant of [`build_ap_req_gss`] — generates a 32-byte AES256 subkey (etype 18)
+/// and puts it in the authenticator, returning the SPNEGO blob and the 32-byte subkey
+/// that both parties will use as the base session key. Needed by the WS-4-P2 DCE-RPC
+/// KrbSealer path (`adhammer_kerberos::rpc_sealer::AesCts96Sealer`) which derives Ke/Ki
+/// via RFC 3961 §5.3 DK — that requires a full AES256 key, not the 16-byte AES128 one
+/// [`build_ap_req_gss`] emits for SMB signing.
+pub fn build_ap_req_gss_aes256(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 32])> {
+    let mut subkey = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut subkey);
+
+    // Same GSS 0x8003 checksum as the AES128 path — only the subkey etype/size changes.
+    let mut gss_cksum = Vec::new();
+    gss_cksum.extend_from_slice(&16u32.to_le_bytes());
+    gss_cksum.extend_from_slice(&[0u8; 16]);
+    gss_cksum.extend_from_slice(&0x0000_003cu32.to_le_bytes());
+
+    let authenticator = Authenticator::from(AuthenticatorInner {
+        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        crealm: ExplicitContextTag1::from(krb_string(&st.crealm)?),
+        cname: ExplicitContextTag2::from(st.cname.clone()),
+        cksum: Optional::from(Some(ExplicitContextTag3::from(Checksum {
+            cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![0x00, 0x80, 0x03])),
+            checksum: ExplicitContextTag1::from(OctetStringAsn1(gss_cksum)),
+        }))),
+        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
+        ctime: ExplicitContextTag5::from(now_kerberos_time()),
+        subkey: Optional::from(Some(ExplicitContextTag6::from(EncryptionKey {
+            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![18])), // AES256
+            key_value: ExplicitContextTag1::from(OctetStringAsn1(subkey.to_vec())),
+        }))),
+        seq_number: Optional::from(None),
+        authorization_data: Optional::from(None),
+    });
+    let auth_der =
+        picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
+    // Ticket-session-key encrypts the authenticator (usage 11). session_etype picks the
+    // right cipher for the ticket key size — matches how build_ap_req_gss does it.
+    let enc_auth = enc_session(&st.session_key, 11, &auth_der)?;
+
+    let ap_req = ApReq::from(ApReqInner {
+        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
+        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![
+            0, 0, 0, 0,
+        ]))),
+        ticket: ExplicitContextTag3::from(st.ticket.clone()),
+        authenticator: ExplicitContextTag4::from(encrypted_data(
+            session_etype(&st.session_key),
+            enc_auth,
+        )),
+    });
+    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
+    Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
+}
+
 // ---------------------------------------------------------------------------
 // S4U (MS-SFU): S4U2Self + S4U2Proxy — the RBCD / constrained-delegation abuse.
 // ---------------------------------------------------------------------------
