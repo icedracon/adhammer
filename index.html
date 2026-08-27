@@ -3,25 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ADhammer — See the domain. Prove the path.</title>
-  <meta name="description" content="ADhammer is an open-source Rust Active Directory security engine that collects the directory, maps control paths, validates supported findings with evidence, and exports inspectable artifacts.">
-  <meta name="keywords" content="Active Directory security, Rust, AD CS, BloodHound, Kerberos, evidence-first reporting, open source, icedracon">
+  <title>ADhammer — Active Directory Pentest Tool in Rust</title>
+  <meta name="description" content="ADhammer is an open-source Active Directory pentest tool in Rust. Map attack paths, assess AD CS, validate supported findings, and export evidence.">
+  <meta name="keywords" content="Active Directory pentest tool, Active Directory penetration testing, Active Directory security assessment, AD CS, attack path analysis, BloodHound, Kerberos, Rust">
   <meta name="author" content="zevs · icedracon">
   <meta name="robots" content="index, follow">
+  <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
   <link rel="canonical" href="https://icedracon.github.io/adhammer/">
   <meta name="theme-color" content="#05070d">
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="preload" href="assets/ice-dragon-graph.webp" as="image" type="image/webp">
-  <meta property="og:title" content="ADhammer — See the domain. Prove the path.">
-  <meta property="og:description" content="An open-source Rust engine for Active Directory collection, control-path analysis, supported validation, and evidence-first reporting.">
+  <meta property="og:title" content="ADhammer — Active Directory Pentest Tool in Rust">
+  <meta property="og:description" content="Open-source Active Directory pentest tool for attack-path analysis, AD CS assessment, supported validation, and evidence-first reporting.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://icedracon.github.io/adhammer/">
   <meta property="og:site_name" content="ADhammer">
   <meta property="og:image" content="https://icedracon.github.io/adhammer/assets/adhammer-mark.webp">
+  <meta property="og:image:width" content="760">
+  <meta property="og:image:height" content="760">
+  <meta property="og:image:alt" content="ADhammer open-source Active Directory pentest tool">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="ADhammer — See the domain. Prove the path.">
-  <meta name="twitter:description" content="Active Directory collection, control-path analysis, supported validation, and evidence-first reporting in Rust.">
+  <meta name="twitter:title" content="ADhammer — Active Directory Pentest Tool in Rust">
+  <meta name="twitter:description" content="Open-source Active Directory pentest tool for attack-path analysis, AD CS assessment, supported validation, and evidence-first reporting.">
   <meta name="twitter:image" content="https://icedracon.github.io/adhammer/assets/adhammer-mark.webp">
+  <meta name="twitter:image:alt" content="ADhammer open-source Active Directory pentest tool">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap">
@@ -1408,15 +1413,25 @@
     "name": "ADhammer",
     "alternateName": "AD//HAMMER",
     "applicationCategory": "SecurityApplication",
+    "applicationSubCategory": "Active Directory penetration testing",
     "operatingSystem": "Linux, macOS, Windows",
     "programmingLanguage": "Rust",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
-    "description": "Open-source Rust engine for authorized Active Directory collection, control-path analysis, supported validation, and evidence-first reporting.",
+    "description": "ADhammer is an open-source Active Directory pentest tool in Rust. Map attack paths, assess AD CS, validate supported findings, and export evidence.",
+    "keywords": "Active Directory pentest tool, Active Directory security assessment, AD CS, attack path analysis, BloodHound, Rust",
+    "featureList": [
+      "LDAP and Active Directory Certificate Services collection",
+      "Tier-0 attack-path analysis",
+      "Supported validation with captured evidence",
+      "JSON, HTML, Markdown, and BloodHound CE exports"
+    ],
     "url": "https://icedracon.github.io/adhammer/",
     "codeRepository": "https://github.com/icedracon/adhammer",
     "downloadUrl": "https://crates.io/crates/adhammer",
     "author": {"@type": "Person", "name": "zevs"},
+    "audience": {"@type": "Audience", "audienceType": "Penetration testers, red teams, and Active Directory security professionals"},
+    "sameAs": ["https://github.com/icedracon/adhammer", "https://crates.io/crates/adhammer"],
     "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
   }
   </script>
@@ -1470,9 +1485,9 @@
 
       <div class="shell hero-grid">
         <div class="hero-copy reveal">
-          <span class="eyebrow">Open-source Rust · Active Directory security engineering</span>
+          <span class="eyebrow">Open-source Active Directory pentest tool · built in Rust</span>
           <h1>See the domain.<span>Prove the path.</span></h1>
-          <p class="hero-lede">ADhammer maps Active Directory into one inspectable control graph. A route moves from <strong>possible</strong> to <strong>proven</strong> only when supported validation captures evidence.</p>
+          <p class="hero-lede">ADhammer is an open-source Active Directory pentest tool in Rust. It maps attack paths to Tier-0, validates supported findings, and keeps the evidence attached.</p>
           <div class="hero-actions">
             <a class="enter-link" href="#engine"><span>Enter the living graph</span><i>↓</i></a>
             <a class="quiet-link" href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener">Inspect the implementation ↗</a>
@@ -1509,7 +1524,7 @@
       <div class="shell">
         <div class="section-head reveal">
           <span class="section-no">01 / Four-method engine</span>
-          <div><h2>Four methods.<br>One living model.</h2><p>Scroll through Collect, Graph, Validate, and Report. The same three-dimensional system changes state as objects become relationships, a route becomes evidence, and evidence becomes a portable record.</p></div>
+          <div><h2>Four methods.<br>One living model.</h2><p>Follow the authorized assessment workflow through Collect, Graph, Validate, and Report. Directory objects become attack-path relationships; supported routes become evidence; evidence becomes a portable record.</p></div>
         </div>
         <div class="engine-story">
           <div class="phase-list">
@@ -1725,7 +1740,7 @@
         <img class="final-mark" src="assets/favicon.png" alt="" width="132" height="132">
         <span class="eyebrow">The domain, made legible</span>
         <h2>This is<span>ADhammer.</span></h2>
-        <p>Not a storefront. Not a promise without evidence. An open-source Active Directory security engine you can inspect from the protocol crates to the final report.</p>
+        <p>Not a storefront. Not a promise without evidence. An open-source Active Directory penetration testing and audit tool you can inspect from the Microsoft protocol crates to the final evidence report.</p>
         <div class="final-links">
           <a class="final-link primary" href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener">Open the source <i>↗</i></a>
           <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
