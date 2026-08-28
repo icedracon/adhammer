@@ -149,6 +149,7 @@ dependencies = [
 name = "adhammer-report"
 version = "1.4.6"
 dependencies = [
+ "adhammer-checks",
  "adhammer-core",
  "adhammer-graph",
  "serde",

@@ -43,6 +43,10 @@ fn cat_key(c: Category) -> &'static str {
 
 mod check_meta;
 pub use check_meta::describe as describe_check;
+// 1.4.7 WS-CTRLMAP: re-export the taxonomy declarations so downstream tooling (CLI
+// `coverage --standard areas|kill-chain` subcommand, WS-CLEAN-REPORT methodology
+// assertion, third-party consumers) can enumerate the valid tag universe.
+pub use check_meta::{CONTROL_AREAS, KILL_CHAIN_PHASES};
 
 /// WS-R2: one row of the coverage matrix — a registry check id and how many findings it
 /// produced this run (0 = the check ran and the directory is **clean** for that vector).
@@ -70,6 +74,17 @@ pub struct CheckCoverage {
     /// MITRE ATT&CK technique IDs this check maps to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre: Vec<String>,
+    /// **1.4.7 WS-CTRLMAP** — in-house AD-pentest control-area codes (`ADP-NN`; see
+    /// `docs/CONTROL_AREAS.md`). Sourced from the static taxonomy table, not the
+    /// individual finding — a check belongs to the same control areas whether it
+    /// tripped or not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub control_areas: Vec<String>,
+    /// **1.4.7 WS-CTRLMAP** — generic offensive kill-chain phase (`enumeration |
+    /// initial-access | privilege-escalation | lateral-movement | persistence |
+    /// domain-dominance`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kill_chain_phase: String,
 }
 
 #[derive(Serialize)]
@@ -155,6 +170,13 @@ impl Report {
         self.coverage = cov
             .into_iter()
             .map(|(id, findings)| {
+                // 1.4.7 WS-CTRLMAP: control_areas + kill_chain_phase come from the static
+                // taxonomy table regardless of tripped/clean state — they are check-registry
+                // attributes, not finding attributes, so they don't change per-run.
+                let taxonomy = describe_check(id);
+                let control_areas: Vec<String> =
+                    taxonomy.control_areas.iter().map(|s| s.to_string()).collect();
+                let kill_chain_phase = taxonomy.kill_chain_phase.to_string();
                 // If tripped, mirror the first Finding's title/impact/mitre/remediation.
                 if findings > 0 {
                     if let Some(f) = self.findings.iter().find(|f| f.id == id) {
@@ -165,23 +187,72 @@ impl Report {
                             hypothetical_impact: f.impact.clone().unwrap_or_default(),
                             remediation: f.remediation.clone(),
                             mitre: f.mitre.iter().map(|m| m.id.to_string()).collect(),
+                            control_areas,
+                            kill_chain_phase,
                         };
                     }
                 }
                 // Clean row (or tripped but the Finding wasn't in self.findings — shouldn't
-                // happen): fall back to the static describe() lookup.
-                let meta = describe_check(id);
+                // happen): fall back to the static describe() lookup for the description
+                // fields too.
                 CheckCoverage {
                     id: id.to_string(),
                     findings,
-                    title: meta.title.into(),
-                    hypothetical_impact: meta.hypothetical_impact.into(),
-                    remediation: meta.remediation.into(),
-                    mitre: meta.mitre.iter().map(|s| s.to_string()).collect(),
+                    title: taxonomy.title.into(),
+                    hypothetical_impact: taxonomy.hypothetical_impact.into(),
+                    remediation: taxonomy.remediation.into(),
+                    mitre: taxonomy.mitre.iter().map(|s| s.to_string()).collect(),
+                    control_areas,
+                    kill_chain_phase,
                 }
             })
             .collect();
         self
+    }
+
+    /// **1.4.7 WS-CTRLMAP**: roll up the coverage matrix by control area →
+    /// `(area, checks_tripped, checks_clean)`. Sorted by area code. Empty when the
+    /// caller didn't attach a coverage roster.
+    pub fn coverage_by_area(&self) -> Vec<(String, usize, usize)> {
+        use std::collections::BTreeMap;
+        let mut acc: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        for row in &self.coverage {
+            for area in &row.control_areas {
+                let entry = acc.entry(area.clone()).or_insert((0, 0));
+                if row.findings > 0 {
+                    entry.0 += 1;
+                } else {
+                    entry.1 += 1;
+                }
+            }
+        }
+        acc.into_iter().map(|(k, (t, c))| (k, t, c)).collect()
+    }
+
+    /// **1.4.7 WS-CTRLMAP**: roll up the coverage matrix by kill-chain phase →
+    /// `(phase, checks_tripped, checks_clean)`. Phase order matches
+    /// [`check_meta::KILL_CHAIN_PHASES`] (attacker-lifecycle order).
+    pub fn coverage_by_phase(&self) -> Vec<(String, usize, usize)> {
+        use std::collections::HashMap;
+        let mut acc: HashMap<String, (usize, usize)> = HashMap::new();
+        for row in &self.coverage {
+            if row.kill_chain_phase.is_empty() {
+                continue;
+            }
+            let entry = acc
+                .entry(row.kill_chain_phase.clone())
+                .or_insert((0, 0));
+            if row.findings > 0 {
+                entry.0 += 1;
+            } else {
+                entry.1 += 1;
+            }
+        }
+        // Emit in canonical KILL_CHAIN_PHASES order (attacker lifecycle), not alphabetical.
+        check_meta::KILL_CHAIN_PHASES
+            .iter()
+            .filter_map(|p| acc.remove(*p).map(|(t, c)| (p.to_string(), t, c)))
+            .collect()
     }
 
     /// WS-19: attach a baseline comparison computed from a prior scan's JSON. `label` is recorded
@@ -337,6 +408,8 @@ impl Report {
              </div>\
              {baseline}\
              <section class=panel><h2>Risk by category</h2><div class=score-grid>{scores}</div></section>\
+             {coverage_areas}\
+             {coverage_phases}\
              {coverage}\
              {chains}\
              <section class=panel><h2>Findings</h2><p>Each card shows why the condition matters, what it affects, and the shortest remediation text needed to brief an operator or stakeholder.</p></section>\
@@ -358,6 +431,8 @@ impl Report {
             low = low,
             baseline = self.baseline_html(),
             scores = self.category_scores_html(),
+            coverage_areas = self.coverage_areas_html(),
+            coverage_phases = self.coverage_phases_html(),
             coverage = self.coverage_html(),
             chains = self.chains_html(),
             findings_html = self.findings_html(),
@@ -401,6 +476,80 @@ impl Report {
              <span style=\"color:var(--green)\">green</span> edges are hops adhammer can execute. \
              Hover an edge for the hop.</p>\
              <div class=graph-wrap>{svg}</div></section>"
+        )
+    }
+
+    /// **1.4.7 WS-CTRLMAP**: HTML "Control-area coverage" panel — the in-house AD-pentest
+    /// taxonomy (`ADP-01..ADP-30`; see `docs/CONTROL_AREAS.md`) rolled up as `(area, tripped,
+    /// clean)`. Executive-level summary above the 58-row detail matrix — answers the
+    /// question "which control areas did this assessment exercise, and how did the target
+    /// score in each?" without any third-party methodology labels.
+    fn coverage_areas_html(&self) -> String {
+        let rollup = self.coverage_by_area();
+        if rollup.is_empty() {
+            return String::new();
+        }
+        let total_areas = rollup.len();
+        let clean_areas = rollup.iter().filter(|(_, t, _)| *t == 0).count();
+        let rows: String = rollup
+            .iter()
+            .map(|(area, t, c)| {
+                let (cls, status) = if *t == 0 {
+                    ("chip-good", format!("clean · {c} check(s)"))
+                } else {
+                    ("chip-warn", format!("{t} tripped · {c} clean"))
+                };
+                format!(
+                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td></tr>",
+                    html_escape(area),
+                    cls,
+                    html_escape(&status),
+                )
+            })
+            .collect();
+        format!(
+            "<section class=panel><h2>Control-area coverage</h2>\
+             <p>The <b>{total_areas}</b> AD-pentest control areas this assessment exercised — \
+             <b>{clean_areas}</b> came back fully clean. Codes are the in-house <code>ADP-NN</code> \
+             taxonomy (see <code>docs/CONTROL_AREAS.md</code>); each check in the matrix below \
+             carries one or more area tags, and this table rolls them up.</p>\
+             <div class=cov-wrap><table class=cov><thead><tr><th>Area</th><th>Result</th></tr></thead>\
+             <tbody>{rows}</tbody></table></div></section>"
+        )
+    }
+
+    /// **1.4.7 WS-CTRLMAP**: HTML "Kill-chain coverage" panel — generic offensive lifecycle
+    /// (enumeration → initial-access → privilege-escalation → lateral-movement → persistence
+    /// → domain-dominance). Rolled up as `(phase, tripped, clean)` in attacker-lifecycle
+    /// order, not alphabetical.
+    fn coverage_phases_html(&self) -> String {
+        let rollup = self.coverage_by_phase();
+        if rollup.is_empty() {
+            return String::new();
+        }
+        let rows: String = rollup
+            .iter()
+            .map(|(phase, t, c)| {
+                let (cls, status) = if *t == 0 {
+                    ("chip-good", format!("clean · {c} check(s)"))
+                } else {
+                    ("chip-warn", format!("{t} tripped · {c} clean"))
+                };
+                format!(
+                    "<tr><td><code>{}</code></td><td><span class=\"chip {}\">{}</span></td></tr>",
+                    html_escape(phase),
+                    cls,
+                    html_escape(&status),
+                )
+            })
+            .collect();
+        format!(
+            "<section class=panel><h2>Kill-chain coverage</h2>\
+             <p>Coverage by attacker-lifecycle phase — generic offensive terminology, no cert-body \
+             framing. Rows are in canonical lifecycle order (enumeration first, domain-dominance \
+             last), so a reader can walk down the phases the way an attacker would.</p>\
+             <div class=cov-wrap><table class=cov><thead><tr><th>Phase</th><th>Result</th></tr></thead>\
+             <tbody>{rows}</tbody></table></div></section>"
         )
     }
 

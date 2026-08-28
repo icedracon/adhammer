@@ -23,6 +23,13 @@ pub trait Check {
     fn run(&self, snap: &Snapshot, graph: &ControlGraph) -> Vec<Finding>;
 }
 
+/// Machine-readable roll-up of every check ID in the registry. Used by the coverage-
+/// meta CI gate in `adhammer-report` (WS-CTRLMAP, 1.4.7) to assert every registered
+/// check has a `CheckMeta` entry with `control_areas` + `kill_chain_phase` populated.
+pub fn registry_ids() -> Vec<&'static str> {
+    registry().iter().map(|c| c.id()).collect()
+}
+
 /// Build the default rule set. Add new rules here.
 pub fn registry() -> Vec<Box<dyn Check>> {
     vec![
