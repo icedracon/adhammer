@@ -270,8 +270,11 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
             // 1.4.7 WS-CTRLMAP: control_areas + kill_chain_phase always come from the
             // static taxonomy — they're check-registry attributes, not finding attributes.
             let taxonomy = adhammer_report::describe_check(id);
-            let control_areas: Vec<String> =
-                taxonomy.control_areas.iter().map(|s| s.to_string()).collect();
+            let control_areas: Vec<String> = taxonomy
+                .control_areas
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             let kill_chain_phase = taxonomy.kill_chain_phase.to_string();
             // Populate title/impact/remediation/mitre from the first Finding when tripped,
             // fall back to describe_check() for clean rows (1.4.6 WS-COVERAGE-META).

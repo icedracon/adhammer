@@ -174,8 +174,11 @@ impl Report {
                 // taxonomy table regardless of tripped/clean state — they are check-registry
                 // attributes, not finding attributes, so they don't change per-run.
                 let taxonomy = describe_check(id);
-                let control_areas: Vec<String> =
-                    taxonomy.control_areas.iter().map(|s| s.to_string()).collect();
+                let control_areas: Vec<String> = taxonomy
+                    .control_areas
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 let kill_chain_phase = taxonomy.kill_chain_phase.to_string();
                 // If tripped, mirror the first Finding's title/impact/mitre/remediation.
                 if findings > 0 {
@@ -239,9 +242,7 @@ impl Report {
             if row.kill_chain_phase.is_empty() {
                 continue;
             }
-            let entry = acc
-                .entry(row.kill_chain_phase.clone())
-                .or_insert((0, 0));
+            let entry = acc.entry(row.kill_chain_phase.clone()).or_insert((0, 0));
             if row.findings > 0 {
                 entry.0 += 1;
             } else {
@@ -265,6 +266,31 @@ impl Report {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into())
+    }
+
+    /// **1.4.7 WS-CLEAN-REPORT**: `true` when zero findings surfaced. Used to gate the
+    /// green "hardened bill of health" assurance banner in the HTML/MD renderers — a
+    /// hardened DC should render as an affirmative assurance document, not an empty
+    /// findings page that reads identical to a broken/incomplete scan.
+    pub fn is_clean_bill(&self) -> bool {
+        self.findings.is_empty()
+    }
+
+    /// **1.4.7 WS-CLEAN-REPORT**: sha256 fingerprint of the report content. Hashes the
+    /// canonical JSON serialization (which is deterministic via `serde_json` +
+    /// `BTreeMap` for the score buckets + `&'static` static taxonomy tables), so two
+    /// runs against the same domain state hash to the same value — matches WS-BHG's
+    /// byte-stable-SVG discipline.
+    ///
+    /// Enables audit workflows: "here's the sha256 of the assessment we ran on
+    /// 2026-01-15", diff by hash across baselines, spot-check that a shared report
+    /// hasn't been tampered with.
+    pub fn content_hash(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let json = self.to_json();
+        let digest = Sha256::digest(json.as_bytes());
+        // Lowercase hex, no separator — matches every other hash surface in the report.
+        digest.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     /// Self-contained operator-facing HTML report for passive scan output.
@@ -407,6 +433,7 @@ impl Report {
                <div class=\"sev-card sev-low\"><b>{low}</b><span>Low / Info</span></div>\
              </div>\
              {baseline}\
+             {assurance}\
              <section class=panel><h2>Risk by category</h2><div class=score-grid>{scores}</div></section>\
              {coverage_areas}\
              {coverage_phases}\
@@ -417,6 +444,7 @@ impl Report {
              {graph}\
              {bh_graph}\
              {paths}\
+             {hash_footer}\
              </div>",
             dom = html_escape(&self.domain),
             date = current_utc_date(),
@@ -430,6 +458,7 @@ impl Report {
             medium = medium,
             low = low,
             baseline = self.baseline_html(),
+            assurance = self.assurance_banner_html(),
             scores = self.category_scores_html(),
             coverage_areas = self.coverage_areas_html(),
             coverage_phases = self.coverage_phases_html(),
@@ -439,6 +468,7 @@ impl Report {
             graph = self.graph_svg_panel(),
             bh_graph = self.bh_graph_panel(),
             paths = self.paths_html(),
+            hash_footer = self.hash_footer_html(),
         )
     }
 
@@ -476,6 +506,71 @@ impl Report {
              <span style=\"color:var(--green)\">green</span> edges are hops adhammer can execute. \
              Hover an edge for the hop.</p>\
              <div class=graph-wrap>{svg}</div></section>"
+        )
+    }
+
+    /// **1.4.7 WS-CLEAN-REPORT**: green "hardened bill of health" banner shown only when
+    /// the scan produced zero findings. Turns an otherwise-empty findings page into an
+    /// affirmative assurance document — the target passed every tested control area.
+    /// Includes counts sourced from the WS-CTRLMAP roll-ups so a reader can immediately
+    /// see how much surface was actually exercised, not just "0 findings" in isolation.
+    fn assurance_banner_html(&self) -> String {
+        if !self.is_clean_bill() {
+            return String::new();
+        }
+        let areas = self.coverage_by_area().len();
+        let phases = self.coverage_by_phase().len();
+        let checks = self.coverage.len();
+        // Preconditions-not-met heuristic: any coverage row whose remediation says
+        // Remote Registry / not present / not deployed → the check couldn't fully
+        // exercise its target. Surfaced honestly next to the assurance claim so a
+        // reader isn't misled about surface that wasn't reached.
+        let skipped_hint = self
+            .coverage
+            .iter()
+            .filter(|c| {
+                c.findings == 0
+                    && (c.remediation.contains("Remote Registry")
+                        || c.title.contains("not present")
+                        || c.title.contains("not installed"))
+            })
+            .count();
+        let skipped_line = if skipped_hint > 0 {
+            format!(
+                " <span class=muted>({skipped_hint} check(s) could not fully exercise their target — see the coverage matrix)</span>"
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "<section class=panel style=\"border:1px solid var(--green);background:linear-gradient(180deg,rgba(15,122,77,0.10),transparent 60%)\">\
+             <h2 style=\"color:var(--green)\">&#10003; No vulnerabilities identified</h2>\
+             <p><b>{checks}</b> passive checks ran across <b>{areas}</b> in-house control area(s) \
+             (<code>ADP-NN</code>; see <code>docs/CONTROL_AREAS.md</code>) and <b>{phases}</b> \
+             attacker-lifecycle phase(s). No condition tripped.{skipped_line}</p>\
+             <p class=muted>This is an assurance statement about what ADhammer's static + \
+             live-probe checks looked for on this run — not a claim of complete AD security. \
+             Kerberos + LDAP transport hardening, attack-graph paths to Tier-0, and control-area \
+             coverage are all in scope; runtime EDR, network segmentation, and human-process \
+             controls are not.</p></section>"
+        )
+    }
+
+    /// **1.4.7 WS-CLEAN-REPORT**: audit-trail footer with the report's content hash +
+    /// domain label. Always rendered — supports diffing across baselines, spot-checking
+    /// a shared report for tampering, and archive search by hash. Deterministic per
+    /// [`Self::content_hash`].
+    fn hash_footer_html(&self) -> String {
+        format!(
+            "<section class=panel style=\"border-style:dashed\">\
+             <h2>Report fingerprint</h2>\
+             <p class=muted>Deterministic sha256 of the canonical JSON serialization — same domain \
+             state on repeat scans yields the same fingerprint. Useful as an audit-trail identifier \
+             or a baseline-diff key.</p>\
+             <p><code>domain</code>: <code>{}</code></p>\
+             <p><code>sha256</code>: <code>{}</code></p></section>",
+            html_escape(&self.domain),
+            self.content_hash(),
         )
     }
 
@@ -1694,5 +1789,88 @@ mod tests {
         assert_eq!(days_to_ymd(365), (1971, 1, 1)); // 1970 non-leap
         assert_eq!(days_to_ymd(59), (1970, 3, 1)); // 1970 has no leap day
         assert_eq!(days_to_ymd(365 + 365 + 31 + 29), (1972, 3, 1)); // 1972 leap
+    }
+
+    // ---- 1.4.7 WS-CLEAN-REPORT tests ----
+
+    #[test]
+    fn clean_bill_reports_no_findings() {
+        let r = empty_report(vec![]).with_coverage(vec![
+            ("A-Esc15", 0),
+            ("P-KerberoastAdmin", 0),
+            ("A-PasswordPolicy", 0),
+        ]);
+        assert!(r.is_clean_bill(), "empty findings = clean bill");
+        let html = r.to_html();
+        // Green assurance banner MUST appear.
+        assert!(
+            html.contains("No vulnerabilities identified"),
+            "clean-bill HTML must render the green assurance banner"
+        );
+        // Counts sourced from WS-CTRLMAP roll-ups appear.
+        assert!(
+            html.contains("in-house control area"),
+            "banner must reference the control-area taxonomy"
+        );
+        assert!(
+            html.contains("attacker-lifecycle phase"),
+            "banner must reference kill-chain phases"
+        );
+    }
+
+    #[test]
+    fn dirty_report_hides_assurance_banner() {
+        let r = empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")])
+            .with_coverage(vec![("A-Esc15", 1)]);
+        assert!(!r.is_clean_bill(), "any finding = not a clean bill");
+        let html = r.to_html();
+        // Green banner MUST NOT appear on a dirty report — that would be misleading.
+        assert!(
+            !html.contains("No vulnerabilities identified"),
+            "dirty report must not render the green banner"
+        );
+    }
+
+    #[test]
+    fn content_hash_is_deterministic_across_runs() {
+        // Two reports built from the same inputs must hash identically — supports the
+        // audit-trail workflow ("baseline sha256 vs current sha256 = same? no drift").
+        let r1 = empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")])
+            .with_coverage(vec![("A-Esc15", 1), ("P-KerberoastAdmin", 0)]);
+        let r2 = empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")])
+            .with_coverage(vec![("A-Esc15", 1), ("P-KerberoastAdmin", 0)]);
+        let h1 = r1.content_hash();
+        let h2 = r2.content_hash();
+        assert_eq!(h1, h2, "identical inputs must hash identically");
+        // Hash is a 64-hex-char sha256.
+        assert_eq!(h1.len(), 64);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn content_hash_differs_on_finding_change() {
+        let r1 = empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")]);
+        let r2 = empty_report(vec![mk_finding(
+            "A-Esc15",
+            Severity::High, // <-- severity change
+            "ESC15",
+        )]);
+        assert_ne!(
+            r1.content_hash(),
+            r2.content_hash(),
+            "changing severity must change the fingerprint"
+        );
+    }
+
+    #[test]
+    fn hash_footer_is_always_present_in_html() {
+        // Renders on both clean and dirty reports — supports diffing either.
+        let dirty =
+            empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")]).to_html();
+        let clean = empty_report(vec![]).to_html();
+        assert!(dirty.contains("Report fingerprint"));
+        assert!(dirty.contains("sha256"));
+        assert!(clean.contains("Report fingerprint"));
+        assert!(clean.contains("sha256"));
     }
 }

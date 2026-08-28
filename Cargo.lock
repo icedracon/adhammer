@@ -154,6 +154,7 @@ dependencies = [
  "adhammer-graph",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
