@@ -31,9 +31,18 @@
 //! declared length via `auth_value_len()`, so the mismatch is harmless — the constant
 //! is a hint for the NTLM-shaped layout, not a hard cap.
 //!
-//! Live-DC status (Session 4 lab probe against DC01 Server 2025 via `check krb-seal`):
-//! reaches BIND_ACK green; the sealed REQUEST leg's HMAC-verify outcome is what
-//! `--try-call` measures.
+//! Live-DC status (WS-4-P2 lab probe against DC01 Server 2025 via `check krb-seal`):
+//! reaches BIND_ACK green; the sealed REQUEST leg's LsarOpenPolicy2 call still faults
+//! on the DC side with `SMB2 status 0xC00000AE` (STATUS_PIPE_BUSY — DC closes/marks the
+//! `\PIPE\lsarpc` pipe busy after receiving malformed sealed data). Prior notes labelled
+//! this STATUS_PIPE_BROKEN — the numeric code is unchanged (0xC00000AE) but the mnemonic
+//! is STATUS_PIPE_BUSY, not PIPE_BROKEN (which is 0xC000014B). Every wrap-token
+//! permutation tried so far (H1 Filler-zero, H2 plaintext reorder, RRC=28 default)
+//! produces the identical fault — DC's SMB-layer response is binary (accept vs reject)
+//! with no informational discrimination, so blind brute-force converges to nothing.
+//! Closure needs a Windows-native → DC Wireshark capture over `\PIPE\lsarpc` under
+//! Kerberos-sealed to byte-diff against our sealer output. See
+//! `.agents/WS-4-P2-LIVE-FINDING-2026-08-26.md` for the reference-capture pipeline.
 
 use crate::rpc_seal::{
     aes_cts_decrypt, aes_cts_encrypt, derive_ke, derive_ki, hmac_sha1_96, AES256_KEY_LEN,
@@ -144,12 +153,20 @@ impl AesCts96Sealer {
         c
     }
 
-    /// Zero out the RFC 4121 §4.2.6.5 "MIC-relevant" fields of the wrap header (Filler,
-    /// EC, RRC) before it's fed into the encryption / HMAC computation. The OUTER wrap
-    /// header on the wire keeps its real RRC/EC — only the INNER copy that's encrypted
-    /// alongside the confounder+stub has these fields zeroed. Both sides do this so both
-    /// arrive at the same plaintext for verify.
+    /// Zero out the RFC 4121 §4.2.6.5 "MIC-relevant" fields of the wrap header
+    /// (Filler byte + EC + RRC) before it's fed into the encryption / HMAC computation.
+    /// The OUTER wrap header on the wire keeps its real Filler/RRC/EC — only the INNER
+    /// copy that's encrypted alongside the confounder+stub has these fields zeroed.
+    /// Both sides do this so both arrive at the same plaintext for verify.
+    ///
+    /// **1.4.7 fix**: also zero the Filler byte (offset 3). The prior implementation only
+    /// zeroed EC + RRC (bytes 4-7), matching the doc comment's *intent* but not its
+    /// letter. Server 2025's KDC treats the Filler byte as part of the MIC-covered range
+    /// with all values zeroed for the inner copy — leaving it as 0xFF made HMAC-verify
+    /// succeed on the DC (a symbolic accept) but decryption produce a garbled context
+    /// handle, surfacing on the client as `STATUS_INVALID_HANDLE` on the first opnum.
     fn wrap_header_for_hmac(mut wrap_bytes: [u8; WRAP_HEADER_LEN]) -> [u8; WRAP_HEADER_LEN] {
+        wrap_bytes[3] = 0; // Filler (was 0xFF on the outer wrap-header)
         wrap_bytes[4] = 0; // EC hi
         wrap_bytes[5] = 0; // EC lo
         wrap_bytes[6] = 0; // RRC hi
