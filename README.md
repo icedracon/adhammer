@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/banner.svg" alt="ADhammer — collect the directory, validate supported paths." width="100%"/>
+  <img src="docs/adhammer-banner.png" alt="ADHAMMER — Active Directory security assessment" width="100%"/>
 </p>
 
 <h3 align="center">Open-source Rust · Active Directory pentest tool</h3>
