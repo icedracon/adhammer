@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="AD//HAMMER logo" width="140"/>
+  <img src="docs/adhammer-logo.png" alt="ADHAMMER logo" width="360"/>
 </p>
 
 <p align="center">
