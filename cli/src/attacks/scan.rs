@@ -389,8 +389,18 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     // WS-9 (1.4.1): --out-all writes all four report formats into a directory,
     // in one pass. Preserves --out (single-file) semantics; the two flags are
     // mutually exclusive at runtime — --out-all wins if both are given.
+    // WS-OUT-ALL-STAGES (1.4.7): update the checklist BEFORE returning so the
+    // end-of-run card doesn't misread as "NOT ATTEMPTED" even though both
+    // composite-chain build and report emit did complete. The single-format
+    // --out path below records the same two stages after writing.
     if let Some(dir) = &a.out_all {
-        return write_out_all(&report, dir, a.top_n);
+        checklist.record_ok(
+            "composite chains + baseline diff",
+            "computed as part of Report::build",
+        );
+        let n = write_out_all(&report, dir, a.top_n)?;
+        checklist.record_ok("write report", format!("all-formats · {n} bytes"));
+        return Ok(());
     }
 
     // Resolve output format + destination.
@@ -456,7 +466,10 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
 
 /// WS-9: dump all four formats into `dir`. Filenames match AyDee's convention:
 /// `report.{json,md,html}` + `report-summary.txt`.
-fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<()> {
+///
+/// Returns the total bytes written across the four formats so the caller can
+/// record it in the StageChecklist (WS-OUT-ALL-STAGES, 1.4.7).
+fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<usize> {
     let d = std::path::Path::new(dir);
     std::fs::create_dir_all(d).with_context(|| format!("create --out-all dir {dir}"))?;
     let quads = [
@@ -465,12 +478,14 @@ fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<()> {
         ("report.html", report.to_html()),
         ("report-summary.txt", report.to_text_summary(top_n)),
     ];
+    let mut total = 0usize;
     for (name, body) in &quads {
         let path = d.join(name);
         std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
         eprintln!("[+] {} written ({} bytes)", path.display(), body.len());
+        total += body.len();
     }
-    Ok(())
+    Ok(total)
 }
 
 /// WS-11: `--anonymous` — port scan + RootDSE + null-session SMB + SRV lookup.
@@ -500,7 +515,8 @@ async fn scan_anonymous(a: ScanArgs) -> Result<()> {
     );
 
     if let Some(dir) = &a.out_all {
-        return write_out_all(&report, dir, a.top_n);
+        write_out_all(&report, dir, a.top_n)?;
+        return Ok(());
     }
 
     let explicit_format = std::env::args().any(|a| a == "--format");
