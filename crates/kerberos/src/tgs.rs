@@ -41,11 +41,28 @@ use picky_krb::messages::{
 use serde::Serialize;
 
 /// Ticket-Granting Ticket plus the material needed to use it.
+///
+/// `Debug` is implemented manually to redact the session key + ticket ciphertext (which
+/// contains the encrypted authenticator payload). If a downstream ever embeds a `Tgt` in a
+/// `#[derive(Debug)]` struct, the redaction survives. Deriving `Debug` here would leak the
+/// AES256 session key on any trace-line — including the ones WS-INT-VVV (1.4.7) now turns
+/// on by default in interactive mode.
 pub struct Tgt {
     ticket: Ticket,
     session_key: Vec<u8>,
     cname: PrincipalName,
     crealm: String,
+}
+
+impl std::fmt::Debug for Tgt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tgt")
+            .field("crealm", &self.crealm)
+            .field("cname", &self.cname)
+            .field("session_key", &"***")
+            .field("ticket", &"***")
+            .finish()
+    }
 }
 
 fn aes256() -> Box<dyn Cipher> {
@@ -547,12 +564,29 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 }
 
 /// A service ticket plus its session key — the material for a Kerberos AP-REQ (pass-the-ticket).
+///
+/// `Debug` is implemented manually to redact `session_key` + `ticket` bytes for the same
+/// reason as [`Tgt`]. Field access via `.session_key` is intentionally left `pub` so crypto
+/// call sites (`rpc_sealer`, `pac`, sealed BIND) can consume the raw key material — but
+/// nothing formats it, and no `{:?}` will ever surface it in a trace line.
 pub struct ServiceTicket {
     pub ticket: Ticket,
     pub session_key: Vec<u8>,
     pub crealm: String,
     pub cname: PrincipalName,
     pub spn: Vec<String>,
+}
+
+impl std::fmt::Debug for ServiceTicket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceTicket")
+            .field("crealm", &self.crealm)
+            .field("cname", &self.cname)
+            .field("spn", &self.spn)
+            .field("session_key", &"***")
+            .field("ticket", &"***")
+            .finish()
+    }
 }
 
 /// TGS-REQ for `spn` using a TGT (real or forged golden), requesting an AES256 service ticket, and
@@ -1157,6 +1191,131 @@ fn ccache_for(tgt: &Tgt, user: &str, server: &[&str]) -> Result<Vec<u8>> {
     cvec(&mut c, &ticket_der);
     cvec(&mut c, &[]); // empty second ticket
     Ok(c)
+}
+
+// WS-REDACT-TICKET (1.4.7): defensive Debug impls on Tgt + ServiceTicket redact the session
+// key + ticket ciphertext. `PkinitTgt` already wraps its secrets in `Redacted<T>` — this
+// closes the same gap on the non-PKINIT ticket types so the WS-INT-VVV auto-trace can't
+// leak session-key bytes if a future refactor embeds a Tgt in a `#[derive(Debug)]` struct.
+#[cfg(test)]
+mod ws_redact_ticket_tests {
+    use super::{
+        encrypted_data, krb_string, principal, PrincipalName, ServiceTicket, Tgt, Ticket,
+        TicketInner, NT_SRV_INST,
+    };
+    use picky_asn1::wrapper::{
+        ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2, ExplicitContextTag3,
+        IntegerAsn1,
+    };
+
+    /// Build a stand-in Ticket + Tgt/ServiceTicket for redaction testing. The session_key
+    /// carries a distinctive sentinel byte pattern so we can assert it never surfaces in
+    /// `{:?}` output.
+    fn sentinel_ticket() -> Ticket {
+        Ticket::from(TicketInner {
+            tkt_vno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
+            realm: ExplicitContextTag1::from(krb_string("TESTLAB.LOCAL").unwrap()),
+            sname: ExplicitContextTag2::from(
+                principal(NT_SRV_INST, &["krbtgt", "TESTLAB.LOCAL"]).unwrap(),
+            ),
+            // ticket ciphertext carries a distinctive sentinel pattern the test also checks for.
+            enc_part: ExplicitContextTag3::from(encrypted_data(
+                18,
+                b"CIPHERSENTINEL_MUST_NOT_LEAK".to_vec(),
+            )),
+        })
+    }
+
+    fn sentinel_cname() -> PrincipalName {
+        principal(1 /* NT_PRINCIPAL */, &["alice"]).unwrap()
+    }
+
+    /// The session-key sentinel: distinctive 32 bytes we can grep the format output for.
+    const SESSION_KEY_SENTINEL: &[u8] = b"SESSIONKEY_SENTINEL_MUST_NOT_LEAK";
+
+    #[test]
+    fn tgt_debug_redacts_session_key_and_ticket() {
+        let tgt = Tgt {
+            ticket: sentinel_ticket(),
+            session_key: SESSION_KEY_SENTINEL.to_vec(),
+            cname: sentinel_cname(),
+            crealm: "TESTLAB.LOCAL".to_string(),
+        };
+        let dbg = format!("{tgt:?}");
+        // Non-secret fields survive (readability).
+        assert!(
+            dbg.contains("TESTLAB.LOCAL"),
+            "crealm should appear, got: {dbg}"
+        );
+        // Secret bytes must NOT appear — under WS-INT-VVV, interactive sessions run at
+        // trace level, and a stray `{tgt:?}` anywhere upstream would otherwise leak these.
+        assert!(
+            !dbg.contains("SESSIONKEY_SENTINEL_MUST_NOT_LEAK"),
+            "session_key bytes must be redacted, got: {dbg}"
+        );
+        assert!(
+            !dbg.contains("CIPHERSENTINEL_MUST_NOT_LEAK"),
+            "ticket ciphertext must be redacted, got: {dbg}"
+        );
+        // Positive assertion: the redaction placeholder is present.
+        assert!(
+            dbg.contains("\"***\""),
+            "Debug output must show redaction placeholder, got: {dbg}"
+        );
+    }
+
+    #[test]
+    fn service_ticket_debug_redacts_session_key_and_ticket() {
+        let st = ServiceTicket {
+            ticket: sentinel_ticket(),
+            session_key: SESSION_KEY_SENTINEL.to_vec(),
+            crealm: "TESTLAB.LOCAL".to_string(),
+            cname: sentinel_cname(),
+            spn: vec!["HTTP".to_string(), "webapp01".to_string()],
+        };
+        let dbg = format!("{st:?}");
+        assert!(dbg.contains("TESTLAB.LOCAL"));
+        assert!(
+            dbg.contains("HTTP"),
+            "SPN parts should appear (non-secret): {dbg}"
+        );
+        assert!(
+            !dbg.contains("SESSIONKEY_SENTINEL_MUST_NOT_LEAK"),
+            "session_key bytes must be redacted, got: {dbg}"
+        );
+        assert!(
+            !dbg.contains("CIPHERSENTINEL_MUST_NOT_LEAK"),
+            "ticket ciphertext must be redacted, got: {dbg}"
+        );
+        assert!(dbg.contains("\"***\""));
+    }
+
+    #[test]
+    fn tgt_embedded_in_derived_debug_struct_stays_redacted() {
+        // The realistic failure mode WS-INT-VVV creates: someone puts a Tgt in a struct that
+        // #[derive(Debug)]s. Verify the redaction still holds via the standard #[derive] path.
+        #[derive(Debug)]
+        #[allow(dead_code)]
+        struct SomeContext {
+            note: &'static str,
+            tgt: Tgt,
+        }
+        let ctx = SomeContext {
+            note: "carrying a tgt around",
+            tgt: Tgt {
+                ticket: sentinel_ticket(),
+                session_key: SESSION_KEY_SENTINEL.to_vec(),
+                cname: sentinel_cname(),
+                crealm: "TESTLAB.LOCAL".to_string(),
+            },
+        };
+        let dbg = format!("{ctx:?}");
+        assert!(dbg.contains("carrying a tgt around"));
+        assert!(
+            !dbg.contains("SESSIONKEY_SENTINEL_MUST_NOT_LEAK"),
+            "embedding a Tgt in a #[derive(Debug)] struct must not leak secrets, got: {dbg}"
+        );
+    }
 }
 
 #[cfg(test)]
