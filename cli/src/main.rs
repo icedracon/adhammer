@@ -69,6 +69,13 @@ struct Cli {
     #[arg(long, global = true)]
     debug: bool,
 
+    /// Suppress the auto-`-vvv` wire trace that the bare interactive session (`adhammer`
+    /// with no subcommand) turns on by default. Use for demos / screenshots where the
+    /// StageChecklist + summary card should read cleanly without the trace firehose.
+    /// Has no effect when a subcommand is given — those already default to `warn`.
+    #[arg(long, global = true)]
+    quiet_interactive: bool,
+
     #[command(subcommand)]
     cmd: Option<Command>,
 }
@@ -488,13 +495,30 @@ fn build_tracing_filter(verbosity: u8, debug_alias: bool) -> tracing_subscriber:
     }
 }
 
+/// WS-INT-VVV (1.4.7): bare `adhammer` (no subcommand) → interactive guided session.
+/// A human-in-front-of-terminal explicitly asked for guided mode; default that context to
+/// trace verbosity so they see the wire mechanism (BIND, AUTH3, sealed WRAP, NDR decode,
+/// TGS-REQ/REP, LDAP search/response) unfold live under the StageChecklist. `-v` counts
+/// the user typed still layer on but can't drop below trace. `--quiet-interactive` opts
+/// out (demos / screenshots). Scripted subcommand paths (`adhammer scan …` etc.) are
+/// unaffected — they keep their default-warn / user-specified verbosity.
+fn effective_interactive_verbosity(cmd_is_none: bool, quiet: bool, user_verbosity: u8) -> u8 {
+    if cmd_is_none && !quiet && user_verbosity < 3 {
+        3
+    } else {
+        user_verbosity
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     enable_windows_console();
     let cli = Cli::parse();
+    let effective_verbosity =
+        effective_interactive_verbosity(cli.cmd.is_none(), cli.quiet_interactive, cli.verbosity);
     tracing_subscriber::fmt()
         .with_target(false)
-        .with_env_filter(build_tracing_filter(cli.verbosity, cli.debug))
+        .with_env_filter(build_tracing_filter(effective_verbosity, cli.debug))
         .init();
 
     // Register the SOCKS5 pivot (if any) before any connection is made. Every owned transport
@@ -1165,5 +1189,55 @@ mod managed_pw_blob_tests {
         let pw = parse_managed_password_blob(&b).unwrap();
         assert_eq!(pw.len(), 256);
         assert!(pw.iter().all(|&x| x == 0xAB));
+    }
+}
+
+// WS-INT-VVV (1.4.7) — interactive session auto-forces `-vvv` unless `--quiet-interactive`.
+#[cfg(test)]
+mod ws_int_vvv_tests {
+    use super::{build_tracing_filter, effective_interactive_verbosity};
+
+    #[test]
+    fn interactive_no_subcommand_forces_trace() {
+        // Bare `adhammer` (no subcommand, no --quiet-interactive, no -v) → trace (3).
+        assert_eq!(effective_interactive_verbosity(true, false, 0), 3);
+    }
+
+    #[test]
+    fn quiet_interactive_opts_out() {
+        // `adhammer --quiet-interactive` → honor user verbosity (0 = default warn).
+        assert_eq!(effective_interactive_verbosity(true, true, 0), 0);
+    }
+
+    #[test]
+    fn subcommand_path_unaffected() {
+        // `adhammer scan …` → subcommand path stays at user verbosity, no auto-trace.
+        assert_eq!(effective_interactive_verbosity(false, false, 0), 0);
+        assert_eq!(effective_interactive_verbosity(false, false, 1), 1);
+        assert_eq!(effective_interactive_verbosity(false, true, 2), 2);
+    }
+
+    #[test]
+    fn user_verbosity_wins_when_higher_than_forced() {
+        // `adhammer -vvv` (or higher counts) → user's explicit request wins.
+        assert_eq!(effective_interactive_verbosity(true, false, 3), 3);
+        assert_eq!(effective_interactive_verbosity(true, false, 5), 5);
+    }
+
+    #[test]
+    fn interactive_forced_filter_reaches_trace_level_for_adhammer() {
+        // Sanity — the verbosity=3 branch of build_tracing_filter must emit a filter that
+        // includes `adhammer=trace`. Guards against a future refactor silently dropping trace.
+        let f = build_tracing_filter(3, false);
+        let repr = format!("{f}");
+        assert!(
+            repr.contains("adhammer=trace"),
+            "expected `adhammer=trace` in filter, got: {repr}"
+        );
+        // `ldap3` must stay pinned at warn even at trace (credential-in-payload rule).
+        assert!(
+            repr.contains("ldap3=warn"),
+            "expected `ldap3=warn` (credential-payload pin), got: {repr}"
+        );
     }
 }

@@ -281,6 +281,7 @@ fn banner(sess: &session::Session) {
         ui::green_err(&sess.username),
     );
     ui::note("  Auto = scan -> validate -> export    Single attack = brief -> run -> proof");
+    ui::note("  tip: wire trace on by default in interactive — pass --quiet-interactive to hide");
 }
 
 pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
