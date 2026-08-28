@@ -286,6 +286,22 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 cargo install --locked adhammer
 ```
 
+> **Windows / Defender note.** Windows Defender will heuristically quarantine
+> the compiled `adhammer.exe` during `cargo install`, failing with
+> `Operation did not complete successfully because the file contains a virus
+> or potentially unwanted software. (os error 225)` — the compile itself is
+> fine; Defender flags the final copy from the install temp dir to
+> `~/.cargo/bin/`. To install cleanly, add exclusions once (elevated PowerShell):
+>
+> ```powershell
+> Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo\bin"
+> Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo\registry"
+> Add-MpPreference -ExclusionProcess "adhammer.exe"
+> cargo install --locked adhammer
+> ```
+>
+> Or grab the signed release binary from the [Releases](https://github.com/icedracon/adhammer/releases) page instead — no exclusion needed.
+
 **As a library** — every module importable:
 
 ```sh
