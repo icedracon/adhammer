@@ -60,7 +60,7 @@ async fn check_adcs_impl(
         Ok(c) => c,
         Err(e) => {
             checklist.mark_current_failed(format!("{e:#}"));
-            return Err(e.into());
+            return Err(e);
         }
     };
     checklist.record_ok("ldap connect", a.auth.url.clone());
@@ -69,7 +69,7 @@ async fn check_adcs_impl(
         Ok(s) => s,
         Err(e) => {
             checklist.mark_current_failed(format!("{e:#}"));
-            return Err(e.into());
+            return Err(e);
         }
     };
     let templates =
