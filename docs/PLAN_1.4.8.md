@@ -389,6 +389,31 @@ targets — needs conditional compilation).
 
 ---
 
+## Counting convention (canonical)
+
+Post-1.4.8 the CLI exposes three overlapping categories of "surfaces":
+
+- **58 passive checks** (unchanged) — LDAP-snapshot rule pack, coverage
+  matrix in the report, ADP-NN taxonomy + kill-chain phase tagged. These
+  fire during `scan` and never need creds beyond the LDAP bind.
+- **15 existing active-attack verbs** — asktgt, roast, kerberoast, spray,
+  dcsync, s4u, silver, golden, overpass-the-hash, pass-the-ticket, abuse,
+  laps-read, gmsa-read, coerce, secretsdump. These need a target + creds
+  and are invoked from `attack …` or via `auto scan`'s validation path.
+- **20 new attack vectors** shipping in 1.4.8 (WS-9 through WS-28).
+
+**Total invocable surfaces: 93.**
+
+**Distinct-surface count (deduping detection/exploit pairs): 74.**
+Four of the 20 new vectors are exploitation paths for existing detections
+(ESC1/ESC3/ESC8/SID-history), so they add depth to those 4 checks rather
+than a new distinct surface. The other 16 new vectors are unique
+capabilities the CLI didn't have before.
+
+**For public messaging use `93` or `78 (58 + 20)`; internal engineering
+uses `74 unique surfaces` when precision matters** (e.g., dedup for
+report display, avoiding double-counting in coverage percentages).
+
 ## Dep summary
 
 **Third-party deps needed for entire 1.4.8 capability expansion: ~0-2
