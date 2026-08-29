@@ -1,11 +1,19 @@
-# ADhammer 1.4.8 — hard plan
+# ADhammer 1.4.8 — hard plan (capability-expansion edition)
 
-Post-1.4.7 ship, 2026-08-29. Every item names a concrete deliverable + acceptance
-test + effort estimate. Items are ordered by ship priority, not category.
-The tail (**Non-goals** + **Deferred**) is deliberately loud — this release
-finishes what 1.4.7 self-flagged, it does not open new territory.
+Rewritten 2026-08-30. 1.4.8 is no longer just a polish-1.4.7-tail release —
+it's the capability-parity release that closes the gap between adhammer's
+current "broad passive assessor" position (~#25 on pure technical merit)
+and its target "operational offensive tool" position (top 10). Original
+1.4.7-tail items stay in place; a new **Capability Expansion** section
+lands 20 attack vectors + auto-scan validation hooks.
 
-## 1. ~~WS-4-P2-CLOSE~~ — CUT in 1.4.8
+Effort estimate: **55-75 engineering days**. This is a large release.
+Ship in phases within 1.4.8 tag family (1.4.8-beta.1 through 1.4.8) or
+publish incrementally on `main` and cut the tag once all vectors green.
+
+## Part 1 — Original 1.4.8 items (from 1.4.7-tail closure)
+
+### 1. ~~WS-4-P2-CLOSE~~ — CUT in 1.4.8
 
 Static-analysis pass in 1.4.8 tried three more wrap-token layout hypotheses
 after the 1.4.7 partial fix; every one produced the identical `SMB2 status
@@ -13,163 +21,482 @@ after the 1.4.7 partial fix; every one produced the identical `SMB2 status
 reject — with no informational discrimination, so blind hypothesis search
 is dead. Rather than ship the `[SCAFFOLDING]` label indefinitely,
 **`check krb-seal` + `AesCts96Sealer` + the `rpc_seal` RFC 3961/3962
-primitives were cut from main** (deletion commit in 1.4.8's log; git
-history preserves everything at tag `v1.4.7` and earlier).
+primitives were cut from main** (deletion commit `3801471`; git history
+preserves everything at tag `v1.4.7` and earlier).
 
 **Resurrection path** — bring the code back the day someone lands a
 Windows-native → DC Wireshark capture over `\PIPE\lsarpc` under
-Kerberos-sealed, so the sender-side byte diff is visible on paper
-instead of guessed at. The capture path stays the same as documented:
-interactive RDP + pktmon, or `sshpass`-driven remote invocation from a
-domain-joined Windows client.
+Kerberos-sealed. The capture path stays the same as documented: interactive
+RDP + pktmon, or `sshpass`-driven remote invocation from a domain-joined
+Windows client.
 
-## 2. WS-SCAN-ONLY-FILTER — enable 0-vuln live-render
+**Downstream impact:** any Capability-Expansion vector that requires
+sealed DCE-RPC operations (LSA/DRSR sealed, wmiexec via DCOM ACTIVATION,
+DCShadow via DRSR) stays **blocked** until this resurrects. Marked
+`[SEALED-BLOCKED]` in Part 2 below.
 
-Add `scan --only <check-id>[,<check-id>...]` and inverse `scan --skip
-<check-id>[,<check-id>...]`. Selects a subset of the 58-check registry
-before the run. Same flag lets an operator re-run just what tripped last
-time — narrow diagnostic loop.
+### 2. WS-SCAN-ONLY-FILTER ✓ shipped (commit 369b9ea)
 
-**Files:** `cli/src/attacks/scan.rs`,
-`crates/checks/src/lib.rs::run_all_with_coverage`.
-**Acceptance:**
-- `scan --only P-KerberoastAdmin` runs exactly one check, coverage row
-  shows one entry.
-- `scan --only <k1>,<k2>` where both are known-clean on the lab DC
-  renders the green **hardened-bill-of-health** banner live.
-- Existing behavior unchanged when neither flag is passed.
-**Effort:** ~40-60 lines + 3 new tests.
+`scan --only` / `--skip` filters, ESC-registry probe gated under same
+filter, live-render of the hardened-bill-of-health banner unlocked.
+Closes 1.4.7 WS-CLEAN-LIVE known-open item.
 
-## 3. WS-WIRE-TRACE — per-PDU tracing in dcerpc / smb2-client / ntlmssp
+### 3. WS-WIRE-TRACE — per-PDU tracing in dcerpc / smb2-client / ntlmssp
 
-Turn the honestly-documented placebo warning on `-vvv` (from 1.4.7 P2-E)
-into real coverage. Bounded scope per crate:
+Still planned. Halted per user local-only steer — needs upstream patch
+bumps + cascade cycle. Small scope per crate (~15 lines of tracing calls
+per crate hot path). Same redaction discipline as 1.4.7 WS-KRB-TRACE.
+Ships when the upstream publish cycle is authorized.
 
-- **dcerpc**: BIND / BIND_ACK / AUTH3 send + recv (bytes, fragment_len,
-  call_id, packet_type, auth_length).
-- **smb2-client**: SESSION_SETUP + TREE_CONNECT + IOCTL for named-pipe
-  RPC (command, credit_charge, message_id, session_id, tree_id, status).
-- **ntlmssp**: Type1 / Type2 / Type3 message assembly (message_type,
-  negotiate_flags, target_name len, workstation len).
+### 4. WS-BINSTALL + WS-DEB-PACKAGE ✓ shipped (commit fb6e796)
 
-Same redaction discipline as WS-KRB-TRACE: identifiers + counts + status
-codes only; never body payload, never credentials, never key material.
+GitHub Actions matrix builds prebuilt binaries + `.deb` per release tag.
+SHA-256 checksums + sigstore attestation via GitHub OIDC. `cargo binstall`
+metadata in `cli/Cargo.toml`. Live-verify happens on next tag push.
 
-**Files:** `dcerpc/src/**` + `smb2-client/src/**` + `ntlmssp/src/**`
-(upstream patch bumps) then ADhammer workspace-pin bumps + `cargo update`.
-**Acceptance:** `-vvv scan` against a live DC emits at least 20 wire TRACE
-lines from these three crates combined, all pass a `grep -vE
-'password|hash|ticket|key_bytes|session_key'` audit filter.
-**Effort:** ~1-2 days including publish cascade.
+### 5. WS-INSTALL-PS1 ✓ shipped (commit 94c04db)
 
-## 4. WS-BINSTALL — `cargo binstall adhammer` support
+`docs/install.ps1` one-liner Windows install script that wraps the
+Defender-exclusion dance around `cargo binstall` / `cargo install`.
 
-Zero-cost fix for the `cargo install adhammer` compile-then-quarantine
-loop on Windows. Ship prebuilt binaries as GitHub release attachments; a
-GitHub Actions matrix builds them from the tagged source. Users with
-`cargo binstall` skip the local rustc invocation entirely (which still
-leaves Defender to scan the downloaded binary, but at least without a
-90-second compile first).
+### 6. WS-CHECK-STAGES ✓ shipped (commit 8cb1de4, hotfix 04c2910)
 
-**Files:** `.github/workflows/release.yml` (new). Targets:
-`x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`,
-`x86_64-unknown-linux-musl`. Also emit SHA-256 sums + a sigstore
-attestation (free via GitHub Actions OIDC).
-**Acceptance:** `git push origin v1.4.8` triggers the release workflow,
-which uploads three platform binaries + `.sha256` + `.sig` files to the
-GitHub Release page. `cargo binstall adhammer` on each of the three
-platforms lands the binary in `~/.cargo/bin` in under 15 seconds.
-**Effort:** ~4-8h CI iteration.
+Rich `StageChecklist` on `check adcs`. `check krb-seal` was cut in
+item #1 so its 7-stage checklist went with it.
 
-## 5. WS-INSTALL-PS1 — one-liner Windows install
+### 7. WS-COVERAGE-70 — lab seed 50 → 60%+
 
-Wrap the Defender-exclusion dance into a script hosted on the project
-site. User runs one line:
+Still planned. Needs lab-DC console access for `ldapmodify`
+attribute backdating (7 stale/dormant checks) + 5 seedable-with-more
+investigation checks. Ships when console access is available.
 
-```
-iwr https://icedracon.github.io/adhammer/install.ps1 | iex
-```
+### 8. WS-DEFENDER-SUBMIT ✓ shipped (commit 4bc86c1)
 
-The script adds a scoped exclusion for `~\.cargo\bin`, runs `cargo
-binstall adhammer` (or `cargo install adhammer` fallback), removes the
-exclusion, prints the binary path + `--version`. Idempotent; safe to
-re-run.
+`docs/RELEASE_CHECKLIST.md` — 7-section per-release runbook including
+Microsoft false-positive queue submission steps.
 
-**Files:** `docs/install.ps1` (new), README `## 📥 Install` section
-update.
-**Acceptance:** on a fresh Windows 11 with only `cargo` installed, the
-one-liner completes without user prompts and `adhammer --version` prints
-`adhammer 1.4.8`.
-**Effort:** ~30 lines PS + docs polish.
+---
 
-## 6. WS-CHECK-STAGES — rich stages on `check` verbs
+## Part 2 — Capability Expansion: 20 attack vectors
 
-Consistency with `attack` verbs. `check adcs` and `check krb-seal`
-currently print raw finding lines with no per-stage narration; every
-`attack` wraps its impl in `run_action_with_brief` per 1.4.6.
+Ordered by real-world engagement impact. Every vector names:
+- Crate(s) touched (mostly icedracon siblings already in repo)
+- New third-party deps needed (mostly ZERO — icedracon ecosystem covers it)
+- Whether the vector plugs into `auto scan` guided flow
+- Blockers (sealed RPC / capture)
+- Effort estimate
 
-**Files:** `cli/src/checks/adcs.rs`, `cli/src/checks/krb_seal.rs`,
-possibly a shared `checks/mod.rs::run_check_with_brief`.
-**Acceptance:** `check adcs --text` emits a StageChecklist card
-(`resolve-ldap → collect-templates → rule-pack → render`) with per-stage
-green/red status.
-**Effort:** ~60-80 lines.
+### 9. WS-ESC1-EXPLOIT — Full ADCS ESC1 attack chain
 
-## 7. WS-COVERAGE-70 — lab seed 50 → 60%+
+**What.** Detection already exists (ms-crtd rule pack). Add exploitation:
+build CSR with SAN-override UPN, submit via MS-ICPR (`CertServerRequest`
+opnum 0), retrieve issued cert, use it for PKINIT to KDC, receive TGT as
+the impersonated principal.
 
-29/58 tripped today; 29 clean. Focus on the two cheapest buckets:
+**Crates:** `ms-icpr` (icedracon, ready), `ms-pkca` (icedracon, PKINIT
+client), `adhammer-kerberos::tgs` (existing AS-REQ/TGS-REQ path).
+**New third-party deps:** none — `rsa` + `picky-asn1-x509` + `picky-krb`
+already in tree.
+**auto scan hook:** YES — scan finds ESC1 template → auto offers
+"validate: request cert for Administrator UPN and prove TGT acquisition".
+**Blocker:** none.
+**Effort:** 2-3 days.
 
-- **7 stale/dormant checks**: backdate `lastLogon` / `pwdLastSet` /
-  `whenChanged` on seeded principals via `ldapmodify` on the lab DC. No
-  new principals needed.
-- **5 seedable-with-more-investigation checks**: audit against
-  `crates/checks/src/lib.rs::run_all` for which checks need what LDAP
-  attribute state, then seed each.
+### 10. WS-ESC8-END-TO-END — Coerce → NTLM relay → ADCS web enrollment
 
-Leave the 12 ESC cert-template + 5 trust buckets for a later pass — both
-require heavier lab setup (CA install / second forest).
+**What.** Coerce a target via MS-EFSR (existing) into authenticating to
+our listener, relay NTLM Type1/2/3 to the CA's `/certsrv/certfnsh.asp`
+endpoint, submit a CSR under victim's context, receive cert, use for
+Kerberos auth.
 
-**Files:** `adhammer_lab_seed/` (external repo).
-**Acceptance:** `scan` against the lab DC finds ≥ 40 findings (currently
-29). Coverage matrix has ≤ 18 clean rows.
-**Effort:** ~4-8h lab work + a `adhammer_lab_seed` version bump.
+**Crates:** `ms-coerce` (icedracon), `ntlmssp` (icedracon), `reqwest`
+(HTTP with NTLM), `ms-pkca`.
+**New third-party deps:** none.
+**auto scan hook:** YES — scan finds ADCS + web enrollment → auto offers
+"validate: coerce (target) → relay → cert → auth-as-target".
+**Blocker:** none (all pure NTLM + HTTP, no sealed RPC needed).
+**Effort:** 3-5 days.
 
-## 8. WS-DEFENDER-SUBMIT — false-positive queue submission
+### 11. WS-WMIEXEC — WMI over DCOM lateral execution
 
-Manual for 1.4.8; automate in 1.4.9 if the manual submission actually
-clears. Submit each release SHA-256 to the Microsoft Security
-Intelligence FP queue. Time-cheap, works on Microsoft's schedule (weeks
-to months).
+**What.** Client-side DCOM: OXID resolution → IActivation → IWbemLevel1
+Login → IWbemServices::ExecMethod on `Win32_Process::Create`. Result:
+arbitrary command execution on the target as the authenticating user.
 
-**Files:** `docs/RELEASE_CHECKLIST.md` (new), one line per release.
-**Acceptance:** ship notice includes a Microsoft submission tracking
-number.
-**Effort:** ~1h per release.
+**Crates:** `ms-dcom` (icedracon, scaffold → needs full ACTIVATION),
+`ms-wmi` (icedracon, scaffold → needs IWbemServices), `dcerpc`.
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode option "validate lateral movement via
+wmiexec against a chosen target".
+**Blocker:** **[SEALED-BLOCKED]** — DCOM ACTIVATION_KERBEROS / NTLM
+authenticated requires sealed DCE-RPC. Unsealed only works against
+ancient DCs.
+**Effort:** 5-7 days AFTER WS-4-P2 resurrects.
+
+### 12. WS-PSEXEC — SMB service-install remote execution
+
+**What.** Copy an exe to `\\target\ADMIN$\<name>.exe` via SMB2 PUT,
+`RCreateServiceW` via MS-SCMR, `RStartServiceW` to launch, capture output
+via a named pipe, cleanup with `RControlService` + `RDeleteService`.
+
+**Crates:** `smb2-client` (existing), `ms-scmr` (icedracon, ready),
+`dcerpc::svcctl` (382 LOC, exists).
+**New third-party deps:** none.
+**auto scan hook:** YES — offers "validate SMB admin via psexec" when
+scan finds a session-key-recoverable admin account.
+**Blocker:** none.
+**Effort:** 2-3 days.
+
+### 13. WS-NTLMRELAYX-SMB-LDAP — NTLM relay from SMB victim to LDAP target
+
+**What.** TCP listener accepts incoming SMB2 negotiate, extracts NTLM
+Type3 from session-setup, forwards through fresh LDAP SASL bind to target
+DC, on success auto-writes msDS-AllowedToActOnBehalfOfOtherIdentity
+(RBCD) or msDS-KeyCredentialLink (Shadow Credentials) as the victim.
+
+**Crates:** `smb2-client` (needs SERVER-side parse of SMB2 negotiate +
+session-setup — new work), `ntlmssp` (relay-safe Type1/2/3 pass-through),
+`adhammer-ldap`, `adhammer-kerberos::rbcd` + `::shadowcred`.
+**New third-party deps:** none.
+**auto scan hook:** YES — scan finds SMB-signing-not-required target
++ LDAP-signing-not-required DC → offers full relay chain.
+**Blocker:** none (SMB server-side parse is our work).
+**Effort:** 4-6 days.
+
+### 14. WS-COERCE-LISTENER — PetitPotam / PrinterBug / DFSCoerce full chains
+
+**What.** Wire together the existing MS-EFSR / MS-RPRN / DFS-NM coercion
+senders with a full HTTP/SMB/RPC listener that captures the incoming NTLM
+challenge-response. Feed captured Type3 into WS-NTLMRELAYX-SMB-LDAP for
+end-to-end auto-chain.
+
+**Crates:** `ms-coerce` (icedracon, existing paths for EFSR/RPRN/DFSNM),
+`dcerpc::rprn` + `dcerpc::dfsnm` + `dcerpc::efsr` (existing modules),
+listener glue.
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode picks coercion target based on
+scanned OS + reachable protocols, chains to relay listener.
+**Blocker:** none.
+**Effort:** 2-3 days combined with WS-NTLMRELAYX (share the listener
+infrastructure).
+
+### 15. WS-ESC3-CHAIN — ADCS ESC3 Enrollment Agent chain
+
+**What.** Request cert from Enrollment Agent template, then use it to
+sign a CSR on behalf of another principal, submit that CSR to CA,
+retrieve issued cert, PKINIT auth as the impersonated principal.
+
+**Crates:** `ms-icpr`, `ms-pkca`, `ms-xcep` (icedracon, cert enrollment
+policy), `picky-asn1-x509`.
+**New third-party deps:** none — same stack as WS-ESC1-EXPLOIT.
+**auto scan hook:** YES — scan finds Enrollment Agent template + at
+least one other requestable template → offers full chain validation.
+**Blocker:** none.
+**Effort:** 2 days (after WS-ESC1-EXPLOIT lands).
+
+### 16. WS-SAM-SECURITY-DUMP — Remote hive extraction
+
+**What.** Via MS-RRP (Remote Registry, `dcerpc::rrp` = 780 LOC exists):
+`SaveKey` on `HKLM\SAM` + `HKLM\SECURITY` + `HKLM\SYSTEM` to attacker-
+controlled remote share, retrieve via SMB, offline SYSKEY decrypt to
+extract local admin NT hashes + LSA secrets + cached credentials.
+
+**Crates:** `dcerpc::rrp` (existing, substantial), `smb2-client`,
+`adhammer-secrets` (existing crate — expand SYSKEY chain).
+**New third-party deps:** `des` or reuse existing `aes` for SYSKEY
+crypto. Minimal.
+**auto scan hook:** YES — offered as a validation step when scan finds
+Remote Registry enabled + admin creds available.
+**Blocker:** none.
+**Effort:** 3-4 days.
+
+### 17. WS-NTDS-OFFLINE — NTDS.dit offline hash extraction
+
+**What.** After DCSync-equivalent read of NTDS via DRSR, or after copying
+the `.dit` via VSS + SMB, parse the ESE database, decrypt with SYSKEY
+(from SYSTEM hive per WS-SAM-SECURITY-DUMP), extract all user NT hashes
++ krbtgt + trust keys.
+
+**Crates:** `ese-parser` (icedracon, exists), `ms-drsr` (icedracon),
+`adhammer-secrets`, `dcerpc::drsuapi` (existing).
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode fallback when DCSync-via-DRSR
+returns partial or fails; offers offline-parse path.
+**Blocker:** none for offline parse; DCSync-via-DRSR sealed path
+[SEALED-BLOCKED] but current path uses unsealed which the DC allows.
+**Effort:** 3-4 days.
+
+### 18. WS-DPAPI-MASTER-KEY — Classic + DPAPI-NG extraction
+
+**What.** Extract user DPAPI master keys from `%APPDATA%\Microsoft\Protect\<SID>\`
+via SMB (needs admin), decrypt with user password / NT hash / MS-BKRP
+domain backup key, then decrypt credentials, Chrome cookies, WiFi
+passwords, RDP creds, etc.
+
+**Crates:** `dpapi-ng` (icedracon, extend or add classic-DPAPI variant),
+`ms-bkrp` (icedracon, exists — for domain backup key), `adhammer-secrets`.
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode option "extract DPAPI vault of
+principal X" when scan graph shows the principal's session hosts.
+**Blocker:** none.
+**Effort:** 3-4 days.
+
+### 19. WS-KERBRUTE — Kerberos user enumeration + spray
+
+**What.** Send pre-auth-less AS-REQ per candidate username, classify
+KDC responses: `KDC_ERR_PREAUTH_REQUIRED` = user exists, `KDC_ERR_C_
+PRINCIPAL_UNKNOWN` = doesn't. Optional: password spray via full pre-auth
+AS-REQ against enumerated users.
+
+**Crates:** `adhammer-kerberos::tgs` (existing AS-REQ code), `picky-krb`.
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode "enumerate users via Kerberos"
+step when no LDAP creds available (anonymous path).
+**Blocker:** none.
+**Effort:** 1 day.
+
+### 20. WS-DELEGATION-CAPTURE — Unconstrained delegation TGT capture
+
+**What.** Bind TCP listener on advertised SPN's port, accept incoming
+SMB2/HTTP/etc. auth from a coerced target, parse embedded AP-REQ, extract
+the user's forwarded TGT (unconstrained delegation forwards user's TGT
+inside the AP-REQ authenticator). Save to ccache for reuse.
+
+**Crates:** `adhammer-kerberos::tgs` (extend for server-side AP-REQ
+parse), `picky-krb`, `ms-coerce`, `ccache-io` (icedracon, exists).
+**New third-party deps:** none.
+**auto scan hook:** YES — scan finds unconstrained delegation on
+non-DC → auto-mode offers coerce+capture chain.
+**Blocker:** none.
+**Effort:** 2-3 days.
+
+### 21. WS-LLMNR-POISON — LLMNR / NBT-NS / mDNS name-service poisoning
+
+**What.** Listen on UDP 5355 (LLMNR) + 137 (NBT-NS) + 5353 (mDNS).
+Answer any name query with our IP. Victims connect to us → capture NTLM
+Type3 → feed into WS-NTLMRELAYX-SMB-LDAP.
+
+**Crates:** `tokio::net::UdpSocket`, `smb2-client` (server-side accept
+for SMB direction), `ntlmssp`.
+**New third-party deps:** none.
+**auto scan hook:** NO — this is a listener-mode primitive, not a
+scan-derived validation. Standalone verb.
+**Blocker:** none.
+**Effort:** 2 days.
+
+### 22. WS-DIAMOND-TICKET — Diamond ticket forge
+
+**What.** Variant of Golden ticket: obtain a real TGT via legitimate
+AS-REQ, decrypt its enc-part with the target's key, modify the PAC to
+inject arbitrary group memberships / SID, re-encrypt with same key.
+Result: a TGT that looks legitimate (real KDC signature) but grants
+elevated privileges. Harder to detect than Golden.
+
+**Crates:** `ms-pac-forge` (existing), `adhammer-kerberos::tgs` (existing
+AS-REQ + Golden ticket code), `picky-krb`.
+**New third-party deps:** none.
+**auto scan hook:** NO — post-exploitation attack, not scan-triggered.
+**Blocker:** none.
+**Effort:** 1 day (variant of existing Golden ticket path).
+
+### 23. WS-EVIL-WINRM — WinRM (WSMan/PSRP) remote shell
+
+**What.** WSMan over HTTPS (port 5986) or HTTP (5985) with NTLM/Kerberos
+auth. PSRP (PowerShell Remoting Protocol) frames commands as SOAP.
+Result: PowerShell shell on target with victim's context.
+
+**Crates:** `reqwest` (existing), `ntlmssp`, `adhammer-kerberos` (for
+Kerberos-auth path), new `ms-wsman` may be needed.
+**New third-party deps:** possibly `roxmltree` or `quick-xml` for SOAP
+envelope parsing. Small.
+**auto scan hook:** YES — auto-mode "validate lateral via WinRM" when
+scan finds WinRM listener + admin creds.
+**Blocker:** none.
+**Effort:** 3-4 days.
+
+### 24. WS-ATEXEC — Task Scheduler over MS-TSCH
+
+**What.** MS-TSCH `SchRpcRegisterTask` to create a scheduled task on
+target, trigger it immediately via `SchRpcRun`, retrieve output via
+SMB share write, cleanup with `SchRpcDelete`. Alternative to psexec
+when SCM is monitored.
+
+**Crates:** `ms-tsch` (icedracon, exists), `dcerpc`, `smb2-client`.
+**New third-party deps:** none.
+**auto scan hook:** YES — offered as alternative lateral primitive
+alongside psexec + wmiexec.
+**Blocker:** none.
+**Effort:** 2 days.
+
+### 25. WS-SID-HISTORY-INJECT — Golden variant for cross-forest
+
+**What.** Golden ticket forge with `sidHistory` field populated with the
+Enterprise Admins SID from another forest (or child domain). Bypasses
+SID filtering when trust doesn't have quarantine enabled. Result: cross-
+forest privileged access from a compromised child.
+
+**Crates:** `ms-pac-forge` (existing, extend PAC writer for sidHistory).
+**New third-party deps:** none.
+**auto scan hook:** YES — scan finds trust without SID filtering →
+auto-mode offers "forge cross-forest golden with sidHistory".
+**Blocker:** none.
+**Effort:** 1 day (extend existing Golden path).
+
+### 26. WS-DCSHADOW-DRSR — Rogue DC persistence via DRSR
+
+**What.** Register rogue DC in the target domain via DRSR
+`IDL_DRSAddEntry` + `IDL_DRSReplicaAdd`, push malicious replication
+updates via `IDL_DRSGetNCChanges` outbound with our attacker-controlled
+data. LDAP-path DCShadow is dead on Server 2019+; DRSR path may still
+work.
+
+**Crates:** `ms-drsr` (icedracon), `dcerpc::drsuapi` (existing).
+**New third-party deps:** none.
+**auto scan hook:** NO — post-exploitation persistence, not scan-driven.
+**Blocker:** **[SEALED-BLOCKED]** — DRSR operations against modern DCs
+require sealed DCE-RPC.
+**Effort:** 3-5 days AFTER WS-4-P2 resurrects.
+
+### 27. WS-UNPAC-FULL — Full unPAC-the-hash
+
+**What.** After PKINIT (via WS-ESC1-EXPLOIT or shadow-credentials attack),
+extract the NT hash embedded in the PAC's `PAC_CREDENTIAL_INFO` type-2
+buffer. Modern KDCs return it encrypted with the AS-REP session key —
+decrypt with our known session key, parse type-2 buffer, get NT hash.
+
+**Crates:** `ms-pac` (icedracon, existing PAC parser), `adhammer-kerberos`.
+**New third-party deps:** none.
+**auto scan hook:** YES — auto-mode chain: WS-ESC1-EXPLOIT → PKINIT →
+unPAC → NT hash of impersonated principal. Full path from ADCS misconfig
+to Administrator NT hash.
+**Blocker:** none.
+**Effort:** 2 days.
+
+### 28. WS-SKELETON-KEY — Windows-only LSASS shim persistence
+
+**What.** Inject a shim into LSASS on a domain controller so any password
+authenticates alongside the real password. Requires SYSTEM on DC.
+Windows-only (write memory to lsass.exe). EDR flags immediately.
+
+**Crates:** `windows-token`, `windows-scm` (icedracon 2026-08-29 wave, on
+crates.io as 0.2.1), new memory-write helpers.
+**New third-party deps:** possibly `windows-sys` or use existing
+icedracon `win32-min` (0.1.3).
+**auto scan hook:** NO — post-exploitation persistence.
+**Blocker:** Windows binary only (won't build on Linux/macOS release
+targets — needs conditional compilation).
+**Effort:** 3 days.
+
+---
+
+## Dep summary
+
+**Third-party deps needed for entire 1.4.8 capability expansion: ~0-2
+crates.** The icedracon ecosystem already covers everything:
+
+- **Cert/PKI:** `picky-krb`, `picky-asn1-x509`, `rsa` — already in tree
+- **Crypto:** `aes`, `sha1`, `sha2`, `md-5`, `hmac`, `hkdf`, `des` (small
+  add) — mostly in tree
+- **HTTP/SOAP:** `reqwest` in tree; possibly `quick-xml` for WinRM (small)
+- **Network:** `tokio` in tree
+- **Windows FFI:** `win32-min` 0.1.3 + windows-scm/token 0.2.1 (icedracon
+  wave, just published)
+
+**Icedracon siblings that need to graduate scaffold → full:**
+
+- `ms-dcom` (currently scaffold — needs OXID + IActivation)
+- `ms-wmi` (currently scaffold — needs IWbemServices::ExecMethod)
+- `ms-wsman` (may need to create — WinRM protocol)
+
+**Icedracon siblings ready to consume as-is:**
+
+- `ms-icpr`, `ms-scmr`, `ms-tsch`, `ms-coerce`, `ms-drsr`, `ms-pkca`,
+  `ms-xcep`, `ms-pac`, `ms-pac-forge`, `ms-bkrp`, `dpapi-ng`, `ese-parser`,
+  `ccache-io`, `dcerpc` (rrp/samr/svcctl/drsuapi/rprn/dfsnm/efsr modules
+  substantial), `smb2-client`, `ntlmssp`, `windows-sddl`
+
+## Effort sequencing
+
+**Phase A — ADCS + fastest wins (7-10 days):**
+- WS-KERBRUTE (1 day) · WS-DIAMOND-TICKET (1 day) · WS-SID-HISTORY-INJECT
+  (1 day) · WS-ESC1-EXPLOIT (2-3 days) · WS-ESC3-CHAIN (2 days) ·
+  WS-UNPAC-FULL (2 days)
+
+**Phase B — Lateral movement (10-14 days):**
+- WS-PSEXEC (2-3 days) · WS-ATEXEC (2 days) · WS-EVIL-WINRM (3-4 days) ·
+  WS-DELEGATION-CAPTURE (2-3 days) · WS-DPAPI-MASTER-KEY (3-4 days)
+
+**Phase C — Cred extraction (6-8 days):**
+- WS-SAM-SECURITY-DUMP (3-4 days) · WS-NTDS-OFFLINE (3-4 days)
+
+**Phase D — Relay + coercion (8-11 days):**
+- WS-NTLMRELAYX-SMB-LDAP (4-6 days) · WS-COERCE-LISTENER (2-3 days)
+  · WS-LLMNR-POISON (2 days) · WS-ESC8-END-TO-END (3-5 days)
+
+**Phase E — Windows-only / advanced (3 days):**
+- WS-SKELETON-KEY (3 days)
+
+**Phase F — [SEALED-BLOCKED] (waits on WS-4-P2 resurrection):**
+- WS-WMIEXEC (5-7 days) · WS-DCSHADOW-DRSR (3-5 days)
+
+**Total (Phase A + B + C + D + E): ~34-46 days.**
+**Plus Phase F (SEALED-BLOCKED): +8-12 days.**
+**Grand total: 55-75 days.**
+
+## `auto scan` integration matrix
+
+The guided `auto` flow (`adhammer` bare / `auto`) scans → picks findings
+→ validates. New auto-mode validators drawn from the expansion:
+
+| Scan-triggered finding | Auto-mode validator |
+|---|---|
+| ESC1 template detected | WS-ESC1-EXPLOIT + WS-UNPAC-FULL chain |
+| ESC3 Enrollment Agent template | WS-ESC3-CHAIN |
+| ESC8 CA (HTTP enrollment) | WS-ESC8-END-TO-END |
+| Admin creds + SMB reachable | WS-PSEXEC / WS-ATEXEC / WS-EVIL-WINRM |
+| SMB signing not required + LDAP unsigned | WS-NTLMRELAYX-SMB-LDAP |
+| Coercion primitive reachable | WS-COERCE-LISTENER chain |
+| Remote Registry + admin creds | WS-SAM-SECURITY-DUMP |
+| DCSync + DRSR reachable | WS-NTDS-OFFLINE (fallback for partial DCSync) |
+| DPAPI-protected asset + admin creds | WS-DPAPI-MASTER-KEY |
+| Unconstrained delegation on non-DC | WS-DELEGATION-CAPTURE |
+| Trust without SID filtering | WS-SID-HISTORY-INJECT |
+| No LDAP creds (anonymous path) | WS-KERBRUTE (user enum) |
+
+**Standalone verbs (no auto-mode integration):**
+- WS-LLMNR-POISON (listener, not scan-triggered)
+- WS-DIAMOND-TICKET (post-ex, not scan-triggered)
+- WS-SKELETON-KEY (post-ex Windows persistence)
+- WS-DCSHADOW-DRSR (post-ex persistence)
 
 ---
 
 ## Non-goals — will NOT ship in 1.4.8
 
-- **No EV code-signing certificate.** Real fix for Defender, ~$300/year,
-  no budget. Revisit for 1.4.9 or later.
-- **No new attack classes for surface expansion.** 58 checks with proof
-  discipline beats 100 half-verified.
+- **No Azure / Entra ID / Entra Connect / hybrid identity.** Confirmed
+  killed permanently — different auth model, different tools, different
+  product. Adhammer stays on-prem AD.
+- **No SCCM/MECM abuse** (NAA extraction, site takeover, client push).
+  Deferred separately if it ever earns its own scope call.
+- **No EV code-signing certificate.** Real fix for Defender friction,
+  ~$300/year, no budget. WS-INSTALL-PS1 + WS-DEFENDER-SUBMIT are the
+  zero-budget workarounds shipping today.
+- **No new passive check categories for coverage-number growth.**
+  Existing 58 with proof discipline are enough; the 20 vectors are
+  active-attack additions that ALSO trigger passive checks along the way.
 - **No BloodHound-CE ingest polish.** No downstream schema movement.
-- **No CI/CD template repos.** Zero demand signal from downstream users.
+- **No CI/CD template repos.** Zero demand signal.
 - **No video walkthrough / marketing surface.** Ship-first, market-later.
 
-## Deferred — not 1.4.8, ask separately
+## Deferred — not 1.4.8
 
-- **SCCM / MECM abuse.** New territory, needs lab SCCM install. Deserves
-  its own scope decision if it happens at all.
-- **`adhammer-sdk` API stability commitment.** Zero downstream adopters
+- **adhammer-sdk API stability commitment.** Zero downstream adopters
   today; premature. Revisit when there is real downstream pain.
 - **WS-WIN32-MIN-ADOPT.** Adopt the icedracon 2026-08-29 `windows-*`
-  wave. Would give that ecosystem its first real downstream consumer,
-  but not on the 1.4.7 tail. Ship in a follow-up focused on ecosystem
-  dogfooding.
+  wave more broadly than what WS-SKELETON-KEY requires.
 
 ## Killed
 
-- **ADFS / Entra ID / AAD Connect attack surface.** Scope explosion,
-  different auth model, different tools. Not this product.
+- **ADFS / Entra ID / AAD Connect attack surface.** Scope explosion.
+- **Cross-protocol Kerberos-NTLM cross-realm relay.** Low ROI, rare in
+  practice.
