@@ -201,6 +201,12 @@ enum EnumCmd {
     /// Enumerate the SCOM footprint under CN=OperationsManager (IronEye absorb), when the
     /// schema extension is present. An absent container is a clean result.
     Scom(enums::sccm::SysCenterArgs),
+    /// **1.4.8-A WS-KERBRUTE.** Kerberos user enumeration via pre-auth-less AS-REQ. No LDAP
+    /// creds needed — leaks user existence via KDC error codes (PRINCIPAL_UNKNOWN vs
+    /// PREAUTH_REQUIRED per RFC 4120 §7.5.9). Also surfaces AS-REP-roastable accounts
+    /// (DONT_REQ_PREAUTH flag) with a copy-pasteable `attack roast` command.
+    #[command(name = "krb-users")]
+    KrbUsers(enums::krb::KrbArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -628,6 +634,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Hku(_) => "enum hku",
             EnumCmd::Sccm(_) => "enum sccm",
             EnumCmd::Scom(_) => "enum scom",
+            EnumCmd::KrbUsers(_) => "enum krb-users",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -689,6 +696,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Hku(a)) => enums::sessions::hku_enum(a).await,
         Command::Enum(EnumCmd::Sccm(a)) => enums::sccm::sccmenum(a).await,
         Command::Enum(EnumCmd::Scom(a)) => enums::sccm::scomenum(a).await,
+        Command::Enum(EnumCmd::KrbUsers(a)) => enums::krb::krbenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

