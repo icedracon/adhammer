@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.4.6"
+version = "1.4.7"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -47,16 +47,16 @@ ms-gkdi      = "0.1"
 # and EXECUTE AS impersonation chains over an NTLM-authenticated session.
 ms-tds       = "0.1.1"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.4.6" }
-adhammer-collector = { path = "crates/collector", version = "1.4.6", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.4.6" }
-adhammer-graph     = { path = "crates/graph",     version = "1.4.6" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.6" }
-adhammer-report    = { path = "crates/report",    version = "1.4.6" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.6" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.4.6" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.6" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.4.6" }
+adhammer-core      = { path = "crates/core",      version = "1.4.7" }
+adhammer-collector = { path = "crates/collector", version = "1.4.7", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.4.7" }
+adhammer-graph     = { path = "crates/graph",     version = "1.4.7" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.7" }
+adhammer-report    = { path = "crates/report",    version = "1.4.7" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.7" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.4.7" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.7" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.4.7" }
 
 # external
 serde       = { version = "1", features = ["derive"] }

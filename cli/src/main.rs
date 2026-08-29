@@ -57,10 +57,14 @@ struct Cli {
     #[arg(long, global = true)]
     text: bool,
 
-    /// Stackable verbosity like nmap's `-v/-vv/-vvv`. `-v` = info (major step narration),
-    /// `-vv` = debug (info + wire-layer detail from dcerpc/smb2-client/ntlmssp), `-vvv` =
-    /// trace (everything, including per-attribute LDAP decode). Overrides `RUST_LOG`.
-    /// Secrets in traced structs stay redacted (`***`) via `Redacted<T>` at every level.
+    /// Stackable verbosity like nmap's `-v/-vv/-vvv`. `-v` = info (adhammer's own
+    /// major-step narrations — "collected 317 objects", "SMB session established",
+    /// "\\samr pipe open"). `-vv` = debug (adds the handful of adhammer-side debug lines
+    /// in sysvol scan + a few probe helpers). `-vvv` = trace (currently ≈ `-vv` in
+    /// output; the wire-layer crates dcerpc/smb2-client/ntlmssp carry ~zero tracing
+    /// calls today, so per-PDU trace is a 1.4.8 track — the flag is wired so the
+    /// firehose lights up once the calls land). Overrides `RUST_LOG`. Secrets in
+    /// traced structs stay redacted (`***`) via `Redacted<T>` at every level.
     /// Long-form alias: `--verbose` == `-v`, `--debug` == `-vv`. Legacy compatibility.
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     verbosity: u8,
@@ -69,9 +73,9 @@ struct Cli {
     #[arg(long, global = true)]
     debug: bool,
 
-    /// Suppress the auto-`-vvv` wire trace that the bare interactive session (`adhammer`
-    /// with no subcommand) turns on by default. Use for demos / screenshots where the
-    /// StageChecklist + summary card should read cleanly without the trace firehose.
+    /// Suppress the auto-verbose that the bare interactive session (`adhammer` with no
+    /// subcommand) turns on by default. Useful for demos / screenshots where the
+    /// StageChecklist + summary card should read cleanly without INFO narration.
     /// Has no effect when a subcommand is given — those already default to `warn`.
     #[arg(long, global = true)]
     quiet_interactive: bool,
@@ -497,11 +501,14 @@ fn build_tracing_filter(verbosity: u8, debug_alias: bool) -> tracing_subscriber:
 
 /// WS-INT-VVV (1.4.7): bare `adhammer` (no subcommand) → interactive guided session.
 /// A human-in-front-of-terminal explicitly asked for guided mode; default that context to
-/// trace verbosity so they see the wire mechanism (BIND, AUTH3, sealed WRAP, NDR decode,
-/// TGS-REQ/REP, LDAP search/response) unfold live under the StageChecklist. `-v` counts
-/// the user typed still layer on but can't drop below trace. `--quiet-interactive` opts
-/// out (demos / screenshots). Scripted subcommand paths (`adhammer scan …` etc.) are
-/// unaffected — they keep their default-warn / user-specified verbosity.
+/// trace verbosity so the log filter is ready for the wire mechanism (BIND, AUTH3,
+/// sealed WRAP, NDR decode, TGS-REQ/REP, LDAP search/response) — most of that wire
+/// trace ISN'T emitted yet (dcerpc/smb2-client/ntlmssp carry ~zero trace/debug calls
+/// today, 1.4.8 track), but adhammer's own INFO narrations DO fire under the
+/// StageChecklist. `-v` counts the user typed still layer on but can't drop below
+/// trace. `--quiet-interactive` opts out (demos / screenshots). Scripted subcommand
+/// paths (`adhammer scan …` etc.) are unaffected — they keep their default-warn /
+/// user-specified verbosity.
 fn effective_interactive_verbosity(cmd_is_none: bool, quiet: bool, user_verbosity: u8) -> u8 {
     if cmd_is_none && !quiet && user_verbosity < 3 {
         3
@@ -536,7 +543,13 @@ async fn main() -> Result<()> {
     }
 
     match cli.cmd {
-        None => interactive::run(cli.old, cli.no_save).await,
+        None => {
+            // WS-1.4.7-P2-E: forward whether we auto-forced verbose so the banner tip
+            // only prints when the auto-force actually fired.
+            let verbose_auto_forced =
+                cli.cmd.is_none() && !cli.quiet_interactive && cli.verbosity < 3;
+            interactive::run(cli.old, cli.no_save, verbose_auto_forced).await
+        }
         Some(cmd) => {
             // JSON AttackResult envelope is the DEFAULT for attack/enum/dump (machine-first);
             // --text forces human. Scan/auto/check/setup always render the human report (handled

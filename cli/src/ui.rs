@@ -558,7 +558,12 @@ impl Spinner {
         let msg = msg.into();
         let stop = Arc::new(AtomicBool::new(false));
         // Animate only on a real TTY — piped/redirected runs get a single start line instead.
-        if !std::io::stderr().is_terminal() {
+        // WS-1.4.7-P2-B: also skip animation + ANSI when `NO_COLOR` is set. The spinner
+        // both animates (repeated \r rewrites) and paints ANSI colors, so a NO_COLOR-aware
+        // consumer would get color codes + cursor motion despite opting out. Fall through
+        // to the plain start-line path when NO_COLOR is present; matches every other
+        // color-gated surface in this module (see is_stderr_color / no_color helpers).
+        if !std::io::stderr().is_terminal() || no_color() {
             eprintln!("[*] {msg}…");
             return Spinner { stop, handle: None };
         }

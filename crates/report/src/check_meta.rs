@@ -607,7 +607,7 @@ mod ws_ctrlmap_tests {
     #[test]
     fn every_check_has_control_areas_and_phase() {
         for id in adhammer_checks::registry_ids() {
-            let meta = describe(&id);
+            let meta = describe(id);
             if meta.title.is_empty() {
                 panic!(
                     "check id `{id}` from registry_ids() has no CheckMeta entry — add it \
@@ -634,7 +634,7 @@ mod ws_ctrlmap_tests {
     #[test]
     fn all_control_area_tags_are_declared() {
         for id in adhammer_checks::registry_ids() {
-            let meta = describe(&id);
+            let meta = describe(id);
             for area in meta.control_areas {
                 assert!(
                     CONTROL_AREAS.contains(area),
@@ -649,7 +649,7 @@ mod ws_ctrlmap_tests {
     #[test]
     fn all_kill_chain_phases_are_declared() {
         for id in adhammer_checks::registry_ids() {
-            let meta = describe(&id);
+            let meta = describe(id);
             assert!(
                 KILL_CHAIN_PHASES.contains(&meta.kill_chain_phase),
                 "check `{id}` uses undeclared kill-chain phase `{}` — pick one of {:?}",

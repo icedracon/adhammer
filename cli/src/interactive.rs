@@ -266,7 +266,7 @@ fn intro_sequence(_sess: &session::Session) {
 }
 
 /// Compact banner shown above the interactive menu after the intro splash.
-fn banner(sess: &session::Session) {
+fn banner(sess: &session::Session, verbose_auto_forced: bool) {
     use crate::ui;
     eprintln!();
     eprintln!(
@@ -281,10 +281,18 @@ fn banner(sess: &session::Session) {
         ui::green_err(&sess.username),
     );
     ui::note("  Auto = scan -> validate -> export    Single attack = brief -> run -> proof");
-    ui::note("  tip: wire trace on by default in interactive — pass --quiet-interactive to hide");
+    // WS-1.4.7-P2-E: honest verbosity tip. Prior text ("wire trace on by default") lied
+    // twice — it claimed wire-layer trace but adhammer's dcerpc / smb2-client / ntlmssp
+    // deps carry ~zero tracing calls today, so at any -v level the actual output is
+    // sparse (a handful of INFO narrations + a few WARN lines). And it printed even
+    // when the user passed --quiet-interactive, which was the opposite state. Now:
+    // only render when the auto-force actually fired, and describe what fires.
+    if verbose_auto_forced {
+        ui::note("  tip: verbose narration on (--quiet-interactive to silence)");
+    }
 }
 
-pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
+pub async fn run(use_old: bool, no_save: bool, verbose_auto_forced: bool) -> Result<()> {
     let reuse = use_old
         || (session::exists()
             && prompt_confirm(
@@ -306,7 +314,7 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
     intro_sequence(&sess);
 
     'outer: loop {
-        banner(&sess);
+        banner(&sess, verbose_auto_forced);
 
         // Front door: two modes + session. Auto is the default (just press Enter).
         let mode = prompt_select(
@@ -323,9 +331,13 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
         match mode {
             // AUTO: guided scan → findings list → pick which to impact → chain + PoC report.
             0 => {
-                if let Err(e) = run_action_with_brief(&Action::Guided, &sess).await {
-                    crate::ui::bad(&format!("{e:#}"));
-                }
+                // WS-1.4.7-P2-C: dedupe error display. run_action_with_brief() already
+                // renders a full failure card (checklist.mark_current_failed + outcome
+                // header + field_err("reason", ...) + diagnose_connection_error + hint).
+                // Re-emitting `ui::bad(e)` here painted the same message a THIRD time,
+                // making one connection-refused look like a wall of red. Drop the error
+                // — the inner render is the authoritative surface.
+                let _ = run_action_with_brief(&Action::Guided, &sess).await;
             }
             // SINGLE ATTACK: pick an attack category, then a technique (Session category excluded).
             1 => {
@@ -347,9 +359,9 @@ pub async fn run(use_old: bool, no_save: bool) -> Result<()> {
                 if ai == actions.len() {
                     continue 'outer; // Back
                 }
-                if let Err(e) = run_action_with_brief(&actions[ai].1, &sess).await {
-                    crate::ui::bad(&format!("{e:#}"));
-                }
+                // WS-1.4.7-P2-C: dedupe. See guided-branch comment above — the inner
+                // render is authoritative; the outer `ui::bad(e)` was a third print.
+                let _ = run_action_with_brief(&actions[ai].1, &sess).await;
             }
             // SESSION: open vectors / wipe creds / exit (the last category).
             _ => {
@@ -407,13 +419,24 @@ fn setup_wizard() -> Result<Session> {
     let (password, nt_hash) = if auth == 0 {
         (prompt_password("Password")?, None)
     } else {
-        let h: String = Input::new()
+        // WS-1.4.7-P1-A: NT hash is a password-equivalent secret — MUST be hidden. Prior
+        // `Input::new().interact_text()` echoed the hash to the terminal, leaving it in
+        // scrollback / tmux history / SSH logs. WS-1.4.7-P2-A: also enforce hex-alphabet
+        // (32 chars of `ZZZ...Z` used to pass the length-only check and produce a bind
+        // that failed downstream with a confusing error rather than at the prompt).
+        let h: String = Password::new()
             .with_prompt("NT hash (32 hex)")
-            .validate_with(|s: &String| match s.trim().len() {
-                32 => Ok(()),
-                n => Err(format!("expected 32 hex chars, got {n}")),
+            .validate_with(|s: &String| -> Result<(), String> {
+                let t = s.trim();
+                if t.len() != 32 {
+                    return Err(format!("expected 32 hex chars, got {}", t.len()));
+                }
+                if !t.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err("must contain only hex characters [0-9a-fA-F]".into());
+                }
+                Ok(())
             })
-            .interact_text()?;
+            .interact()?;
         // A blank password is kept so Kerberos/DCSync actions can report they need one.
         (String::new(), Some(h.trim().to_string()))
     };
@@ -439,13 +462,36 @@ fn setup_wizard() -> Result<Session> {
     // before the first bind. CLI callers who pass `--url ldap://<dc>:389 --insecure`
     // sidestep this; the wizard now does the same automatically.
     let dc_clean = dc.trim().to_string();
-    let ldap_url_override = probe_ldap_scheme(&dc_clean);
-    if ldap_url_override.is_some() {
-        crate::ui::warn(&format!(
-            "LDAPS (636) unreachable on {dc_clean}; falling back to plain LDAP on 389 (lab DCs without ADCS commonly do this). \
-             LDAPS-only writes (gMSA, LAPS) will fail until the DC gets a cert."
-        ));
-    }
+    // WS-1.4.7-P1-B: automatic plaintext-LDAP downgrade is a SILENT-plaintext-password
+    // vulnerability. Prior behavior: if LDAPS:636 was unreachable, the wizard just
+    // warn()'d and quietly stored `ldap://<dc>:389` — the collector then did a simple
+    // bind, sending the user's password in cleartext without any explicit consent.
+    // Now: any downgrade requires an explicit y-prompt that defaults to NO and refuses
+    // to proceed otherwise, so plaintext-over-the-wire is always an opt-in decision.
+    let ldap_url_override = match probe_ldap_scheme(&dc_clean) {
+        Some(ldap_url) => {
+            crate::ui::warn(&format!(
+                "LDAPS (636) unreachable on {dc_clean}. The plain-LDAP fallback on port 389 sends \
+                 your bind password OVER THE NETWORK IN THE CLEAR — any local listener \
+                 (mitm6 / responder / a passive sniffer on the same segment) can capture it. \
+                 Lab DCs without ADCS commonly land here; production or shared segments \
+                 usually should not.",
+            ));
+            if !prompt_confirm(
+                "Proceed with PLAINTEXT LDAP on 389 (password sent unencrypted)?",
+                false,
+            )
+            .context("plaintext-LDAP consent prompt")?
+            {
+                anyhow::bail!(
+                    "refused plaintext LDAP fallback — install an ADCS role on {dc_clean} \
+                     (or point --url at an LDAPS-capable DC) then re-run",
+                );
+            }
+            Some(ldap_url)
+        }
+        None => None,
+    };
 
     Ok(Session {
         domain: domain.trim().to_string(),
@@ -793,12 +839,19 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             let target: String = Input::new()
                 .with_prompt("Target sAMAccountName")
                 .interact_text()?;
-            let value: String = Input::new()
-                .with_prompt(
-                    "Value (SPN / member / password / trustee SID — empty for pkinit key default)",
-                )
-                .allow_empty(true)
-                .interact_text()?;
+            // WS-1.4.7-P1-A: `set-password` value is a password-equivalent secret and
+            // MUST be hidden. The other actions take SPNs / trustee SIDs / group names
+            // that are OK to echo, so keep the plaintext Input path for those.
+            let value: String = if labels[ai] == "set-password" {
+                prompt_password("New password for target")?
+            } else {
+                Input::new()
+                    .with_prompt(
+                        "Value (SPN / member / trustee SID — empty for pkinit key default)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?
+            };
             abuse(AbuseArgs {
                 auth: crate::shared_args::OptAuth {
                     url: Some(s.ldap_url()),
@@ -1293,9 +1346,9 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             let account: String = Input::new()
                 .with_prompt("Controlled account (has msDS-AllowedToDelegateTo)")
                 .interact_text()?;
-            let account_password: String = Input::new()
-                .with_prompt(format!("Password for {account}"))
-                .interact_text()?;
+            // WS-1.4.7-P1-A: password for the controlled account is a password-equivalent
+            // secret — MUST be hidden. Prior `Input::new().interact_text()` echoed it.
+            let account_password: String = prompt_password(&format!("Password for {account}"))?;
             let impersonate: String = Input::new()
                 .with_prompt("Identity to impersonate (e.g. Administrator)")
                 .with_initial_text("Administrator")
@@ -1427,14 +1480,22 @@ async fn lookup_domain_sid(s: &Session, account: &str) -> Result<String> {
     Ok(domain.to_string())
 }
 
-/// Prompt for a 64-hex AES256 key, trimming/validating length.
+/// Prompt for a 64-hex AES256 key, trimming/validating length + hex alphabet.
+///
+/// WS-1.4.7-P1-A: AES256 keys are password-equivalent secrets — MUST be hidden.
+/// WS-1.4.7-P2-A: also enforce hex alphabet (64 chars of `Z` used to pass the
+/// length-only check and produce a cryptic downstream error rather than fail at the prompt).
 fn prompt_key(label: &str) -> Result<String> {
-    let k: String = Input::new().with_prompt(label).interact_text()?;
+    let k = prompt_password(label)?;
     let k = k.trim().to_string();
     anyhow::ensure!(
         k.len() == 64,
         "expected a 64-hex AES256 key, got {} chars",
         k.len()
+    );
+    anyhow::ensure!(
+        k.chars().all(|c| c.is_ascii_hexdigit()),
+        "AES256 key must contain only hex characters [0-9a-fA-F]"
     );
     Ok(k)
 }
