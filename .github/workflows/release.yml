@@ -1,15 +1,28 @@
 name: release
 
-# Cross-compiled release binaries. The default build is pure-Rust (rustls) with no OpenSSL, so
-# every target builds with a plain toolchain — a fully static x86_64 Linux binary needs only
-# musl-tools. Push a tag (v1.2.3) or run manually to build and attach the assets to the release.
+# Cross-compiled release binaries. The default build is pure-Rust (rustls) with no
+# OpenSSL, so every target builds with a plain toolchain — a fully static x86_64
+# Linux binary needs only musl-tools. Push a tag (v1.2.3) or run manually to
+# build and attach the assets to the release.
+#
+# 1.4.8 WS-BINSTALL additions:
+# - SHA-256 checksum per binary (attached as `<asset>.sha256`).
+# - GitHub OIDC → sigstore attestation (attached as `<asset>.sig` +
+#   `<asset>.crt` — free code-transparency proof, verifiable via
+#   `cosign verify-blob --certificate-identity ...`).
+# - `cargo-deb` produces `adhammer_<version>_amd64.deb` on the linux-gnu leg.
+# - `cargo-binstall` metadata is in `cli/Cargo.toml [package.metadata.binstall]`
+#   — this workflow's naming (`adhammer-<target><ext>`) matches the `pkg-url`
+#   template there. Keep them in lockstep.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # for softprops/action-gh-release
+  id-token: write   # for sigstore OIDC-signed attestations
+  attestations: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,35 +35,94 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest } # fully static, drop-anywhere
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
-          - { target: x86_64-pc-windows-msvc, os: windows-latest }
-          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }   # fully static, drop-anywhere
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-latest }   # deb source
+          - { target: x86_64-pc-windows-msvc,    os: windows-latest }
+          - { target: aarch64-apple-darwin,      os: macos-latest }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+
       - name: musl tools
         if: endsWith(matrix.target, '-linux-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: build (default features = rustls, no OpenSSL)
         run: cargo build --release --bin adhammer --target ${{ matrix.target }}
-      - name: package
+
+      - name: package binary
+        id: pkg
         shell: bash
         run: |
           ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
           asset="adhammer-${{ matrix.target }}${ext}"
           cp "target/${{ matrix.target }}/release/adhammer${ext}" "$asset"
-          echo "ASSET=$asset" >> "$GITHUB_ENV"
+          # SHA-256 checksum (portable, no jq / no python).
+          # Use the platform's sha256sum / shasum / certutil — one of them exists everywhere.
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" > "${asset}.sha256"
+          elif command -v shasum >/dev/null; then
+            shasum -a 256 "$asset" > "${asset}.sha256"
+          elif command -v certutil >/dev/null; then
+            certutil -hashfile "$asset" SHA256 | sed -n '2p' | tr -d ' \r' > "${asset}.sha256.raw"
+            printf '%s  %s\n' "$(cat "${asset}.sha256.raw")" "$asset" > "${asset}.sha256"
+            rm -f "${asset}.sha256.raw"
+          else
+            echo "no sha256 tool available on runner"; exit 1
+          fi
+          echo "ASSET=$asset"       >> "$GITHUB_ENV"
+          echo "SUM=${asset}.sha256" >> "$GITHUB_ENV"
+
+      - name: cargo-deb (linux-gnu only)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          cargo install cargo-deb --locked
+          # cargo-deb expects target/release/adhammer (the -p flag + no --target
+          # keeps its output path prediction happy).
+          cp target/${{ matrix.target }}/release/adhammer target/release/adhammer
+          cargo deb -p adhammer --no-build --no-strip
+          debfile=$(ls target/debian/adhammer_*_amd64.deb | head -1)
+          cp "$debfile" .
+          echo "DEB=$(basename "$debfile")" >> "$GITHUB_ENV"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$(basename "$debfile")" > "$(basename "$debfile").sha256"
+            echo "DEB_SUM=$(basename "$debfile").sha256" >> "$GITHUB_ENV"
+          fi
+
+      - name: sigstore attestation (all platforms)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ env.ASSET }}
+            ${{ env.DEB }}
+
       - name: attach to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.SUM }}
+            ${{ env.DEB }}
+            ${{ env.DEB_SUM }}
           # Legacy DCs with SHA-1 LDAPS certs need a native-TLS build from source:
           #   cargo build --release --no-default-features --features tls-native
           body: |
             Static/cross-compiled binaries (pure-Rust rustls TLS — no OpenSSL).
-            For legacy DCs with SHA-1 LDAPS certs, build from source with
+
+            **Install paths:**
+            - `cargo binstall adhammer` — picks up the binary matching your target
+              from this page (needs `cargo-binstall`; falls through to `cargo install`).
+            - Linux .deb: `sudo apt install ./adhammer_<version>_amd64.deb`
+            - Direct: download `adhammer-<target>` for your platform.
+
+            **Verification:**
+            - SHA-256 sum attached per asset (`<asset>.sha256`).
+            - Sigstore attestation via GitHub OIDC — verify with
+              `gh attestation verify <asset> --owner icedracon`.
+
+            **Legacy DCs** (SHA-1 LDAPS certs): build from source with
             `--no-default-features --features tls-native`.

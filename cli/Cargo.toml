@@ -17,6 +17,45 @@ categories = ["command-line-utilities", "authentication", "cryptography", "netwo
 name = "adhammer"
 path = "src/main.rs"
 
+# 1.4.8 WS-BINSTALL: point cargo-binstall at the raw binary attachments on the
+# GitHub Release page so `cargo binstall adhammer` skips the local rustc compile
+# entirely. Naming matches the current release.yml step
+# (`adhammer-<target><ext>`); if that filename ever changes, update `pkg-url`
+# in lockstep or downstream `cargo binstall` breaks silently.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/adhammer-{ target }{ archive-suffix }"
+pkg-fmt = "bin"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "bin"
+
+# 1.4.8 WS-DEB-PACKAGE: `cargo deb -p adhammer` on the linux-gnu build produces
+# `adhammer_<version>_amd64.deb` — the release.yml step attaches it to the
+# GitHub Release. Users then either add the icedracon APT repo (1.4.9) or run
+# `sudo apt install ./adhammer_1.4.8_amd64.deb` for a proper package they can
+# `apt remove` later. Assets = the compiled binary + docs; no systemd unit
+# (adhammer is a CLI tool, not a daemon).
+[package.metadata.deb]
+maintainer = "icedracon <adhammer@icedracon.com>"
+copyright = "2026, icedracon"
+license-file = ["../LICENSE-MIT", "0"]
+extended-description = """
+Passive Active Directory security assessment with a from-scratch Rust
+protocol stack. Runs LDAP collection, control-path graph construction,
+scored security checks, MITRE ATT&CK-tagged reports, and BloodHound-CE
+ingest export from a single static binary — no Python runtime, no sidecar
+services. See https://github.com/icedracon/adhammer .
+"""
+depends = "$auto"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/adhammer", "usr/bin/", "755"],
+    ["../README.md", "usr/share/doc/adhammer/README.md", "644"],
+    ["../CHANGELOG.md", "usr/share/doc/adhammer/CHANGELOG.md", "644"],
+    ["../LICENSE-MIT", "usr/share/doc/adhammer/LICENSE-MIT", "644"],
+]
+
 [features]
 default = ["tls-rustls"]
 # TLS backend for LDAPS (forwarded to adhammer-collector):
