@@ -18,17 +18,14 @@ search converges to nothing. **Closure needs a Windows-native → DC Wireshark
 capture over `\PIPE\lsarpc` under Kerberos-sealed to byte-diff against our
 sealer output.**
 
-Two capture paths, both real:
+Two capture paths, both real, both requiring a domain-joined Windows client
+authenticated as a domain user (Kerberos LSA context is initialised at login):
 
-1. **RDP into WIN10 (172.22.179.177) as `TESTLAB\Administrator`.** Interactive
-   login initializes Kerberos LSA; `C:\Users\test\capture_both.ps1` on WIN10
-   already runs `pktmon` → pcapng and covers the wire pipeline. scp back +
-   analyze with tshark locally.
-2. **`sshpass` non-interactive login as domain user.** `sshpass-win32` is now
-   on the Windows host PATH (Winget package). `sshpass -p '...' ssh
-   TESTLAB\\Administrator@172.22.179.177 'powershell ...'` would run the
-   capture pipeline as a domain user (full Kerberos LSA context) from a
-   scripted flow. Never confirmed working yet.
+1. **Interactive RDP to the domain-joined test client** — `pktmon` capture on
+   ports 445 + 88, converted to pcapng, moved back for `tshark` decode.
+2. **`sshpass`-driven remote invocation of the same pipeline** on the same
+   client (Kerberos LSA still comes from a real domain login, not the SSH
+   session). Untested end-to-end so far.
 
 Once the reference capture is in hand, iterate the sealer against the
 byte-diff, ship the fix, unhide `check krb-seal`, drop `[SCAFFOLDING]`.
@@ -73,11 +70,11 @@ Path 1 gives users a clean install today; path 2 doesn't scale. Both viable.
 
 The green **hardened-bill-of-health** banner ships in 1.4.7 and is
 unit-tested (`clean_bill_reports_no_findings`), but we've never live-rendered
-it against a real DC because DC01 always has 29 seeded findings. Two options:
+it against a real DC — every lab target has seeded findings. Two options:
 
-1. **Stand up a genuinely-hardened Server 2025 DC in the lab.** Same version
-   as DC01 but with no ADhammer_lab_seed vulnerabilities. Expensive but the
-   right long-term test target.
+1. **Stand up a genuinely-hardened Server 2025 DC** without the
+   `adhammer_lab_seed` vulnerabilities. Expensive but the right long-term
+   test target.
 2. **Add `adhammer scan --only <check-ids>` filter** so an operator can
    deliberately run only checks known-clean on the current DC and reproduce
    the assurance-banner render. Ships the diagnostic surface without needing
