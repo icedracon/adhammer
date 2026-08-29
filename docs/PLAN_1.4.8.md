@@ -443,31 +443,70 @@ crates.** The icedracon ecosystem already covers everything:
 **Plus Phase F (SEALED-BLOCKED): +8-12 days.**
 **Grand total: 55-75 days.**
 
-## `auto scan` integration matrix
+## `auto scan` integration matrix — 20 of 20
 
-The guided `auto` flow (`adhammer` bare / `auto`) scans → picks findings
-→ validates. New auto-mode validators drawn from the expansion:
+The guided `auto` flow (`adhammer` bare / `auto`) is restructured from
+"scan → pick findings → validate" into a **five-phase attack lifecycle**
+so every one of the 20 vectors slots in at the right moment. No vector
+is left as a standalone verb the operator has to remember to run.
 
-| Scan-triggered finding | Auto-mode validator |
-|---|---|
-| ESC1 template detected | WS-ESC1-EXPLOIT + WS-UNPAC-FULL chain |
-| ESC3 Enrollment Agent template | WS-ESC3-CHAIN |
-| ESC8 CA (HTTP enrollment) | WS-ESC8-END-TO-END |
-| Admin creds + SMB reachable | WS-PSEXEC / WS-ATEXEC / WS-EVIL-WINRM |
-| SMB signing not required + LDAP unsigned | WS-NTLMRELAYX-SMB-LDAP |
-| Coercion primitive reachable | WS-COERCE-LISTENER chain |
-| Remote Registry + admin creds | WS-SAM-SECURITY-DUMP |
-| DCSync + DRSR reachable | WS-NTDS-OFFLINE (fallback for partial DCSync) |
-| DPAPI-protected asset + admin creds | WS-DPAPI-MASTER-KEY |
-| Unconstrained delegation on non-DC | WS-DELEGATION-CAPTURE |
-| Trust without SID filtering | WS-SID-HISTORY-INJECT |
-| No LDAP creds (anonymous path) | WS-KERBRUTE (user enum) |
+**Phase 0 — Pre-recon (no creds yet):**
+- `WS-LLMNR-POISON` — optionally spin up LLMNR/NBT-NS/mDNS listener
+  for N seconds before the LDAP probe, to catch any workstation-side
+  name-query capture-and-relay opportunities.
+- `WS-KERBRUTE` — Kerberos user enumeration when LDAP anonymous is
+  closed and no creds provided.
 
-**Standalone verbs (no auto-mode integration):**
-- WS-LLMNR-POISON (listener, not scan-triggered)
-- WS-DIAMOND-TICKET (post-ex, not scan-triggered)
-- WS-SKELETON-KEY (post-ex Windows persistence)
-- WS-DCSHADOW-DRSR (post-ex persistence)
+**Phase 1 — Scan-finding-triggered validators (finding X → exploit X):**
+- ESC1 template detected → **WS-ESC1-EXPLOIT** + **WS-UNPAC-FULL** chain
+  (arbitrary UPN cert → PKINIT → TGT → NT hash of impersonated principal)
+- ESC3 Enrollment Agent template → **WS-ESC3-CHAIN**
+- ESC8 CA with HTTP enrollment → **WS-ESC8-END-TO-END** (coerce + relay
+  + enroll + auth)
+- SMB signing not required + LDAP unsigned → **WS-NTLMRELAYX-SMB-LDAP**
+  with auto-RBCD-write or shadow-cred-write chain
+- Coercion primitive reachable on target → **WS-COERCE-LISTENER** full
+  chain (uses the same listener as WS-NTLMRELAYX)
+- Remote Registry + admin creds available → **WS-SAM-SECURITY-DUMP**
+- DCSync path via DRSR reachable → **WS-NTDS-OFFLINE** as fallback for
+  partial DCSync, or as preferred path when the target won't allow
+  targeted GetNCChanges
+- DPAPI-protected asset + admin creds → **WS-DPAPI-MASTER-KEY** vault
+  extraction
+- Unconstrained delegation flag on non-DC → **WS-DELEGATION-CAPTURE**
+  (coerce a DC to authenticate → capture forwarded TGT)
+- Trust without SID filtering → **WS-SID-HISTORY-INJECT** golden variant
+
+**Phase 2 — Post-cred-acquisition (creds landed via any of the above):**
+- Admin creds + SMB reachable → offer three lateral primitives:
+  **WS-PSEXEC**, **WS-ATEXEC**, **WS-EVIL-WINRM**. Operator picks based
+  on what's least likely to trip the target's monitoring.
+- Admin creds + WMI reachable → **WS-WMIEXEC** *(SEALED-BLOCKED until
+  WS-4-P2 resurrects)*
+
+**Phase 3 — Post-DA-compromise (Tier-0 achieved):**
+- krbtgt hash acquired via DCSync/NTDS → **WS-DIAMOND-TICKET** offered
+  as stealthier-than-Golden persistence primitive. Same krbtgt key, real
+  KDC signature on the TGT skeleton, forged PAC injected.
+- SYSTEM on DC achieved → **WS-SKELETON-KEY** as optional LSASS-shim
+  persistence (Windows-target-only; auto-mode warns + confirms before
+  execution because EDR-loud).
+- DA + DRSR reachable → **WS-DCSHADOW-DRSR** as optional rogue-DC
+  registration for silent AD-object modification *(SEALED-BLOCKED until
+  WS-4-P2 resurrects)*.
+
+**Phase 4 — Report:**
+Every attempted vector — whether it succeeded, was skipped, or failed —
+is recorded as a `WireExchange` on the corresponding Finding in the
+final report. Auto-mode produces a full attack narrative alongside the
+passive-check ledger.
+
+**Result: 20 of 20 vectors are `auto scan` end-to-end validators.**
+The operator runs `adhammer` bare, walks the guided flow, and every
+attack primitive in the plan is offered at the right moment with the
+right prerequisites already satisfied by prior phases. No manual
+`attack XXX --user ... --password ... --target ...` incantations
+required unless the operator wants to invoke one directly.
 
 ---
 
