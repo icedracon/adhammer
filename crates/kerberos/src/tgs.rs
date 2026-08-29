@@ -593,8 +593,8 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 ///
 /// `Debug` is implemented manually to redact `session_key` + `ticket` bytes for the same
 /// reason as [`Tgt`]. Field access via `.session_key` is intentionally left `pub` so crypto
-/// call sites (`rpc_sealer`, `pac`, sealed BIND) can consume the raw key material — but
-/// nothing formats it, and no `{:?}` will ever surface it in a trace line.
+/// call sites (`pac`, silver ticket forge, downstream tools) can consume the raw key
+/// material — but nothing formats it, and no `{:?}` will ever surface it in a trace line.
 pub struct ServiceTicket {
     pub ticket: Ticket,
     pub session_key: Vec<u8>,

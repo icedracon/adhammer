@@ -5,6 +5,27 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Removed
+
+- **`check krb-seal` subcommand + `AesCts96Sealer` + rpc_seal RFC 3961/3962
+  primitives.** WS-4-P2's live-DC probe of the AES256-CTS-HMAC-SHA1-96 sealer
+  reached BIND_ACK byte-correct against Server 2025 but every wrap-token
+  layout permutation tried (in 1.4.7 and again in 1.4.8) tripped the
+  identical `SMB2 status 0xC00000AE (STATUS_PIPE_BUSY)` on the first opnum.
+  The DC's SMB-layer response is binary (accept/reject) with zero
+  informational discrimination, so blind hypothesis-search converges to
+  nothing. Static-analysis attempts on the sender-side layout are exhausted;
+  closure requires a Windows-native → DC Wireshark capture over
+  `\PIPE\lsarpc` under Kerberos-sealed to byte-diff against our output.
+  Rather than ship the `[SCAFFOLDING]` label and `hide_from_help` marker
+  indefinitely, the code is cut. Git history preserves everything at tag
+  `v1.4.7` and earlier for the day the capture lands and the sealer can
+  come back — with the mismatched byte visible on paper instead of
+  guessed at. Deleted files: `cli/src/checks/krb_seal.rs`,
+  `crates/kerberos/src/rpc_sealer.rs`, `crates/kerberos/src/rpc_seal.rs`.
+  Also drops `aes = "0.8"` + `dcerpc` deps from `adhammer-kerberos`
+  (the sealer was their only consumer). `check adcs` remains.
+
 ## [1.4.7] — 2026-08-29
 
 The **"security-audit remediation + assurance-lane polish"** release. Every one of

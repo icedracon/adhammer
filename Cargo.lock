@@ -114,9 +114,7 @@ name = "adhammer-kerberos"
 version = "1.4.7"
 dependencies = [
  "adhammer-core",
- "aes",
  "anyhow",
- "dcerpc",
  "hex",
  "hmac",
  "md-5",

@@ -5,30 +5,23 @@ test + effort estimate. Items are ordered by ship priority, not category.
 The tail (**Non-goals** + **Deferred**) is deliberately loud — this release
 finishes what 1.4.7 self-flagged, it does not open new territory.
 
-## 1. WS-4-P2-CLOSE — sealed REQUEST wrap-token layout
+## 1. ~~WS-4-P2-CLOSE~~ — CUT in 1.4.8
 
-The `check krb-seal` sealed BIND already reaches BIND_ACK byte-correct
-against Server 2025; the first opnum after that faults `SMB2 status
-0xC00000AE (STATUS_PIPE_BUSY)`. DC's SMB-layer response is binary, no
-informational content, so blind hypothesis search is dead. Two approaches
-in order:
+Static-analysis pass in 1.4.8 tried three more wrap-token layout hypotheses
+after the 1.4.7 partial fix; every one produced the identical `SMB2 status
+0xC00000AE (STATUS_PIPE_BUSY)`. DC-side response is binary — accept or
+reject — with no informational discrimination, so blind hypothesis search
+is dead. Rather than ship the `[SCAFFOLDING]` label indefinitely,
+**`check krb-seal` + `AesCts96Sealer` + the `rpc_seal` RFC 3961/3962
+primitives were cut from main** (deletion commit in 1.4.8's log; git
+history preserves everything at tag `v1.4.7` and earlier).
 
-- **First: static-analysis diff** against a reference open-source
-  AES-CTS-HMAC-SHA1 GSS wrap implementation. Byte-by-byte read of the
-  established wrap-token layout side-by-side with `rpc_sealer.rs::seal_pdu`.
-  No lab or capture required. ~4h ceiling — either the discrepancy is
-  visible on paper or it is not.
-- **Fallback: Wireshark capture** from a domain-joined Windows client
-  authenticated as a domain user (Kerberos LSA context comes from the
-  interactive login, not the SSH session). pktmon → pcapng → tshark →
-  byte-diff. ~1 day + your console time.
-
-**Files:** `crates/kerberos/src/rpc_sealer.rs`, possibly
-`crates/kerberos/src/rpc_seal.rs`.
-**Acceptance:** `check krb-seal --try-call` completes `LsarOpenPolicy2`
-(opnum 44 on `\PIPE\lsarpc`) without fault; `[SCAFFOLDING]` label +
-`hide_from_help` attribute removed; `check --help` lists `krb-seal`.
-**Effort:** 4-16h.
+**Resurrection path** — bring the code back the day someone lands a
+Windows-native → DC Wireshark capture over `\PIPE\lsarpc` under
+Kerberos-sealed, so the sender-side byte diff is visible on paper
+instead of guessed at. The capture path stays the same as documented:
+interactive RDP + pktmon, or `sshpass`-driven remote invocation from a
+domain-joined Windows client.
 
 ## 2. WS-SCAN-ONLY-FILTER — enable 0-vuln live-render
 

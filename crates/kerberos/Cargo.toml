@@ -36,14 +36,6 @@ rsa = "0.9"
 sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 picky-asn1-x509 = { version = "0.14", features = ["pkcs7"] }
-# AES block cipher for RFC 3962 AES-CTS + RFC 3961 KDF (WS-4-P2 rpc_seal, dcerpc 0.2.8
-# sealed-Kerberos-bind precondition). Block-level API only — CBC + CTS wrap is hand-rolled
-# in rpc_seal.rs to keep the CTS ciphertext-stealing swap explicit and auditable.
-aes = "0.8"
-# WS-4-P2 Session 3 sealer: implements the dcerpc::krb_seal::KrbSealer trait using
-# the RFC 3961/3962 primitives in rpc_seal.rs. dcerpc stays crypto-dep-free — we're
-# just providing the concrete Kerberos impl on the seam it already exposes.
-dcerpc = { workspace = true }
 smb2-client = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 
