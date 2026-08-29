@@ -12,4 +12,8 @@ windows-sddl = { workspace = true }
 adhammer-graph = { workspace = true }
 # ESC1-15 rule pack — operates on ms-crtd's typed CertTemplate view.
 ms-crtd = { workspace = true }
+# 1.4.8 WS-SCAN-ONLY-FILTER: warn on unknown check ids passed via --only/--skip
+# so a typo prints once and is silently ignored, instead of surprising the operator
+# with an unfiltered run.
+tracing = { workspace = true }
 

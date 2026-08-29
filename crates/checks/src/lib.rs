@@ -142,12 +142,119 @@ pub fn run_all_with_coverage(
     snap: &Snapshot,
     graph: &ControlGraph,
 ) -> Vec<(&'static str, Vec<Finding>)> {
+    run_all_with_coverage_filtered(snap, graph, &CheckFilter::default())
+}
+
+/// **1.4.8 WS-SCAN-ONLY-FILTER**: select a subset of the registry to run. Empty `only` means
+/// "all checks" (default). `skip` is applied after `only`. Unknown ids in either list are
+/// warned about via `tracing::warn!` and silently ignored — callers get the filter behavior
+/// they asked for even if a typo slips in. Preserves `registry()` iteration order for
+/// deterministic coverage-row ordering.
+///
+/// Enables the 0-vuln **hardened-bill-of-health** banner to be live-rendered: pick a set of
+/// checks known to be clean on the target DC → `Report::is_clean_bill()` returns true → the
+/// green banner appears in HTML.
+#[derive(Default, Clone, Debug)]
+pub struct CheckFilter {
+    pub only: Vec<String>,
+    pub skip: Vec<String>,
+}
+
+impl CheckFilter {
+    /// True when this check id should run under the current filter.
+    fn allows(&self, id: &str) -> bool {
+        if !self.only.is_empty() && !self.only.iter().any(|s| s == id) {
+            return false;
+        }
+        if self.skip.iter().any(|s| s == id) {
+            return false;
+        }
+        true
+    }
+}
+
+pub fn run_all_with_coverage_filtered(
+    snap: &Snapshot,
+    graph: &ControlGraph,
+    filter: &CheckFilter,
+) -> Vec<(&'static str, Vec<Finding>)> {
+    let all_ids: std::collections::HashSet<&'static str> =
+        registry().iter().map(|c| c.id()).collect();
+    for id in filter.only.iter().chain(filter.skip.iter()) {
+        if !all_ids.contains(id.as_str()) {
+            tracing::warn!(id, "check id not in registry — ignored by --only/--skip");
+        }
+    }
     registry()
         .iter()
+        .filter(|c| filter.allows(c.id()))
         .map(|c| {
             let mut fs = c.run(snap, graph);
             attach_wire_proof(snap, &mut fs);
             (c.id(), fs)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    #[test]
+    fn default_filter_allows_every_id() {
+        let f = CheckFilter::default();
+        assert!(f.allows("P-KerberoastAdmin"));
+        assert!(f.allows("A-Esc15-ms-crtd"));
+        assert!(f.allows("anything-else"));
+    }
+
+    #[test]
+    fn only_narrows_to_named_ids() {
+        let f = CheckFilter {
+            only: vec!["P-GmsaRead".into(), "P-SidHistory".into()],
+            skip: vec![],
+        };
+        assert!(f.allows("P-GmsaRead"));
+        assert!(f.allows("P-SidHistory"));
+        assert!(!f.allows("P-KerberoastAdmin"));
+        assert!(!f.allows("A-Esc15-ms-crtd"));
+    }
+
+    #[test]
+    fn skip_removes_named_ids() {
+        let f = CheckFilter {
+            only: vec![],
+            skip: vec!["P-KerberoastAdmin".into()],
+        };
+        assert!(!f.allows("P-KerberoastAdmin"));
+        assert!(f.allows("P-GmsaRead"));
+    }
+
+    #[test]
+    fn skip_takes_precedence_over_only() {
+        // Composed: --only A,B --skip A → runs only B.
+        let f = CheckFilter {
+            only: vec!["A".into(), "B".into()],
+            skip: vec!["A".into()],
+        };
+        assert!(!f.allows("A"));
+        assert!(f.allows("B"));
+        assert!(!f.allows("C"));
+    }
+
+    #[test]
+    fn only_narrows_but_does_not_gate_on_registry_membership() {
+        // `allows()` is a pure string predicate — registry membership is enforced by
+        // `run_all_with_coverage_filtered` iterating `registry()`. So an unknown id in
+        // `only` matches itself in `allows()` (nothing else); the run is empty because
+        // no registered check has that id. This is deliberate: the CLI logs a warn once
+        // for the unknown id (see run_all_with_coverage_filtered), the operator sees
+        // an empty run instead of a surprising unfiltered scan.
+        let f = CheckFilter {
+            only: vec!["Z-DoesNotExist".into()],
+            skip: vec![],
+        };
+        assert!(f.allows("Z-DoesNotExist")); // string membership: yes
+        assert!(!f.allows("P-KerberoastAdmin")); // not in `only` → filtered out
+    }
 }

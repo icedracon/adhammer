@@ -69,6 +69,17 @@ pub(crate) struct ScanArgs {
     /// A missing or unparsable baseline is a warning, not a hard error — the scan still emits.
     #[arg(long, value_name = "PRIOR_JSON")]
     pub baseline: Option<String>,
+    /// **1.4.8 WS-SCAN-ONLY-FILTER**: run only the named check(s). Comma-separated check ids
+    /// from the 58-check registry (e.g. `--only P-KerberoastAdmin,A-Esc15-ms-crtd`). Empty =
+    /// all checks (default). Unknown ids print a warning and are ignored. Composes with
+    /// `--skip`. Enables the 0-vuln hardened-bill-of-health banner to be live-rendered when
+    /// the selected set is known-clean on the target.
+    #[arg(long, value_name = "CHECK_IDS", value_delimiter = ',')]
+    pub only: Vec<String>,
+    /// **1.4.8 WS-SCAN-ONLY-FILTER**: exclude the named check(s) from the run. Comma-separated
+    /// check ids. Applied after `--only`. Unknown ids ignored with a warning.
+    #[arg(long, value_name = "CHECK_IDS", value_delimiter = ',')]
+    pub skip: Vec<String>,
 }
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
@@ -155,7 +166,12 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     );
     // WS-R2: run every check with per-check coverage so the report can show the whole audit
     // surface (tripped vs clean), then flatten to the scored finding list the rest expects.
-    let coverage_raw = adhammer_checks::run_all_with_coverage(&snap, &graph);
+    // WS-SCAN-ONLY-FILTER: honor `--only` / `--skip` if the operator narrowed the run.
+    let filter = adhammer_checks::CheckFilter {
+        only: a.only.clone(),
+        skip: a.skip.clone(),
+    };
+    let coverage_raw = adhammer_checks::run_all_with_coverage_filtered(&snap, &graph, &filter);
     let coverage: Vec<(&'static str, usize)> = coverage_raw
         .iter()
         .map(|(id, fs)| (*id, fs.len()))
@@ -229,7 +245,24 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     // ESC registry probe: ESC6/7/10/11/16 via MS-RRP over the DC's Remote Registry.
     // Runs automatically when a CA is discovered in the LDAP snapshot. Best-effort — if the
     // Remote Registry service is stopped the scan still completes with passive findings only.
-    {
+    //
+    // WS-SCAN-ONLY-FILTER: the ESC-registry probe emits findings tagged `A-Esc6-registry`
+    // ..`A-Esc16-registry`. Skip the probe entirely when `--only` is set and doesn't include
+    // any of those ids, so the 0-vuln assurance banner isn't blocked by an unrelated probe.
+    // `--skip` naming any of the ids also disables the probe.
+    let esc_probe_ids: [&str; 5] = [
+        "A-Esc6-registry",
+        "A-Esc7-registry",
+        "A-Esc10-registry",
+        "A-Esc11-registry",
+        "A-Esc16-registry",
+    ];
+    let esc_probe_wanted = if !a.only.is_empty() {
+        a.only.iter().any(|s| esc_probe_ids.contains(&s.as_str()))
+    } else {
+        !a.skip.iter().any(|s| esc_probe_ids.contains(&s.as_str()))
+    };
+    if esc_probe_wanted {
         let ca_names: Vec<String> = snap
             .iter_class("pKIEnrollmentService")
             .filter_map(|o| o.one("cn").or_else(|| o.one("name")).map(|s| s.to_string()))

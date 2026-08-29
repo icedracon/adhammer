@@ -75,6 +75,10 @@ impl Session {
             top_n: 10,
             anonymous: false,
             baseline: None,
+            // 1.4.8 WS-SCAN-ONLY-FILTER: guided/session-driven scans run the full check
+            // registry — filtering is a CLI-flag-driven opt-in for narrow diagnostic loops.
+            only: Vec::new(),
+            skip: Vec::new(),
         }
     }
 }

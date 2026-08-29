@@ -69,6 +69,7 @@ dependencies = [
  "adhammer-core",
  "adhammer-graph",
  "ms-crtd",
+ "tracing",
  "windows-sddl",
 ]
 
