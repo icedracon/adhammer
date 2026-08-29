@@ -5,6 +5,110 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.7] — 2026-08-29
+
+The **"security-audit remediation + assurance-lane polish"** release. Every one of
+the eight findings from the pre-ship tag-vs-main audit (2 P1, 5 P2, one stale
+version) is closed and PTY-verified on Kali VBox against DC01 Server 2025 before
+tag. Report gains two new coverage panels + a deterministic content hash for
+audit-trail; interactive UX gains guardrails against silent password exposure.
+
+### Security fixes (P1)
+
+- **P1-A — hidden secret entry.** Four sites in the interactive wizard used
+  `Input::new().interact_text()`, echoing keystrokes to the terminal (scrollback,
+  tmux history, SSH logs): NT hash, `set-password` value, constrained-delegation
+  password, AES256 key. Now use `Password::new().interact()` — dialoguer's hidden
+  entry (`[hidden]` marker). Same primitive already backed the regular Password
+  path; consolidated for parity. Live-verified in a Kali PTY: a 32-hex hash fed
+  to the prompt never appears in the recorded stream.
+- **P1-B — plaintext-LDAP downgrade requires explicit consent.** Prior behavior:
+  if LDAPS:636 was unreachable, the wizard silently stored `ldap://<dc>:389`
+  and the collector did a simple bind — sending the user's password OVER THE
+  NETWORK IN THE CLEAR without any acknowledgement. Now: any downgrade prompts
+  with hard security wording ("password sent unencrypted", "local listener can
+  capture it"), defaults to No, and refuses to proceed unless the user
+  explicitly says yes. Refusal errors with a specific fix hint (install ADCS
+  or point `--url` at an LDAPS-capable DC).
+
+### Quality fixes (P2)
+
+- **P2-A — hex-alphabet validation on NT hash + AES256 key.** Prior length-only
+  check accepted `32 * "Z"` as an "NT hash", producing a cryptic downstream bind
+  failure. Now `validate_with` enforces `is_ascii_hexdigit` on every char.
+- **P2-B — `NO_COLOR` respect on Spinner.** `Spinner::start` gated animation on
+  `is_terminal()` only; `NO_COLOR=1` still got ANSI colors + cursor motion. Now
+  falls through to the plain non-TTY start-line path when `no_color()` is true
+  (consistent with every other color surface in `ui.rs`).
+- **P2-C — deduped failure display.** `run_action_with_brief` renders a full
+  failure card (checklist + outcome + reason + diagnosis + hint); the outer
+  callers then also `ui::bad(e)`'d, painting one connection-refused as a wall
+  of red across three renders. Inner render is now authoritative.
+- **P2-D — strict clippy exit 0.** Three `needless_borrow` errors in the
+  WS-CTRLMAP CI-gate tests (`describe(&id)` where `id: &'static str`) surfaced
+  only under `--all-features`. Fixed to `describe(id)`.
+- **P2-E — honest `-v/-vv/-vvv` docs + conditional banner tip.** Prior help text
+  promised "wire-layer detail from dcerpc/smb2-client/ntlmssp" but a
+  workspace-wide macro census shows **0 trace!, 2 debug!, 6 info!, 7 warn!** —
+  the wire crates carry ~zero tracing today, so `-vvv` ≈ `-v` output. Rewrote
+  help to describe actual current behavior + explicitly flagged wire-layer
+  per-PDU tracing as a **1.4.8 track**. The CLI plumbing stays wired so the
+  firehose lights up once the calls land. Banner tip in the interactive header
+  no longer says "wire trace on" (lie) and only renders when `--quiet-interactive`
+  is NOT set (the tip previously printed even in the state that opted out).
+
+### New workstreams
+
+- **WS-INT-VVV** — bare `adhammer` invocation with no subcommand auto-forces
+  `-vvv` verbosity in a real TTY. `--quiet-interactive` opts out. See P2-E for
+  the (honest) scope of what `-vvv` actually emits today.
+- **WS-REDACT-TICKET** — `Tgt` and `ServiceTicket` grow manual `Debug` impls
+  that redact `session_key`, `principal_key`, and every ticket + authenticator
+  byte behind `<redacted N bytes>`; the `authtime`, `endtime`, `nonce`, `flags`,
+  `sname` fields still print for debugging. Prior `#[derive(Debug)]` leaked
+  session keys under `--debug`. Round-tripped through the test corpus.
+- **WS-DEFENDER-DOC** — README gains a Windows install workaround for Defender
+  quarantining `cargo build --release` outputs (add exclusion for the target
+  directory + one-line PowerShell). Deals with the fresh-Windows-user first-hit
+  frustration surfaced in 1.4.6 QA.
+- **WS-OUT-ALL-STAGES** — `scan --out-all <dir>` now emits a proper
+  StageChecklist entry (`✓ all-formats · <total_bytes> bytes`) covering all four
+  written files instead of only counting the last format written.
+- **WS-CTRLMAP** — in-house AD-pentest control-area + kill-chain taxonomy. Every
+  one of the 60 registered check IDs carries ≥1 `ADP-NN` code (`ADP-01`..`ADP-30`
+  fully documented in `docs/CONTROL_AREAS.md`) and one of six kill-chain phases
+  (enumeration → initial-access → priv-esc → lateral-movement → persistence →
+  domain-dominance). Report HTML gains two new panels ("Control-area coverage"
+  + "Kill-chain coverage" in canonical lifecycle order). CI gate: any new check
+  missing a code or phase fails `cargo test`. No third-party cert-body or
+  methodology labels — neutral in-house identifiers so downstream consumers can
+  cross-map to whatever framework they prefer.
+- **WS-CLEAN-REPORT** — 0-findings "hardened bill of health" UX. Green
+  assurance banner renders only when `findings.is_empty()`, sourced from the
+  WS-CTRLMAP roll-ups ("N checks across K control areas and M kill-chain
+  phases, no condition tripped") with a preconditions-not-met subtext for
+  checks that couldn't fully exercise their target. **Report fingerprint
+  footer** (always rendered): sha256 of the canonical JSON serialization +
+  domain label — enables archive-by-hash, tamper spot-check, and baseline-diff.
+  Determinism live-verified: byte-identical across back-to-back same-env runs
+  including the embedded hash.
+- **WS-4-P2 partial** — Filler-byte MIC zero + fault-mnemonic correction in the
+  Kerberos RPC sealer. Documentation/code alignment fix (doc comment said
+  "Filler, EC, RRC" but only EC + RRC were zeroed); does NOT close the sealed
+  REQUEST fault (which is STATUS_PIPE_BUSY = 0xC00000AE, NOT PIPE_BROKEN as
+  prior notes claimed). `check krb-seal` stays `[SCAFFOLDING]` + `hide_from_help`
+  until the Windows-native Wireshark reference capture unblocks it (1.4.8).
+
+### Gate
+
+- `cargo fmt --all` clean.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` exit 0.
+- `cargo test --workspace`: 266 passing (+17 from 1.4.6's 249).
+- Live-DC scan: 29 findings / 58 checks / all three 1.4.7 report panels rendered;
+  both Windows + Kali builds; back-to-back same-env determinism holds.
+- PTY on Kali: hidden password entry confirmed; plaintext-LDAP consent + refusal
+  path work as scripted.
+
 ## [1.4.6] — 2026-08-27
 
 The **"proof on every line, graph on every report"** release. Every finding a scan
