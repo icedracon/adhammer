@@ -60,8 +60,22 @@ audit-trail; interactive UX gains guardrails against silent password exposure.
 ### New workstreams
 
 - **WS-INT-VVV** — bare `adhammer` invocation with no subcommand auto-forces
-  `-vvv` verbosity in a real TTY. `--quiet-interactive` opts out. See P2-E for
-  the (honest) scope of what `-vvv` actually emits today.
+  `-vvv` verbosity in a real TTY. `--quiet-interactive` opts out. See WS-KRB-TRACE
+  for the tracing calls the auto-force now activates.
+- **WS-KRB-TRACE** — `adhammer-kerberos` hot paths instrumented with
+  `tracing::debug!` / `tracing::trace!` / `tracing::warn!`: `get_tgt` +
+  `asktgt` (AS-REQ round-trip narration + byte counts + KDC error codes),
+  `get_service_ticket` (TGS-REQ round-trip), sealer `seal_pdu` +
+  `unseal_pdu` (WRAP-token assembly / verify with role + stub-len + seq).
+  Redaction discipline audited: only identifier strings + byte lengths +
+  sequence numbers + etypes emitted; never key bytes, ticket contents, or
+  hashes. Turns `-vv` and `-vvv` from placebo (P2-E) into meaningful
+  Kerberos wire narration on the crate we own. Wire-layer per-PDU tracing
+  inside dcerpc/smb2-client/ntlmssp themselves stays 1.4.8-track (needs
+  upstream pub cycles). **Windows note**: Git Bash / MSYS2 pipes silently
+  swallow tracing_subscriber's stderr writes; run under cmd.exe /
+  PowerShell / any Linux terminal to see the output (heads-up added to the
+  `-v/-vv/-vvv` help doc).
 - **WS-REDACT-TICKET** — `Tgt` and `ServiceTicket` grow manual `Debug` impls
   that redact `session_key`, `principal_key`, and every ticket + authenticator
   byte behind `<redacted N bytes>`; the `authtime`, `endtime`, `nonce`, `flags`,
