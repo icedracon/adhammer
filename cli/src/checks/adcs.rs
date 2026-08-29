@@ -20,7 +20,34 @@ pub(crate) struct CheckAdcsArgs {
 /// Offline pass — no ACL walk, no CA registry probe, no active enrollment; the
 /// exhaustive ESC pipeline is `adhammer scan` (which fires the parallel
 /// `A-AdcsEsc` rule alongside the graph-based paths).
+///
+/// **1.4.8 WS-CHECK-STAGES**: wraps the impl in a `StageChecklist` so the
+/// end-of-run card breaks the pipeline into `ldap connect → collect templates →
+/// rule pack → render`, matching the shape every `attack` verb already renders
+/// per 1.4.6. Silent in `--json` mode (machine consumers get the raw JSON
+/// envelope only, no diagnostic chrome).
 pub(crate) async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
+    let mut checklist = crate::ui::StageChecklist::new([
+        "ldap connect",
+        "collect templates",
+        "rule pack (ESC1-15)",
+        "render findings",
+    ]);
+    let result = check_adcs_impl(a, &mut checklist).await;
+    // StageChecklist prints to stderr; JSON findings (if `--json`) go to stdout.
+    // Rendering both is safe — captures that redirect only `>` (stdout) stay clean.
+    match &result {
+        Ok(()) => checklist.render("check adcs stages"),
+        Err(_) => checklist.render("check adcs stages (failed)"),
+    }
+    result
+}
+
+async fn check_adcs_impl(
+    a: CheckAdcsArgs,
+    checklist: &mut crate::ui::StageChecklist,
+) -> Result<()> {
+    let json = a.json;
     let cfg = LdapConfig {
         url: a.auth.url.clone(),
         bind_dn: a.auth.user.clone(),
@@ -29,11 +56,36 @@ pub(crate) async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
         insecure: a.auth.insecure,
         gssapi: false,
     };
-    let snap = Collector::connect(&cfg).await?.collect().await?;
+    let collector = match Collector::connect(&cfg).await {
+        Ok(c) => c,
+        Err(e) => {
+            checklist.mark_current_failed(format!("{e:#}"));
+            return Err(e.into());
+        }
+    };
+    checklist.record_ok("ldap connect", a.auth.url.clone());
+
+    let snap = match collector.collect().await {
+        Ok(s) => s,
+        Err(e) => {
+            checklist.mark_current_failed(format!("{e:#}"));
+            return Err(e.into());
+        }
+    };
     let templates =
         adhammer_collector::sources::adcs::templates_from(snap.objects.iter().collect::<Vec<_>>());
+    checklist.record_ok(
+        "collect templates",
+        format!("{} template(s)", templates.len()),
+    );
+
     let findings = adhammer_checks::rules::esc::detect_all(&templates);
-    if a.json {
+    checklist.record_ok(
+        "rule pack (ESC1-15)",
+        format!("{} finding(s)", findings.len()),
+    );
+
+    if json {
         let j = serde_json::to_string_pretty(&findings)?;
         println!("{j}");
     } else {
@@ -53,5 +105,6 @@ pub(crate) async fn check_adcs(a: CheckAdcsArgs) -> Result<()> {
             );
         }
     }
+    checklist.record_ok("render findings", if json { "json" } else { "text" });
     Ok(())
 }
