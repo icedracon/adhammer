@@ -113,6 +113,13 @@ audit-trail; interactive UX gains guardrails against silent password exposure.
   prior notes claimed). `check krb-seal` stays `[SCAFFOLDING]` + `hide_from_help`
   until the Windows-native Wireshark reference capture unblocks it (1.4.8).
 
+### Dependencies
+
+- **windows-sddl** bumped `0.1.1 → 0.1.2` to track the icedracon 2026-08-29
+  windows-* wave (win32-min 0.1.3, windows-token / windows-scm / windows-lsa /
+  windows-eventlog-native all 0.2.1, windows-sddl 0.1.2). Additive-only patch
+  on that side; ADhammer picks up the latest fixes without semver churn.
+
 ### Gate
 
 - `cargo fmt --all` clean.

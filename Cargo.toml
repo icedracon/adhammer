@@ -29,7 +29,7 @@ repository = "https://github.com/icedracon/adhammer"
 [workspace.dependencies]
 # the from-scratch protocol stack, now consumed as standalone published crates
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
-windows-sddl = "0.1.1"
+windows-sddl = "0.1.2"
 ad-acl       = "0.1"
 ntlmssp      = "0.1"
 smb2-client  = "0.2"

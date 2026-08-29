@@ -2954,9 +2954,9 @@ dependencies = [
 
 [[package]]
 name = "windows-sddl"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ef8dadeb5428899e3dde4ce431b1fed4384cec66efcaa0d385e1a40697ddabf"
+checksum = "3bcf4405edb39ab1e36f23bce08c2cd9a08ac1aaf3d8b7fcbb7dba90be20a923"
 dependencies = [
  "bitflags",
  "thiserror 2.0.20",
