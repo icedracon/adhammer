@@ -290,12 +290,25 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 cargo install --locked adhammer
 ```
 
-> **Windows / Defender note.** Windows Defender will heuristically quarantine
-> the compiled `adhammer.exe` during `cargo install`, failing with
-> `Operation did not complete successfully because the file contains a virus
-> or potentially unwanted software. (os error 225)` — the compile itself is
-> fine; Defender flags the final copy from the install temp dir to
-> `~/.cargo/bin/`. To install cleanly, add exclusions once (elevated PowerShell):
+> **Windows one-liner (1.4.8+)** — wraps the Defender exclusion dance around
+> the install. Run in an elevated PowerShell:
+>
+> ```powershell
+> iwr https://raw.githubusercontent.com/icedracon/adhammer/main/docs/install.ps1 | iex
+> ```
+>
+> The script adds a temporary Defender exclusion for `%USERPROFILE%\.cargo`,
+> runs `cargo binstall adhammer` (falls back to `cargo install` if
+> `cargo-binstall` isn't present), removes the exclusion, prints the
+> installed version. Idempotent. See [`docs/install.ps1`](docs/install.ps1)
+> for the source.
+>
+> **Manual path (why the script exists).** Windows Defender heuristically
+> quarantines the compiled `adhammer.exe` during `cargo install`, failing
+> with `Operation did not complete successfully because the file contains a
+> virus or potentially unwanted software. (os error 225)` — the compile
+> itself is fine; Defender flags the final copy from the install temp dir
+> to `~/.cargo/bin/`. Manual install (elevated PowerShell, one-time):
 >
 > ```powershell
 > Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo\bin"
@@ -303,8 +316,6 @@ cargo install --locked adhammer
 > Add-MpPreference -ExclusionProcess "adhammer.exe"
 > cargo install --locked adhammer
 > ```
->
-> Or grab the signed release binary from the [Releases](https://github.com/icedracon/adhammer/releases) page instead — no exclusion needed.
 
 **As a library** — every module importable:
 
