@@ -97,7 +97,7 @@ Every finding in the report is either an audit observation, a supported validati
 
 ## Release Truth
 
-The current workspace version is **1.4.5**.
+The current workspace version is **1.4.7** (2026-08-29).
 
 Public claims for ADhammer should follow three rules:
 
@@ -106,6 +106,10 @@ Public claims for ADhammer should follow three rules:
 - **No public copy should claim more than the validation ledger supports.**
 
 That keeps the README useful across release lines without turning the first screen into a moving archive.
+
+### 1.4.7 highlights
+
+Two P1 security fixes an interactive user can feel immediately: password-equivalent secrets (NT hash, AES256 key, `set-password` value, constrained-delegation password) are now entered through a hidden prompt, and any silent LDAPS→LDAP:389 downgrade requires an explicit `y/N` prompt defaulting to No (a passive sniffer on the same segment used to be able to lift the bind password from a lab DC without an ADCS cert). The HTML report gains a **Control-area coverage** panel (in-house `ADP-01..30` taxonomy, `docs/CONTROL_AREAS.md`), a **Kill-chain coverage** panel in canonical attacker-lifecycle order, a **Report fingerprint** sha256 footer for baseline-diff / archive-by-hash, and a green **hardened-bill-of-health** banner when a run finishes with zero findings. `adhammer-kerberos` hot paths now emit `tracing::debug!` / `trace!` events (AS-REQ, TGS-REQ, WRAP tokens) with an audited redaction discipline — identifier strings + byte counts only, never key bytes or ticket contents. Determinism holds byte-identically across Windows and Kali given the same DC state. Full detail in [CHANGELOG.md](CHANGELOG.md).
 
 <br/>
 
