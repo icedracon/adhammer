@@ -177,6 +177,10 @@ impl AesCts96Sealer {
 
 impl KrbSealer for AesCts96Sealer {
     fn seal_pdu(&mut self, _sign_over: &[u8], stub: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        tracing::trace!(
+            role = ?self.role, stub_len = stub.len(), seq = self.send_seq,
+            "seal_pdu: WRAP token assembly"
+        );
         // Outer wrap header — RRC=28 declares the rotation we're about to apply.
         let mut wrap = WrapToken::sealed(
             self.role.sends_as_acceptor(),
@@ -233,6 +237,13 @@ impl KrbSealer for AesCts96Sealer {
         stub_len: usize,
         auth_value: &[u8],
     ) -> DcerpcResult<Vec<u8>> {
+        tracing::trace!(
+            role = ?self.role,
+            stub_len,
+            auth_value_len = auth_value.len(),
+            expect_seq = self.recv_seq,
+            "unseal_pdu: WRAP token verify"
+        );
         if auth_value.len() != MS_KILE_AUTH_VALUE_LEN {
             return Err(RpcError::Protocol(format!(
                 "auth_value length {} != {MS_KILE_AUTH_VALUE_LEN}",

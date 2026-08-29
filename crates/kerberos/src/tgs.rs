@@ -205,11 +205,17 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     let user = user.split('@').next().unwrap_or(user);
     let user = user.rsplit('\\').next().unwrap_or(user);
     let default_salt = format!("{realm}{user}");
+    tracing::debug!(
+        user, realm = %realm, kdc, cipher = "aes256-cts-hmac-sha1-96",
+        "get_tgt: AS-REQ round-trip start"
+    );
 
     // Step 1 — no pre-auth: expect KRB-ERROR(25 = PREAUTH_REQUIRED) carrying ETYPE-INFO2.
     let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
         .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    tracing::trace!(bytes = raw1.len(), "AS-REQ#1 sent (no pre-auth)");
     let resp1 = kdc_exchange(kdc, &raw1).await?;
+    tracing::trace!(bytes = resp1.len(), "AS-REQ#1 response");
     let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
         default_salt.clone() // pre-auth not required (rare)
     } else {
@@ -247,10 +253,16 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     };
     let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata))?)
         .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
+    tracing::trace!(bytes = raw2.len(), "AS-REQ#2 sent (with PA-ENC-TIMESTAMP)");
     let resp2 = kdc_exchange(kdc, &raw2).await?;
+    tracing::trace!(bytes = resp2.len(), "AS-REQ#2 response");
     let as_rep: AsRep = picky_asn1_der::from_bytes(&resp2).map_err(|e| {
         match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
-            Ok(err) => anyhow!("pre-auth AS-REQ rejected, KDC error {}", err.0.error_code.0),
+            Ok(err) => {
+                let code = err.0.error_code.0;
+                tracing::warn!(code, "KDC rejected pre-auth AS-REQ");
+                anyhow!("pre-auth AS-REQ rejected, KDC error {code}")
+            }
             Err(_) => anyhow!("AS-REP decode: {e}"),
         }
     })?;
@@ -262,6 +274,11 @@ pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Resu
     let enc_part: EncAsRepPart =
         picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
     let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+    tracing::debug!(
+        session_key_len = session_key.len(),
+        etype = enc.etype.0 .0.first().copied().unwrap_or(0),
+        "TGT acquired"
+    );
 
     Ok(Tgt {
         ticket: as_rep.0.ticket.0.clone(),
@@ -279,13 +296,22 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     let realm = realm.to_uppercase();
     let user = user.split('@').next().unwrap_or(user);
     let user = user.rsplit('\\').next().unwrap_or(user);
+    tracing::debug!(
+        user, realm = %realm, kdc, cipher = "aes256-cts-hmac-sha1-96",
+        "asktgt: AS-REQ round-trip start (ccache output path)"
+    );
 
     let cipher = aes256();
     let etype = crate::ETYPE_AES256;
     let default_salt = format!("{realm}{user}");
     let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
         .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    tracing::trace!(
+        bytes = raw1.len(),
+        "AS-REQ#1 sent (no pre-auth, salt discovery)"
+    );
     let resp1 = kdc_exchange(kdc, &raw1).await?;
+    tracing::trace!(bytes = resp1.len(), "AS-REQ#1 response");
     let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
         default_salt.clone()
     } else {
@@ -596,6 +622,11 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
     use picky_krb::constants::key_usages::TGS_REP_ENC_SESSION_KEY;
     use picky_krb::messages::{EncAsRepPart, EncTgsRepPart};
 
+    tracing::debug!(
+        spn, kdc, crealm = %tgt.crealm, etypes = "AES256+RC4",
+        "get_service_ticket: TGS-REQ start"
+    );
+
     let comps: Vec<&str> = spn.split('/').collect();
     let req = build_tgs_req(
         &tgt.crealm,
@@ -609,13 +640,15 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
         // fresh AES128 subkey regardless, so the service-session etype does not matter downstream.
         &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
     )?;
-    let resp = kdc_exchange(
-        kdc,
-        &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("TGS-REQ encode: {e}"))?,
-    )
-    .await?;
-    let tgs_rep: TgsRep =
-        picky_asn1_der::from_bytes(&resp).map_err(|_| anyhow!("TGS-REP: {}", krb_err(&resp)))?;
+    let raw = picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("TGS-REQ encode: {e}"))?;
+    tracing::trace!(bytes = raw.len(), spn, "TGS-REQ sent");
+    let resp = kdc_exchange(kdc, &raw).await?;
+    tracing::trace!(bytes = resp.len(), "TGS-REP response");
+    let tgs_rep: TgsRep = picky_asn1_der::from_bytes(&resp).map_err(|_| {
+        let err_str = krb_err(&resp);
+        tracing::warn!(spn, "TGS-REP: {err_str}");
+        anyhow!("TGS-REP: {err_str}")
+    })?;
 
     // Reply enc-part is sealed under the TGT session key (usage 8). Windows tags it as either
     // EncTGSRepPart (26) or EncASRepPart (25) — accept both.
@@ -626,6 +659,21 @@ pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<Servi
         .or_else(|_| picky_asn1_der::from_bytes::<EncAsRepPart>(&plain).map(|p| p.0))
         .map_err(|e| anyhow!("decode EncKDCRepPart: {e}"))?;
     let session_key = kdc_rep.key.0.key_value.0 .0.clone();
+    tracing::debug!(
+        spn,
+        session_key_len = session_key.len(),
+        rep_etype = tgs_rep
+            .0
+            .enc_part
+            .0
+            .etype
+            .0
+             .0
+            .first()
+            .copied()
+            .unwrap_or(0),
+        "Service ticket acquired"
+    );
 
     Ok(ServiceTicket {
         ticket: tgs_rep.0.ticket.0.clone(),

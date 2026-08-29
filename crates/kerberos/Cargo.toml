@@ -10,6 +10,12 @@ repository.workspace = true
 adhammer-core = { workspace = true }
 anyhow = { workspace = true }
 hex = { workspace = true }
+# 1.4.7 (post P2-E): wire narration on Kerberos hot paths at debug/trace level so
+# `-vv` and `-vvv` actually emit something meaningful on our own crate. Follows the
+# redaction discipline captured in `Redacted<T>` — never log ke/ki/session_key/hash
+# bytes, only lengths, sequence numbers, etypes, and identifier strings (user,
+# realm, spn — those are already sent over the wire in the clear).
+tracing = { workspace = true }
 md4 = { workspace = true }
 md-5 = { workspace = true }
 hmac = { workspace = true }

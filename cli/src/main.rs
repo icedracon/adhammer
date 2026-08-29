@@ -59,13 +59,17 @@ struct Cli {
 
     /// Stackable verbosity like nmap's `-v/-vv/-vvv`. `-v` = info (adhammer's own
     /// major-step narrations — "collected 317 objects", "SMB session established",
-    /// "\\samr pipe open"). `-vv` = debug (adds the handful of adhammer-side debug lines
-    /// in sysvol scan + a few probe helpers). `-vvv` = trace (currently ≈ `-vv` in
-    /// output; the wire-layer crates dcerpc/smb2-client/ntlmssp carry ~zero tracing
-    /// calls today, so per-PDU trace is a 1.4.8 track — the flag is wired so the
-    /// firehose lights up once the calls land). Overrides `RUST_LOG`. Secrets in
-    /// traced structs stay redacted (`***`) via `Redacted<T>` at every level.
-    /// Long-form alias: `--verbose` == `-v`, `--debug` == `-vv`. Legacy compatibility.
+    /// "\\samr pipe open"). `-vv` = debug (adds Kerberos hot-path narration —
+    /// AS-REQ/AS-REP + TGS-REQ/TGS-REP + service-ticket acquisition + sealed WRAP
+    /// token assembly — plus sysvol/probe debug lines). `-vvv` = trace (adds per-PDU
+    /// wire byte-count + sequence number for every Kerberos exchange + WRAP token).
+    /// Wire-layer per-PDU tracing inside the SMB/DCE-RPC/NTLM transports themselves
+    /// is a 1.4.8 track (dcerpc/smb2-client/ntlmssp carry no trace calls yet). Field
+    /// values shown are identifier strings + byte counts + etypes — never key bytes,
+    /// ticket contents, or hashes. Overrides `RUST_LOG`. Long-form alias:
+    /// `--verbose` == `-v`, `--debug` == `-vv`. Note: on Git Bash / MSYS2 pipes on
+    /// Windows the tracing_subscriber stderr writes can be swallowed by the pty
+    /// bridge — see the output under cmd.exe / PowerShell / a Linux terminal.
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     verbosity: u8,
 

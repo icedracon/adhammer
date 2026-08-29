@@ -132,6 +132,7 @@ dependencies = [
  "sha2",
  "smb2-client",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
