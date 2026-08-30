@@ -41,7 +41,7 @@ binaries + `.deb` and upload to GitHub Releases (no crates.io publish).
 | A | WS-SID-HISTORY-INJECT | ✅ shipped | (1.4.8-A #3, `golden` verb) |
 | A | WS-ESC1-EXPLOIT | ✅ shipped | (1.4.8-A #4) |
 | A | WS-ESC3-CHAIN | ✅ shipped | (1.4.8-A #5, `icpr_esc1` verb) |
-| A | WS-UNPAC-FULL | ✅ shipped | (1.4.8-A #6) |
+| A | WS-UNPAC-PKINIT | ✅ shipped | (1.4.8-A #6) |
 | B | WS-PSEXEC | ✅ already-built + doc-name | 569703d |
 | B | WS-WMIEXEC (ex-SEALED) | ✅ already-built + doc-name | 569703d |
 | B | WS-ATEXEC | ✅ already-built + doc-name | 569703d |
@@ -458,7 +458,7 @@ work.
 require sealed DCE-RPC.
 **Effort:** 3-5 days AFTER WS-4-P2 resurrects.
 
-### 27. WS-UNPAC-FULL — Full unPAC-the-hash
+### 27. WS-UNPAC-PKINIT — Full unPAC-the-hash
 
 **What.** After PKINIT (via WS-ESC1-EXPLOIT or shadow-credentials attack),
 extract the NT hash embedded in the PAC's `PAC_CREDENTIAL_INFO` type-2
@@ -546,7 +546,7 @@ crates.** The icedracon ecosystem already covers everything:
 **Phase A — ADCS + fastest wins (7-10 days):**
 - WS-KERBRUTE (1 day) · WS-DIAMOND-TICKET (1 day) · WS-SID-HISTORY-INJECT
   (1 day) · WS-ESC1-EXPLOIT (2-3 days) · WS-ESC3-CHAIN (2 days) ·
-  WS-UNPAC-FULL (2 days)
+  WS-UNPAC-PKINIT (2 days)
 
 **Phase B — Lateral movement (10-14 days):**
 - WS-PSEXEC (2-3 days) · WS-ATEXEC (2 days) · WS-EVIL-WINRM (3-4 days) ·
@@ -584,7 +584,7 @@ is left as a standalone verb the operator has to remember to run.
   closed and no creds provided.
 
 **Phase 1 — Scan-finding-triggered validators (finding X → exploit X):**
-- ESC1 template detected → **WS-ESC1-EXPLOIT** + **WS-UNPAC-FULL** chain
+- ESC1 template detected → **WS-ESC1-EXPLOIT** + **WS-UNPAC-PKINIT** chain
   (arbitrary UPN cert → PKINIT → TGT → NT hash of impersonated principal)
 - ESC3 Enrollment Agent template → **WS-ESC3-CHAIN**
 - ESC8 CA with HTTP enrollment → **WS-ESC8-END-TO-END** (coerce + relay

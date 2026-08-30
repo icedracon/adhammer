@@ -34,7 +34,7 @@ sibling crate stay local this cycle.
   exploit with explicit KB5014754 handling.
 - **WS-ESC3-CHAIN** (`attack icpr-esc1` variants) — per-variant checklist
   builder + doc-name for the ESC3 Enrollment Agent chain.
-- **WS-UNPAC-FULL** (`attack unpac`) — PKINIT with a cert, extract NT hash of
+- **WS-UNPAC-PKINIT** (`attack unpac`) — PKINIT with a cert, extract NT hash of
   the impersonated principal from the AS-REP's `PAC_CREDENTIAL_INFO` padata
   (MS-PAC §2.6); chains into pass-the-hash. New module
   `crates/kerberos/src/unpac.rs` (~320 LOC) with two unit tests + KEY_USAGE

@@ -278,7 +278,7 @@ enum AttackCmd {
     /// timestamps + cname from a legitimate TGT, only PAC groups/SIDs attacker-chosen.
     /// Harder to detect than Golden (no anomalous 10-year validity IOC).
     Diamond(attacks::diamond::DiamondArgs),
-    /// **1.4.8-A WS-UNPAC-FULL.** PKINIT with a cert, extract the NT hash of the
+    /// **1.4.8-A WS-UNPAC-PKINIT.** PKINIT with a cert, extract the NT hash of the
     /// impersonated principal from the AS-REP's PAC_CREDENTIAL_INFO padata (MS-PAC §2.6).
     /// Chains into `attack overpass` / `attack ptt` for pass-the-hash.
     Unpac(attacks::unpac::UnpacArgs),
@@ -746,7 +746,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Golden(a)) => attacks::golden::golden(a).await,
         Command::Attack(AttackCmd::Diamond(a)) => attacks::diamond::diamond(a).await,
         Command::Attack(AttackCmd::Unpac(a)) => attacks::unpac::unpac(a).await,
-        Command::Attack(AttackCmd::DpapiMasterKey(a)) => attacks::dpapi_mk::dpapi_master_key(a).await,
+        Command::Attack(AttackCmd::DpapiMasterKey(a)) => {
+            attacks::dpapi_mk::dpapi_master_key(a).await
+        }
         Command::Attack(AttackCmd::Silver(a)) => attacks::silver::silver(a).await,
         Command::Attack(AttackCmd::Ptt(a)) => {
             // Emit the deprecation notice when the operator reached us through the `pth` alias.

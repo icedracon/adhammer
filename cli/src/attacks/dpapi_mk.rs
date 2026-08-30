@@ -120,7 +120,10 @@ async fn dpapi_impl(a: DpapiMkArgs, checklist: &mut ui::StageChecklist) -> Resul
             );
             let raw = hex_decode(hex).context("--pwdkey must be 40 hex chars")?;
             if raw.len() != 20 {
-                bail!("--pwdkey must be exactly 20 bytes (40 hex chars); got {}", raw.len());
+                bail!(
+                    "--pwdkey must be exactly 20 bytes (40 hex chars); got {}",
+                    raw.len()
+                );
             }
             let key = mk
                 .decrypt_with_key(&raw)

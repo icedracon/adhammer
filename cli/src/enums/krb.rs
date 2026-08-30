@@ -120,7 +120,7 @@ fn load_names(a: &KrbArgs) -> Result<Vec<String>> {
     let path = a
         .userlist
         .as_ref()
-        .expect("clap enforces --user or --userlist");
+        .ok_or_else(|| anyhow::anyhow!("either --user <sam> or --userlist <path> is required"))?;
     let text = std::fs::read_to_string(path).with_context(|| format!("read --userlist {path}"))?;
     Ok(text
         .lines()

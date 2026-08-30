@@ -474,10 +474,19 @@ impl Report {
 
     /// WS-BHG: the "Principal graph" panel — inline BloodHound-style SVG of every principal that
     /// has an edge into/out of a Tier-0 node. Empty string when the caller didn't attach one.
+    ///
+    /// **1.4.8 audit fix:** the raw `bh_svg` string (set via [`Self::with_bh_svg`]) is now
+    /// scrubbed of the classic active-content attack surface — `<script>` /
+    /// `<iframe>` / `<foreignObject>` bodies, `on…=` event handlers, and
+    /// `javascript:` URLs in `href` / `xlink:href` — before being inlined into
+    /// the HTML report. Without this, any principal name / SID / DN from LDAP
+    /// that reached the SVG generator via `graph_bh::to_svg` unescaped would
+    /// execute as script in a browser opening the report.
     fn bh_graph_panel(&self) -> String {
         if self.bh_svg.is_empty() {
             return String::new();
         }
+        let safe_svg = sanitize_svg(&self.bh_svg);
         format!(
             "<section class=panel><h2>Principal graph</h2>\
              <p>Every principal with a direct control-edge into or out of a Tier-0 node — \
@@ -486,7 +495,7 @@ impl Report {
              Pruned to the first {} — the footer shows total vs. drawn.</p>\
              <div class=bh-wrap>{}</div></section>",
             graph_bh::MAX_NODES_DOCS,
-            self.bh_svg
+            safe_svg
         )
     }
 
@@ -1465,6 +1474,161 @@ fn current_utc_date() -> String {
     let days = (dur.as_secs() / 86_400) as i64;
     let (y, m, d) = days_to_ymd(days);
     format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// **1.4.8 audit fix (SVG XSS defence).** Scrubs the classic active-content
+/// attack surface out of an SVG blob before it's inlined into the HTML report:
+/// removes every `<script>...</script>` / `<iframe>...</iframe>` /
+/// `<foreignObject>...</foreignObject>` element (open+content+close),
+/// strips `on*=` event-handler attributes, and neutralises `javascript:` /
+/// `data:` URLs inside `href` / `xlink:href`. Not a full SVG sanitizer
+/// (namespace bypasses, CSS `expression()`, etc. remain) — this is a
+/// defence-in-depth filter for our own graph generator whose only untrusted
+/// input is LDAP-derived text. The primary defence is XML-escape at insertion
+/// in `graph_bh::to_svg`; this filter catches anything that slipped past.
+fn sanitize_svg(svg: &str) -> String {
+    fn strip_element(s: &str, tag: &str) -> String {
+        let open = format!("<{tag}");
+        let close_lower = format!("</{tag}>");
+        let mut out = String::with_capacity(s.len());
+        let mut i = 0usize;
+        let lower = s.to_ascii_lowercase();
+        while i < s.len() {
+            let rest_lower = &lower[i..];
+            match rest_lower.find(open.as_str()) {
+                Some(rel_start) => {
+                    out.push_str(&s[i..i + rel_start]);
+                    let elem_start = i + rel_start;
+                    let after_open_lower = &lower[elem_start + open.len()..];
+                    let bounded = after_open_lower.starts_with(|c: char| c.is_ascii_whitespace())
+                        || after_open_lower.starts_with('>')
+                        || after_open_lower.starts_with('/');
+                    if !bounded {
+                        out.push_str(&s[elem_start..elem_start + open.len()]);
+                        i = elem_start + open.len();
+                        continue;
+                    }
+                    let elem_rest_lower = &lower[elem_start..];
+                    match elem_rest_lower.find(close_lower.as_str()) {
+                        Some(rel_close) => {
+                            i = elem_start + rel_close + close_lower.len();
+                        }
+                        None => {
+                            i = s.len();
+                        }
+                    }
+                }
+                None => {
+                    out.push_str(&s[i..]);
+                    break;
+                }
+            }
+        }
+        out
+    }
+    let mut out = svg.to_string();
+    for tag in &["script", "iframe", "foreignobject"] {
+        out = strip_element(&out, tag);
+    }
+    // Regex-free attribute scrub: rebuild the string, skipping any run that
+    // matches an `on…=` handler or a `javascript:` / `data:` URL inside
+    // href / xlink:href. Case-insensitive.
+    let lower = out.to_ascii_lowercase();
+    let mut cleaned = String::with_capacity(out.len());
+    let bytes = out.as_bytes();
+    let lb = lower.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let starts_on_handler =
+            lb.get(i).copied() == Some(b'o') && lb.get(i + 1).copied() == Some(b'n');
+        let is_boundary = i == 0
+            || matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b'\r')
+            || bytes[i - 1] == b'"'
+            || bytes[i - 1] == b'\'';
+        if starts_on_handler && is_boundary {
+            let mut j = i + 2;
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'-') {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                j += 1;
+                if j < bytes.len() && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                    let quote = bytes[j];
+                    j += 1;
+                    while j < bytes.len() && bytes[j] != quote {
+                        j += 1;
+                    }
+                    if j < bytes.len() {
+                        j += 1;
+                    }
+                } else {
+                    while j < bytes.len() && !bytes[j].is_ascii_whitespace() && bytes[j] != b'>' {
+                        j += 1;
+                    }
+                }
+                i = j;
+                continue;
+            }
+        }
+        cleaned.push(bytes[i] as char);
+        i += 1;
+    }
+    // Neutralise dangerous URL schemes in href/xlink:href by replacing the
+    // scheme prefix with a safe #. Case-insensitive prefix match on the value.
+    cleaned = cleaned
+        .replace("href=\"javascript:", "href=\"#blocked-")
+        .replace("href='javascript:", "href='#blocked-")
+        .replace("href=\"data:", "href=\"#blocked-")
+        .replace("href='data:", "href='#blocked-")
+        .replace("xlink:href=\"javascript:", "xlink:href=\"#blocked-")
+        .replace("xlink:href='javascript:", "xlink:href='#blocked-")
+        .replace("xlink:href=\"data:", "xlink:href=\"#blocked-")
+        .replace("xlink:href='data:", "xlink:href='#blocked-");
+    cleaned
+}
+
+#[cfg(test)]
+mod sanitize_svg_tests {
+    use super::sanitize_svg;
+
+    #[test]
+    fn strips_script_tag() {
+        let dirty = "<svg><script>alert(1)</script><circle r=1/></svg>";
+        let out = sanitize_svg(dirty);
+        assert!(!out.contains("alert"));
+        assert!(!out.to_ascii_lowercase().contains("<script"));
+    }
+
+    #[test]
+    fn strips_on_handlers() {
+        let dirty = "<svg onload=\"alert(1)\"><circle onclick='x()' r=1/></svg>";
+        let out = sanitize_svg(dirty);
+        assert!(!out.to_ascii_lowercase().contains("onload"));
+        assert!(!out.to_ascii_lowercase().contains("onclick"));
+        assert!(!out.contains("alert"));
+    }
+
+    #[test]
+    fn strips_javascript_href() {
+        let dirty = "<svg><a href=\"javascript:alert(1)\">x</a></svg>";
+        let out = sanitize_svg(dirty);
+        assert!(!out.contains("javascript:"));
+        assert!(out.contains("#blocked-"));
+    }
+
+    #[test]
+    fn preserves_normal_svg() {
+        let clean = "<svg><circle cx=10 cy=10 r=5 fill=blue/></svg>";
+        assert_eq!(sanitize_svg(clean), clean);
+    }
+
+    #[test]
+    fn strips_foreignobject_with_html() {
+        let dirty = "<svg><foreignObject><body><script>x</script></body></foreignObject></svg>";
+        let out = sanitize_svg(dirty);
+        assert!(!out.to_ascii_lowercase().contains("<foreignobject"));
+        assert!(!out.contains("<script"));
+    }
 }
 
 /// Civil-from-days algorithm (Howard Hinnant) — converts days-since-epoch to

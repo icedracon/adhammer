@@ -1,4 +1,4 @@
-//! **1.4.8-A WS-UNPAC-FULL** — unPAC-the-hash: extract the NT hash of an
+//! **1.4.8-A WS-UNPAC-PKINIT** — unPAC-the-hash: extract the NT hash of an
 //! impersonated principal out of a PAC's `PAC_CREDENTIAL_INFO` (ulType=2) buffer.
 //!
 //! The attack chain:
@@ -44,22 +44,59 @@ pub const KEY_USAGE_KERB_NON_KERB_SALT: i32 = 16;
 /// always populated on a successful extraction (the reason we ran this attack).
 /// `lm_hash` is typically all-zero on modern DCs — surfaced when non-zero for
 /// completeness, `None` when the flags bit says LM not present.
-#[derive(Clone, Debug)]
+///
+/// **1.4.8 audit fix:** `Debug` is manually implemented (not derived) so
+/// `tracing::debug!("{creds:?}")` — or any bug report the user might paste —
+/// prints `nt_hash=*** lm_hash=***` instead of the raw hex. Access the raw
+/// bytes with [`Self::nt_hash_bytes`] / [`Self::lm_hash_bytes`], both
+/// greppable at every call site for audit. Same discipline as
+/// `adhammer_core::Redacted<T>`.
+#[derive(Clone)]
 pub struct UnpacCreds {
-    /// 16-byte NT hash of the impersonated principal (hashcat `-m 1000`).
-    pub nt_hash: [u8; 16],
-    /// Optional 16-byte LM hash. `Some` only when the buffer's Flags bit 0 is
-    /// set AND the bytes are not all zero — modern DCs strip LM by policy.
-    pub lm_hash: Option<[u8; 16]>,
+    nt_hash: [u8; 16],
+    lm_hash: Option<[u8; 16]>,
     /// Package name from the `SECPKG_SUPPLEMENTAL_CRED` header. Almost always
     /// `"NTLM"` — kept for the rare case of Kerberos-plus-other-package.
     pub package: String,
 }
 
+impl std::fmt::Debug for UnpacCreds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnpacCreds")
+            .field("nt_hash", &"***")
+            .field("lm_hash", &self.lm_hash.map(|_| "***"))
+            .field("package", &self.package)
+            .finish()
+    }
+}
+
 impl UnpacCreds {
+    /// Wrap raw hash bytes. Every call site that constructs one of these is
+    /// pushing an actual secret into memory — greppable via `git grep 'UnpacCreds::new'`.
+    pub fn new(nt_hash: [u8; 16], lm_hash: Option<[u8; 16]>, package: String) -> Self {
+        Self {
+            nt_hash,
+            lm_hash,
+            package,
+        }
+    }
+
+    /// Deliberate escape hatch — the raw 16-byte NT hash. Every call is
+    /// greppable via `git grep '\.nt_hash_bytes('` for audit.
+    pub fn nt_hash_bytes(&self) -> &[u8; 16] {
+        &self.nt_hash
+    }
+
+    /// Deliberate escape hatch — the raw 16-byte LM hash if present. Every
+    /// call is greppable via `git grep '\.lm_hash_bytes('` for audit.
+    pub fn lm_hash_bytes(&self) -> Option<&[u8; 16]> {
+        self.lm_hash.as_ref()
+    }
+
     /// Human-readable hex line of the NT hash. Matches `dcsync` /
     /// `secretsdump` output format so downstream `attack ptt` / `attack spray
-    /// --hash` can consume it directly.
+    /// --hash` can consume it directly. Deliberate leak — the whole point of
+    /// the WS-UNPAC-PKINIT verb is to emit the hash to the operator's stdout.
     pub fn nt_hex(&self) -> String {
         self.nt_hash
             .iter()
@@ -312,11 +349,7 @@ fn parse_pac_credential_data(plain: &[u8]) -> Result<UnpacCreds> {
     } else {
         None
     };
-    Ok(UnpacCreds {
-        nt_hash,
-        lm_hash: lm,
-        package,
-    })
+    Ok(UnpacCreds::new(nt_hash, lm, package))
 }
 
 /// Walk a PKINIT AS-REP's `encrypted_pa_data` list (see
@@ -427,9 +460,10 @@ mod tests {
 
         let creds =
             parse_pac_credential_data(&buf).expect("parse hand-crafted PAC_CREDENTIAL_DATA");
-        assert_eq!(creds.nt_hash, nt_needle);
+        assert_eq!(creds.nt_hash_bytes(), &nt_needle);
         assert_eq!(
-            creds.lm_hash, None,
+            creds.lm_hash_bytes(),
+            None,
             "LM zeros → None (flag says not present)"
         );
         assert_eq!(creds.package, "NTLM");

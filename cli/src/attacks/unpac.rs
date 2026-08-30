@@ -1,4 +1,4 @@
-//! **1.4.8-A WS-UNPAC-FULL.** `attack unpac` — PKINIT with a cert, then
+//! **1.4.8-A WS-UNPAC-PKINIT.** `attack unpac` — PKINIT with a cert, then
 //! extract the NT hash of the impersonated principal out of the AS-REP's
 //! `PAC_CREDENTIAL_INFO` padata.
 //!
@@ -143,7 +143,7 @@ async fn unpac_impl(a: UnpacArgs, checklist: &mut ui::StageChecklist) -> Result<
 
     println!("[+] NT hash of {}@{}:", a.user, a.realm);
     println!("    {}", creds.nt_hex());
-    if let Some(lm) = &creds.lm_hash {
+    if let Some(lm) = creds.lm_hash_bytes() {
         let hex: String = lm.iter().fold(String::new(), |mut s, b| {
             use std::fmt::Write;
             write!(s, "{b:02x}").unwrap();
