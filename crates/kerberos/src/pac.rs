@@ -99,6 +99,7 @@ mod wired {
     ///   template's, and
     /// - inherits the template's timestamps (auth_time / endtime / renew_till)
     ///   exactly, byte-for-byte.
+    ///
     /// The last property is what makes the ticket "diamond" — its clock domain
     /// matches the KDC's real clock, not `far_future_time()`.
     #[test]

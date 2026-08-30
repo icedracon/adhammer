@@ -1097,6 +1097,10 @@ fn forge_ticket(
 /// Same as [`forge_ticket`], but any populated field of `ts` overrides the
 /// now/far-future defaults. Diamond ticket forge uses this to inherit real
 /// KDC-issued timestamps from a legit TGT.
+///
+/// (Kept as an 8-arg fn rather than bundled into a context struct — every arg
+/// here is already deliberate and separately controlled by the caller.)
+#[allow(clippy::too_many_arguments)]
 fn forge_ticket_with_timestamps(
     id: &crate::pac::ForgeIdentity,
     realm: &str,

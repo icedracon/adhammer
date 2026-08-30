@@ -25,7 +25,7 @@
 //! (`NTLM_SUPPLEMENTAL_CREDENTIAL`).
 
 use anyhow::{anyhow, bail, Context, Result};
-use picky_krb::crypto::{Cipher, CipherSuite};
+use picky_krb::crypto::CipherSuite;
 
 // tracing macros are used only in try_unpac_from_encrypted_pa_data — this
 // suppresses unused-import lints when that fn is compiled out of a downstream
