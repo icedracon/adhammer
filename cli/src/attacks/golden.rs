@@ -37,11 +37,23 @@ pub(crate) struct GoldenArgs {
     /// Optional live acceptance proof: request a service ticket for this SPN with the forged TGT.
     #[arg(long)]
     pub verify_spn: Option<String>,
-    /// Foreign-forest SID(s) to inject into the PAC's SidHistory (ExtraSids field).
-    /// Format: full S-1-5-21-...-RID SID string. Repeat --foreign-sid or comma-separate for
-    /// multiple. On a trusting forest with SID filtering disabled (or misconfigured — e.g.
-    /// intra-forest child-domain trust where SIDHistory is NOT filtered), the KDC authorizes
-    /// as the injected principal without needing that forest's krbtgt.
+    /// **1.4.8-A WS-SID-HISTORY-INJECT.** Foreign-forest / cross-domain SID(s) to inject
+    /// into the PAC's `ExtraSids` field (KERB_VALIDATION_INFO.SidCount, MS-PAC §2.5).
+    /// This is the SID-history-injection attack: from a compromised child domain, forge
+    /// a Golden ticket that carries the ROOT-domain Enterprise Admins SID
+    /// (`S-1-5-21-<root-forest>-519`) as an ExtraSid. On a trusting forest with SID
+    /// filtering disabled — or a same-forest child-domain trust where SIDHistory is not
+    /// filtered by default — the KDC authorizes the forged principal AS the injected
+    /// group without needing the trusting forest's krbtgt key.
+    ///
+    /// Repeat `--foreign-sid` or comma-separate for multiple. Format: full
+    /// `S-1-5-21-...-RID`. Only identifier authority 5 (NT_AUTHORITY) accepted —
+    /// ExtraSids is a domain/forest-SID-only field.
+    ///
+    /// Canonical example (child → root Enterprise Admins):
+    ///   `adhammer attack golden --realm CHILD.CORP.LOCAL --krbtgt-aes256 <hex>
+    ///    --domain-sid S-1-5-21-1-2-3 --user Administrator --rid 500
+    ///    --foreign-sid S-1-5-21-10-20-30-519 --out ea.ccache`
     #[arg(long, value_delimiter = ',')]
     pub foreign_sid: Vec<String>,
 }

