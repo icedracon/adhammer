@@ -1,6 +1,14 @@
-//! NTLM relay: receive a coerced/poisoned SMB victim and relay their auth to
-//! LDAP (Shadow Credentials or RBCD write), AD CS Web Enrollment (ESC8), or
-//! MS-ICPR (ESC11). Pair with `attack coerce`/`attack poison`.
+//! **1.4.8-D WS-NTLMRELAYX-SMB-LDAP.** NTLM relay: receive a coerced/poisoned
+//! SMB victim (`smb2_client::server::RelayConn::listen`) and relay their auth to
+//! - **LDAP** (Shadow Credentials write to `msDS-KeyCredentialLink`, or RBCD
+//!   write to `msDS-AllowedToActOnBehalfOfOtherIdentity`),
+//! - **AD CS Web Enrollment** (ESC8 — see also [`super::adcs_relay`] for the
+//!   dedicated CA-side verb), or
+//! - **MS-ICPR** (ESC11 — MS-WCCE over DCE/RPC).
+//!
+//! Pair with `attack coerce` (**1.4.8-D WS-COERCE-SENDER**) or `attack poison`
+//! (**1.4.8-D WS-LLMNR-POISON**) as the front-half that lures traffic to the
+//! listener.
 
 use anyhow::{Context, Result};
 use clap::Parser;

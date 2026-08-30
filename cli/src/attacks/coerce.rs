@@ -1,5 +1,9 @@
-//! DC authentication coercion via PrinterBug (MS-RPRN), PetitPotam (MS-EFSR),
-//! DFSCoerce (MS-DFSNM), and ShadowyCoerce (MS-FSRVP).
+//! **1.4.8-D WS-COERCE-SENDER.** DC authentication coercion via PrinterBug
+//! (MS-RPRN), PetitPotam (MS-EFSR), DFSCoerce (MS-DFSNM), and ShadowyCoerce
+//! (MS-FSRVP). Sender side only — pair with `attack relay` on 445
+//! (**1.4.8-D WS-NTLMRELAYX-SMB-LDAP**) for the listener that captures the
+//! DC's NetNTLMv2 and forwards it. The two verbs together = the full
+//! "WS-COERCE-LISTENER" chain from the 1.4.8 plan.
 
 use anyhow::Result;
 use clap::Parser;

@@ -1,4 +1,5 @@
-//! ESC8 — NTLM-over-HTTP relay to AD CS Web Enrollment.
+//! **1.4.8-D WS-ESC8-END-TO-END.** ESC8 — NTLM-over-HTTP relay to AD CS Web
+//! Enrollment.
 //!
 //! Given a victim's SMB NTLM (received via `smb2_client::server::RelayConn`), forward the
 //! Type1/Type3 messages to the CA's `/certsrv` HTTP endpoint, submit a fresh CSR through the

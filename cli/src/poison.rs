@@ -1,7 +1,9 @@
-//! LLMNR + NBT-NS name poisoning — the Responder "lure" side. When a host fails DNS and
-//! falls back to LLMNR (UDP 5355, multicast 224.0.0.252) or NBT-NS (UDP 137, broadcast), we
-//! answer with our IP; the victim then connects to us and (with `attack capture` on 445) its
-//! NetNTLMv2 is captured. Runs until Ctrl-C.
+//! **1.4.8-D WS-LLMNR-POISON.** LLMNR + NBT-NS name poisoning — the responder
+//! "lure" side. When a host fails DNS and falls back to LLMNR (UDP 5355,
+//! multicast 224.0.0.252) or NBT-NS (UDP 137, broadcast), we answer with our
+//! IP; the victim then connects to us and — paired with `attack relay` on
+//! 445 (**1.4.8-D WS-NTLMRELAYX-SMB-LDAP**) — its NetNTLMv2 is captured and
+//! forwarded to a chosen relay target. Runs until Ctrl-C.
 
 use anyhow::{Context, Result};
 use std::net::Ipv4Addr;

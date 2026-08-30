@@ -1,6 +1,11 @@
-//! Local secretsdump: pull SAM + LSA over MS-RRP where possible, fall back to
-//! `reg save` hive pulls when Remote Registry is off. Decrypts local NT hashes
-//! and LSA secrets (including DCC2 cached logons) offline.
+//! **1.4.8-C WS-SAM-SECURITY-DUMP.** Local secretsdump: pull SAM + SECURITY +
+//! (implicit) SYSTEM over MS-RRP where possible, fall back to `reg save` hive
+//! pulls when Remote Registry is off. Decrypts local NT hashes and LSA secrets
+//! (including DCC2 cached logons) offline via the SYSKEY chain
+//! (`adhammer_secrets::local_dump` / `local_lsa`). Fast path: bootkey via
+//! `dcerpc::rrp` class-name walk → SAM + LSA decrypted without 15 MB hive
+//! downloads. Slow path: `reg save HKLM\{SAM,SECURITY,SYSTEM}` as LocalSystem
+//! + C\$ pull. Both end at the same offline decrypt.
 
 use anyhow::{Context, Result};
 use clap::Parser;

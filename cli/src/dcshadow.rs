@@ -1,5 +1,6 @@
-//! DCShadow — register a rogue nTDSDSA and (optionally) push a modification back
-//! through DRSUAPI as if we were a legitimate replicating peer.
+//! **1.4.8-F WS-DCSHADOW-DRSR.** DCShadow — register a rogue nTDSDSA and
+//! (optionally) push a modification back through DRSUAPI as if we were a
+//! legitimate replicating peer.
 //!
 //! Two code paths ship here:
 //!
