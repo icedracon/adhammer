@@ -37,5 +37,6 @@ pub(crate) mod shadowcred;
 pub(crate) mod silver;
 pub(crate) mod spray;
 pub(crate) mod unconstrained;
+pub(crate) mod unpac;
 pub(crate) mod winrm_exec;
 pub(crate) mod zerologon;

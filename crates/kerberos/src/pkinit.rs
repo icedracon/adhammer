@@ -369,6 +369,16 @@ pub struct PkinitTgt {
     pub session_key: adhammer_core::Redacted<Vec<u8>>,
     pub end_time: String,
     pub sname: String,
+    /// **1.4.8-A WS-UNPAC-FULL**: raw padata entries from the AS-REP's `EncKDCRepPart`.
+    /// `encrypted_pa_data` per RFC 4120 §5.4.2 — most fields decode cleanly, but the
+    /// KDC ALSO uses this bag for MS-KILE PAC_CREDENTIAL_INFO delivery to PKINIT
+    /// clients. See [`crate::unpac::try_unpac_from_encrypted_pa_data`] to walk this
+    /// list and extract the NT hash of the impersonated principal.
+    ///
+    /// Each entry is `(padata_type, padata_data)` with the outer ASN.1 wrapper
+    /// already stripped — same shape a caller would see if they walked
+    /// `EncKDCRepPart.encrypted_pa_data` themselves.
+    pub encrypted_pa_data: Vec<(u32, Vec<u8>)>,
 }
 
 /// Authenticate to `kdc` as `target_user@realm` using the private key whose public half is
@@ -647,6 +657,28 @@ pub async fn pkinit_with_cert(
     let enc_part: EncAsRepPart =
         picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
     let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+    // WS-UNPAC-FULL: capture the encrypted-pa-data so downstream can search for
+    // MS-KILE PAC_CREDENTIAL_INFO. Empty on tickets where the KDC didn't return
+    // any supplemental padata.
+    let encrypted_pa_data: Vec<(u32, Vec<u8>)> = enc_part
+        .0
+        .encrypted_pa_data
+        .0
+        .as_ref()
+        .map(|seq| {
+            seq.0
+                 .0
+                .iter()
+                .map(|pa| {
+                    let ty_bytes = &pa.padata_type.0 .0;
+                    let ty = ty_bytes
+                        .iter()
+                        .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                    (ty, pa.padata_data.0 .0.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let ccache = build_ccache(&as_rep, &enc_part, &realm, user)?;
     let end_time = format!(
@@ -663,6 +695,7 @@ pub async fn pkinit_with_cert(
         session_key: adhammer_core::Redacted::new(session_key),
         end_time,
         sname: format!("krbtgt/{realm}"),
+        encrypted_pa_data,
     })
 }
 

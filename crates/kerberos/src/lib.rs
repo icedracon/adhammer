@@ -32,6 +32,7 @@ pub mod pkinit;
 pub mod rc4;
 pub mod shadowcred;
 mod tgs;
+pub mod unpac;
 pub use tgs::{
     asktgt, build_ap_req_gss, build_ap_req_gss_aes256, check_credential, forge_diamond_tgt,
     forge_golden_tgt, forge_silver_tgt, get_service_ticket, get_tgt, golden_ccache,
