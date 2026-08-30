@@ -14,6 +14,7 @@ pub(crate) mod asktgt;
 pub(crate) mod badsuccessor;
 pub(crate) mod coerce;
 pub(crate) mod dcsync;
+pub(crate) mod diamond;
 pub(crate) mod dns;
 pub(crate) mod esc1;
 pub(crate) mod esc4;

