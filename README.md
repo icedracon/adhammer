@@ -339,7 +339,7 @@ Grab the latest from **[Releases →](https://github.com/icedracon/adhammer/rele
 </tr>
 </table>
 
-Requires **Rust 1.87+** to build from source. Tested on Kali, Ubuntu, Debian, macOS, and native Windows.
+Requires **Rust 1.88+** to build from source (bumped in 1.4.8 to pull the `time 0.3.47` DoS fix, RUSTSEC-2026-0009). Tested on Kali, Ubuntu, Debian, macOS, and native Windows.
 
 <br/>
 
