@@ -64,7 +64,8 @@ struct Cli {
     /// token assembly — plus sysvol/probe debug lines). `-vvv` = trace (adds per-PDU
     /// wire byte-count + sequence number for every Kerberos exchange + WRAP token).
     /// Wire-layer per-PDU tracing inside the SMB/DCE-RPC/NTLM transports themselves
-    /// is a 1.4.8 track (dcerpc/smb2-client/ntlmssp carry no trace calls yet). Field
+    /// (WS-WIRE-TRACE, dcerpc/smb2-client/ntlmssp) is planned but halted for the
+    /// upstream sibling-crate publish cascade (see `docs/PLAN_1.4.8.md` §3). Field
     /// values shown are identifier strings + byte counts + etypes — never key bytes,
     /// ticket contents, or hashes. Overrides `RUST_LOG`. Long-form alias:
     /// `--verbose` == `-v`, `--debug` == `-vv`. Note: on Git Bash / MSYS2 pipes on
@@ -92,7 +93,7 @@ struct Cli {
 enum Command {
     /// Passive audit: LDAP collection → control-path graph → scored checks → report.
     Scan(attacks::scan::ScanArgs),
-    /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions/**krb-users** (Kerberos user enum, no LDAP creds needed).
+    /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions/krb-users (Kerberos user enum, no LDAP creds needed).
     #[command(subcommand)]
     Enum(EnumCmd),
     /// Active attacks: roast/spray/abuse/coerce/poison/relay/RBCD/DCSync/exec/wmiexec/atexec/winrm/secretsdump/gmsa/LAPS/ESC1/icpr-esc1/ESC4/adcs-relay/golden/diamond/unpac/silver/PtT/asktgt/unconstrained/BadSuccessor/DCShadow/MSSQL/DNS/zerologon/shadowcred.
@@ -514,7 +515,9 @@ fn build_tracing_filter(verbosity: u8, debug_alias: bool) -> tracing_subscriber:
 /// trace verbosity so the log filter is ready for the wire mechanism (BIND, AUTH3,
 /// sealed WRAP, NDR decode, TGS-REQ/REP, LDAP search/response) — most of that wire
 /// trace ISN'T emitted yet (dcerpc/smb2-client/ntlmssp carry ~zero trace/debug calls
-/// today, 1.4.8 track), but adhammer's own INFO narrations DO fire under the
+/// today; WS-WIRE-TRACE is planned but halted for the upstream sibling-crate
+/// publish cascade — see `docs/PLAN_1.4.8.md` §3), but adhammer's own INFO
+/// narrations DO fire under the
 /// StageChecklist. `-v` counts the user typed still layer on but can't drop below
 /// trace. `--quiet-interactive` opts out (demos / screenshots). Scripted subcommand
 /// paths (`adhammer scan …` etc.) are unaffected — they keep their default-warn /
