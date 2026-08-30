@@ -46,6 +46,13 @@ ms-gkdi      = "0.1"
 # TDS 7.4 client (MSSQL). Used by `attack mssql` (WS-1, 1.4.1) — xp_cmdshell
 # and EXECUTE AS impersonation chains over an NTLM-authenticated session.
 ms-tds       = "0.1.1"
+# DPAPI offline — parse + decrypt user masterkey files. Used by
+# `attack dpapi-master-key` (1.4.8-B WS-DPAPI-MASTER-KEY). 0.1.1 fixes the
+# masterkey chain to route through Windows's non-standard PBKDF2 variant
+# (byte-oracle-validated on Server 2025); the blob-decrypt path is not yet
+# e2e-validated so `attack dpapi-master-key` returns the 64-byte master key
+# and leaves blob unwrap for a follow-up verb.
+dpapi-offline = "0.1.1"
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "1.4.7" }
 adhammer-collector = { path = "crates/collector", version = "1.4.7", default-features = false }

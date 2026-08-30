@@ -16,6 +16,7 @@ pub(crate) mod coerce;
 pub(crate) mod dcsync;
 pub(crate) mod diamond;
 pub(crate) mod dns;
+pub(crate) mod dpapi_mk;
 pub(crate) mod esc1;
 pub(crate) mod esc4;
 pub(crate) mod exec_pack;

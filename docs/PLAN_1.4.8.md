@@ -13,17 +13,26 @@ publish incrementally on `main` and cut the tag once all vectors green.
 
 ## Status snapshot — 2026-08-30 (shipped, tag pending)
 
-**17 of 20 capability-expansion vectors LIVE on `main`** — either implemented
-this release (Phase A) or discovered already-built and doc-named to plan
-(Phase B, C, D, F). No new third-party deps this release; only sibling
-icedracon crates (which are all bumped-only-on-need per SemVer minimum-bump
-rule). CI green as of `70a6a4c`; workspace version bumped 1.4.7 → 1.4.8
-(commit `0800534`); CHANGELOG / README / VECTORS all refreshed.
-Nothing published to crates.io this cycle (per "1.4.8 all local first"
-user directive); sibling icedracon crates unchanged this release.
-`git tag v1.4.8` cut is pending explicit user OK — a tag push will
-trigger the WS-BINSTALL / WS-DEB-PACKAGE CI matrix to build prebuilt
-binaries + `.deb` and upload to GitHub Releases.
+**18 of 19 capability-expansion vectors LIVE on `main`.** (Original 20 became
+19 after WS-SKELETON-KEY was permanently dropped from the plan — value
+strictly duplicated by WS-GOLDEN-TICKET persistence + worse AV surface,
+per-Windows-version binary shim; not 1.4.8-shaped work.) 6 net-new
+implementations this cycle (Phase A) + 11 already-built primitives
+doc-named to plan (Phase B/C/D/F) + WS-DPAPI-MASTER-KEY landed after
+the initial snapshot when live-validation on Server 2025 became possible.
+
+Sibling icedracon crate published this cycle: **dpapi-offline 0.1.1** —
+fixes the masterkey chain to route through Windows's non-standard PBKDF2
+variant (`ms_derive_key`) + adds MD4 + Protected-Users pre-key
+derivations. Byte-oracle-validated on a live Server 2025 domain
+Administrator masterkey; 176-byte MK subfield lives inline as
+`KAT_MK_SUBFIELD` in dpapi-offline `masterkey::tests`. Nothing else
+published to crates.io this cycle; user directive is "all is local
+after this."
+
+Only ADhammer-side artifact left to cut: `git tag v1.4.8`. A tag push
+triggers the WS-BINSTALL / WS-DEB-PACKAGE CI matrix to build prebuilt
+binaries + `.deb` and upload to GitHub Releases (no crates.io publish).
 
 | Phase | Vector | State | Anchor commit |
 |---|---|---|---|
@@ -38,50 +47,68 @@ binaries + `.deb` and upload to GitHub Releases.
 | B | WS-ATEXEC | ✅ already-built + doc-name | 569703d |
 | B | WS-EVIL-WINRM | ✅ already-built + doc-name | 569703d |
 | B | WS-DELEGATION-CAPTURE | ⚠️ recon-only | 569703d (partial) |
-| B | WS-DPAPI-MASTER-KEY | ❌ DEFERRED | see below |
+| B | WS-DPAPI-MASTER-KEY | ✅ shipped (post-snapshot) | 18/19 push |
 | C | WS-SAM-SECURITY-DUMP | ✅ already-built + doc-name | 786e133 |
 | C | WS-NTDS-OFFLINE | ❌ DEFERRED | see below |
 | D | WS-NTLMRELAYX-SMB-LDAP | ✅ already-built + doc-name | 786e133 |
 | D | WS-COERCE-SENDER | ✅ already-built + doc-name | 786e133 |
 | D | WS-LLMNR-POISON | ✅ already-built + doc-name | 786e133 |
 | D | WS-ESC8-END-TO-END | ✅ already-built + doc-name | 786e133 |
-| E | WS-SKELETON-KEY | ❌ DEFERRED | see below |
+| — | ~~WS-SKELETON-KEY~~ | ❌ DROPPED (plan-cut) | see below |
 | F | WS-DCSHADOW-DRSR | ✅ already-built + doc-name | 786e133 |
 
-### The 3 deferred vectors
+### The 1 remaining deferred vector (down from 3)
 
-**WS-DPAPI-MASTER-KEY.** Sibling `dpapi-offline` crate has KAT-validated
-primitives (PBKDF2 / HMAC-SHA1 / HMAC-SHA512) and validated masterkey-file
-parser, but the full masterkey-decrypt chain is **not yet e2e-validated
-against a real masterkey file** — the crate itself flags this explicitly in
-its `VALIDATION STATUS` block. Shipping an ADhammer verb on top of an
-unvalidated crypto chain violates the "cut what doesn't work" rule. Defer
-until either (a) the dpapi-offline `test_real_masterkey` test passes on the
-testlab, or (b) MS-BKRP `RESTORE_GUID` path lands (needs domain-key
-subfield parse on top of dpapi-offline's current header-only parse).
+**WS-NTDS-OFFLINE — deferred to 1.4.9.** Sibling `ese-parser` is at v0.1
+scope (668-byte header + random-access page read); B-tree walk, catalog
+decode, row/tag decode are v0.2 roadmap. Downstream `ntds-parse` crate is
+planned but not published. Offline NTDS.dit-file parsing therefore has no
+in-house parser to layer on. The live-DCSync path (`attack dcsync`)
+already covers the same output (NT hashes + krbtgt + trust keys) via
+DRSUAPI — deferring the offline variant to the ese-parser v0.2 milestone
+as the 1.4.9 headline feature.
 
-**WS-NTDS-OFFLINE.** Sibling `ese-parser` is at v0.1 scope (668-byte header
-+ random-access page read); B-tree walk, catalog decode, row/tag decode are
-v0.2 roadmap. Downstream `ntds-parse` crate is planned but not published.
-Offline NTDS.dit-file parsing therefore has no in-house parser to layer on.
-The live-DCSync path (`attack dcsync`) already covers the same output
-(NT hashes + krbtgt + trust keys) via DRSUAPI — deferring the offline
-variant to the ese-parser v0.2 milestone.
+### Post-snapshot: WS-DPAPI-MASTER-KEY moved deferred → LIVE
 
-**WS-SKELETON-KEY.** LSA memory patch of lsass.exe on the DC. Requires (a)
-LocalSystem code-exec on DC (which post-DA already gives us via WS-PSEXEC /
-WS-WMIEXEC / WS-ATEXEC), (b) a machine-code shim that writes to lsass
-memory in a way that survives Credential Guard / VBS, and (c) heavy AV/EDR
-tolerance. The persistence value is largely duplicated by
-WS-GOLDEN-TICKET already (both give "log in as any user after DA"), the
-detection surface is worse, and the implementation is a
-per-Windows-version binary shim. Not a 1.4.8 item.
+Original snapshot marked WS-DPAPI-MASTER-KEY deferred because sibling
+`dpapi-offline` was "primitives + parsers KAT-validated but full chain
+NOT YET VALIDATED e2e." Live-verifying on Kali against a Server 2025
+Administrator masterkey (DC01, 192.168.91.20) revealed the actual bug:
+`dpapi-offline` was using standard RFC 8018 PBKDF2, but Windows DPAPI
+uses a **non-standard variant** that feeds the running XOR back into
+the PRF at every round. Impacket 0.14 was the byte-oracle.
+
+Fix landed as `dpapi-offline 0.1.1` (published to crates.io as the
+enabler for this ship, before the "all is local" rule kicked in):
+- `crypto::ms_derive_key` — the Windows variant with full docstring
+  explaining exactly how it diverges from RFC 8018.
+- `crypto::md4` + `crypto::pbkdf2_sha256` — primitives for the domain-
+  user pre-key derivations that were missing.
+- `masterkey::derive_domain_prekey_md4` (pre-2019 domain-joined) +
+  `derive_domain_prekey_protected` (Server 2019+ / Protected-Users).
+- `unlock_masterkey` now tries all three pre-keys (standalone SHA1 →
+  domain MD4 → Protected-Users PBKDF2-SHA256) automatically.
+- Real Server 2025 MK subfield lives inline as `KAT_MK_SUBFIELD` — every
+  workspace test run byte-verifies the full chain vs impacket.
+
+ADhammer verb `attack dpapi-master-key` wraps `dpapi_offline::unlock_masterkey`
+with a 5-stage `StageChecklist`. Live-verified end-to-end returning the
+same 64-byte master key impacket did.
+
+### Post-snapshot: WS-SKELETON-KEY dropped from plan
+
+Not deferred — permanently cut. Persistence value strictly duplicated by
+WS-GOLDEN-TICKET already (both "log in as any user after DA"), the
+lsass memory-patch detection surface is worse, and every Windows version
+needs its own binary shim. Building it because it's "on the list" is
+sunk-cost — the honest hard-critic call is to drop it rather than defer.
+Plan denominator dropped 20 → 19.
 
 **Net effect on capability ranking.** Original plan target: top-10.
-Shipped scope (17/20) puts adhammer on operational parity for every
-mainline post-recon attack primitive except the three deferred; the two
-persistence deferrals (SKELETON-KEY, DPAPI) still leave a full covered
-recon → coerce → relay → cert-abuse → DA → replication chain end-to-end.
+Shipped scope (18/19) covers every mainline post-recon attack primitive
+except offline NTDS.dit parsing (blocked on ese-parser v0.2, not on
+scope decisions). Chain fully covered: recon → coerce → relay →
+cert-abuse → DA → replication → DPAPI vault-unwrap.
 
 
 

@@ -80,6 +80,7 @@ adhammer-ldap = { workspace = true }
 dcerpc = { workspace = true }
 ms-drsr = "0.2"
 dpapi-ng = { version = "0.1", features = ["rpc"] }
+dpapi-offline = { workspace = true }
 # ESC1-15 static analysis (`check adcs`) + MS-ICPR CSR construction
 # (`attack icpr-esc1`) + LAPS-v2 / gMSA seed-key derivation (`dump laps`/`dump gmsa`).
 ms-crtd = { workspace = true }

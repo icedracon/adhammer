@@ -152,9 +152,13 @@ is out of scope).
 | WS-ESC8-END-TO-END (NTLM-over-HTTP → CA Web Enrollment) | `attack adcs-relay` | ✅ | attacks/adcs_relay |
 | WS-DCSHADOW-DRSR (DRSUAPI push, 2019+) | `attack dcshadow` | ✅ | dcerpc/drsuapi + cli/dcshadow |
 
+| WS-DPAPI-MASTER-KEY (offline masterkey decrypt, all 3 pre-key paths) | `attack dpapi-master-key` | ✅ | dpapi-offline 0.1.1 + attacks/dpapi_mk |
+
 **Partial in 1.4.8:** WS-DELEGATION-CAPTURE (`attack unconstrained`) — LDAP recon of `TRUSTED_FOR_DELEGATION` hosts shipped; AP-REQ-parse capture listener is documented as follow-up.
 
-**Deferred with rationale** (see `docs/PLAN_1.4.8.md`): WS-DPAPI-MASTER-KEY (upstream dpapi-offline not yet e2e-validated), WS-NTDS-OFFLINE (sibling ese-parser at v0.1), WS-SKELETON-KEY (persistence duplicated by WS-GOLDEN-TICKET, worse AV surface).
+**Deferred to 1.4.9** (see `docs/PLAN_1.4.8.md`): WS-NTDS-OFFLINE (blocked on sibling ese-parser shipping v0.2 — B-tree walk + catalog + row decode).
+
+**Dropped from plan permanently:** WS-SKELETON-KEY (persistence duplicated by WS-GOLDEN-TICKET, worse AV surface, per-Windows-version binary shim). Plan denominator 20 → 19.
 
 ### Pre-1.4.8
 

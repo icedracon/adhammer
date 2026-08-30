@@ -31,6 +31,7 @@ dependencies = [
  "dcerpc",
  "dialoguer",
  "dpapi-ng",
+ "dpapi-offline",
  "hex",
  "ms-crtd",
  "ms-drsr",
@@ -796,6 +797,23 @@ dependencies = [
  "sha2",
  "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "dpapi-offline"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89a32abf5b4b8c17ba146efdb035112aa8c6899f86fb8ef4ebf038f7d45fafdd"
+dependencies = [
+ "aes",
+ "cbc",
+ "des",
+ "hmac",
+ "md4",
+ "pbkdf2",
+ "sha1",
+ "sha2",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

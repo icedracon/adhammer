@@ -282,6 +282,15 @@ enum AttackCmd {
     /// impersonated principal from the AS-REP's PAC_CREDENTIAL_INFO padata (MS-PAC §2.6).
     /// Chains into `attack overpass` / `attack ptt` for pass-the-hash.
     Unpac(attacks::unpac::UnpacArgs),
+    /// **1.4.8-B WS-DPAPI-MASTER-KEY.** Offline classic-DPAPI masterkey decryption.
+    /// Given a masterkey file (from `%APPDATA%\Microsoft\Protect\<SID>\<GUID>`)
+    /// and a password (or pre-derived pwdkey), returns the 64-byte AES256 master key
+    /// that unlocks every `CryptProtectData` blob owned by that SID (Chrome cookies,
+    /// Wi-Fi / RDP / VPN creds, Credentials vault). Byte-oracle-validated on Server
+    /// 2025 (Protected-Users path, SHA512 + AES256). Runs `dpapi_offline::unlock_masterkey`
+    /// which tries standalone SHA1 → domain MD4 → PBKDF2-SHA256 automatically.
+    #[command(name = "dpapi-master-key")]
+    DpapiMasterKey(attacks::dpapi_mk::DpapiMkArgs),
     /// Silver ticket: forge a service ticket (TGS) for an SPN with the service account's AES256 key.
     Silver(attacks::silver::SilverArgs),
     /// Pass-the-ticket (PtT): forge golden/silver → get a service ticket → Kerberos AP-REQ over
@@ -672,6 +681,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Golden(_) => "attack golden",
             AttackCmd::Diamond(_) => "attack diamond",
             AttackCmd::Unpac(_) => "attack unpac",
+            AttackCmd::DpapiMasterKey(_) => "attack dpapi-master-key",
             AttackCmd::Silver(_) => "attack silver",
             AttackCmd::Ptt(_) => "attack ptt",
             AttackCmd::Unconstrained(_) => "attack unconstrained",
@@ -736,6 +746,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Golden(a)) => attacks::golden::golden(a).await,
         Command::Attack(AttackCmd::Diamond(a)) => attacks::diamond::diamond(a).await,
         Command::Attack(AttackCmd::Unpac(a)) => attacks::unpac::unpac(a).await,
+        Command::Attack(AttackCmd::DpapiMasterKey(a)) => attacks::dpapi_mk::dpapi_master_key(a).await,
         Command::Attack(AttackCmd::Silver(a)) => attacks::silver::silver(a).await,
         Command::Attack(AttackCmd::Ptt(a)) => {
             // Emit the deprecation notice when the operator reached us through the `pth` alias.

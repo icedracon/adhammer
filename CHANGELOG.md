@@ -8,10 +8,13 @@ All notable changes to ADhammer are documented here. Format loosely follows
 ## [1.4.8] — 2026-08-30
 
 **Capability-expansion release** — closes the "broad passive assessor → operational
-offensive tool" gap. Original 20-vector plan lands **17 vectors LIVE**, 3 deferred
-with explicit rationale ([`docs/PLAN_1.4.8.md`](docs/PLAN_1.4.8.md)). Nothing
-published to crates.io this cycle (per "1.4.8 all local first" directive);
-sibling icedracon crates unchanged.
+offensive tool" gap. Original 20-vector plan lands **18 of 19 vectors LIVE**
+(WS-SKELETON-KEY permanently dropped from plan; WS-DPAPI-MASTER-KEY moved deferred
+→ LIVE after upstream dpapi-offline 0.1.1 landed the MS-DPAPI PBKDF2 fix), 1 deferred
+to 1.4.9 with explicit rationale ([`docs/PLAN_1.4.8.md`](docs/PLAN_1.4.8.md)).
+One sibling crate published as the WS-DPAPI-MASTER-KEY enabler (`dpapi-offline
+0.1.1`, byte-oracle-validated on Server 2025); ADhammer itself and every other
+sibling crate stay local this cycle.
 
 ### Added — Phase A: net-new implementations
 
@@ -36,6 +39,20 @@ sibling icedracon crates unchanged.
   (MS-PAC §2.6); chains into pass-the-hash. New module
   `crates/kerberos/src/unpac.rs` (~320 LOC) with two unit tests + KEY_USAGE
   constant KERB_NON_KERB_SALT (16).
+- **WS-DPAPI-MASTER-KEY** (`attack dpapi-master-key`) — offline classic-DPAPI
+  masterkey decryption. Given a masterkey file from `%APPDATA%\Microsoft\
+  Protect\<SID>\<GUID>` and either a password or pre-derived 20-byte pwdkey,
+  returns the 64-byte AES256 master key that unlocks every `CryptProtectData`
+  blob owned by that SID (Chrome cookies, Wi-Fi / RDP / VPN creds,
+  Credentials vault, Outlook profiles). New module
+  `cli/src/attacks/dpapi_mk.rs` (~150 LOC) with a 5-stage `StageChecklist`.
+  Sibling crate `dpapi-offline` bumped 0.1.0 → 0.1.1 as the enabler (see
+  Deps note below); ADhammer's verb wraps `dpapi_offline::unlock_masterkey`
+  which tries standalone SHA1 → domain MD4 → Protected-Users
+  PBKDF2-SHA256 automatically. Live-validated end-to-end on 2026-08-30
+  against a Server 2025 domain Administrator masterkey (192.168.91.20 /
+  DC01 testlab): output matches impacket 0.14 `dpapi.py masterkey` byte-
+  for-byte across all three pre-key paths.
 
 ### Added — Phase B/C/D/F: already-implemented primitives doc-named to plan
 
@@ -68,22 +85,22 @@ sibling icedracon crates unchanged.
   on Server 2019/2022/2025); LDAP path stays as fallback for ≤ 2016 but is
   live-verified dead on 2019+ (see [[dcshadow-ldap-dead-on-2019plus]]).
 
-### Deferred with rationale (3 of 20)
+### Deferred to 1.4.9 (1 of 19)
 
-- **WS-DPAPI-MASTER-KEY.** Sibling `dpapi-offline` has KAT-validated
-  primitives (PBKDF2 / HMAC-SHA1 / HMAC-SHA512) + validated masterkey-file
-  parser, but the crate's own `VALIDATION STATUS` block flags the full
-  masterkey-decrypt chain as not yet e2e-validated against a real file.
-  Would violate "cut what doesn't work". Revive when either (a)
-  `test_real_masterkey` passes on the testlab, or (b) MS-BKRP `RESTORE_GUID`
-  path lands atop domain-key subfield parse.
 - **WS-NTDS-OFFLINE.** Sibling `ese-parser` at v0.1 scope (668-byte header
   + random-access page read). B-tree walk / catalog decode / row+tag decode
   are v0.2 roadmap; downstream `ntds-parse` crate not published. Live
   DCSync already covers the same NT-hash + krbtgt + trust-key output.
-- **WS-SKELETON-KEY.** LSA memory patch of lsass.exe on the DC. Value
-  duplicates WS-GOLDEN-TICKET persistence, AV/EDR surface is worse, and
-  implementation is a per-Windows-version binary shim. Not 1.4.8-shaped.
+  Slated as the 1.4.9 headline feature once ese-parser v0.2 lands.
+
+### Dropped from plan
+
+- **WS-SKELETON-KEY** — permanently cut, not deferred. LSA memory patch
+  of lsass.exe on the DC has no unique operator value: WS-GOLDEN-TICKET
+  already provides "log in as any user after DA" persistence with a
+  better AV/EDR surface, and skeleton-key needs a per-Windows-version
+  binary shim. Building it because it's on the list would be sunk-cost.
+  Plan denominator drops 20 → 19.
 
 ### Fixed
 
@@ -115,13 +132,15 @@ sibling icedracon crates unchanged.
 ### Notes
 
 - **Deps.** No new third-party deps this release. Sibling icedracon crates
-  covered every wire path.
+  covered every wire path. **`dpapi-offline` bumped 0.1.0 → 0.1.1** (the
+  WS-DPAPI-MASTER-KEY enabler, byte-oracle-validated on Server 2025 vs
+  impacket 0.14).
 - **Determinism.** Byte-identical scan output across Windows and Kali given
   the same DC state — unchanged from 1.4.7.
-- **Coverage counting.** 74 unique attack surfaces total (58 pre-recon
-  checks + 15 pre-existing attack verbs + 20-item capability plan − 4
-  overlap between plan and pre-existing). Plan-vs-shipped table in
-  `docs/PLAN_1.4.8.md`.
+- **Coverage counting.** 73 unique attack surfaces total (58 pre-recon
+  checks + 15 pre-existing attack verbs + 19-item capability plan − 4
+  overlap between plan and pre-existing + 1 dropped SKELETON-KEY). Plan-
+  vs-shipped table in `docs/PLAN_1.4.8.md`.
 
 ## [1.4.7] — 2026-08-29
 
