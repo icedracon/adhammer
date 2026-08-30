@@ -1,9 +1,20 @@
 //! Remote command execution family sharing `ExecArgs`:
-//! - `exec` — SVCCTL LocalSystem service (psexec-style)
-//! - `wmiexec` — DCOM `Win32_Process.Create` with C$ output capture
-//! - `atexec` — MS-TSCH scheduled task under LocalSystem
+//! - `exec` — SVCCTL LocalSystem service (psexec-style) — **1.4.8-B WS-PSEXEC**.
+//!   Create + start + delete a LocalSystem service running the command via
+//!   `dcerpc::svcctl::exec`. Loudest of the three (Event ID 7045 = service install).
+//! - `wmiexec` — DCOM `Win32_Process.Create` with C$ output capture —
+//!   **1.4.8-F WS-WMIEXEC** (moved from SEALED-BLOCKED after this pass discovered
+//!   the existing `dcerpc::dcom_wmi::wmi_exec` already works without needing the
+//!   cut WS-4-P2 sealed-RPC path). Detached process under WmiPrvSE; output
+//!   redirected to a temp file on C$ and poll-read back over SMB. Quieter than
+//!   `exec` (no service telemetry).
+//! - `atexec` — MS-TSCH scheduled task under LocalSystem — **1.4.8-B WS-ATEXEC**.
+//!   Register + run + delete a task via `dcerpc::tsch::atexec`; output captured
+//!   the same way as `wmiexec`. Different telemetry surface again (Task
+//!   Scheduler operational log).
 //!
-//! Three different host-side telemetry footprints; pick whichever isn't tripping the SIEM.
+//! Three different host-side telemetry footprints; pick whichever isn't tripping
+//! the SIEM. All three support pass-the-hash via `--nt-hash`.
 
 use anyhow::Result;
 use clap::Parser;

@@ -1,7 +1,17 @@
-//! Unconstrained-delegation recon — LDAP-only sweep for hosts carrying the
+//! **1.4.8-B WS-DELEGATION-CAPTURE (PARTIAL — recon-only).** Unconstrained-
+//! delegation recon — LDAP-only sweep for hosts carrying the
 //! `TRUSTED_FOR_DELEGATION` UAC bit (0x80000). Also surfaces constrained-with-
 //! protocol-transition accounts. Reuses `crate::attacks::scan::ScanArgs` since
 //! the collector bind is identical to `scan`.
+//!
+//! **What's missing for full capture-and-forwarded-TGT-extract**: the abuse
+//! recipe below prints step 2 as "Capture the incoming Kerberos AP-REQ on
+//! this host" — that's not yet implemented. It needs (a) a TCP listener on
+//! the port the coerced DC will authenticate to, (b) parsing the incoming
+//! AP-REQ + Authenticator, (c) extracting the forwarded TGT from the
+//! Authenticator when the GSS-KRB5 Delegation flag is set. Deferred as a
+//! follow-up workstream — until it lands, this verb documents the abuse
+//! path so an operator can chain manually with existing tools.
 
 use anyhow::Result;
 

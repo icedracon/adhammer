@@ -1,6 +1,8 @@
-//! WinRM (WS-Man) command execution over 5985. NTLM auth + MS-NLMP message
-//! encryption — quieter than SVCCTL (no service-install event) and often the
-//! only lateral path left open on hardened boxes.
+//! **1.4.8-B WS-EVIL-WINRM.** WinRM (WS-Man) command execution over 5985 —
+//! `evil-winrm`-equivalent. NTLM auth + MS-NLMP message encryption. Quieter
+//! than SVCCTL (no service-install Event ID 7045) and often the only lateral
+//! path left open on hardened boxes that disabled SMB admin shares. Supports
+//! pass-the-hash via `--nt-hash` (32 hex NT hash instead of `--password`).
 
 use anyhow::{Context, Result};
 use clap::Parser;
