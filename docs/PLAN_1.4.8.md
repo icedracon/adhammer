@@ -11,14 +11,19 @@ Effort estimate: **55-75 engineering days**. This is a large release.
 Ship in phases within 1.4.8 tag family (1.4.8-beta.1 through 1.4.8) or
 publish incrementally on `main` and cut the tag once all vectors green.
 
-## Status snapshot — 2026-08-30 (mid-release)
+## Status snapshot — 2026-08-30 (shipped, tag pending)
 
 **17 of 20 capability-expansion vectors LIVE on `main`** — either implemented
 this release (Phase A) or discovered already-built and doc-named to plan
 (Phase B, C, D, F). No new third-party deps this release; only sibling
 icedracon crates (which are all bumped-only-on-need per SemVer minimum-bump
-rule). CI green as of `60ca37f`; nothing published to crates.io yet (per
-"1.4.8 all local first" user directive).
+rule). CI green as of `70a6a4c`; workspace version bumped 1.4.7 → 1.4.8
+(commit `0800534`); CHANGELOG / README / VECTORS all refreshed.
+Nothing published to crates.io this cycle (per "1.4.8 all local first"
+user directive); sibling icedracon crates unchanged this release.
+`git tag v1.4.8` cut is pending explicit user OK — a tag push will
+trigger the WS-BINSTALL / WS-DEB-PACKAGE CI matrix to build prebuilt
+binaries + `.deb` and upload to GitHub Releases.
 
 | Phase | Vector | State | Anchor commit |
 |---|---|---|---|
