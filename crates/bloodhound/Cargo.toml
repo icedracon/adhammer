@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "ADhammer BloodHound export — BloodHound CE v5 ingest JSON (users/computers/groups/domains) + ACE edges."
+keywords = ["bloodhound", "active-directory", "graph", "pentesting", "audit"]
+categories = ["authentication", "command-line-utilities"]
 repository.workspace = true
 
 [dependencies]

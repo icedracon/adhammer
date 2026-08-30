@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "ADhammer LDAP collector — domain + Configuration NC collection over ldap3."
+keywords = ["active-directory", "ldap", "collection", "pentesting", "audit"]
+categories = ["authentication", "network-programming"]
 repository.workspace = true
 
 [features]

@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "ADHammer Core — the AD audit + offensive toolkit as one importable SDK (re-exports the collector, graph, checks, kerberos, ldap, sysvol, bloodhound, secrets, and report subsystems). The CLI is the `adhammer` binary."
+keywords = ["active-directory", "audit", "sdk", "pentesting", "kerberos"]
+categories = ["authentication", "network-programming"]
 repository.workspace = true
 
 [features]

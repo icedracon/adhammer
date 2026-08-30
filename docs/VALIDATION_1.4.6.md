@@ -141,7 +141,7 @@ Dialoguer, ANSI colors, cursor control, multi-stage wizard all functional.
 - **Correct DC IP:** `192.168.91.20` (matches memory HEAD 2026-08-27 late for
   WS-4-P2 probe). The `172.29.247.82` and `172.29.255.68` IPs in older memory
   are stale — not present on this Windows host's Hyper-V vSwitches.
-- **Credentials:** `Administrator@testlab.local : Zikurat2003$`.
+- **Credentials:** `Administrator@testlab.local : <lab-password>`.
 - **Command:** `adhammer scan --url ldaps://192.168.91.20:636 --user Administrator
   --password '***' --insecure --out-all <dir>`.
 - **Network path:** Windows host → Hyper-V vSwitch `ADHammer-Lab`

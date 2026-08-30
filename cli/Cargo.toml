@@ -38,7 +38,7 @@ pkg-fmt = "bin"
 [package.metadata.deb]
 maintainer = "icedracon <adhammer@icedracon.com>"
 copyright = "2026, icedracon"
-license-file = ["../LICENSE-MIT", "0"]
+license-file = ["../LICENSE", "0"]
 extended-description = """
 Passive Active Directory security assessment with a from-scratch Rust
 protocol stack. Runs LDAP collection, control-path graph construction,
@@ -53,7 +53,7 @@ assets = [
     ["target/release/adhammer", "usr/bin/", "755"],
     ["../README.md", "usr/share/doc/adhammer/README.md", "644"],
     ["../CHANGELOG.md", "usr/share/doc/adhammer/CHANGELOG.md", "644"],
-    ["../LICENSE-MIT", "usr/share/doc/adhammer/LICENSE-MIT", "644"],
+    ["../LICENSE", "usr/share/doc/adhammer/LICENSE", "644"],
 ]
 
 [features]

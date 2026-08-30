@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "ADhammer check engine — Active Directory misconfiguration rules across privileged accounts, trusts, stale objects, and anomalies, tagged with MITRE ATT&CK techniques."
+keywords = ["active-directory", "audit", "security", "mitre-attack", "pentesting"]
+categories = ["authentication", "parser-implementations"]
 repository.workspace = true
 
 [dependencies]
