@@ -162,7 +162,7 @@ async fn dpapi_impl(a: DpapiMkArgs, checklist: &mut ui::StageChecklist) -> Resul
 
 fn hex_decode(s: &str) -> Result<Vec<u8>> {
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         bail!("hex string has odd length");
     }
     (0..s.len())

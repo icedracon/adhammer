@@ -206,7 +206,26 @@ fn civil_from_days(z: i64) -> (u16, u8, u8) {
     ((y + i64::from(m <= 2)) as u16, m as u8, d as u8)
 }
 
+/// Per-op deadline for a single KDC round trip (connect + write + framed read).
+/// A hostile / slow KDC that dribbles bytes or accepts the connection then
+/// stalls could otherwise hang the operator indefinitely. 30 s is roughly
+/// two orders of magnitude above the wall-clock a real KDC takes to answer
+/// on any live-lab network we've seen.
+const KDC_EXCHANGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub(crate) async fn kdc_exchange(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
+    tokio::time::timeout(KDC_EXCHANGE_TIMEOUT, kdc_exchange_inner(kdc, request))
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "KDC exchange with {} timed out after {}s (hostile server DoS defence)",
+                kdc,
+                KDC_EXCHANGE_TIMEOUT.as_secs()
+            )
+        })?
+}
+
+async fn kdc_exchange_inner(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
     let addr = if kdc.contains(':') {
         kdc.to_string()
     } else {

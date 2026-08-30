@@ -406,7 +406,19 @@ impl Collector {
             .streaming_search_with(adapters, base, Scope::Subtree, filter, ATTRS.to_vec())
             .await?;
         let mut count = 0usize;
-        while let Some(entry) = stream.next().await? {
+        // Per-entry deadline (hostile-server DoS defence). ldap3's own
+        // connection-level timeout doesn't cap the per-record dribble of a
+        // paged / referral-heavy LDAP server, so wrap each `stream.next()`
+        // in a 60 s ceiling. Real DCs return each entry in single-digit ms;
+        // a well-behaved paged response of 100 k objects finishes in
+        // seconds. 60 s per entry is roughly four orders of magnitude above
+        // that and still catches a hostile / broken server that dribbles.
+        const LDAP_PER_ENTRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+        loop {
+            let maybe_entry = tokio::time::timeout(LDAP_PER_ENTRY_TIMEOUT, stream.next())
+                .await
+                .map_err(|elapsed| ldap3::LdapError::Timeout { elapsed })??;
+            let Some(entry) = maybe_entry else { break };
             let obj = to_object(SearchEntry::construct(entry));
             dn_links.push((obj.dn.clone(), search_idx));
             out.push(obj);

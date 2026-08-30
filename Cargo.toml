@@ -52,7 +52,7 @@ ms-tds       = "0.1.1"
 # (byte-oracle-validated on Server 2025); the blob-decrypt path is not yet
 # e2e-validated so `attack dpapi-master-key` returns the 64-byte master key
 # and leaves blob unwrap for a follow-up verb.
-dpapi-offline = "0.1.1"
+dpapi-offline = "0.1.2"
 # internal (version required so crates.io can strip the path on publish)
 adhammer-core      = { path = "crates/core",      version = "1.4.8" }
 adhammer-collector = { path = "crates/collector", version = "1.4.8", default-features = false }
@@ -74,7 +74,7 @@ bitflags    = { version = "2", features = ["serde"] }
 tokio       = { version = "1", features = ["rt-multi-thread", "macros"] }
 # TLS backend is selected by the adhammer-collector features (rustls by default → pure-Rust,
 # static/musl, trivial cross-compile; tls-native opt-in for SHA-1 legacy-DC LDAPS).
-ldap3       = { version = "0.11", default-features = false }
+ldap3       = { version = "0.12", default-features = false }
 petgraph    = "0.6"
 clap        = { version = "4", features = ["derive"] }
 tracing     = "0.1"

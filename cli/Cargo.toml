@@ -94,9 +94,10 @@ rand = "0.8"
 
 # ESC8 (adcs-http relay) — minimal NTLM-over-HTTP client. Same rustls/tokio-rustls versions
 # ldap3 already pulls in, so no duplicate-crate risk.
-tokio-rustls = "0.24"
-rustls = { version = "0.21", features = ["dangerous_configuration"] }
-rustls-native-certs = "0.6"
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
+rustls-native-certs = "0.8"
+rustls-pemfile = "2"
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
 ntlmssp = { workspace = true }

@@ -11,7 +11,7 @@ default = ["tls-rustls"]
 # TLS backend for LDAPS. tls-rustls (default) is pure-Rust → static/musl builds and clean
 # cross-compilation with no OpenSSL. tls-native (OpenSSL/Schannel) accepts the SHA-1 TLS
 # handshake signatures that rustls refuses outright, so it reaches legacy DCs with SHA-1 certs.
-tls-rustls = ["ldap3/tls-rustls"]
+tls-rustls = ["ldap3/tls-rustls-aws-lc-rs"]
 tls-native = ["ldap3/tls-native", "dep:native-tls"]
 # Optional SASL GSSAPI (Kerberos) bind — signed LDAP over 389 without LDAPS/--insecure,
 # via ambient Kerberos (ccache on Unix, SSPI on Windows). Pulls a C dep (breaks static

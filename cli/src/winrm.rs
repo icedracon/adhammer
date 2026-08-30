@@ -383,9 +383,30 @@ async fn http_request(
     read_http_response(stream).await
 }
 
+/// Per-op deadline for a single WinRM HTTP response read (headers + body).
+/// A hostile WinRM endpoint that dribbles bytes could otherwise hang the
+/// operator's session indefinitely. 60 s matches the WSMan
+/// `OperationTimeout` we send in the SOAP envelope + a little margin for
+/// TCP jitter.
+const WINRM_HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Read a complete HTTP/1.1 response (Content-Length or chunked), leaving the stream positioned
-/// for the next keep-alive request.
+/// for the next keep-alive request. **1.4.8 hostile-server DoS defence:**
+/// the whole read is capped at [`WINRM_HTTP_READ_TIMEOUT`].
 async fn read_http_response(
+    stream: &mut TcpStream,
+) -> Result<(u16, Vec<(String, String)>, Vec<u8>)> {
+    tokio::time::timeout(WINRM_HTTP_READ_TIMEOUT, read_http_response_inner(stream))
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "WinRM HTTP read timed out after {}s (hostile-server DoS defence)",
+                WINRM_HTTP_READ_TIMEOUT.as_secs()
+            )
+        })?
+}
+
+async fn read_http_response_inner(
     stream: &mut TcpStream,
 ) -> Result<(u16, Vec<(String, String)>, Vec<u8>)> {
     let mut buf: Vec<u8> = Vec::with_capacity(4096);

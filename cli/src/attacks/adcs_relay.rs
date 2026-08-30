@@ -12,8 +12,9 @@
 //! matrix-owed — it needs a live AD CS role with Web Enrollment installed.
 
 use anyhow::{anyhow, Context, Result};
-use rustls::client::ServerCertVerified;
-use rustls::{Certificate, ClientConfig, RootCertStore, ServerName};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use std::io::Write;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,18 +28,55 @@ pub struct HttpsClient {
 }
 
 /// Skip TLS cert verification — AD CS often runs on a self-signed / internal-CA endpoint.
+///
+/// **1.4.8 rustls 0.23 migration:** `ServerCertVerifier` moved to the
+/// `client::danger` module + gained `verify_tls12_signature` /
+/// `verify_tls13_signature` / `supported_verify_schemes` methods (the trait
+/// went from "just verify the chain" to "the full TLS-verification surface").
+/// AcceptAny returns success from all three so no verification happens — the
+/// AD CS relay path deliberately downgrades to "accept whatever the CA
+/// presents" because AD CS commonly runs on a self-signed cert.
+#[derive(Debug)]
 struct AcceptAny;
-impl rustls::client::ServerCertVerifier for AcceptAny {
+impl ServerCertVerifier for AcceptAny {
     fn verify_server_cert(
         &self,
-        _end_entity: &Certificate,
-        _intermediates: &[Certificate],
-        _server_name: &ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
-        _now: std::time::SystemTime,
+        _now: UnixTime,
     ) -> std::result::Result<ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
+    }
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+        ]
     }
 }
 
@@ -46,22 +84,21 @@ impl HttpsClient {
     pub async fn connect(host: &str, port: u16, insecure: bool) -> Result<Self> {
         let cfg = if insecure {
             ClientConfig::builder()
-                .with_safe_defaults()
+                .dangerous()
                 .with_custom_certificate_verifier(Arc::new(AcceptAny))
                 .with_no_client_auth()
         } else {
             let mut roots = RootCertStore::empty();
-            for c in rustls_native_certs::load_native_certs()? {
-                let _ = roots.add(&Certificate(c.0));
+            for c in rustls_native_certs::load_native_certs().certs {
+                let _ = roots.add(c);
             }
             ClientConfig::builder()
-                .with_safe_defaults()
                 .with_root_certificates(roots)
                 .with_no_client_auth()
         };
         let connector = tokio_rustls::TlsConnector::from(Arc::new(cfg));
         let tcp = TcpStream::connect((host, port)).await?;
-        let sn = ServerName::try_from(host).context("bad host name for TLS SNI")?;
+        let sn = ServerName::try_from(host.to_string()).context("bad host name for TLS SNI")?;
         let stream = connector.connect(sn, tcp).await?;
         Ok(HttpsClient {
             stream,
@@ -108,10 +145,29 @@ impl HttpResponse {
     }
 }
 
+/// Per-op deadline for a single AD CS Web Enrollment HTTP round-trip. A
+/// hostile / slow CA could otherwise dribble bytes and hang the relay
+/// window (~60 s is what an operator would tolerate before ctrl-c'ing).
+const ADCS_HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Read one HTTP/1.1 response from the stream: status line + headers (delimited by `\r\n\r\n`),
 /// then body per `Content-Length`. Chunked transfer-encoding not implemented — AD CS certsrv
 /// uses fixed lengths in every response the ESC8 flow touches.
+///
+/// **1.4.8 hostile-server DoS defence:** the whole read is capped at
+/// [`ADCS_HTTP_READ_TIMEOUT`].
 async fn read_response<R: AsyncReadExt + Unpin>(r: &mut R) -> Result<HttpResponse> {
+    tokio::time::timeout(ADCS_HTTP_READ_TIMEOUT, read_response_inner(r))
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "AD CS HTTP read timed out after {}s (hostile-server DoS defence)",
+                ADCS_HTTP_READ_TIMEOUT.as_secs()
+            )
+        })?
+}
+
+async fn read_response_inner<R: AsyncReadExt + Unpin>(r: &mut R) -> Result<HttpResponse> {
     let mut buf = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     // Read until we see \r\n\r\n.

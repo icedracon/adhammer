@@ -1,0 +1,28 @@
+# cargo-audit ignore list — rationale required for every entry.
+#
+# Every ignore below carries the RustSec ID + the reason why it isn't a
+# practical risk for ADhammer's use case. Reviewed 2026-08-31.
+
+[advisories]
+ignore = [
+    # rsa 0.9.x Marvin attack — timing sidechannel key recovery in decrypt.
+    # There is NO fixed upstream version yet; the `rsa` crate is the only
+    # pure-Rust RSA option and every Rust project that needs RSA is in the
+    # same position. Practical exploitation requires:
+    #   (a) very-high-precision timing (~1 μs jitter budget),
+    #   (b) millions of decrypt oracle queries against the same key, and
+    #   (c) a direct network path with low variance.
+    # ADhammer uses RSA (via ms-icpr / ms-pkca / adcs-relay) only inside
+    # short-burst attack chains — cert enrollment or PKINIT AS-exchange —
+    # against a specific target in a pentest window, not as a long-lived
+    # oracle. There is no cryptographic-oracle exposure in the operator's
+    # workflow. Revisit when rsa upstream ships a constant-time fix.
+    "RUSTSEC-2023-0071",
+]
+
+# unmaintained-crate warnings (not vulnerabilities) — these become errors
+# only if we set severity policy, but we still spell out why we accept them.
+# rustls-pemfile 2.x is the last stable line; upstream has moved to
+# rustls-pki-types which our transitive graph doesn't use yet.
+# dpapi-offline 0.1.1 is yanked as our own privacy fix; 0.1.2 clean publish
+# supersedes it (this warning disappears once 0.1.2 is in Cargo.lock).
