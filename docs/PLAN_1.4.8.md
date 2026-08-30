@@ -11,6 +11,75 @@ Effort estimate: **55-75 engineering days**. This is a large release.
 Ship in phases within 1.4.8 tag family (1.4.8-beta.1 through 1.4.8) or
 publish incrementally on `main` and cut the tag once all vectors green.
 
+## Status snapshot — 2026-08-30 (mid-release)
+
+**17 of 20 capability-expansion vectors LIVE on `main`** — either implemented
+this release (Phase A) or discovered already-built and doc-named to plan
+(Phase B, C, D, F). No new third-party deps this release; only sibling
+icedracon crates (which are all bumped-only-on-need per SemVer minimum-bump
+rule). CI green as of `60ca37f`; nothing published to crates.io yet (per
+"1.4.8 all local first" user directive).
+
+| Phase | Vector | State | Anchor commit |
+|---|---|---|---|
+| A | WS-KERBRUTE | ✅ shipped | (1.4.8-A #1) |
+| A | WS-DIAMOND-TICKET | ✅ shipped | (1.4.8-A #2) |
+| A | WS-SID-HISTORY-INJECT | ✅ shipped | (1.4.8-A #3, `golden` verb) |
+| A | WS-ESC1-EXPLOIT | ✅ shipped | (1.4.8-A #4) |
+| A | WS-ESC3-CHAIN | ✅ shipped | (1.4.8-A #5, `icpr_esc1` verb) |
+| A | WS-UNPAC-FULL | ✅ shipped | (1.4.8-A #6) |
+| B | WS-PSEXEC | ✅ already-built + doc-name | 569703d |
+| B | WS-WMIEXEC (ex-SEALED) | ✅ already-built + doc-name | 569703d |
+| B | WS-ATEXEC | ✅ already-built + doc-name | 569703d |
+| B | WS-EVIL-WINRM | ✅ already-built + doc-name | 569703d |
+| B | WS-DELEGATION-CAPTURE | ⚠️ recon-only | 569703d (partial) |
+| B | WS-DPAPI-MASTER-KEY | ❌ DEFERRED | see below |
+| C | WS-SAM-SECURITY-DUMP | ✅ already-built + doc-name | 786e133 |
+| C | WS-NTDS-OFFLINE | ❌ DEFERRED | see below |
+| D | WS-NTLMRELAYX-SMB-LDAP | ✅ already-built + doc-name | 786e133 |
+| D | WS-COERCE-SENDER | ✅ already-built + doc-name | 786e133 |
+| D | WS-LLMNR-POISON | ✅ already-built + doc-name | 786e133 |
+| D | WS-ESC8-END-TO-END | ✅ already-built + doc-name | 786e133 |
+| E | WS-SKELETON-KEY | ❌ DEFERRED | see below |
+| F | WS-DCSHADOW-DRSR | ✅ already-built + doc-name | 786e133 |
+
+### The 3 deferred vectors
+
+**WS-DPAPI-MASTER-KEY.** Sibling `dpapi-offline` crate has KAT-validated
+primitives (PBKDF2 / HMAC-SHA1 / HMAC-SHA512) and validated masterkey-file
+parser, but the full masterkey-decrypt chain is **not yet e2e-validated
+against a real masterkey file** — the crate itself flags this explicitly in
+its `VALIDATION STATUS` block. Shipping an ADhammer verb on top of an
+unvalidated crypto chain violates the "cut what doesn't work" rule. Defer
+until either (a) the dpapi-offline `test_real_masterkey` test passes on the
+testlab, or (b) MS-BKRP `RESTORE_GUID` path lands (needs domain-key
+subfield parse on top of dpapi-offline's current header-only parse).
+
+**WS-NTDS-OFFLINE.** Sibling `ese-parser` is at v0.1 scope (668-byte header
++ random-access page read); B-tree walk, catalog decode, row/tag decode are
+v0.2 roadmap. Downstream `ntds-parse` crate is planned but not published.
+Offline NTDS.dit-file parsing therefore has no in-house parser to layer on.
+The live-DCSync path (`attack dcsync`) already covers the same output
+(NT hashes + krbtgt + trust keys) via DRSUAPI — deferring the offline
+variant to the ese-parser v0.2 milestone.
+
+**WS-SKELETON-KEY.** LSA memory patch of lsass.exe on the DC. Requires (a)
+LocalSystem code-exec on DC (which post-DA already gives us via WS-PSEXEC /
+WS-WMIEXEC / WS-ATEXEC), (b) a machine-code shim that writes to lsass
+memory in a way that survives Credential Guard / VBS, and (c) heavy AV/EDR
+tolerance. The persistence value is largely duplicated by
+WS-GOLDEN-TICKET already (both give "log in as any user after DA"), the
+detection surface is worse, and the implementation is a
+per-Windows-version binary shim. Not a 1.4.8 item.
+
+**Net effect on capability ranking.** Original plan target: top-10.
+Shipped scope (17/20) puts adhammer on operational parity for every
+mainline post-recon attack primitive except the three deferred; the two
+persistence deferrals (SKELETON-KEY, DPAPI) still leave a full covered
+recon → coerce → relay → cert-abuse → DA → replication chain end-to-end.
+
+
+
 ## Part 1 — Original 1.4.8 items (from 1.4.7-tail closure)
 
 ### 1. ~~WS-4-P2-CLOSE~~ — CUT in 1.4.8
