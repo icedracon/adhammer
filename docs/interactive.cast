@@ -23,7 +23,7 @@
 [5.0, "o", "  check adcs    — ESC1-15 rule pack\r\n"]
 [5.0, "o", "  quit\r\n"]
 [6.5, "o", "\u001b[9A\u001b[0K\u001b[36m[*]\u001b[0m Running: enum wkssvc against DC01.testlab.local\r\n"]
-[8.5, "o", "\u001b[33m[-]\u001b[0m no logged-on users on 192.168.91.20 (raw=7, machine-hidden=7)\r\n"]
+[8.5, "o", "\u001b[33m[-]\u001b[0m no logged-on users on <dc-ip> (raw=7, machine-hidden=7)\r\n"]
 [8.7, "o", "    pass \u001b[36m--include-machine\u001b[0m to show machine-account sessions\r\n\r\n"]
 [10.0, "o", "\u001b[36;1m? Want impact? \u001b[0m(y/N) \u001b[32;1my\u001b[0m\r\n"]
 [10.6, "o", "  \u001b[33mIMPACT:\u001b[0m NetrWkstaUserEnum reveals every LSA logon session on the target — service accounts,\r\n"]

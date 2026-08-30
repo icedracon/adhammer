@@ -73,7 +73,7 @@ as the 1.4.9 headline feature.
 Original snapshot marked WS-DPAPI-MASTER-KEY deferred because sibling
 `dpapi-offline` was "primitives + parsers KAT-validated but full chain
 NOT YET VALIDATED e2e." Live-verifying on Kali against a Server 2025
-Administrator masterkey (DC01, 192.168.91.20) revealed the actual bug:
+Administrator masterkey (DC01, <dc-ip>) revealed the actual bug:
 `dpapi-offline` was using standard RFC 8018 PBKDF2, but Windows DPAPI
 uses a **non-standard variant** that feeds the running XOR back into
 the PRF at every round. Impacket 0.14 was the byte-oracle.

@@ -2,6 +2,22 @@
 **/*.rs.bk
 *.pdb
 
+# local scratch reports from live-lab runs — never tracked. Every field in a
+# real report (IP, hostname, account, DACL topology) is lab-identifying.
+adhammer-pentest-report.*
+adhammer-report-*.html
+adhammer-report-*.md
+auto-report.md
+scan-report.*
+release-scan.*
+release-auto.*
+adh-*.crt
+adh-*.pfx
+
+# agent workspace + tool traces (per-session, may contain lab endpoints)
+.agents/
+.playwright-cli/
+
 # private keys from shadow-cred generation
 *.key.pem
 

@@ -50,7 +50,7 @@ sibling crate stay local this cycle.
   Deps note below); ADhammer's verb wraps `dpapi_offline::unlock_masterkey`
   which tries standalone SHA1 → domain MD4 → Protected-Users
   PBKDF2-SHA256 automatically. Live-validated end-to-end on 2026-08-30
-  against a Server 2025 domain Administrator masterkey (192.168.91.20 /
+  against a Server 2025 domain Administrator masterkey (<dc-ip> /
   DC01 testlab): output matches impacket 0.14 `dpapi.py masterkey` byte-
   for-byte across all three pre-key paths.
 

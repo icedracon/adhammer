@@ -7,7 +7,7 @@ interactive PTY test + full lab-side attack/enum/check matrix + report
 determinism + coverage reproducibility.
 
 **Verdict: PRODUCTION-VERIFIED.** All committed 1.4.6 claims hold under live-DC
-testing on testlab.local (DC01 @ 192.168.91.20, Server 2025). One real
+testing on testlab.local (DC01 @ <dc-ip>, Server 2025). One real
 install-time issue on Windows (Defender false-positive) and a few small UX
 observations captured in §9.
 
@@ -134,15 +134,15 @@ Dialoguer, ANSI colors, cursor control, multi-stage wizard all functional.
 
 ---
 
-## 6. Live scan against DC01 (192.168.91.20, testlab.local, Server 2025) — PASS
+## 6. Live scan against DC01 (<dc-ip>, testlab.local, Server 2025) — PASS
 
 ### 6.1 Setup
 
-- **Correct DC IP:** `192.168.91.20` (matches memory HEAD 2026-08-27 late for
+- **Correct DC IP:** `<dc-ip>` (matches memory HEAD 2026-08-27 late for
   WS-4-P2 probe). The `172.29.247.82` and `172.29.255.68` IPs in older memory
   are stale — not present on this Windows host's Hyper-V vSwitches.
 - **Credentials:** `Administrator@testlab.local : <lab-password>`.
-- **Command:** `adhammer scan --url ldaps://192.168.91.20:636 --user Administrator
+- **Command:** `adhammer scan --url ldaps://<dc-ip>:636 --user Administrator
   --password '***' --insecure --out-all <dir>`.
 - **Network path:** Windows host → Hyper-V vSwitch `ADHammer-Lab`
   (192.168.91.254 gateway) → DC01. **Kali cannot reach the lab** — it's on VBox
@@ -265,7 +265,7 @@ sealed RPC → decrypt) is stable across builds.
 | Verb | Result |
 |---|---|
 | **check adcs** | ✓ ESC1 + ESC15 (CVE-2024-49019) on ExchangeUser, ExchangeUserSignature, AdhammerSeedWeakKey templates |
-| **check krb-seal --try-call** | Semver-honest failure — 2 stages pass (resolve + asktgt AES256 TGT), fails at `TGS for cifs/192.168.91.20` with `KDC error 7` (S_PRINCIPAL_UNKNOWN — IP-based SPN doesn't exist; needs `--spn-host dc01.testlab.local` per memory 2026-08-27). Downstream stages correctly `NOT ATTEMPTED`. StageChecklist works perfectly. |
+| **check krb-seal --try-call** | Semver-honest failure — 2 stages pass (resolve + asktgt AES256 TGT), fails at `TGS for cifs/<dc-ip>` with `KDC error 7` (S_PRINCIPAL_UNKNOWN — IP-based SPN doesn't exist; needs `--spn-host dc01.testlab.local` per memory 2026-08-27). Downstream stages correctly `NOT ATTEMPTED`. StageChecklist works perfectly. |
 
 ---
 
@@ -287,7 +287,7 @@ sealed RPC → decrypt) is stable across builds.
 
 ### 9.2 Memory / documentation corrections applied
 
-- Real DC IP is **192.168.91.20** (Hyper-V vSwitch `ADHammer-Lab`). The
+- Real DC IP is **<dc-ip>** (Hyper-V vSwitch `ADHammer-Lab`). The
   `172.29.247.82` / `172.29.255.68` IPs in earlier memory are stale.
 - `enum trust` **does not exist**.
 - Real enum verb count is **12**, not 7 (list: samr, lsa, net, dns, adcs, esc,
