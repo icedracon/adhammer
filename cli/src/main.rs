@@ -92,10 +92,10 @@ struct Cli {
 enum Command {
     /// Passive audit: LDAP collection → control-path graph → scored checks → report.
     Scan(attacks::scan::ScanArgs),
-    /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions.
+    /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions/**krb-users** (Kerberos user enum, no LDAP creds needed).
     #[command(subcommand)]
     Enum(EnumCmd),
-    /// Active attacks: roast/spray/abuse/coerce/relay/RBCD/DCSync/exec/WMI/LAPS/ESC1-4/golden/silver/PtT/BadSuccessor/DCShadow.
+    /// Active attacks: roast/spray/abuse/coerce/poison/relay/RBCD/DCSync/exec/wmiexec/atexec/winrm/secretsdump/gmsa/LAPS/ESC1/icpr-esc1/ESC4/adcs-relay/golden/diamond/unpac/silver/PtT/asktgt/unconstrained/BadSuccessor/DCShadow/MSSQL/DNS/zerologon/shadowcred.
     #[command(subcommand)]
     Attack(AttackCmd),
     /// Offline / single-purpose check runners — subset of `scan` for one taxonomy at a time.

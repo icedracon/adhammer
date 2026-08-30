@@ -97,7 +97,7 @@ Every finding in the report is either an audit observation, a supported validati
 
 ## Release Truth
 
-The current workspace version is **1.4.7** (2026-08-29).
+The current workspace version is **1.4.8** (2026-08-30).
 
 Public claims for ADhammer should follow three rules:
 
@@ -107,9 +107,9 @@ Public claims for ADhammer should follow three rules:
 
 That keeps the README useful across release lines without turning the first screen into a moving archive.
 
-### 1.4.7 highlights
+### 1.4.8 highlights
 
-Two P1 security fixes an interactive user can feel immediately: password-equivalent secrets (NT hash, AES256 key, `set-password` value, constrained-delegation password) are now entered through a hidden prompt, and any silent LDAPS→LDAP:389 downgrade requires an explicit `y/N` prompt defaulting to No (a passive sniffer on the same segment used to be able to lift the bind password from a lab DC without an ADCS cert). The HTML report gains a **Control-area coverage** panel (in-house `ADP-01..30` taxonomy, `docs/CONTROL_AREAS.md`), a **Kill-chain coverage** panel in canonical attacker-lifecycle order, a **Report fingerprint** sha256 footer for baseline-diff / archive-by-hash, and a green **hardened-bill-of-health** banner when a run finishes with zero findings. `adhammer-kerberos` hot paths now emit `tracing::debug!` / `trace!` events (AS-REQ, TGS-REQ, WRAP tokens) with an audited redaction discipline — identifier strings + byte counts only, never key bytes or ticket contents. Determinism holds byte-identically across Windows and Kali given the same DC state. Full detail in [CHANGELOG.md](CHANGELOG.md).
+**Capability-expansion release.** 17 of a planned 20 offensive vectors are live on `main` — the release closes the gap between adhammer's "broad passive assessor" position and operational-offensive parity. Six vectors are net-new implementations this cycle: **WS-KERBRUTE** (Kerberos user enumeration via pre-auth-less AS-REQ, RFC 4120 §7.5.9), **WS-DIAMOND-TICKET** (Golden variant that inherits real KDC timestamps and drops the 10-year-validity IOC), **WS-SID-HISTORY-INJECT** (canonical cross-forest injection), **WS-ESC1-EXPLOIT** (6-stage checklist with KB5014754 handling), **WS-ESC3-CHAIN** (per-variant Enrollment Agent chain), and **WS-UNPAC-FULL** (PKINIT-then-extract-NT-hash from `PAC_CREDENTIAL_INFO`, MS-PAC §2.6). Eleven additional vectors — lateral-movement (`psexec`/`wmiexec`/`atexec`/`evil-winrm`), local secretsdump (SAM + LSA + DCC2), NTLM relay chain (`coerce` → `poison` → `relay` → LDAP/CA/ICPR), ESC8 end-to-end, and DRSUAPI-path DCShadow — were already implemented in the tree and are now doc-named to the plan. **WS-WMIEXEC moved from `[SEALED-BLOCKED]` to LIVE** after this pass verified `dcerpc::dcom_wmi::wmi_exec` works without the cut WS-4-P2 sealed-RPC path. Three vectors deferred with explicit rationale in `docs/PLAN_1.4.8.md`: WS-DPAPI-MASTER-KEY (upstream dpapi-offline not yet e2e-validated), WS-NTDS-OFFLINE (ese-parser at v0.1 scope), WS-SKELETON-KEY (persistence value duplicated by WS-GOLDEN-TICKET, worse AV surface). No new third-party deps; sibling icedracon crates cover every wire. Determinism unchanged from 1.4.7 (byte-identical scan output across Windows and Kali given the same DC state). Full detail in [CHANGELOG.md](CHANGELOG.md).
 
 <br/>
 

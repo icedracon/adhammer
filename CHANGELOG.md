@@ -5,6 +5,96 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.4.8] — 2026-08-30
+
+**Capability-expansion release** — closes the "broad passive assessor → operational
+offensive tool" gap. Original 20-vector plan lands **17 vectors LIVE**, 3 deferred
+with explicit rationale ([`docs/PLAN_1.4.8.md`](docs/PLAN_1.4.8.md)). Nothing
+published to crates.io this cycle (per "1.4.8 all local first" directive);
+sibling icedracon crates unchanged.
+
+### Added — Phase A: net-new implementations
+
+- **WS-KERBRUTE** (`enum krb-users`) — Kerberos user enumeration via
+  pre-auth-less AS-REQ. No LDAP creds needed; leaks user existence via KDC
+  error codes (RFC 4120 §7.5.9: `PRINCIPAL_UNKNOWN` vs `PREAUTH_REQUIRED`).
+  Also surfaces AS-REP-roastable accounts (`DONT_REQ_PREAUTH` flag) with a
+  copy-pasteable `attack roast` command.
+- **WS-DIAMOND-TICKET** (`attack diamond`) — variant of Golden that inherits
+  real KDC-issued timestamps + cname from a legitimate TGT; only PAC
+  groups/SIDs are attacker-chosen. Removes the anomalous 10-year-validity
+  IOC that fingerprints Golden.
+- **WS-SID-HISTORY-INJECT** (`attack golden --sid-history <SID>`) — canonical
+  cross-forest SIDHistory injection; `golden.rs` docstring rewritten to name
+  the vector with a paste-ready example.
+- **WS-ESC1-EXPLOIT** (`attack esc1`) — 6-stage `StageChecklist`-wrapped ESC1
+  exploit with explicit KB5014754 handling.
+- **WS-ESC3-CHAIN** (`attack icpr-esc1` variants) — per-variant checklist
+  builder + doc-name for the ESC3 Enrollment Agent chain.
+- **WS-UNPAC-FULL** (`attack unpac`) — PKINIT with a cert, extract NT hash of
+  the impersonated principal from the AS-REP's `PAC_CREDENTIAL_INFO` padata
+  (MS-PAC §2.6); chains into pass-the-hash. New module
+  `crates/kerberos/src/unpac.rs` (~320 LOC) with two unit tests + KEY_USAGE
+  constant KERB_NON_KERB_SALT (16).
+
+### Added — Phase B/C/D/F: already-implemented primitives doc-named to plan
+
+- **WS-PSEXEC / WS-ATEXEC / WS-WMIEXEC** (`attack exec` / `atexec` / `wmiexec`) —
+  three lateral RCE channels (SVCCTL / MS-TSCH / DCOM `Win32_Process.Create`)
+  with distinct host telemetry footprints. **WS-WMIEXEC moved from
+  `[SEALED-BLOCKED]` (Phase F) to LIVE (Phase B)**: existing
+  `dcerpc::dcom_wmi::wmi_exec` works without the cut WS-4-P2 sealed path;
+  DCOM ACTIVATION completes and `Win32_Process.Create` output is poll-read
+  over C$.
+- **WS-EVIL-WINRM** (`attack winrm`) — WS-Man over 5985 with NTLM + MS-NLMP
+  message encryption; pass-the-hash via `--nt-hash`.
+- **WS-DELEGATION-CAPTURE (PARTIAL)** (`attack unconstrained`) — LDAP-only
+  recon of `TRUSTED_FOR_DELEGATION` hosts ships; the AP-REQ-parse
+  capture listener is documented as follow-up work in the module header.
+- **WS-SAM-SECURITY-DUMP** (`attack secretsdump`) — MS-RRP fast path
+  (bootkey via class-name walk, no 15 MB hive downloads) + `reg save`
+  fallback + SYSKEY offline decrypt through `adhammer_secrets`.
+- **WS-NTLMRELAYX-SMB-LDAP** (`attack relay`) —
+  `smb2_client::server::RelayConn::listen` + LDAP (Shadow Credentials /
+  RBCD) / AD CS Web Enrollment (ESC8) / MS-ICPR (ESC11) forwarders.
+- **WS-COERCE-SENDER** (`attack coerce`) — MS-RPRN / MS-EFSR / MS-DFSNM /
+  MS-FSRVP senders; docstring points at WS-NTLMRELAYX as the paired
+  listener for the full "coerce + capture" chain.
+- **WS-LLMNR-POISON** (`attack poison`) — LLMNR (UDP 5355) + NBT-NS
+  (UDP 137) lure that pairs with WS-NTLMRELAYX for the capture end.
+- **WS-ESC8-END-TO-END** (`attack adcs-relay`) — dedicated NTLM-over-HTTP
+  relay to AD CS Web Enrollment.
+- **WS-DCSHADOW-DRSR** (`attack dcshadow`) — WS-2 DRSUAPI push path (works
+  on Server 2019/2022/2025); LDAP path stays as fallback for ≤ 2016 but is
+  live-verified dead on 2019+ (see [[dcshadow-ldap-dead-on-2019plus]]).
+
+### Deferred with rationale (3 of 20)
+
+- **WS-DPAPI-MASTER-KEY.** Sibling `dpapi-offline` has KAT-validated
+  primitives (PBKDF2 / HMAC-SHA1 / HMAC-SHA512) + validated masterkey-file
+  parser, but the crate's own `VALIDATION STATUS` block flags the full
+  masterkey-decrypt chain as not yet e2e-validated against a real file.
+  Would violate "cut what doesn't work". Revive when either (a)
+  `test_real_masterkey` passes on the testlab, or (b) MS-BKRP `RESTORE_GUID`
+  path lands atop domain-key subfield parse.
+- **WS-NTDS-OFFLINE.** Sibling `ese-parser` at v0.1 scope (668-byte header
+  + random-access page read). B-tree walk / catalog decode / row+tag decode
+  are v0.2 roadmap; downstream `ntds-parse` crate not published. Live
+  DCSync already covers the same NT-hash + krbtgt + trust-key output.
+- **WS-SKELETON-KEY.** LSA memory patch of lsass.exe on the DC. Value
+  duplicates WS-GOLDEN-TICKET persistence, AV/EDR surface is worse, and
+  implementation is a per-Windows-version binary shim. Not 1.4.8-shaped.
+
+### Fixed
+
+- Three clippy regressions in `adhammer-kerberos` after the Phase A ship
+  (unused `Cipher` re-export in `unpac.rs`, doc_lazy_continuation in
+  `pac.rs`, `too_many_arguments` on `forge_ticket_with_timestamps` with
+  explicit `#[allow]` + rationale).
+- Mid-release commit chained `cargo clippy … | tail -3` and masked the
+  strict-warning exit code (786e133); restored to unpiped in
+  60ca37f with a note in the commit message.
+
 ### Removed
 
 - **`check krb-seal` subcommand + `AesCts96Sealer` + rpc_seal RFC 3961/3962
@@ -12,19 +102,26 @@ All notable changes to ADhammer are documented here. Format loosely follows
   reached BIND_ACK byte-correct against Server 2025 but every wrap-token
   layout permutation tried (in 1.4.7 and again in 1.4.8) tripped the
   identical `SMB2 status 0xC00000AE (STATUS_PIPE_BUSY)` on the first opnum.
-  The DC's SMB-layer response is binary (accept/reject) with zero
-  informational discrimination, so blind hypothesis-search converges to
-  nothing. Static-analysis attempts on the sender-side layout are exhausted;
+  Blind hypothesis-search on a binary DC response converges to nothing;
   closure requires a Windows-native → DC Wireshark capture over
   `\PIPE\lsarpc` under Kerberos-sealed to byte-diff against our output.
-  Rather than ship the `[SCAFFOLDING]` label and `hide_from_help` marker
-  indefinitely, the code is cut. Git history preserves everything at tag
-  `v1.4.7` and earlier for the day the capture lands and the sealer can
-  come back — with the mismatched byte visible on paper instead of
-  guessed at. Deleted files: `cli/src/checks/krb_seal.rs`,
+  Rather than ship the `[SCAFFOLDING]` label indefinitely, the code is cut.
+  Git history preserves everything at tag `v1.4.7` and earlier for the day
+  the capture lands. Deleted files: `cli/src/checks/krb_seal.rs`,
   `crates/kerberos/src/rpc_sealer.rs`, `crates/kerberos/src/rpc_seal.rs`.
   Also drops `aes = "0.8"` + `dcerpc` deps from `adhammer-kerberos`
   (the sealer was their only consumer). `check adcs` remains.
+
+### Notes
+
+- **Deps.** No new third-party deps this release. Sibling icedracon crates
+  covered every wire path.
+- **Determinism.** Byte-identical scan output across Windows and Kali given
+  the same DC state — unchanged from 1.4.7.
+- **Coverage counting.** 74 unique attack surfaces total (58 pre-recon
+  checks + 15 pre-existing attack verbs + 20-item capability plan − 4
+  overlap between plan and pre-existing). Plan-vs-shipped table in
+  `docs/PLAN_1.4.8.md`.
 
 ## [1.4.7] — 2026-08-29
 

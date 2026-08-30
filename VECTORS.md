@@ -9,7 +9,7 @@ Status key:
 | ❌ | Open — not implemented |
 | 🚫 | Out of scope — requires different tooling or active relay not in passive audit |
 
-Last updated: 2026-08-24 · local 1.4.3 release candidate
+Last updated: 2026-08-30 · 1.4.8 (capability-expansion release)
 
 ---
 
@@ -19,7 +19,7 @@ Last updated: 2026-08-24 · local 1.4.3 release candidate
 |------|--------|---------|------|
 | Audit checks (41 rules) | 39 | 2 | 0 |
 | AD CS ESC (15/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active + ESC6/7/10/11/16 via MS-RRP (`enum esc`) | — | ESC12 (hardware token, out of scope) |
-| Offensive CLI | 21 modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·secretsdump·gmsa·esc1·golden·silver·pth·asktgt·capture·poison·relay…) | 2 chains | see [ROADMAP.md](ROADMAP.md) |
+| Offensive CLI | 33+ modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·wmiexec·atexec·winrm·secretsdump·gmsa·laps·esc1·icpr-esc1·esc4·adcs-relay·golden·**diamond**·**unpac**·silver·ptt·asktgt·capture·poison·relay·unconstrained·badsuccessor·mssql·zerologon·dcshadow·shadowcred·rbcd·**enum krb-users**) | 1 chain (WS-DELEGATION-CAPTURE, listener owed) | see [ROADMAP.md](ROADMAP.md) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
 This file tracks current per-vector status against the local `1.4.3` tree. [ROADMAP.md](ROADMAP.md)
@@ -131,6 +131,33 @@ is out of scope).
 
 ## Offensive — Closed vectors
 
+### 1.4.8 additions (capability-expansion release, 2026-08-30)
+
+| Vector | CLI | Status | Crate / path |
+|--------|-----|--------|--------------|
+| WS-KERBRUTE (Kerberos user enum, RFC 4120 §7.5.9) | `enum krb-users` | ✅ | cli/enums/krb + kerberos/tgs |
+| WS-DIAMOND-TICKET (inherits real KDC timestamps) | `attack diamond` | ✅ | cli/attacks/diamond + kerberos/tgs::forge_diamond_tgt |
+| WS-SID-HISTORY-INJECT (cross-forest) | `attack golden --sid-history <SID>` | ✅ | ms-pac-forge + golden.rs |
+| WS-ESC1-EXPLOIT (6-stage checklist + KB5014754) | `attack esc1` | ✅ | attacks/esc1 (checklist-wrapped) |
+| WS-ESC3-CHAIN (Enrollment Agent chain) | `attack icpr-esc1` variants | ✅ | ms-icpr + attacks/icpr_esc1 |
+| WS-UNPAC-FULL (PKINIT → NT hash from PAC_CREDENTIAL_INFO) | `attack unpac` | ✅ | kerberos/unpac (new module) |
+| WS-PSEXEC (SVCCTL LocalSystem service) | `attack exec` | ✅ | dcerpc/svcctl + attacks/exec_pack |
+| WS-WMIEXEC (DCOM Win32_Process.Create, ex-SEALED) | `attack wmiexec` | ✅ | dcerpc/dcom_wmi + attacks/exec_pack |
+| WS-ATEXEC (MS-TSCH scheduled task) | `attack atexec` | ✅ | dcerpc/tsch + attacks/exec_pack |
+| WS-EVIL-WINRM (WSMan 5985 + NTLM + MS-NLMP) | `attack winrm` | ✅ | cli/winrm + attacks/winrm_exec |
+| WS-SAM-SECURITY-DUMP (RRP fast path + hive fallback) | `attack secretsdump` | ✅ | dcerpc/rrp + adhammer-secrets |
+| WS-NTLMRELAYX-SMB-LDAP (listener → LDAP/CA/ICPR) | `attack relay` | ✅ | smb2-client/server + attacks/relay |
+| WS-COERCE-SENDER (RPRN/EFSR/DFSNM/FSRVP) | `attack coerce` | ✅ | dcerpc/{rprn,efsr,dfsnm,fsrvp} |
+| WS-LLMNR-POISON (LLMNR + NBT-NS lure) | `attack poison` | ✅ | cli/poison |
+| WS-ESC8-END-TO-END (NTLM-over-HTTP → CA Web Enrollment) | `attack adcs-relay` | ✅ | attacks/adcs_relay |
+| WS-DCSHADOW-DRSR (DRSUAPI push, 2019+) | `attack dcshadow` | ✅ | dcerpc/drsuapi + cli/dcshadow |
+
+**Partial in 1.4.8:** WS-DELEGATION-CAPTURE (`attack unconstrained`) — LDAP recon of `TRUSTED_FOR_DELEGATION` hosts shipped; AP-REQ-parse capture listener is documented as follow-up.
+
+**Deferred with rationale** (see `docs/PLAN_1.4.8.md`): WS-DPAPI-MASTER-KEY (upstream dpapi-offline not yet e2e-validated), WS-NTDS-OFFLINE (sibling ese-parser at v0.1), WS-SKELETON-KEY (persistence duplicated by WS-GOLDEN-TICKET, worse AV surface).
+
+### Pre-1.4.8
+
 | Vector | CLI | Status | Crate / path |
 |--------|-----|--------|--------------|
 | Passive domain audit | `scan` / interactive | ✅ | collector → graph → checks → report |
@@ -159,9 +186,9 @@ is out of scope).
 
 | Vector | Status | What's missing |
 |--------|--------|----------------|
-| **Coerce → capture chain** | 🔶 | Coerce and capture are separate; no single command wires listener + trigger + hash output |
-| **Coerce → relay → pkinit** | 🔶 | Three manual steps; no orchestrated `attack chain shadowcred` |
-| **DCSync** | 🔶 | EXOP_REPL_OBJ per target only — no full domain replication / NTDS.dit |
+| **WS-DELEGATION-CAPTURE** | 🔶 | Recon (LDAP `TRUSTED_FOR_DELEGATION` sweep) shipped in 1.4.8; AP-REQ capture listener + forwarded-TGT extraction owed |
+| **Coerce → relay chain** | 🔶 | `attack coerce`, `attack poison`, and `attack relay` are three verbs; no single `attack chain coerce+relay+shadowcred` orchestrator |
+| **DCSync** | 🔶 | EXOP_REPL_OBJ per target only — no full domain replication / NTDS.dit (WS-NTDS-OFFLINE deferred pending ese-parser v0.2) |
 | **Kerberoast without creds** | 🔶 | AS-REP needs no creds; Kerberoast needs authenticated TGT |
 | **badSuccessor exploit** | 🔶 | Audit flags dMSA presence; no OU ACL graph or dMSA takeover primitive |
 | **Net deep checks** | 🔶 | FTP/SMTP/Redis/VNC/WinRM/RPC surface only — no auto-exploit |
