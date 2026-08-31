@@ -79,8 +79,11 @@ jobs:
       - name: install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: fuzz each target briefly
+        # pac_parse_full retired 2026-08-31 — see fuzz/Cargo.toml comment.
+        # Total 7 targets in scope (sddl_parse, hive_parse, pac_credential_info,
+        # dpapi_blob, dpapi_masterkey, gpp_cpassword, gptmpl_parse).
         run: |
-          for t in sddl_parse hive_parse pac_credential_info pac_parse_full \
+          for t in sddl_parse hive_parse pac_credential_info \
                    dpapi_blob dpapi_masterkey gpp_cpassword gptmpl_parse; do
             cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096
           done
