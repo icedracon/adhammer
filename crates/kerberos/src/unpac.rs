@@ -217,6 +217,30 @@ pub fn decrypt_and_parse_credential_info(body: &[u8], session_key: &[u8]) -> Res
 ///   - AES-128-CTS-HMAC-SHA1-96: confounder(16) + HMAC(12) = 28
 ///   - RC4-HMAC (etype 23): confounder(8) + HMAC(16) = 24 (RFC 4757 §4)
 fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
+    // 1.4.9 WS-FUZZ-6 finding — picky-krb 0.9.6 has a second-order panic
+    // surface inside its GenericArray-based slice conversions: some
+    // truncated-but-length-check-passing ciphertext shapes reach a
+    // `GenericArray::from_slice` with wrong `N`, which asserts and panics.
+    // Length-lower-bounding before the call catches the obvious cases;
+    // wrapping the call in `catch_unwind` catches the residual class
+    // without waiting on an upstream picky-krb patch. Converted panic
+    // surfaces as a clean anyhow error; the operator's session survives.
+    fn guarded<F>(label: &'static str, f: F) -> Result<Vec<u8>>
+    where
+        F: FnOnce() -> Result<Vec<u8>> + std::panic::UnwindSafe,
+    {
+        std::panic::catch_unwind(f).map_err(|_| {
+            anyhow!("{label} panicked on malformed input (picky-krb 0.9.6 upstream)")
+        })?
+    }
+
+    // Copy the byte-slice inputs into owned Vec<u8> so the closure is
+    // UnwindSafe (borrowing from outside would fail the auto-trait check).
+    let key_owned = key.to_vec();
+    let ct_owned = ct.to_vec();
+    let key_ref: &[u8] = &key_owned;
+    let ct_ref: &[u8] = &ct_owned;
+
     match etype {
         18 => {
             if ct.len() < 28 {
@@ -225,10 +249,12 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
                     ct.len()
                 );
             }
-            CipherSuite::Aes256CtsHmacSha196
-                .cipher()
-                .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-                .map_err(|e| anyhow!("AES256 decrypt: {e}"))
+            guarded("AES256 decrypt", move || {
+                CipherSuite::Aes256CtsHmacSha196
+                    .cipher()
+                    .decrypt(key_ref, KEY_USAGE_KERB_NON_KERB_SALT, ct_ref)
+                    .map_err(|e| anyhow!("AES256 decrypt: {e}"))
+            })
         }
         17 => {
             if ct.len() < 28 {
@@ -237,10 +263,12 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
                     ct.len()
                 );
             }
-            CipherSuite::Aes128CtsHmacSha196
-                .cipher()
-                .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-                .map_err(|e| anyhow!("AES128 decrypt: {e}"))
+            guarded("AES128 decrypt", move || {
+                CipherSuite::Aes128CtsHmacSha196
+                    .cipher()
+                    .decrypt(key_ref, KEY_USAGE_KERB_NON_KERB_SALT, ct_ref)
+                    .map_err(|e| anyhow!("AES128 decrypt: {e}"))
+            })
         }
         23 => {
             if ct.len() < 24 {
@@ -249,8 +277,10 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
                     ct.len()
                 );
             }
-            crate::rc4::decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-                .map_err(|e| anyhow!("RC4-HMAC decrypt: {e}"))
+            guarded("RC4-HMAC decrypt", move || {
+                crate::rc4::decrypt(key_ref, KEY_USAGE_KERB_NON_KERB_SALT, ct_ref)
+                    .map_err(|e| anyhow!("RC4-HMAC decrypt: {e}"))
+            })
         }
         other => bail!("unsupported PAC_CREDENTIAL_INFO etype {other} — expected 17/18/23"),
     }
