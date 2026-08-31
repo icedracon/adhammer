@@ -18,7 +18,26 @@ Any bug found in the 1.4.9 tree that isn't a same-cycle fix lands here.
 Every entry: title + severity + reproducer path + landing commit or
 "pending" + which 1.5.0 workstream absorbs the fix.
 
-*None yet — 1.4.9 shakedown ongoing.*
+### CI-1 — `package-check` cannot run per-commit under "all local"
+
+**Severity:** low (CI process, not code correctness).
+
+**Repro:** `cargo package -p adhammer-graph --allow-dirty --no-verify` on
+the 1.4.9 tree with no 1.4.9 tag published to crates.io.
+
+**Symptom:** `failed to select a version for the requirement
+adhammer-core = "^1.4.9"` — cargo strips path deps and resolves internal
+`version = "1.4.9"` refs against crates.io; 1.4.9 is not on the index
+during local-only cycles.
+
+**Same-cycle mitigation (landed 1.4.9):** `package-check` job gated to
+tag pushes + `workflow_dispatch`; new `manifest-sanity` job
+(`cargo metadata --locked`) covers per-commit manifest sanity.
+
+**1.5.0 workstream:** WS-EVIDENCE-BUNDLE (folds a full pre-publish
+package check into the release step) + WS-STABILITY-1-0 (once
+bottom-of-stack siblings hit 1.0, publishing frequency drops and the
+gate-on-tag policy is a natural fit).
 
 ## Workstreams (planned)
 

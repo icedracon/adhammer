@@ -64,8 +64,12 @@ cargo-deny gates license + source-registry + banned-crate policy.
 
 **Deliverables.**
 1. `.github/workflows/ci.yml` — new `package-check` job that runs
-   `cargo package --allow-dirty -p <each of 12 crates>` on every push to
-   `main` and every PR.
+   `cargo package --allow-dirty -p <each of 12 crates>`. **Gated to tag
+   pushes + `workflow_dispatch`** (release cycles), not per-commit, because
+   `cargo package` resolves internal `version = "1.4.9"` refs against
+   crates.io and 1.4.9 is not published (see ship policy). Per-commit
+   manifest sanity is covered by the sibling `manifest-sanity` job
+   (`cargo metadata --locked`).
 2. All `.github/workflows/*.yml` Actions references migrated from
    `@v4`/`@v2`/`@stable` to `@<40-char-sha>`, with a comment above each
    naming the tag the SHA came from.
