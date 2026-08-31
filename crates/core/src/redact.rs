@@ -70,7 +70,7 @@ impl Redacted<SecretBytes> {
         Redacted(SecretBytes(v))
     }
     pub fn expose_bytes(&self) -> &[u8] {
-        &self.0.0
+        &self.0 .0
     }
 }
 
