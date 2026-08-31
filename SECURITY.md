@@ -86,14 +86,76 @@ tier at minimum.
   migrated to `rustls-pki-types`; our transitive graph is not yet on
   the new stack. Documented in `deny.toml` with rationale.
 
-## Signing key custody
+## Signing key custody + rotation policy
 
-Release artifacts on the GitHub Releases page are signed via sigstore
-OIDC. The workflow is defined in `.github/workflows/release.yml`; the
-signing identity is the GitHub Actions runner's OIDC token, verifiable
-via `cosign verify-blob`. There is no long-lived signing key to
-rotate; every release is signed by a fresh short-lived token.
+Two signing surfaces exist. Both are formally scoped below.
 
-crates.io publishes are signed with the maintainer's crates.io API
-token. Rotation policy: token rotated on suspected compromise, on
-maintainer handoff, and at minimum once per year.
+### 1. Release artifacts on GitHub Releases — sigstore OIDC
+
+Every prebuilt binary (`.exe`, `linux-gnu`, `linux-musl`, `apple-darwin`)
+plus the `.deb` on the GitHub Releases page is signed via a
+sigstore OIDC attestation issued to the GitHub Actions runner's
+short-lived token. The workflow is
+`.github/workflows/release.yml`; verifiable end-to-end via:
+
+    gh attestation verify <asset> --owner icedracon
+
+**Custody model:** there is no long-lived signing key. Every release
+receives a fresh short-lived token; nothing needs to be rotated because
+nothing is retained.
+
+**Rotation policy:** N/A (no long-lived key).
+
+**Compromise response:** if a runner-token compromise is ever detected
+(e.g., a leaked GitHub Actions token), we (a) revoke it via the GitHub
+UI, (b) republish the release with a fresh attestation, (c) file a
+GitHub Security Advisory naming the compromised artifact SHAs, (d)
+yank all crates from that release.
+
+### 2. crates.io publishes — maintainer API token
+
+Every crate on <https://crates.io/users/icedracon> is published under
+the maintainer's crates.io API token. This is a long-lived credential
+and requires an explicit rotation cadence.
+
+**Custody model:** token lives in the maintainer's password manager;
+never in the git tree, never in a CI secret, never in a screenshot.
+
+**Rotation policy — mandatory:**
+
+- **Annual:** rotated at least once per calendar year, on or before
+  the anniversary of the previous rotation.
+- **On suspected compromise:** immediately, before any other action.
+- **On maintainer handoff / access changes:** immediately.
+
+**Rotation procedure:**
+
+1. Generate a new token on <https://crates.io/settings/tokens>, scoped
+   to `publish-update` only (never `publish-new` — no reason to
+   publish new crates under this identity today).
+2. Update the maintainer's password manager entry with the new token.
+3. Revoke the previous token immediately from the same page.
+4. Post the rotation event (not the token) into
+   `docs/SIGNING_ROTATIONS.md` as an append-only log entry, dated.
+5. If the rotation was compromise-triggered, publish a GitHub
+   Security Advisory naming the suspected compromise window and any
+   affected publishes.
+
+### 3. crates.io org membership
+
+Every icedracon crate on crates.io has exactly one owner (the
+maintainer identity). No secondary owners today. Adding a co-owner
+requires an explicit ADR + a same-day advisory listing the new
+identity.
+
+### 4. Third-party trust surface
+
+Runtime signing for downstream consumers relies on:
+
+- sigstore attestations verified via `cosign` / `gh attestation`.
+- crates.io's own package-index HTTPS-only distribution.
+
+We do NOT publish binaries via HKP / OpenPGP-signed tarballs / any
+other signing surface. Downstream that needs an air-gapped verification
+path uses `cargo binstall --no-download` + manual sha256 sidecars from
+the GitHub Releases page.

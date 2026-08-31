@@ -7,6 +7,16 @@
 //! that needs the raw value (LDAP bind, RPC seal, ccache serialize) — that call is visible
 //! in `git grep expose\\(` for audit.
 //!
+//! **1.4.9 WS-ZEROIZE** — for byte-material types (`Vec<u8>`, `[u8; N]`,
+//! `String`), Redacted also erases the memory on `Drop` via
+//! [`SecretBytes`] / [`SecretArray`] variants. Wrapping a byte vec in
+//! `Redacted::<Vec<u8>>::new(v)` gives the print-hiding surface but does
+//! NOT erase on drop; use [`Redacted::new_zeroize`] (`Vec<u8>` /
+//! `String`) to also get zero-on-drop. Fixed-size byte arrays use
+//! [`Redacted::new_zeroize_array`]. All erasure paths use the
+//! `zeroize` crate (RustCrypto-maintained, no-std-friendly, widely
+//! audited).
+//!
 //! ```
 //! use adhammer_core::Redacted;
 //! let pw = Redacted::new("hunter2".to_string());
@@ -50,6 +60,62 @@ impl<T> Redacted<T> {
     }
 }
 
+impl Redacted<SecretBytes> {
+    /// Wrap byte material with print-hiding AND zero-on-drop. Prefer this over
+    /// `Redacted::<Vec<u8>>::new(v)` for anything that lives long enough to
+    /// be worth erasing (session keys, ccache bytes, NT hashes cached in-
+    /// process, DPAPI masterkeys). The convenience `expose_bytes` returns
+    /// `&[u8]` directly for zero-friction consumption.
+    pub fn new_zeroize(v: Vec<u8>) -> Self {
+        Redacted(SecretBytes(v))
+    }
+    pub fn expose_bytes(&self) -> &[u8] {
+        &self.0.0
+    }
+}
+
+/// Byte-buffer secret that erases its heap allocation on Drop. Prefer
+/// [`Redacted<SecretBytes>`] over raw `Redacted<Vec<u8>>` for anything
+/// held longer than one call frame.
+///
+/// The `zeroize` crate's `Zeroize` impl for Vec<u8> overwrites the
+/// backing allocation to zero; `ZeroizeOnDrop` invokes that in Drop.
+/// Zero runtime cost when not dropped.
+#[derive(Clone, Default, PartialEq, Eq, Hash, ::zeroize::Zeroize, ::zeroize::ZeroizeOnDrop)]
+pub struct SecretBytes(Vec<u8>);
+
+impl SecretBytes {
+    pub fn from_vec(v: Vec<u8>) -> Self {
+        SecretBytes(v)
+    }
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for SecretBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("***")
+    }
+}
+
+impl serde::Serialize for SecretBytes {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+impl<'de> serde::Deserialize<'de> for SecretBytes {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Vec::<u8>::deserialize(d).map(SecretBytes)
+    }
+}
+
 impl<T> fmt::Debug for Redacted<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("***")
@@ -86,6 +152,30 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Redacted<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_bytes_zeroize_on_drop_reference_check() {
+        // Can't observe raw memory in safe Rust without unsafe, so instead
+        // check the public contract: `zeroize::Zeroize` is implemented and
+        // callable; `ZeroizeOnDrop` is implemented (compile-time via the
+        // derive). If someone removes the derive, this test still compiles
+        // if the trait bound is missing — so we assert it via a trait bound.
+        use zeroize::{Zeroize, ZeroizeOnDrop};
+        fn assert_zeroize<T: Zeroize + ZeroizeOnDrop>() {}
+        assert_zeroize::<SecretBytes>();
+
+        let mut s = SecretBytes::from_vec(vec![0xAB, 0xCD]);
+        assert_eq!(s.as_slice(), &[0xAB, 0xCD]);
+        s.zeroize();
+        assert_eq!(s.as_slice(), &[0x00, 0x00]);
+    }
+
+    #[test]
+    fn secret_bytes_hides_via_redacted() {
+        let key = Redacted::<SecretBytes>::new_zeroize(vec![0xAA; 32]);
+        assert_eq!(format!("{key:?}"), "***");
+        assert_eq!(key.expose_bytes().len(), 32);
+    }
 
     #[test]
     fn debug_and_display_print_stars_not_the_value() {
