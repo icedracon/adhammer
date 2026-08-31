@@ -3,7 +3,7 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased]
+## [1.4.9] — 2026-08-31
 
 ### Fixed
 
@@ -17,6 +17,11 @@ All notable changes to ADhammer are documented here. Format loosely follows
   default, native-TLS, and optional-capability feature combinations.
 - Make `--no-default-features` a valid plain-LDAP build; LDAPS attempts fail before dialing with a
   clear instruction to select one of the mutually exclusive TLS backends.
+- Resolve `env:VAR` credential references in the shared CLI boundary and fail closed when the
+  reference is malformed or missing.
+- Harden live-validation receipts: reject literal passwords and unsafe Windows labels, share one
+  canonical leak-pattern list with the pre-commit hook, sanitize target-controlled output without
+  putting the secret on a subprocess command line, and publish receipts only after JSON validation.
 
 ## [1.4.8] — 2026-08-30
 

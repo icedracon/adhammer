@@ -5,20 +5,34 @@
 # saying why the leak is intentional (a synthetic KAT constant, etc).
 set -e
 
-LEAK_TERMS='Zikurat[0-9]|S-1-5-21-4202935557-1141836847-2435275103|93a18bf11f58cf2c9dd7b1db2e9fd7f6|a4cee3971e4a7acc05a5b384f380c76b|3d7d82260a3a2c39039f28e9cede2a47'
+ROOT=$(git rev-parse --show-toplevel)
+LEAK_TERMS_FILE="$ROOT/.githooks/leak-terms.txt"
+if [ ! -s "$LEAK_TERMS_FILE" ]; then
+    echo "pre-commit BLOCKED: $LEAK_TERMS_FILE is missing or empty." >&2
+    exit 1
+fi
 
 # Files that legitimately reference the leak strings (the hook itself as a
-# regex; docs describing the leak in prose; the security memory note; the
-# receipt scrubber whose HARD_BLOCK_SUBSTRINGS mirrors this list).
+# regex; the canonical regex list; docs describing the leak in prose; and the
+# security memory note). The receipt scrubber loads the same canonical list,
+# so its source no longer needs a blanket exclusion.
 # Extend when a new legit reference lands in-tree.
-SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md :(exclude)scripts/scrub_receipt.py :(exclude)docs/adr/*.md'
+SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude).githooks/leak-terms.txt :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md :(exclude)docs/adr/*.md'
 
-if git diff --cached -- . $SKIP_PATHS | grep -inE "$LEAK_TERMS" > /tmp/adh_leak_check.$$ 2>&1; then
+CHECK_OUTPUT=$(mktemp)
+ADDED_LINES=$(mktemp)
+trap 'rm -f "$CHECK_OUTPUT" "$ADDED_LINES"' EXIT
+
+# Scan only added content. Removing a historical secret must not make the
+# cleanup commit impossible, and diff metadata (`+++ b/path`) is not content.
+git diff --cached --unified=0 -- . $SKIP_PATHS |
+    awk '/^\+\+\+ / { next } /^\+/ { print substr($0, 2) }' > "$ADDED_LINES"
+
+if grep -inE -f "$LEAK_TERMS_FILE" "$ADDED_LINES" > "$CHECK_OUTPUT" 2>&1; then
     echo "======================================================================"
     echo " pre-commit BLOCKED: staged diff contains known lab identifier."
     echo "======================================================================"
-    cat /tmp/adh_leak_check.$$ | head -20
-    rm -f /tmp/adh_leak_check.$$
+    head -20 "$CHECK_OUTPUT"
     echo "----------------------------------------------------------------------"
     echo " Redact BEFORE staging. Rule: docs/PLAN_1.4.9.md § WS-LEAK-HOOK."
     echo " Placeholder examples:"
@@ -29,6 +43,14 @@ if git diff --cached -- . $SKIP_PATHS | grep -inE "$LEAK_TERMS" > /tmp/adh_leak_
     echo "   git commit --no-verify -m ..."
     echo "======================================================================"
     exit 1
+else
+    grep_status=$?
+    if [ "$grep_status" -ne 1 ]; then
+        echo "======================================================================" >&2
+        echo " pre-commit BLOCKED: canonical leak patterns could not be evaluated." >&2
+        echo "======================================================================" >&2
+        head -20 "$CHECK_OUTPUT" >&2
+        exit 2
+    fi
 fi
-rm -f /tmp/adh_leak_check.$$
 exit 0

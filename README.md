@@ -97,7 +97,7 @@ Every finding in the report is either an audit observation, a supported validati
 
 ## Release Truth
 
-The current workspace version is **1.4.8** (2026-08-30).
+The current workspace version is **1.4.9** (2026-08-31).
 
 Public claims for ADhammer should follow three rules:
 
@@ -106,6 +106,17 @@ Public claims for ADhammer should follow three rules:
 - **No public copy should claim more than the validation ledger supports.**
 
 That keeps the README useful across release lines without turning the first screen into a moving archive.
+
+### 1.4.9 highlights
+
+**Release-integrity and validation hardening.** The default dependency graph now excludes the
+offline-only MSSQL client and pre-alpha direct GKDI adapter; optional paths are feature-gated,
+valid TLS configurations are CI-checked independently, and every published crate declares the
+Rust 1.88 MSRV. Rustls installs one process-wide AWS-LC provider before any TLS builder runs.
+The live-validation harness accepts credential references only, sanitizes target-controlled
+output before publishing atomic receipts, and binds receipts to the tested binary hash. Capability
+claims remain governed by [the validation ledger](docs/VALIDATION.md); missing live receipts are
+validation debt, not implied support.
 
 ### 1.4.8 highlights
 

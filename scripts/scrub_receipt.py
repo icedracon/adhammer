@@ -2,7 +2,7 @@
 """Sanitize a live-validation output before it becomes a committed receipt.
 
 Input:  a file containing raw adhammer stdout/stderr.
-Args:   --dc <ip> --realm <REALM> --admin <DOMAIN\\User> [--pw <value>]
+Args:   --dc <ip> --realm <REALM> --admin <DOMAIN\\User> [--pw-env <name>]
 Output: stdout, with every lab-identifying value replaced by a placeholder.
 
 Replacements:
@@ -25,27 +25,44 @@ Not scrubbed (deliberate):
     Public IP-shape placeholders (10.X.X.X etc.)
 
 Run:
+    export ADH_RECEIPT_PASSWORD='...'
     python3 scripts/scrub_receipt.py raw.out --dc 10.0.0.5 --realm CORP.LOCAL \\
-        --admin 'CORP\\Administrator' --pw 'hunter2'
+        --admin 'CORP\\Administrator' --pw-env ADH_RECEIPT_PASSWORD
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote, quote_plus
 
 
-# Substrings the pre-commit hook already grep-blocks. Never let one land
-# in a receipt either.
-HARD_BLOCK_SUBSTRINGS = (
-    "Zikurat2003",  # historical lab password from the audit incident
-    "S-1-5-21-4202935557-1141836847-2435275103",
-    "93a18bf11f58cf2c9dd7b1db2e9fd7f6",
-    "a4cee3971e4a7acc05a5b384f380c76b",
-    "3d7d82260a3a2c39039f28e9cede2a47",
-)
+ROOT = Path(__file__).resolve().parent.parent
+HARD_BLOCK_FILE = ROOT / ".githooks" / "leak-terms.txt"
+
+
+class UnsafeReceiptError(ValueError):
+    """Raw validation output contains a known forbidden identifier."""
+
+
+def hard_block_patterns() -> tuple[re.Pattern[str], ...]:
+    """Load the pre-commit hook's canonical deny patterns."""
+    try:
+        lines = HARD_BLOCK_FILE.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise UnsafeReceiptError("canonical hard-block list is unavailable") from exc
+    patterns = tuple(
+        re.compile(line, flags=re.IGNORECASE)
+        for line in lines
+        if line.strip()
+    )
+    if not patterns:
+        raise UnsafeReceiptError("canonical hard-block list is empty")
+    return patterns
 
 
 def scrub(
@@ -59,24 +76,24 @@ def scrub(
 
     # 1. HARD block — refuse to emit a receipt with any hook-blocked
     #    substring, even if the caller didn't supply the value as a CLI arg.
-    for s in HARD_BLOCK_SUBSTRINGS:
-        if s in out:
-            print(
-                f"[scrub_receipt] REFUSING: input contains hard-blocked "
-                f"substring '{s}'. Fix upstream (rotate lab credential; "
-                f"scrub input by hand) before rerunning.",
-                file=sys.stderr,
+    for index, pattern in enumerate(hard_block_patterns(), start=1):
+        if pattern.search(out):
+            raise UnsafeReceiptError(
+                f"input matches hard-block pattern #{index}; rotate or remove "
+                "the credential before rerunning"
             )
-            sys.exit(3)
 
     # 2. Password — never let it survive.
     if pw:
-        out = out.replace(pw, "<redacted>")
-        # Also common URL-encoding.
-        out = out.replace(
-            pw.replace("$", "%24").replace("!", "%21"),
-            "<redacted>",
-        )
+        variants = {
+            pw,
+            quote(pw, safe=""),
+            quote_plus(pw, safe=""),
+            json.dumps(pw)[1:-1],
+        }
+        for value in sorted(variants, key=len, reverse=True):
+            if value:
+                out = out.replace(value, "<redacted>")
 
     # 3. DC IP — literal replacement + also common /24 prefix.
     if dc:
@@ -91,9 +108,15 @@ def scrub(
 
     # 4. Realm — both dotted + short-name forms.
     if realm:
-        out = out.replace(realm, "<realm>")
-        out = out.replace(realm.upper(), "<realm>")
-        out = out.replace(realm.lower(), "<realm>")
+        # Redact a DC/host label attached to the realm before replacing the
+        # realm itself. Otherwise `dc01.CORP.LOCAL` would retain `dc01`.
+        out = re.sub(
+            rf"\b(?:[A-Za-z0-9_-]+\.)+{re.escape(realm)}\b",
+            "<host>.<realm>",
+            out,
+            flags=re.IGNORECASE,
+        )
+        out = re.sub(re.escape(realm), "<realm>", out, flags=re.IGNORECASE)
         short = realm.split(".")[0]
         # short-name domain used in DOMAIN\User idiom
         out = re.sub(
@@ -114,6 +137,7 @@ def scrub(
                 rf"\b{re.escape(user_part)}\b",
                 "<admin>",
                 out,
+                flags=re.IGNORECASE,
             )
 
     # 6. Real domain SIDs — preserve the RID (last component) since
@@ -125,16 +149,19 @@ def scrub(
         out,
     )
 
-    # 7. NT hash pattern (32 hex chars, standalone).
-    out = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", "<nt-hash>", out)
+    # 7. Secret-shaped hex. Catch every standalone value at least as long as
+    #    an NT hash, including uncommon 40/48/96-character key/blob shapes.
+    def hex_secret(m: re.Match[str]) -> str:
+        length = len(m.group(0))
+        if length == 32:
+            return "<nt-hash>"
+        if length == 64:
+            return "<aes256-key>"
+        return f"<binary-blob-{length}-hex-chars>"
 
-    # 8. AES256 key (64 hex).
-    out = re.sub(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])", "<aes256-key>", out)
-
-    # 9. Long hex blobs (128+ hex chars — ccache / TGT bytes).
     out = re.sub(
-        r"(?<![0-9a-fA-F])[0-9a-fA-F]{128,}(?![0-9a-fA-F])",
-        "<binary-blob-{N}-hex-chars>",
+        r"(?<![0-9a-fA-F])[0-9a-fA-F]{32,}(?![0-9a-fA-F])",
+        hex_secret,
         out,
     )
 
@@ -142,11 +169,6 @@ def scrub(
     #     IP the caller didn't declare via --dc).
     def ip_check(m: re.Match[str]) -> str:
         ip = m.group(0)
-        # Preserve documented placeholder / private-range shapes.
-        if ip.startswith(("10.", "192.168.", "172.")) and ip.endswith(
-            (".0", ".1", ".254", ".255")
-        ):
-            return ip  # obvious placeholder / boundary
         return "<ip>"
 
     out = re.sub(
@@ -164,15 +186,38 @@ def main() -> int:
     ap.add_argument("--dc", default="", help="DC IP to redact")
     ap.add_argument("--realm", default="", help="AD realm to redact")
     ap.add_argument("--admin", default="", help="admin identity to redact")
-    ap.add_argument("--pw", default="", help="password value to redact")
+    ap.add_argument(
+        "--pw-env",
+        default="",
+        help="name of an environment variable containing the password to redact",
+    )
     args = ap.parse_args()
 
-    src = Path(args.path)
-    if not src.exists():
-        print(f"no such file: {src}", file=sys.stderr)
+    if args.path == "-":
+        text = sys.stdin.read()
+    else:
+        src = Path(args.path)
+        if not src.exists():
+            print(f"no such file: {src}", file=sys.stderr)
+            return 2
+        text = src.read_text(encoding="utf-8", errors="replace")
+    if args.pw_env and args.pw_env not in os.environ:
+        print(
+            f"password environment variable {args.pw_env} is not set",
+            file=sys.stderr,
+        )
         return 2
-    text = src.read_text(encoding="utf-8", errors="replace")
-    scrubbed = scrub(text, args.dc, args.realm, args.admin, args.pw)
+    try:
+        scrubbed = scrub(
+            text,
+            args.dc,
+            args.realm,
+            args.admin,
+            os.environ.get(args.pw_env) if args.pw_env else None,
+        )
+    except UnsafeReceiptError as exc:
+        print(f"[scrub_receipt] REFUSING: {exc}", file=sys.stderr)
+        return 3
     sys.stdout.write(scrubbed)
     return 0
 

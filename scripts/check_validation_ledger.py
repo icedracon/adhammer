@@ -114,6 +114,13 @@ def main() -> int:
     # Rule 1: `validation owed` rows must not appear in a "validated /
     # supported / live-validated" context in public surfaces.
     fails: list[str] = []
+    receipts_dir = ROOT / "docs" / "receipts"
+    for receipt in receipts_dir.glob("*.*"):
+        if receipt.name == "README.md" or receipt.suffix not in {".md", ".json"}:
+            continue
+        receipt_text = receipt.read_text(encoding="utf-8").lower()
+        if "review status: pending" in receipt_text or '"review_status": "pending"' in receipt_text:
+            fails.append(f"receipt {receipt.name} is still pending manual review")
     for cap, tier in caps.items():
         if tier != "validation owed":
             continue

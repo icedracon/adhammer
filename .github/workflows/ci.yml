@@ -149,3 +149,8 @@ jobs:
           python-version: "3.12"
       - name: enforce ledger vs public surfaces
         run: python3 scripts/check_validation_ledger.py
+      - name: verify live-receipt safety boundary
+        run: |
+          python3 -m unittest scripts/test_scrub_receipt.py
+          bash -n scripts/live_validation.sh .githooks/pre-commit
+          bash scripts/test_pre_commit_hook.sh

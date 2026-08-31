@@ -842,12 +842,26 @@ mod rustls_provider_tests {
 ///
 /// Resolution order (first non-empty wins):
 ///
-/// 1. `--password @file:/path/to/pw` — read from file (trailing \r\n trimmed).
-/// 2. `--password foo` — literal value; the leaky path, CI should prefer 1 or 3.
-/// 3. `$ADHAMMER_PASSWORD` env var.
-/// 4. Interactive prompt (only when stdin is a TTY) via `dialoguer::Password`.
-/// 5. Empty string — downstream code returns its own "needs password" error.
+/// 1. `--password env:VAR` — read from the named environment variable.
+/// 2. `--password @file:/path/to/pw` — read from file (trailing \r\n trimmed).
+/// 3. `--password foo` — literal value; the leaky backwards-compatible path.
+/// 4. `$ADHAMMER_PASSWORD` env var.
+/// 5. Interactive prompt (only when stdin is a TTY) via `dialoguer::Password`.
+/// 6. Empty string — downstream code returns its own "needs password" error.
 pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> {
+    if let Some(referenced_key) = argv_value.strip_prefix("env:") {
+        anyhow::ensure!(
+            !referenced_key.is_empty()
+                && referenced_key
+                    .bytes()
+                    .all(|b| b == b'_' || b.is_ascii_alphanumeric())
+                && !referenced_key.as_bytes()[0].is_ascii_digit(),
+            "invalid environment-variable reference in credential argument"
+        );
+        return std::env::var(referenced_key).with_context(|| {
+            format!("credential environment variable {referenced_key} is not set")
+        });
+    }
     if let Some(path) = argv_value.strip_prefix("@file:") {
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("read password file {path}"))?;
@@ -892,6 +906,31 @@ mod resolve_secret_tests {
         let got = resolve_secret("", "ADHAMMER_TEST_ENV_HIT").unwrap();
         std::env::remove_var("ADHAMMER_TEST_ENV_HIT");
         assert_eq!(got, "from-env");
+    }
+
+    #[test]
+    fn explicit_env_reference_is_resolved() {
+        std::env::set_var("ADHAMMER_TEST_EXPLICIT_ENV", "from-explicit-env");
+        let got = resolve_secret("env:ADHAMMER_TEST_EXPLICIT_ENV", "ADHAMMER_UNUSED").unwrap();
+        std::env::remove_var("ADHAMMER_TEST_EXPLICIT_ENV");
+        assert_eq!(got, "from-explicit-env");
+    }
+
+    #[test]
+    fn explicit_env_reference_fails_closed() {
+        std::env::remove_var("ADHAMMER_TEST_EXPLICIT_MISSING");
+        let err =
+            resolve_secret("env:ADHAMMER_TEST_EXPLICIT_MISSING", "ADHAMMER_UNUSED").unwrap_err();
+        assert!(format!("{err:#}")
+            .contains("credential environment variable ADHAMMER_TEST_EXPLICIT_MISSING is not set"));
+    }
+
+    #[test]
+    fn malformed_env_reference_is_rejected() {
+        for value in ["env:", "env:1STARTS_WITH_DIGIT", "env:HAS-DASH"] {
+            let err = resolve_secret(value, "ADHAMMER_UNUSED").unwrap_err();
+            assert!(format!("{err:#}").contains("invalid environment-variable reference"));
+        }
     }
 
     #[test]
