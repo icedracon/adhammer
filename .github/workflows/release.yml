@@ -46,12 +46,26 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2 pinned
 
+      # 1.4.9 WS-REPRO — SOURCE_DATE_EPOCH from the tag commit's timestamp.
+      # Every rebuild of the same tag on the same runner image + toolchain
+      # SHA produces the same output bytes. See docs/REPRODUCIBLE_BUILDS.md
+      # for what is and isn't reproducible; the musl target is the "gold"
+      # reproducibility profile (no glibc drift).
+      - name: derive SOURCE_DATE_EPOCH from tag commit
+        shell: bash
+        run: |
+          epoch=$(git log -1 --format=%ct)
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$epoch (from commit $(git rev-parse HEAD))"
+
       - name: musl tools
         if: endsWith(matrix.target, '-linux-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: build (default features = rustls, no OpenSSL)
-        run: cargo build --release --bin adhammer --target ${{ matrix.target }}
+        # --locked pins Cargo.lock; --frozen bans network fetches; combined
+        # they give bit-identical dep resolution across runs.
+        run: cargo build --release --locked --frozen --bin adhammer --target ${{ matrix.target }}
 
       - name: package binary
         id: pkg
