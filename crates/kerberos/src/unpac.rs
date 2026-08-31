@@ -203,18 +203,55 @@ pub fn decrypt_and_parse_credential_info(body: &[u8], session_key: &[u8]) -> Res
 /// Etype-dispatched decrypt of the encrypted `SerializedData`. AES256-CTS is
 /// the modern default (etype 18); AES128 (17) and RC4-HMAC (23) are the two
 /// legacy fallbacks a KDC might still emit for accounts with only those keys.
+///
+/// **1.4.9 WS-FUZZ-6 finding.** picky-krb's AES-CTS-HMAC-SHA1 decrypt
+/// panics via generic-array 0.14 when handed a ciphertext shorter than
+/// `confounder(16) + HMAC(12) = 28` bytes — the internal `GenericArray`
+/// slice conversion fails on the truncated input. Every etype gets a
+/// hard length lower-bound BEFORE the picky-krb call so a hostile KDC
+/// sending a 27-byte SerializedData surfaces as a clean anyhow error
+/// instead of a panic exit.
+///
+/// The bounds:
+///   - AES-256-CTS-HMAC-SHA1-96: confounder(16) + HMAC(12) = 28
+///   - AES-128-CTS-HMAC-SHA1-96: confounder(16) + HMAC(12) = 28
+///   - RC4-HMAC (etype 23): confounder(8) + HMAC(16) = 24 (RFC 4757 §4)
 fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
     match etype {
-        18 => CipherSuite::Aes256CtsHmacSha196
-            .cipher()
-            .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-            .map_err(|e| anyhow!("AES256 decrypt: {e}")),
-        17 => CipherSuite::Aes128CtsHmacSha196
-            .cipher()
-            .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-            .map_err(|e| anyhow!("AES128 decrypt: {e}")),
-        23 => crate::rc4::decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
-            .map_err(|e| anyhow!("RC4-HMAC decrypt: {e}")),
+        18 => {
+            if ct.len() < 28 {
+                bail!(
+                    "PAC_CREDENTIAL_INFO AES256 ciphertext too short ({} bytes, need >= 28 for confounder + HMAC)",
+                    ct.len()
+                );
+            }
+            CipherSuite::Aes256CtsHmacSha196
+                .cipher()
+                .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
+                .map_err(|e| anyhow!("AES256 decrypt: {e}"))
+        }
+        17 => {
+            if ct.len() < 28 {
+                bail!(
+                    "PAC_CREDENTIAL_INFO AES128 ciphertext too short ({} bytes, need >= 28 for confounder + HMAC)",
+                    ct.len()
+                );
+            }
+            CipherSuite::Aes128CtsHmacSha196
+                .cipher()
+                .decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
+                .map_err(|e| anyhow!("AES128 decrypt: {e}"))
+        }
+        23 => {
+            if ct.len() < 24 {
+                bail!(
+                    "PAC_CREDENTIAL_INFO RC4-HMAC ciphertext too short ({} bytes, need >= 24 for confounder + HMAC per RFC 4757)",
+                    ct.len()
+                );
+            }
+            crate::rc4::decrypt(key, KEY_USAGE_KERB_NON_KERB_SALT, ct)
+                .map_err(|e| anyhow!("RC4-HMAC decrypt: {e}"))
+        }
         other => bail!("unsupported PAC_CREDENTIAL_INFO etype {other} — expected 17/18/23"),
     }
 }
