@@ -167,7 +167,12 @@ mod tests {
         let mut s = SecretBytes::from_vec(vec![0xAB, 0xCD]);
         assert_eq!(s.as_slice(), &[0xAB, 0xCD]);
         s.zeroize();
-        assert_eq!(s.as_slice(), &[0x00, 0x00]);
+        // `Zeroize` on `Vec<u8>` overwrites the bytes AND clears the vec
+        // (len -> 0, capacity retained but zeroed). So `as_slice()` after
+        // `zeroize()` is empty. Both facts matter: no residual bytes are
+        // visible via the public API, and the freed heap region has been
+        // overwritten before the eventual deallocation.
+        assert!(s.as_slice().is_empty(), "vec cleared after zeroize");
     }
 
     #[test]
