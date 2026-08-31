@@ -18,6 +18,7 @@ windows-sddl = "0.1"
 adhammer-secrets = { path = "../crates/secrets" }
 # WS-FUZZ-6 (1.4.9) — parsers touching attacker-controlled bytes.
 adhammer-kerberos = { path = "../crates/kerberos" }
+adhammer-sysvol = { path = "../crates/sysvol" }
 dpapi-offline = "0.1.2"
 
 [[bin]]
@@ -58,6 +59,20 @@ bench = false
 [[bin]]
 name = "pac_parse_full"
 path = "fuzz_targets/pac_parse_full.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gpp_cpassword"
+path = "fuzz_targets/gpp_cpassword.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gptmpl_parse"
+path = "fuzz_targets/gptmpl_parse.rs"
 test = false
 doc = false
 bench = false

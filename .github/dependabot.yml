@@ -1,0 +1,54 @@
+# 1.4.9 WS-CI-HARDEN — machine-managed action + Cargo rotation.
+# Every action pin lives in .github/workflows/*.yml as
+#   uses: owner/repo@<40-char-sha> # <version-tag> pinned
+# Dependabot bumps the SHA + updates the trailing comment on every open PR.
+# Cargo ecosystem is deliberately month-cadence (not weekly) — bumping deps
+# faster than we can validate them is the class of change that broke 1.4.8's
+# release day.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "cargo"
+    # Group patch bumps into a single PR to reduce churn; keep minor + major
+    # separate so breaking-change review is per-crate.
+    groups:
+      cargo-patch:
+        update-types:
+          - "patch"
+    # Never touch our own icedracon crates via Dependabot — they cascade-
+    # bump manually on the release cycle.
+    ignore:
+      - dependency-name: "adhammer-*"
+      - dependency-name: "dcerpc"
+      - dependency-name: "ntlmssp"
+      - dependency-name: "smb2-client"
+      - dependency-name: "ms-*"
+      - dependency-name: "windows-sddl"
+      - dependency-name: "ad-acl"
+      - dependency-name: "dpapi-*"
+      - dependency-name: "ese-parser"
+      - dependency-name: "ccache-io"
+      - dependency-name: "win32-min"

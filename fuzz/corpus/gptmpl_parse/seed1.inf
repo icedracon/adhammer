@@ -1,0 +1,8 @@
+[Unicode]
+Unicode=yes
+[Registry Values]
+MACHINE\System\CurrentControlSet\Services\LanmanServer\Parameters\RequireSecuritySignature=4,1
+MACHINE\System\CurrentControlSet\Services\NTDS\Parameters\LDAPServerIntegrity=4,2
+[Kerberos Policy]
+MaxTicketAge=10
+MaxRenewAge=7
