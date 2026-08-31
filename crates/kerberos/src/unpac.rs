@@ -241,11 +241,29 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
     let key_ref: &[u8] = &key_owned;
     let ct_ref: &[u8] = &ct_owned;
 
+    // AES-CTS length bounds (BUG-18 root cause). AES-CTS-HMAC-SHA1-96
+    // permits exactly two ct shapes without triggering picky-krb 0.9.6's
+    // internal GenericArray asserts:
+    //   * 28 bytes — empty plaintext, single-block confounder + 12 HMAC
+    //   * >= 44 bytes — CTS needs at least two blocks (confounder + one
+    //                    plaintext block) + 12 HMAC
+    // Anything in [29..44) is a shape picky-krb can't handle without
+    // panicking inside `GenericArray::from_slice`. In practice no real KDC
+    // ever emits either 28 (empty payload — useless) or the [29..44)
+    // window (impossible plaintext length), so we simply require >= 44
+    // and route the "empty payload" case to a clean error rather than the
+    // decrypt path. `catch_unwind` above is kept as belt-and-suspenders
+    // for third-party panics we can't length-predict, but cargo-fuzz
+    // builds with `-C panic=abort` so it cannot catch under fuzzing; the
+    // length lower bound is the real defence.
+    const AES_MIN: usize = 44;
+    const RC4_MIN: usize = 40; // 8-byte confounder + block + 16 HMAC, RFC 4757
+
     match etype {
         18 => {
-            if ct.len() < 28 {
+            if ct.len() < AES_MIN {
                 bail!(
-                    "PAC_CREDENTIAL_INFO AES256 ciphertext too short ({} bytes, need >= 28 for confounder + HMAC)",
+                    "PAC_CREDENTIAL_INFO AES256 ciphertext too short ({} bytes, need >= {AES_MIN} for CTS 2-block confounder+plaintext + HMAC)",
                     ct.len()
                 );
             }
@@ -257,9 +275,9 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
             })
         }
         17 => {
-            if ct.len() < 28 {
+            if ct.len() < AES_MIN {
                 bail!(
-                    "PAC_CREDENTIAL_INFO AES128 ciphertext too short ({} bytes, need >= 28 for confounder + HMAC)",
+                    "PAC_CREDENTIAL_INFO AES128 ciphertext too short ({} bytes, need >= {AES_MIN} for CTS 2-block confounder+plaintext + HMAC)",
                     ct.len()
                 );
             }
@@ -271,9 +289,9 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
             })
         }
         23 => {
-            if ct.len() < 24 {
+            if ct.len() < RC4_MIN {
                 bail!(
-                    "PAC_CREDENTIAL_INFO RC4-HMAC ciphertext too short ({} bytes, need >= 24 for confounder + HMAC per RFC 4757)",
+                    "PAC_CREDENTIAL_INFO RC4-HMAC ciphertext too short ({} bytes, need >= {RC4_MIN} for confounder + block + HMAC per RFC 4757)",
                     ct.len()
                 );
             }
