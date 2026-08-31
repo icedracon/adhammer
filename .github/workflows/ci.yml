@@ -103,12 +103,23 @@ jobs:
         # Total 9 targets in scope (sddl_parse, hive_parse, pac_credential_info,
         # dpapi_blob, dpapi_masterkey, gpp_cpassword, gptmpl_parse,
         # ntlmssp_challenge, ntlmssp_type3).
+        # `|| true` per-target so we always upload every crash artifact,
+        # even when a later target also crashes. The overall job is
+        # continue-on-error so this stays truthful.
         run: |
           for t in sddl_parse hive_parse pac_credential_info \
                    dpapi_blob dpapi_masterkey gpp_cpassword gptmpl_parse \
                    ntlmssp_challenge ntlmssp_type3; do
-            cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096
+            cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096 || echo "FUZZ-CRASH: $t"
           done
+      - name: upload fuzz crash artifacts (repro inputs)
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3 pinned
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
 
   # 1.4.9 WS-CI-HARDEN — verify every crate can be packaged in isolation.
   # This catches release-day regressions (LICENSE-path bugs, missing metadata,

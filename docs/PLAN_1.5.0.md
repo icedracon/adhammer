@@ -39,6 +39,35 @@ package check into the release step) + WS-STABILITY-1-0 (once
 bottom-of-stack siblings hit 1.0, publishing frequency drops and the
 gate-on-tag policy is a natural fit).
 
+### BUG-19 — `pac_credential_info` fuzz-found panic (fifth of the picky-krb class)
+
+**Severity:** low (only reachable when a compromised KDC returns a
+malformed PAC_CREDENTIAL_INFO; `pac_credential_info` outer walk still
+converts panic → err via caller `catch_unwind`, but the fuzz target
+runs the parser directly and asserts no-panic).
+
+**Repro:** CI run
+https://github.com/icedracon/adhammer/actions/runs/33427141674 job
+`cargo-fuzz (nightly, short)`; crash artifact
+`fuzz/artifacts/pac_credential_info/crash-2f1c7c633177a2bf96d2c4a5b86333f19f55385b`
+(uploaded starting with the ci.yml commit that added the upload step).
+
+**Root cause:** same class as BUG-16/17/18 — `picky-krb 0.9.6`'s
+AES-CTS-HMAC-SHA1 decrypt path calls `generic_array::GenericArray::
+from_slice` on a slice whose length the callsite hasn't proved matches
+the expected block size. Some shape leaks past `AES_MIN = 44` +
+`RC4_MIN = 40`. Whack-a-mole via a further byte-count bump is not the
+right fix.
+
+**Right fix:** WS-DEPS-MAJORS picky-krb 0.9 → 0.12 (returns `Err`
+instead of panicking on malformed ct — behavior claimed in the
+Dependabot bump commit body). If the upstream fix is real, restore the
+retired `pac_parse_full` fuzz target at the same time.
+
+**Belt-and-braces:** WS-FUZZ-12 rebases every PAC-touching target on
+top of `pac_parse_full` once it comes back, so residual generic-array
+shapes get exercised end-to-end again.
+
 ## Workstreams (planned)
 
 ### WS-DEPS-MAJORS — take the Dependabot semver-major bumps
