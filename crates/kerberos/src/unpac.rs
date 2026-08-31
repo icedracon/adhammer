@@ -126,7 +126,14 @@ pub fn unpac_credential_info(pac_bytes: &[u8], session_key: &[u8]) -> Result<Opt
     }
     let c_buffers = u32::from_le_bytes(pac_bytes[0..4].try_into().unwrap()) as usize;
     let _version = u32::from_le_bytes(pac_bytes[4..8].try_into().unwrap());
-    let header_len = 8 + c_buffers * 16;
+    // 1.4.9 WS-FUZZ-6 finding — c_buffers is attacker-controlled (u32) and
+    // `c_buffers * 16` can overflow usize on 32-bit or wrap on 64-bit. Use
+    // checked arithmetic so a hostile PAC can't pass the bounds check via
+    // overflow.
+    let header_len = c_buffers
+        .checked_mul(16)
+        .and_then(|n| n.checked_add(8))
+        .ok_or_else(|| anyhow!("PAC header c_buffers*16+8 overflow (c_buffers={c_buffers})"))?;
     if pac_bytes.len() < header_len {
         bail!(
             "PAC header claims {} buffers but only {} bytes available",
@@ -144,7 +151,15 @@ pub fn unpac_credential_info(pac_bytes: &[u8], session_key: &[u8]) -> Result<Opt
         }
         let cb = u32::from_le_bytes(pac_bytes[d + 4..d + 8].try_into().unwrap()) as usize;
         let off = u64::from_le_bytes(pac_bytes[d + 8..d + 16].try_into().unwrap()) as usize;
-        if off + cb > pac_bytes.len() {
+        // 1.4.9 WS-FUZZ-6 — CVE-class integer-overflow bug found by
+        // `pac_credential_info` fuzz target on its first CI run. Hostile KDC
+        // could set Offset near usize::MAX and cbBufferSize small; the
+        // pre-fix `off + cb > len` check wrapped and then the slice index
+        // below panicked. Now checked_add before comparison.
+        let end = off
+            .checked_add(cb)
+            .ok_or_else(|| anyhow!("PAC_CREDENTIAL_INFO offset+size overflow (off={off}, cb={cb})"))?;
+        if end > pac_bytes.len() {
             bail!(
                 "PAC_CREDENTIAL_INFO buffer descriptor points past PAC end ({}+{} > {})",
                 off,
@@ -152,7 +167,7 @@ pub fn unpac_credential_info(pac_bytes: &[u8], session_key: &[u8]) -> Result<Opt
                 pac_bytes.len()
             );
         }
-        let body = &pac_bytes[off..off + cb];
+        let body = &pac_bytes[off..end];
         return Ok(Some(decrypt_and_parse_credential_info(body, session_key)?));
     }
     Ok(None)
