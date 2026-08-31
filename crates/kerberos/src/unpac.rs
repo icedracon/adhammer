@@ -156,9 +156,9 @@ pub fn unpac_credential_info(pac_bytes: &[u8], session_key: &[u8]) -> Result<Opt
         // could set Offset near usize::MAX and cbBufferSize small; the
         // pre-fix `off + cb > len` check wrapped and then the slice index
         // below panicked. Now checked_add before comparison.
-        let end = off
-            .checked_add(cb)
-            .ok_or_else(|| anyhow!("PAC_CREDENTIAL_INFO offset+size overflow (off={off}, cb={cb})"))?;
+        let end = off.checked_add(cb).ok_or_else(|| {
+            anyhow!("PAC_CREDENTIAL_INFO offset+size overflow (off={off}, cb={cb})")
+        })?;
         if end > pac_bytes.len() {
             bail!(
                 "PAC_CREDENTIAL_INFO buffer descriptor points past PAC end ({}+{} > {})",
