@@ -16,6 +16,9 @@ libfuzzer-sys = "0.4"
 # the dcerpc EPM parsers are fuzzed in the dcerpc repo.
 windows-sddl = "0.1"
 adhammer-secrets = { path = "../crates/secrets" }
+# WS-FUZZ-6 (1.4.9) — parsers touching attacker-controlled bytes.
+adhammer-kerberos = { path = "../crates/kerberos" }
+dpapi-offline = "0.1.2"
 
 [[bin]]
 name = "sddl_parse"
@@ -27,6 +30,34 @@ bench = false
 [[bin]]
 name = "hive_parse"
 path = "fuzz_targets/hive_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pac_credential_info"
+path = "fuzz_targets/pac_credential_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dpapi_blob"
+path = "fuzz_targets/dpapi_blob.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dpapi_masterkey"
+path = "fuzz_targets/dpapi_masterkey.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pac_parse_full"
+path = "fuzz_targets/pac_parse_full.rs"
 test = false
 doc = false
 bench = false

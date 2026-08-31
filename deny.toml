@@ -1,0 +1,98 @@
+# cargo-deny policy for the adhammer workspace.
+# Run: cargo deny check
+# WS-CI-HARDEN — 1.4.9. Adjust with a rationale in the commit message.
+
+[graph]
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "aarch64-apple-darwin" },
+]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Advisories — vulnerability and unmaintained-crate policy.
+# ---------------------------------------------------------------------------
+
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+    # rsa 0.9.x Marvin attack (RUSTSEC-2023-0071) — no upstream fix exists
+    # for any pure-Rust RSA implementation. Rationale in .cargo/audit.toml.
+    "RUSTSEC-2023-0071",
+    # rustls-pemfile 2.x unmaintained (RUSTSEC-2025-0134) — upstream moved
+    # primitives to rustls-pki-types, transitive graph doesn't hit those yet.
+    "RUSTSEC-2025-0134",
+]
+
+# ---------------------------------------------------------------------------
+# Licenses — allow-list only.
+# ---------------------------------------------------------------------------
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "CC0-1.0",
+    "0BSD",
+    "Zlib",
+    "MPL-2.0",
+    "MIT-0",
+]
+exceptions = []
+
+# ---------------------------------------------------------------------------
+# Bans — duplicate-version and denied-crate policy.
+# ---------------------------------------------------------------------------
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+allow = []
+deny = [
+    # Add here as needed. Nothing banned outright yet.
+]
+
+# Known-duplicate versions we accept for now (transitive-only).
+skip = [
+    { name = "getrandom" },        # 0.2 / 0.4 across the rand/aead ecosystem
+    { name = "syn" },              # proc-macro-only, doesn't ship in binary
+    { name = "thiserror" },        # 1.x / 2.x transitive coexist
+    { name = "windows-sys" },      # proc-macro build only
+    { name = "hashbrown" },        # ecosystem transient
+    { name = "rand_core" },        # 0.6 / 0.9 across crypto
+]
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources — only crates.io + our own git deps.
+# ---------------------------------------------------------------------------
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = ["icedracon"]

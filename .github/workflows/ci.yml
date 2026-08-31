@@ -65,6 +65,8 @@ jobs:
 
   # Fuzz is slow — run it separately on a schedule so PR checks stay fast.
   # Left on push/pull_request too, but continue-on-error so it never blocks merge.
+  # 1.4.9 WS-FUZZ-6 — added 4 targets (pac_credential_info, pac_parse_full,
+  # dpapi_blob, dpapi_masterkey) on top of the existing 2. Total 6.
   fuzz:
     name: cargo-fuzz (nightly, short)
     runs-on: ubuntu-latest
@@ -77,6 +79,44 @@ jobs:
         run: cargo install cargo-fuzz --locked
       - name: fuzz each target briefly
         run: |
-          for t in sddl_parse hive_parse; do
+          for t in sddl_parse hive_parse pac_credential_info pac_parse_full dpapi_blob dpapi_masterkey; do
             cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096
           done
+
+  # 1.4.9 WS-CI-HARDEN — verify every crate can be packaged in isolation.
+  # This catches release-day regressions (LICENSE-path bugs, missing metadata,
+  # circular internal deps) two weeks before a tag is cut, not on tag-cut day.
+  # --allow-dirty because CI runs against uncommitted state on PRs.
+  package-check:
+    name: cargo package (all 12 crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo package --allow-dirty per crate
+        run: |
+          set -e
+          for c in adhammer-core adhammer-secrets adhammer-ldap adhammer-graph \
+                   adhammer-sysvol adhammer-kerberos adhammer-bloodhound \
+                   adhammer-checks adhammer-collector adhammer-report \
+                   adhammer-sdk adhammer; do
+            echo "=== cargo package -p $c ==="
+            cargo package -p "$c" --allow-dirty --no-verify
+          done
+
+  # 1.4.9 WS-CI-HARDEN — license + source + banned-crate policy from deny.toml.
+  # Non-blocking on `warn` (duplicate-versions), blocking on `deny` (unknown
+  # source, unlicensed crate). Ignore list for accepted advisories is in
+  # deny.toml with rationale.
+  cargo-deny:
+    name: cargo deny (licenses · sources · bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: cargo deny check
+        run: cargo deny check licenses sources bans advisories
