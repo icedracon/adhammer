@@ -8,9 +8,10 @@ set -e
 LEAK_TERMS='Zikurat[0-9]|S-1-5-21-4202935557-1141836847-2435275103|93a18bf11f58cf2c9dd7b1db2e9fd7f6|a4cee3971e4a7acc05a5b384f380c76b|3d7d82260a3a2c39039f28e9cede2a47'
 
 # Files that legitimately reference the leak strings (the hook itself as a
-# regex; docs describing the leak in prose; the security memory note).
+# regex; docs describing the leak in prose; the security memory note; the
+# receipt scrubber whose HARD_BLOCK_SUBSTRINGS mirrors this list).
 # Extend when a new legit reference lands in-tree.
-SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md'
+SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md :(exclude)scripts/scrub_receipt.py :(exclude)docs/adr/*.md'
 
 if git diff --cached -- . $SKIP_PATHS | grep -inE "$LEAK_TERMS" > /tmp/adh_leak_check.$$ 2>&1; then
     echo "======================================================================"
