@@ -5,6 +5,19 @@ All notable changes to ADhammer are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Install the AWS-LC Rustls provider at CLI startup so LDAP and AD CS TLS builders cannot panic
+  when the MSSQL client also activates Rustls's `ring` feature.
+- Remove the unused, unmaintained `rustls-pemfile` dependency and its advisory exceptions.
+- Remove `ms-tds` and unvalidated `ms-gkdi` from the default dependency graph. MSSQL is now an
+  explicit `mssql` feature; the collector adapter is available only through its owner crate's
+  `experimental-gkdi` feature.
+- Propagate the workspace MSRV to every published `adhammer-*` package and CI-check the supported
+  default, native-TLS, and optional-capability feature combinations.
+- Make `--no-default-features` a valid plain-LDAP build; LDAPS attempts fail before dialing with a
+  clear instruction to select one of the mutually exclusive TLS backends.
+
 ## [1.4.8] — 2026-08-30
 
 **Capability-expansion release** — closes the "broad passive assessor → operational
@@ -895,9 +908,9 @@ downstream users saw a working release.
     seeded LAPS password was recovered into the PoC). Coercion/relay deferred (need a capture listener).
 
 ### Changed
-- **TLS backend is now a Cargo feature — rustls by default.** The default build is pure-Rust (no
-  `openssl-sys`, no system libraries), so it cross-compiles cleanly and static-links (a fully static
-  `x86_64-unknown-linux-musl` binary). `--no-default-features --features tls-native` selects the
+- **TLS backend is now a Cargo feature — rustls by default.** The default build uses rustls with
+  bundled AWS-LC (no `openssl-sys` or system TLS library), so it cross-compiles and static-links
+  (a fully static `x86_64-unknown-linux-musl` binary). The native-TLS build selects the
   OpenSSL/Schannel backend for legacy DCs whose LDAPS certs use SHA-1 handshake signatures.
 
 ### Fixed

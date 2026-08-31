@@ -2,6 +2,7 @@
 name = "adhammer-kerberos"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADhammer Kerberos — AS-REP/Kerberoast, S4U/RBCD, Shadow Credentials PKINIT (picky-krb)."
 keywords = ["kerberos", "active-directory", "pkinit", "asrep", "pentesting"]

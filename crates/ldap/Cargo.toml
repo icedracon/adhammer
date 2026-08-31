@@ -2,6 +2,7 @@
 name = "adhammer-ldap"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADhammer raw LDAP client — NTLM SASL (GSS-SPNEGO) bind + search/modify, for LDAP-389 auth and NTLM relay."
 keywords = ["ldap", "ntlm", "sasl", "active-directory", "pentesting"]

@@ -40,6 +40,15 @@ jobs:
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2 pinned
       - name: build
         run: cargo build --workspace --release
+      - name: check supported feature variants
+        shell: bash
+        run: |
+          cargo check --workspace --locked --no-default-features
+          cargo test -p adhammer-collector --locked --no-default-features no_tls_feature_tests
+          cargo check -p adhammer --locked --no-default-features --features tls-native
+          cargo check -p adhammer --locked --features mssql,gssapi
+          cargo test -p adhammer --locked --features mssql rustls_provider_tests
+          cargo check -p adhammer-collector --locked --features experimental-gkdi
       - name: test (unit + fuzz-lite parsers)
         run: cargo test --workspace
 
@@ -125,3 +134,18 @@ jobs:
         run: cargo install cargo-deny --locked
       - name: cargo deny check
         run: cargo deny check licenses sources bans advisories
+
+  # 1.4.9 Phase-1 gate — docs/VALIDATION.md is the source of truth for what the
+  # release supports. README / CHANGELOG / PLAN / VECTORS derive from it, not
+  # the other way around. This job fails when a public claim exceeds what the
+  # ledger records — "we support X" without a matching row is a bug.
+  validation-ledger:
+    name: docs/VALIDATION.md is authoritative
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2 pinned
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5 pinned
+        with:
+          python-version: "3.12"
+      - name: enforce ledger vs public surfaces
+        run: python3 scripts/check_validation_ledger.py

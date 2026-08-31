@@ -2,6 +2,7 @@
 name = "adhammer-checks"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADhammer check engine — Active Directory misconfiguration rules across privileged accounts, trusts, stale objects, and anomalies, tagged with MITRE ATT&CK techniques."
 keywords = ["active-directory", "audit", "security", "mitre-attack", "pentesting"]
@@ -18,4 +19,3 @@ ms-crtd = { workspace = true }
 # so a typo prints once and is silently ignored, instead of surprising the operator
 # with an unfiltered run.
 tracing = { workspace = true }
-

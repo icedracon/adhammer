@@ -59,12 +59,16 @@ assets = [
 [features]
 default = ["tls-rustls"]
 # TLS backend for LDAPS (forwarded to adhammer-collector):
-#   tls-rustls (default) — pure-Rust, static/musl, cross-compiles with no OpenSSL.
+#   tls-rustls (default) — rustls with bundled AWS-LC; no system OpenSSL.
 #   tls-native           — OpenSSL/Schannel; reaches legacy DCs with SHA-1 certs.
+#   neither              — plain ldap:// only; LDAPS and --insecure return an explicit error.
+# tls-rustls and tls-native are mutually exclusive; test the supported combinations separately.
 # Legacy build:  cargo build --release --no-default-features --features tls-native
 tls-rustls = ["adhammer-collector/tls-rustls"]
 tls-native = ["adhammer-collector/tls-native"]
 gssapi = ["adhammer-collector/gssapi"]
+# Specialized attack client; not part of the default release until live validation lands.
+mssql = ["dep:ms-tds"]
 
 [dependencies]
 adhammer-core = { workspace = true }
@@ -81,12 +85,10 @@ dcerpc = { workspace = true }
 ms-drsr = "0.2"
 dpapi-ng = { version = "0.1", features = ["rpc"] }
 dpapi-offline = { workspace = true }
-# ESC1-15 static analysis (`check adcs`) + MS-ICPR CSR construction
-# (`attack icpr-esc1`) + LAPS-v2 / gMSA seed-key derivation (`dump laps`/`dump gmsa`).
+# ESC1-15 static analysis (`check adcs`) + MS-ICPR CSR construction (`attack icpr-esc1`).
 ms-crtd = { workspace = true }
 ms-icpr = { workspace = true }
-ms-gkdi = { workspace = true }
-ms-tds = { workspace = true }
+ms-tds = { workspace = true, optional = true }
 # ms-icpr's build_csr_with_upn_san signs with an RSA key; `attack icpr-esc1`
 # generates a fresh 2048-bit key when the caller doesn't supply one.
 rsa = { version = "0.9", features = ["sha2", "pem"] }
@@ -97,7 +99,6 @@ rand = "0.8"
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "aws-lc-rs"] }
 rustls-native-certs = "0.8"
-rustls-pemfile = "2"
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
 ntlmssp = { workspace = true }

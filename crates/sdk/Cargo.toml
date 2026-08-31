@@ -2,6 +2,7 @@
 name = "adhammer-sdk"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADHammer Core — the AD audit + offensive toolkit as one importable SDK (re-exports the collector, graph, checks, kerberos, ldap, sysvol, bloodhound, secrets, and report subsystems). The CLI is the `adhammer` binary."
 keywords = ["active-directory", "audit", "sdk", "pentesting", "kerberos"]
@@ -11,8 +12,9 @@ repository.workspace = true
 [features]
 default = ["tls-rustls"]
 # TLS backend for LDAPS, forwarded to adhammer-collector (mirrors the CLI):
-#   tls-rustls (default) — pure-Rust, static/musl, no OpenSSL.
+#   tls-rustls (default) — rustls with bundled AWS-LC; no system OpenSSL.
 #   tls-native           — OpenSSL/Schannel; reaches legacy DCs with SHA-1 certs.
+#   neither              — plain ldap:// only. The TLS features are mutually exclusive.
 tls-rustls = ["adhammer-collector/tls-rustls"]
 tls-native = ["adhammer-collector/tls-native"]
 gssapi = ["adhammer-collector/gssapi"]

@@ -172,7 +172,7 @@ That "dual-use" rule is enforced: a primitive gets extracted into a sibling crat
 cargo install --locked adhammer
 ```
 
-Rust 1.80+. Windows / macOS / Linux (tested on all three in CI).
+Rust 1.88+. Windows / macOS / Linux (tested on all three in CI).
 
 Then:
 

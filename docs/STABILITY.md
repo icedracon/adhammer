@@ -37,9 +37,9 @@ Downstream consumers should read this before pinning.
 |---|---|---|---|
 | `ms-crtd` | 0.1 | 3 | ADCS template parser + ESC rule pack. |
 | `ms-icpr` | 0.1.2 | 3 | ICPR CSR builder + wire client. |
-| `ms-gkdi` | 0.1 | 3 | LAPS-v2 / gMSA seed-key derivation. |
+| `ms-gkdi` | 0.1 | 3 | Crypto unvalidated; ADhammer exposes it only with `experimental-gkdi`. |
 | `ms-drsr` | 0.2 | 3 | DRSUAPI. |
-| `ms-tds` | 0.1.1 | 3 | MSSQL TDS 7.4 client. |
+| `ms-tds` | 0.1.1 | 3 | MSSQL TDS 7.4 client; opt-in `mssql`, live validation owed. |
 | `ms-pac-forge` | latest | 3 | PAC forgery. |
 | `ms-bkrp` | latest | 3 | BackupKey Remote Protocol. |
 | `ms-scmr` | latest | 3 | Service Control Manager RPC. |

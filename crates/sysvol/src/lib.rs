@@ -6,8 +6,8 @@
 //! Microsoft *published*, making every such password trivially recoverable. We decrypt it
 //! and report the file, the target account, and the plaintext.
 
-// clippy 1.98 wants `as_chunks::<N>()` — Rust 1.98+; we hold MSRV 1.80. See rationale in
-// [`adhammer_secrets`]'s crate doc.
+// Clippy 1.98 suggests `as_chunks::<N>()`; these wire parsers intentionally keep
+// `chunks_exact(N)` next to their runtime field widths. See `adhammer_secrets`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use adhammer_core::finding::{mitre, Category, Evidence, Severity};

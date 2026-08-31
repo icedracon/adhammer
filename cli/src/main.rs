@@ -1,8 +1,8 @@
 //! ADhammer — Active Directory security assessment and offensive tradecraft in Rust.
 //! Pipeline: LDAP collect → build control-path graph → run checks → score → report.
 
-// clippy 1.98 wants `as_chunks::<N>()` — Rust 1.98+; we hold MSRV 1.80. See rationale in
-// [`adhammer_secrets`]'s crate doc.
+// Clippy 1.98 suggests `as_chunks::<N>()`; the wire parsers intentionally keep
+// `chunks_exact(N)` next to their runtime field widths. See `adhammer_secrets`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use adhammer_collector::Collector;
@@ -314,7 +314,7 @@ enum AttackCmd {
     /// on 2019+). `--cleanup <name>` removes it (works on any version). `--drsuapi --push` fires
     /// the full DCShadow modify against a target object.
     Dcshadow(Box<DcshadowArgs>),
-    /// MSSQL — TDS 7.4 client over NTLM. Runs an arbitrary SQL statement (common:
+    /// MSSQL — optional `mssql` build feature; TDS 7.4 over NTLM. Runs SQL (common:
     /// `EXEC xp_cmdshell 'whoami'`), optionally after a comma-separated `--execute-as`
     /// chain that pushes `EXECUTE AS LOGIN='<name>'` frames (LIFO) and unwinds them
     /// with `REVERT` on both success and error paths.
@@ -539,8 +539,23 @@ fn effective_interactive_verbosity(cmd_is_none: bool, quiet: bool, user_verbosit
     }
 }
 
+/// Select the process-wide Rustls provider before any dependency builds a TLS client.
+///
+/// The optional `mssql` feature enables `ms-tds`, which activates Rustls's `ring` feature while
+/// ADhammer's LDAP and AD CS paths activate `aws-lc-rs`. With both crate features present,
+/// Rustls deliberately refuses to guess and its implicit `ClientConfig::builder()` panics unless
+/// the application installs a provider first.
+fn install_rustls_crypto_provider() -> Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| {
+            anyhow::anyhow!("Rustls crypto provider was initialized before ADhammer startup")
+        })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    install_rustls_crypto_provider()?;
     enable_windows_console();
     let cli = Cli::parse();
     let effective_verbosity =
@@ -789,6 +804,17 @@ async fn dispatch(cmd: Command) -> Result<()> {
             })
             .await
         }
+    }
+}
+
+#[cfg(test)]
+mod rustls_provider_tests {
+    use super::install_rustls_crypto_provider;
+
+    #[test]
+    fn implicit_client_builder_has_a_process_provider() {
+        install_rustls_crypto_provider().unwrap();
+        let _ = rustls::ClientConfig::builder();
     }
 }
 

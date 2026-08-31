@@ -2,6 +2,7 @@
 name = "adhammer-sysvol"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADhammer SYSVOL — GPP cpassword (MS14-025) and GptTmpl.inf policy analysis."
 keywords = ["active-directory", "sysvol", "gpp", "windows", "pentesting"]

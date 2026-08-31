@@ -14,7 +14,9 @@
 //! lands. Sufficient for the "did it run + who am I" check the CAPE lab
 //! module tests; a full row-render lands with the ms-tds ROW decoder.
 
-use anyhow::{Context, Result};
+#[cfg(feature = "mssql")]
+use anyhow::Context;
+use anyhow::Result;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -47,6 +49,7 @@ pub(crate) struct MssqlArgs {
 /// Connect → NTLM login → optional `USE <db>` → stacked `EXECUTE AS` → user
 /// query → LIFO `REVERT`. REVERT is best-effort on error to leave the session
 /// in a clean state before it drops.
+#[cfg(feature = "mssql")]
 pub(crate) async fn mssql(mut a: MssqlArgs) -> Result<()> {
     a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
 
@@ -105,9 +108,19 @@ pub(crate) async fn mssql(mut a: MssqlArgs) -> Result<()> {
     }
 }
 
+/// Keep the command shape stable in default builds while refusing to enter the
+/// offline-only TDS implementation unless the operator selected it at build time.
+#[cfg(not(feature = "mssql"))]
+pub(crate) async fn mssql(_a: MssqlArgs) -> Result<()> {
+    anyhow::bail!(
+        "MSSQL support is disabled in this build; rebuild with `--features mssql` (this path is offline-tested, not live-validated)"
+    )
+}
+
 /// Pop `n` impersonation frames LIFO. Errors are logged but not propagated —
 /// the caller is either returning success (nothing to add) or already
 /// carrying a fatal error we don't want to shadow.
+#[cfg(feature = "mssql")]
 async fn revert_stack(c: &mut ms_tds::TdsClient, n: usize) {
     for i in (1..=n).rev() {
         match c.revert_to_self().await {
@@ -120,6 +133,7 @@ async fn revert_stack(c: &mut ms_tds::TdsClient, n: usize) {
 /// Render a `ResultSet` — messages + `row_count`. ROW values are not yet
 /// decoded upstream (see module docs), so per-column output isn't available.
 /// `tsv` collapses each message to `msg<TAB>...`; the default splits per batch.
+#[cfg(feature = "mssql")]
 fn report_result(label: &str, rs: &ms_tds::ResultSet, tsv: bool) {
     if tsv {
         for m in &rs.messages {
@@ -142,5 +156,31 @@ fn report_result(label: &str, rs: &ms_tds::ResultSet, tsv: bool) {
             "  note: {} row(s) returned but per-column values not decoded (ms-tds ROW decoder pending)",
             rs.row_count
         );
+    }
+}
+
+#[cfg(all(test, not(feature = "mssql")))]
+mod disabled_tests {
+    use super::{mssql, MssqlArgs};
+
+    #[tokio::test]
+    async fn default_build_refuses_mssql_before_network_use() {
+        let err = mssql(MssqlArgs {
+            auth: crate::shared_args::SmbAuth {
+                host: "127.0.0.1".into(),
+                domain: "EXAMPLE".into(),
+                user: "operator".into(),
+                password: "unused".into(),
+            },
+            query: "SELECT 1".into(),
+            port: 1433,
+            database: None,
+            tsv: false,
+            execute_as: Vec::new(),
+        })
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("--features mssql"));
     }
 }

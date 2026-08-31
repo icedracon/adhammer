@@ -82,9 +82,9 @@ tier at minimum.
 - **`rsa` 0.9.x Marvin timing sidechannel** (RUSTSEC-2023-0071). No
   upstream fix exists for any pure-Rust RSA crate. Documented in
   `.cargo/audit.toml` with rationale. Revisit annually.
-- **`rustls-pemfile` 2.x unmaintained** (RUSTSEC-2025-0134). Upstream
-  migrated to `rustls-pki-types`; our transitive graph is not yet on
-  the new stack. Documented in `deny.toml` with rationale.
+- **`ms-gkdi` 0.1 pre-alpha crypto.** The upstream crate explicitly lacks
+  Windows/reference known-answer tests. It is excluded from default builds and
+  available only through the `experimental-gkdi` feature until those tests land.
 
 ## Signing key custody + rotation policy
 

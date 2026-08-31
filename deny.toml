@@ -27,9 +27,6 @@ ignore = [
     # rsa 0.9.x Marvin attack (RUSTSEC-2023-0071) — no upstream fix exists
     # for any pure-Rust RSA implementation. Rationale in .cargo/audit.toml.
     "RUSTSEC-2023-0071",
-    # rustls-pemfile 2.x unmaintained (RUSTSEC-2025-0134) — upstream moved
-    # primitives to rustls-pki-types, transitive graph doesn't hit those yet.
-    "RUSTSEC-2025-0134",
 ]
 
 # ---------------------------------------------------------------------------
@@ -47,12 +44,8 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
     "Unlicense",
     "CC0-1.0",
-    "0BSD",
-    "Zlib",
-    "MPL-2.0",
     "MIT-0",
 ]
 exceptions = []
@@ -78,9 +71,8 @@ skip = [
     { name = "getrandom" },        # 0.2 / 0.4 across the rand/aead ecosystem
     { name = "syn" },              # proc-macro-only, doesn't ship in binary
     { name = "thiserror" },        # 1.x / 2.x transitive coexist
+    { name = "thiserror-impl" },   # proc-macro companion follows thiserror 1.x / 2.x
     { name = "windows-sys" },      # proc-macro build only
-    { name = "hashbrown" },        # ecosystem transient
-    { name = "rand_core" },        # 0.6 / 0.9 across crypto
 ]
 skip-tree = []
 
@@ -93,6 +85,3 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
-
-[sources.allow-org]
-github = ["icedracon"]

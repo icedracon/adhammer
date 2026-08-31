@@ -1,7 +1,7 @@
 name: release
 
-# Cross-compiled release binaries. The default build is pure-Rust (rustls) with no
-# OpenSSL, so every target builds with a plain toolchain — a fully static x86_64
+# Cross-compiled release binaries. The default build uses rustls with bundled AWS-LC and no
+# system OpenSSL; a fully static x86_64
 # Linux binary needs only musl-tools. Push a tag (v1.2.3) or run manually to
 # build and attach the assets to the release.
 #
@@ -156,7 +156,7 @@ jobs:
           # Legacy DCs with SHA-1 LDAPS certs need a native-TLS build from source:
           #   cargo build --release --no-default-features --features tls-native
           body: |
-            Static/cross-compiled binaries (pure-Rust rustls TLS — no OpenSSL).
+            Static/cross-compiled binaries (rustls with bundled AWS-LC — no system OpenSSL).
 
             **Install paths:**
             - `cargo binstall adhammer` — picks up the binary matching your target

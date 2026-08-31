@@ -379,7 +379,7 @@ fn parse_pac_credential_data(plain: &[u8]) -> Result<UnpacCreds> {
             cursor.len()
         );
     }
-    // `as_chunks` requires Rust 1.88; the workspace MSRV is Rust 1.87.
+    // Keep the two-byte runtime width visible at this wire-format boundary.
     #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
     let pkg_utf16: Vec<u16> = cursor[..pkg_bytes_len]
         .chunks_exact(2)

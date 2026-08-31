@@ -38,13 +38,13 @@ smb2-client  = "0.2"
 dcerpc       = "0.2.8"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack icpr-esc1` (ms-icpr),
-# and `dump laps/gmsa` (ms-gkdi). ms-icpr's `network` feature (sealed `\PIPE\cert`
+# and the opt-in collector GKDI adapter. ms-icpr's `network` feature (sealed `\PIPE\cert`
 # transport via SMB2 + dcerpc) is ON by default after the dcerpc 0.2.3 cycle fix.
 ms-crtd      = "0.1"
 ms-icpr      = "0.1.2"
 ms-gkdi      = "0.1"
-# TDS 7.4 client (MSSQL). Used by `attack mssql` (WS-1, 1.4.1) — xp_cmdshell
-# and EXECUTE AS impersonation chains over an NTLM-authenticated session.
+# TDS 7.4 client (MSSQL). Opt-in behind the CLI's `mssql` feature because this
+# offline-tested attack path also activates Rustls's ring provider.
 ms-tds       = "0.1.1"
 # DPAPI offline — parse + decrypt user masterkey files. Used by
 # `attack dpapi-master-key` (1.4.8-B WS-DPAPI-MASTER-KEY). 0.1.1 fixes the
@@ -72,8 +72,8 @@ anyhow      = "1"
 thiserror   = "2"
 bitflags    = { version = "2", features = ["serde"] }
 tokio       = { version = "1", features = ["rt-multi-thread", "macros"] }
-# TLS backend is selected by the adhammer-collector features (rustls by default → pure-Rust,
-# static/musl, trivial cross-compile; tls-native opt-in for SHA-1 legacy-DC LDAPS).
+# TLS backend is selected by the adhammer-collector features (rustls with bundled AWS-LC by
+# default; tls-native opt-in for SHA-1 legacy-DC LDAPS).
 ldap3       = { version = "0.12", default-features = false }
 petgraph    = "0.6"
 clap        = { version = "4", features = ["derive"] }

@@ -7,13 +7,14 @@
 //! backed by published protocol crates:
 //!
 //! * [`adcs`] — pKICertificateTemplate → [`ms_crtd::CertTemplate`]
-//! * [`gkdi`] — GKDI L0/L1/L2 seed-key derivation for LAPS-v2 / gMSA
+//! * `gkdi` (feature `experimental-gkdi`) — pre-alpha GKDI seed-key derivation
 //!
 //! Each source is opt-in and shares nothing with the others; they exist so
 //! individual crates (checks, cli) can pull a single adapter without inheriting
 //! the whole collector's transitive weight.
 
 pub mod adcs;
+#[cfg(feature = "experimental-gkdi")]
 pub mod gkdi;
 
 /// Distinguishes the two `Source`s so a caller can enumerate what an adapter
@@ -23,6 +24,7 @@ pub enum SourceKind {
     /// AD-CS certificate template + enrollment-service view (`ms-crtd`).
     Adcs,
     /// Group Key Distribution seed-key tree walk (`ms-gkdi`).
+    #[cfg(feature = "experimental-gkdi")]
     Gkdi,
 }
 
@@ -30,6 +32,7 @@ impl SourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
             SourceKind::Adcs => "adcs",
+            #[cfg(feature = "experimental-gkdi")]
             SourceKind::Gkdi => "gkdi",
         }
     }

@@ -21,6 +21,7 @@ use crate::attacks::gmsa::{gmsa, GmsaArgs};
 use crate::attacks::golden::{golden, GoldenArgs};
 use crate::attacks::laps::{laps, LapsArgs};
 use crate::attacks::lsa::{lsa, LsaArgs};
+#[cfg(feature = "mssql")]
 use crate::attacks::mssql::{mssql, MssqlArgs};
 use crate::attacks::ptt::{pth, PthArgs};
 use crate::attacks::rbcd::{rbcd, RbcdArgs};
@@ -204,7 +205,7 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
                 Action::Badsuccessor,
             ),
             (
-                "MSSQL — xp_cmdshell / EXECUTE AS impersonation",
+                "MSSQL — xp_cmdshell / EXECUTE AS (optional mssql feature)",
                 Action::Mssql,
             ),
             (
@@ -1366,6 +1367,11 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             })
             .await
         }
+        #[cfg(not(feature = "mssql"))]
+        Action::Mssql => anyhow::bail!(
+            "MSSQL support is disabled in this build; rebuild with `--features mssql` (this path is offline-tested, not live-validated)"
+        ),
+        #[cfg(feature = "mssql")]
         Action::Mssql => {
             let host: String = Input::new()
                 .with_prompt("MSSQL host/IP")

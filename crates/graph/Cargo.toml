@@ -2,6 +2,7 @@
 name = "adhammer-graph"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ADhammer control-path graph — cheapest-path attack chains to Tier-0 (petgraph)."
 keywords = ["active-directory", "graph", "attack-path", "petgraph", "security"]

@@ -115,8 +115,33 @@ fn url_host(url: &str) -> String {
         .to_string()
 }
 
-#[cfg(not(any(feature = "tls-native", feature = "tls-rustls")))]
-compile_error!("enable a TLS backend: `tls-rustls` (default) or `tls-native`");
+/// A no-default-features build intentionally supports plain `ldap://` only. Reject LDAPS before
+/// dialing so the absence of a TLS backend is explicit rather than an opaque ldap3 error.
+fn ensure_tls_configuration(_url: &str, _insecure: bool) -> Result<()> {
+    #[cfg(not(any(feature = "tls-native", feature = "tls-rustls")))]
+    {
+        let scheme = _url
+            .split_once("://")
+            .map(|(scheme, _)| scheme)
+            .unwrap_or_default();
+        if scheme.eq_ignore_ascii_case("ldaps") {
+            anyhow::bail!(
+                "LDAPS is disabled in this build; enable `tls-rustls` (default) or `tls-native`"
+            );
+        }
+        if _insecure {
+            anyhow::bail!(
+                "--insecure requires a TLS backend; enable `tls-rustls` (default) or `tls-native`"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "tls-native", feature = "tls-rustls"))]
+compile_error!(
+    "`tls-rustls` and `tls-native` are mutually exclusive; select exactly one LDAPS backend"
+);
 
 /// `--insecure` LDAPS settings that skip certificate + hostname verification (self-signed /
 /// legacy DC certs, or an IP/tunnel endpoint that can't match the cert CN).
@@ -138,6 +163,14 @@ fn insecure_settings() -> Result<ldap3::LdapConnSettings> {
 #[cfg(all(feature = "tls-rustls", not(feature = "tls-native")))]
 fn insecure_settings() -> Result<ldap3::LdapConnSettings> {
     Ok(ldap3::LdapConnSettings::new().set_no_tls_verify(true))
+}
+
+/// `--insecure` changes TLS certificate validation and has no meaning in a plain-LDAP-only build.
+#[cfg(not(any(feature = "tls-native", feature = "tls-rustls")))]
+fn insecure_settings() -> Result<ldap3::LdapConnSettings> {
+    anyhow::bail!(
+        "--insecure requires a TLS backend; enable `tls-rustls` (default) or `tls-native`"
+    )
 }
 
 pub struct Collector {
@@ -235,6 +268,7 @@ async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> 
 
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
+        ensure_tls_configuration(&cfg.url, cfg.insecure)?;
         // Route ldap3's connect through the SOCKS pivot when one is configured.
         let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
             .await?
@@ -911,6 +945,7 @@ pub struct RootDseAnon {
 /// touches `--user` / `--password`. Fails fast if the DC refuses the anonymous
 /// bind (rare on AD; RootDSE is anonymously readable by design).
 pub async fn read_rootdse_anonymous(url: &str, insecure: bool) -> Result<RootDseAnon> {
+    ensure_tls_configuration(url, insecure)?;
     let (conn, mut ldap) = if insecure {
         LdapConnAsync::with_settings(insecure_settings()?, url).await
     } else {
@@ -977,6 +1012,34 @@ pub async fn read_rootdse_anonymous(url: &str, insecure: bool) -> Result<RootDse
         }
     }
     Ok(out)
+}
+
+#[cfg(all(test, not(any(feature = "tls-native", feature = "tls-rustls"))))]
+mod no_tls_feature_tests {
+    use super::{ensure_tls_configuration, insecure_settings};
+
+    #[test]
+    fn plain_ldap_remains_available_without_tls_features() {
+        ensure_tls_configuration("ldap://dc.example.test", false).unwrap();
+    }
+
+    #[test]
+    fn ldaps_is_rejected_before_dial_without_tls_features() {
+        let err = ensure_tls_configuration("LdApS://dc.example.test", false).unwrap_err();
+        assert!(err.to_string().contains("enable `tls-rustls`"));
+    }
+
+    #[test]
+    fn insecure_is_rejected_without_tls_features() {
+        let config_err = ensure_tls_configuration("ldap://dc.example.test", true).unwrap_err();
+        assert!(config_err.to_string().contains("--insecure requires"));
+
+        let err = match insecure_settings() {
+            Err(err) => err,
+            Ok(_) => panic!("plain-LDAP build unexpectedly accepted --insecure"),
+        };
+        assert!(err.to_string().contains("--insecure requires"));
+    }
 }
 
 /// Derive the DNS domain from a naming context DN: `DC=testlab,DC=local` → `testlab.local`.
