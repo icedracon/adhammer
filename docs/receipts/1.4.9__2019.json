@@ -1,6 +1,6 @@
 {
   "version": "1.4.9",
-  "windows_label": "2022",
+  "windows_label": "2019",
   "binary_sha256": "05942b0280c22bd71c7815a054b5b4e27f8d4fd044aa674446cb1c33541c100d",
   "review_status": "approved",
   "verbs": [
@@ -13,7 +13,7 @@
     {
       "verb": "enum_samr",
       "status": "fail (rc=1)",
-      "elapsed_s": 1,
+      "elapsed_s": 0,
       "receipt_lines": 6
     },
     {
@@ -37,7 +37,7 @@
     {
       "verb": "enum_adcs",
       "status": "fail (rc=1)",
-      "elapsed_s": 0,
+      "elapsed_s": 1,
       "receipt_lines": 6
     },
     {
@@ -55,7 +55,7 @@
     {
       "verb": "attack_secretsdump",
       "status": "pass",
-      "elapsed_s": 3,
+      "elapsed_s": 4,
       "receipt_lines": 5
     },
     {

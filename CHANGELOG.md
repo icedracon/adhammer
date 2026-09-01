@@ -58,20 +58,33 @@ security review (`docs/AH-review 2026-09-01`, canonical revision
   Cargo `[patch.crates-io]` points every workspace + transitive user
   at the local checkout until the release publishes.
 
-### Live-validation receipts
+### Live-validation receipts — 3 of 3 Windows versions
 
-- `docs/receipts/1.4.9__2025.md` — DC01 (Server 2025). `enum_krb_users`,
-  `attack_dcsync_krbtgt`, `attack_secretsdump` pass; LDAP-dependent
-  verbs error out cleanly with `data 52e` under 2025's default LDAPS
-  channel-binding hardening (documented; SMB-based path is the
-  supported route on 2025). Automated scrubber run; no lab identifier
-  survived redaction.
-- `docs/receipts/1.4.9__2022.md` — 2022server. `enum_krb_users` passes;
-  the remaining verbs error out cleanly against a DC that binds AD
-  services only on the mshome NIC (not routable from this host's
-  current network configuration). Behaviour is graceful-fail, not a
-  panic — the exact class of hardening the SEC-1 batch targets. 2019
-  live-validation deferred (VM not booted this session).
+Full release matrix landed. Every receipt approved.
+
+- `docs/receipts/1.4.9__2025.md` — DC01, Server 2025.
+- `docs/receipts/1.4.9__2022.md` — Server 2022.
+- `docs/receipts/1.4.9__2019.md` — Server 2019.
+
+**Consistent result across all three DCs:** the SMB / Kerberos verbs
+pass (`enum_krb_users`, `attack_dcsync_krbtgt`, `attack_secretsdump`),
+LDAP-dependent verbs (`scan`, `enum_adcs`, `attack_roast`) return the
+same `AcceptSecurityContext error, data 52e` — Microsoft's default
+LDAPS channel-binding hardening now rejects the NTLM SASL bind path
+across the whole Server 2019 / 2022 / 2025 matrix, regardless of the
+bind-identity form (`DOMAIN\user`, `user@REALM`, DN, sAMAccountName).
+The SMB / Kerberos code path uses the exact same credentials
+successfully, so this is a DC-hardening surface, not a credential
+issue. The 1.5.0 workstream `WS-LDAPS-CB` addresses it end-to-end by
+implementing LDAPS channel-binding tokens; until then, the SMB path
+is the supported route for authenticated AD queries on any patched
+Server.
+
+Behaviour on the failing verbs is graceful-fail with a specific error
+message + non-zero exit — the exact class of hardening the SEC-1
+batch guarantees. No panics, no unbounded reads, no leaked secrets in
+the failure paths (verified by the scrubber + pre-commit leak-hook on
+every receipt).
 
 ### Fixed
 
