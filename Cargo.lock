@@ -1531,6 +1531,8 @@ dependencies = [
 [[package]]
 name = "ntlmssp"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "356c05d7a1def1ef3ab09a432e86e1f08a30ec5657f7dc022ebabfd901b31ad7"
 dependencies = [
  "hmac",
  "md-5",
@@ -2775,6 +2777,8 @@ dependencies = [
 [[package]]
 name = "windows-sddl"
 version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72ec82addc3d261c924c5e0beeec85862cee81f448ddb4b875596be5ac6f04e6"
 dependencies = [
  "bitflags",
  "thiserror 2.0.20",
