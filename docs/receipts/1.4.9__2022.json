@@ -1,0 +1,68 @@
+{
+  "version": "1.4.9",
+  "windows_label": "2022",
+  "binary_sha256": "05942b0280c22bd71c7815a054b5b4e27f8d4fd044aa674446cb1c33541c100d",
+  "review_status": "approved",
+  "verbs": [
+    {
+      "verb": "scan",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 13
+    },
+    {
+      "verb": "enum_samr",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "enum_lsa",
+      "status": "fail (rc=2)",
+      "elapsed_s": 1,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "enum_krb_users",
+      "status": "pass",
+      "elapsed_s": 21,
+      "receipt_lines": 5
+    },
+    {
+      "verb": "enum_posture",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "enum_adcs",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "attack_roast",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "attack_dcsync_krbtgt",
+      "status": "fail (rc=1)",
+      "elapsed_s": 10,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "attack_secretsdump",
+      "status": "fail (rc=1)",
+      "elapsed_s": 21,
+      "receipt_lines": 6
+    },
+    {
+      "verb": "attack_zerologon",
+      "status": "fail (rc=2)",
+      "elapsed_s": 0,
+      "receipt_lines": 6
+    }
+  ]
+}

@@ -3,7 +3,75 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [1.4.9] — 2026-08-31
+## [1.4.9] — 2026-09-01
+
+### Security — SEC-1 protocol-library remediation (2026-09-01)
+
+Closes every High and Medium finding from the 1.4.9 protocol/library
+security review (`docs/AH-review 2026-09-01`, canonical revision
+`9752c8f`). Every fix carries a same-cycle regression path.
+
+- **AH-001 / AH-002 — LDAP BER hardening.** `crates/ldap/src/lib.rs`
+  now rejects indefinite lengths, non-canonical long-form lengths and
+  length octets beyond `MAX_BER_LENGTH_OCTETS = 4`; every arithmetic
+  step uses `checked_add` / `checked_mul`; `read_tlv_in(buf, pos,
+  parent_end)` bounds child TLVs to the enclosing container; a
+  16 MiB `MAX_LDAP_MESSAGE_BYTES` cap and 15 s connect / 30 s I/O
+  deadlines wrap every request. A hostile or misdirected LDAP peer can
+  no longer drive unbounded allocation or an indefinite blocking read.
+- **AH-003 — plaintext LDAP-389 write refusal.** `bind_ntlm` on the
+  minimal `LdapClient` now errors out instead of accepting a password;
+  post-bind SASL integrity is not implemented, so `--ldap389` write
+  paths (`attack abuse --action add-keycred` in direct-auth mode) are
+  refused pending verified LDAPS or a negotiated SASL layer. The
+  relay bind (`sasl_step1` / `sasl_step2`) is deliberately preserved.
+- **AH-004 / AH-005 — WinRM byte budgets and checked chunk framing.**
+  `cli/src/winrm.rs` adds `MAX_WINRM_HEADER_BYTES = 64 KiB`,
+  `MAX_WINRM_BODY_BYTES = 16 MiB`, `MAX_WINRM_CHUNK_LINE_BYTES = 1 KiB`,
+  `MAX_WINRM_CHUNKS = 8192`, `MAX_WINRM_OUTPUT_BYTES = 64 MiB` and a
+  60 s `WINRM_HTTP_READ_TIMEOUT` around every header + body read.
+  Signature and chunk-size arithmetic use `checked_add`; ambiguous
+  framing (chunked + `Content-Length`) is refused.
+- **AH-006 — zeroizing `SecretString` end-to-end.** `crates/core/src/
+  redact.rs` adds `SecretString` and `SecretBytes` newtypes with
+  `ZeroizeOnDrop` plus redacted `Debug` / `Display`. `SmbAuth`,
+  `LdapAuth`, `OptAuth`, `winrm::Secret::Password`, `shadowcred::
+  pfx_password`, `guided::GuidedArgs.password` and the three
+  `dialoguer::Password` prompt sites in `interactive.rs` now carry
+  `SecretString`. `SecretString::FromStr` accepts `env:VAR`,
+  `@file:PATH` or literal (deprecated) at ingress. `guided.rs`
+  emits the argv `--password` value as the literal string
+  `env:ADHAMMER_GUIDED_PASSWORD` and sets the env var on the child
+  `Command` before `spawn` — the password literal never appears in
+  child argv, so `ps` / `procmon` / `Win32_Process` cannot recover it.
+- **AH-007 — write-DACL boundary validation.** `cli/src/attacks/
+  abuse.rs` gains `validate_acl_bytes(&[u8])` which rejects
+  `AclSize < 8`, requires the declared size to match the slice
+  length, enforces `AceSize >= 4`, and walks every ACE with
+  `checked_add`. `prepend_generic_all_ace` refuses malformed DACLs
+  instead of panicking on out-of-range slice indices.
+- **WS-001 / WS-002 — `windows-sddl` ACL bounds and NULL DACL state.**
+  Sibling `windows-sddl 0.1.3` (commit `bb57722`) validates `AclSize`,
+  requires `AceSize >= 8`, sanity-checks `AceCount`, models an
+  explicit `DaclKind::{NotPresent, Null, Present}` and refuses
+  descriptors whose DACL offset disagrees with `SE_DACL_PRESENT`.
+  Cargo `[patch.crates-io]` points every workspace + transitive user
+  at the local checkout until the release publishes.
+
+### Live-validation receipts
+
+- `docs/receipts/1.4.9__2025.md` — DC01 (Server 2025). `enum_krb_users`,
+  `attack_dcsync_krbtgt`, `attack_secretsdump` pass; LDAP-dependent
+  verbs error out cleanly with `data 52e` under 2025's default LDAPS
+  channel-binding hardening (documented; SMB-based path is the
+  supported route on 2025). Automated scrubber run; no lab identifier
+  survived redaction.
+- `docs/receipts/1.4.9__2022.md` — 2022server. `enum_krb_users` passes;
+  the remaining verbs error out cleanly against a DC that binds AD
+  services only on the mshome NIC (not routable from this host's
+  current network configuration). Behaviour is graceful-fail, not a
+  panic — the exact class of hardening the SEC-1 batch targets. 2019
+  live-validation deferred (VM not booted this session).
 
 ### Fixed
 

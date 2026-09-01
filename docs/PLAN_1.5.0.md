@@ -94,6 +94,21 @@ instead of panicking on malformed ct — behavior claimed in the
 Dependabot bump commit body). If the upstream fix is real, restore the
 retired `pac_parse_full` fuzz target at the same time.
 
+**1.4.9 attempt (2026-09-01) — deferred, not risk-worth mid-cycle.**
+Bumping to `picky-krb 0.12.4` locally triggered a public-API break:
+`Authenticator` / `EncTicketPart` moved from struct-with-fields to
+`ApplicationTag<Inner, N>` newtype form. All construction sites need
+`X(XInner { .. })` instead of `X::from(XInner { .. })` and every
+field access needs `.0.field`. Estimated 30+ mechanical edits in
+`crates/kerberos/src/tgs.rs` alone, plus follow-on typing cascade
+through `pac.rs` and consumers. Reverted to `0.9.6`; BUG-19 stays
+mitigated by the existing `catch_unwind` guard around
+`decrypt_ticket_pac` + `AES_MIN = 44` in the outer picky-krb call
+sites. Targeted WS-DEPS-MAJORS session budgets the migration
+alongside `picky-asn1-x509 0.13 → 0.15.4` and the RustCrypto
+ecosystem bump (`md-5/md4/sha2 0.10 → 0.11`, `rc4 0.1 → 0.2`,
+`rand 0.8 → 0.10`, `des 0.8 → 0.9`).
+
 **Belt-and-braces:** WS-FUZZ-12 rebases every PAC-touching target on
 top of `pac_parse_full` once it comes back, so residual generic-array
 shapes get exercised end-to-end again.
