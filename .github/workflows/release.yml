@@ -62,9 +62,18 @@ jobs:
         if: endsWith(matrix.target, '-linux-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      - name: fetch (populate cache under --locked)
+        # cargo fetch does the only network access this release job needs;
+        # after this step the local cache has every dep the lockfile pins,
+        # so the subsequent --frozen build never touches the network.
+        # Without this step a cold rust-cache (new Cargo.lock hash) turns
+        # --frozen into an immediate "no matching package" failure.
+        run: cargo fetch --locked --target ${{ matrix.target }}
+
       - name: build (default features = rustls, no OpenSSL)
         # --locked pins Cargo.lock; --frozen bans network fetches; combined
-        # they give bit-identical dep resolution across runs.
+        # they give bit-identical dep resolution across runs. cargo fetch
+        # above pre-populates the cache so --frozen has everything it needs.
         run: cargo build --release --locked --frozen --bin adhammer --target ${{ matrix.target }}
 
       - name: package binary
