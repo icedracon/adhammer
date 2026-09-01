@@ -70,11 +70,11 @@ snapshot: fmt clean, clippy 0 warnings, 269 tests pass / 0 fail /
 
 ```bash
 git diff origin/main..HEAD --unified=0 |
-    grep -iE '^\+.*(Zikurat|TestPass2026|4202935557|1141836847|93a18bf11f58cf|192\.168\.91\.20|192\.168\.0\.52|172\.29\.|172\.20\.118|172\.24\.174)'
+    grep -iE -f .githooks/leak-terms.txt
 # Expect: NO OUTPUT
 
 git log origin/main..HEAD --format=%B |
-    grep -iE '(Zikurat|TestPass2026|4202935557|1141836847|93a18bf11f58cf|192\.168\.91\.20|192\.168\.0\.52|172\.29\.|172\.20\.118|172\.24\.174)'
+    grep -iE -f .githooks/leak-terms.txt
 # Expect: NO OUTPUT
 ```
 

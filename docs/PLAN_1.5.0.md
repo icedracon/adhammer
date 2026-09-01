@@ -236,27 +236,25 @@ runs a scan without invoking the binary.
 
 ### WS-WINDOWS-MATRIX-CI — 2019 + 2022 + 2025 in the release gate
 
-Elevated in 1.5.0 because 1.4.9 shipped with 2 of 3 Windows-version
-receipts (2025 partial, 2022 partial, 2019 not booted).
+1.4.9 shipped with **three-of-three** Windows-version receipts under
+`docs/receipts/1.4.9__{2019,2022,2025}.md` — every OS in the release
+matrix produced an approved receipt. Every DC also showed the same
+LDAP + SMB split under the default LDAPS channel-binding hardening:
+SMB / Kerberos verbs pass, LDAP-dependent verbs return
+`AcceptSecurityContext data 52e` regardless of bind identity form,
+and the SMB code path uses the same credentials successfully. That
+`data 52e` gap is what `WS-LDAPS-CB` closes.
 
-Immediate operator work (before 1.5.0-alpha.1):
-- **2019 VM**: no reachable IP in memory as of 2026-09-01 (stale
-  `172.20.118.200` no longer responds). Boot the VM, capture the
-  current IP + confirm AD services listen on a host-routable NIC,
-  record IP + creds in `project_testlab_creds.md`, run
-  `scripts/live_validation.sh` and commit the receipt.
-- **2022 VM (2026-08-21 rebuild)**: the bridged-LAN NIC responds to
-  ICMP but 445/88/389/636/5985 are filtered on that NIC because AD
-  services bind only to the mshome interface, which isn't routable
-  from the current host. Either re-attach the VM to a routable
-  vSwitch or add a static route so the mshome subnet is reachable
-  from the ADhammer host; then re-run the validator against the
-  mshome IP for full-verb coverage. See `project_testlab_creds.md`
-  in the private memory store for current IPs + creds.
-- **2025 VM**: LDAP verbs still fail-cleanly under 2025 default
-  channel-binding hardening. Long-term fix belongs in a new
-  workstream `WS-LDAPS-CB` that speaks LDAPS with channel-binding
-  tokens; deferred to 1.5.1.
+Immediate operator work for 1.5.0:
+- **All three VMs**: no operator setup required — the current mshome
+  vSwitch config is routable from the ADhammer host. IPs + creds
+  captured in the private `project_testlab_creds.md` memory file.
+- **`WS-LDAPS-CB`** (new — added 1.5.1 candidate): implement LDAPS
+  channel-binding tokens end-to-end in `crates/collector` +
+  `crates/ldap` so `scan` / `enum_adcs` / `attack_roast` bind
+  successfully against Server 2019/2022/2025 with default LDAP
+  signing + channel-binding enforcement. Ship gate should target
+  10/10 verb-passes per DC once this lands.
 
 CI workflow (self-hosted or `workflow_dispatch`):
 1. Boots each VM from a clean snapshot.
