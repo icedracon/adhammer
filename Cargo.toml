@@ -96,9 +96,3 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-# Local-only 1.5.0 security-review validation. This override applies to direct
-# and transitive users (including ad-acl), keeping one SecurityDescriptor type.
-# Remove it only after the reviewed windows-sddl release is published.
-[patch.crates-io]
-windows-sddl = { path = "../windows-sddl" }
-ntlmssp = { path = "../ntlmssp" }
