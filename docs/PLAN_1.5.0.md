@@ -1,9 +1,23 @@
-# ADhammer 1.5.0 — hard plan (post-1.4.9-audit + capability push)
+# ADhammer 1.5.0 — hard plan (post-1.4.9-SEC-close + capability push)
 
-Written 2026-08-31 while 1.4.9 is still landing. Score target: **95/100
-self-reachable ceiling.** The final 3 points (external audit + 6-month
-track record + independent red-team attestation) stay explicitly out of
-this plan.
+Written 2026-08-31, revised 2026-09-01 after the SEC-1 remediation
+batch landed in 1.4.9 (`docs/CHANGELOG.md` §1.4.9 Security, commit
+`1fd4b80`). Score target: **95/100 self-reachable ceiling.** The
+final 3 points (external audit + 6-month track record + independent
+red-team attestation) stay explicitly out of this plan.
+
+**1.5.0 restores normal ship cadence.** 1.4.9 shipped LOCAL-only per
+operator directive. 1.5.0 goes back to bottom-up crates.io publish +
+tag + GitHub release. If a sibling crate has a live RustSec advisory
+during 1.5.0's cycle, that specific publish stays permitted mid-cycle
+per the same-cycle-mitigation rule.
+
+**SEC-1 closed in 1.4.9.** The `WS-PROTOCOL-SECURITY` workstream that
+sat at the top of this plan through 1.4.9's shakedown is now
+historical — every High and Medium finding from the SEC-1 review
+landed in 1.4.9. This plan retains the workstream heading below as a
+receipt-with-commit-pointer; new 1.5.0 scope starts with
+`WS-DEPS-MAJORS`.
 
 **Ship policy — 1.5.0 stays LOCAL initially.** Same rule as 1.4.9. When
 the plan says "publish sibling crate X 0.y.z", that means the git tree
@@ -115,41 +129,84 @@ shapes get exercised end-to-end again.
 
 ## Workstreams (planned)
 
-### WS-PROTOCOL-SECURITY — close the 1.4.9 library review findings
+### WS-PROTOCOL-SECURITY — CLOSED in 1.4.9 (historical)
 
-1. Replace raw LDAP BER ranges with parent-bounded value slices; reject
-   indefinite, non-canonical, truncated, oversized, and out-of-container
-   definite lengths. Bound a complete LDAP response and apply one operation
-   deadline across connect-adjacent read/write work.
-2. Add separate WinRM limits for headers, wire body, decoded body, SOAP XML,
-   chunks, per-stream output, and total command output; use checked framing
-   arithmetic and reject malformed chunks.
-3. Model `SE_DACL_PRESENT`, NULL DACL, ACL size, ACE size, and ACE boundaries
-   explicitly in `windows-sddl`; remove the write-DACL path's partial parser.
-4. Convert CLI credential ingress to a non-formatting, zeroizing secret type;
-   prohibit propagation of literal passwords into child argv.
-5. Refuse direct password-authenticated LDAP writes unless the channel has
-   verified LDAPS or negotiated SASL integrity.
+Every finding from the SEC-1 protocol/library review closed in 1.4.9
+under commit `1fd4b80` (adhammer) + `bb57722` (windows-sddl sibling):
 
-### WS-DEPS-MAJORS — take the Dependabot semver-major bumps
+1. AH-001 / AH-002 — LDAP BER hardening (parent-bounded slices,
+   indefinite/non-canonical/oversized rejection, 15/30 s deadlines,
+   16 MiB message cap).
+2. AH-003 — direct plaintext-LDAP-389 write refusal;
+   `sasl_step1/sasl_step2` relay path preserved.
+3. AH-004 / AH-005 — WinRM header/body/chunk/output budgets +
+   `checked_add` framing arithmetic + 60 s HTTP read deadline.
+4. AH-006 — `SecretString` / `SecretBytes` `ZeroizeOnDrop` types at
+   every CLI ingress; guided-mode argv uses `env:VAR` indirection
+   so the child spawn never carries a literal password.
+5. AH-007 — write-DACL `validate_acl_bytes` refuses `AclSize < 8`,
+   `AceSize < 4`, cross-boundary ACEs and mismatched counts.
+6. WS-001 / WS-002 — `windows-sddl 0.1.3` models `DaclKind::{Null,
+   NotPresent, Present}` and validates ACL/ACE bounds.
+
+Live-validation receipts: `docs/receipts/1.4.9__2025.md` (3 pass on
+SMB path, LDAP verbs error cleanly under 2025 channel-binding
+hardening), `docs/receipts/1.4.9__2022.md` (1 pass, rest error
+cleanly against non-routable-NIC config). Both approved.
+2019 receipt owed — moved to `WS-WINDOWS-MATRIX-CI` below.
+
+**Nothing further planned here in 1.5.0.** If a follow-up review
+surfaces new findings against the 1.4.9 tree, they get their own
+`SEC-N` workstream.
+
+### WS-DEPS-MAJORS — take the Dependabot semver-major bumps (highest priority)
 
 Dependabot generated 15 PRs on 2026-08-31 as its first sweep. Ten cargo
-bumps + five GitHub-Actions bumps.
+bumps + five GitHub-Actions bumps. The picky-krb bump is the
+single highest-EV lift in the whole plan.
 
-Cargo bumps that are semver-major:
-- `picky-krb 0.9 → 0.12` — may retire the BUG-16/17/18 workaround (the
-  AES-CTS-HMAC-SHA1 panic in generic-array). Highest-value bump. Would
-  let us re-add the `pac_parse_full` fuzz target.
+**picky-krb 0.9.6 → 0.12.4 (BUG-19 killer).**
+
+- Verified 2026-09-01 during 1.4.9 that the naive `[workspace.dependencies]
+  picky-krb = "0.12"` bump compiles clean at the resolver layer and
+  breaks at the *use* layer: `Authenticator`, `EncTicketPart` and
+  their siblings moved from struct-with-fields to
+  `ApplicationTag<XInner, N>` newtype form.
+- Mechanical fix pattern for every construction site
+  (`crates/kerberos/src/tgs.rs` lines 501, 716, 774, 840, 1157–1185):
+  ```rust
+  // before (0.9):
+  Authenticator::from(AuthenticatorInner { authenticator_bno: ..., .. })
+  // after (0.12):
+  Authenticator(AuthenticatorInner { authenticator_bno: ..., .. })
+  ```
+  And for every field access (`etp.auth_time` → `etp.0.auth_time`).
+- Follow-on cascade to audit before declaring done: `crates/kerberos/
+  src/pac.rs` (uses the same `EncTicketPart` fields via
+  `decrypt_ticket_pac`), `crates/kerberos/src/unpac.rs` (PAC field
+  access), `crates/secrets/src/pac*.rs` (any consumer of the same
+  ASN.1 structs).
+- Once compiled: retire the `catch_unwind` guard around
+  `decrypt_ticket_pac`, drop the `AES_MIN = 44` / `RC4_MIN = 40`
+  outer-bound workarounds, restore the retired `pac_parse_full`
+  fuzz target, run the full corpus for 3 consecutive nightly runs
+  before removing the mitigation notes from `docs/PLAN_1.4.9.md`.
+
+**Other semver-major cargo bumps** (each its own dedicated commit,
+each landed only if CI stays green — fmt/clippy/test/deny/
+package-check/ledger + fuzz-non-regression):
 - `md-5 0.10 → 0.11`, `md4 0.10 → 0.11`, `sha2 0.10 → 0.11`, `rc4 0.1
   → 0.2`, `rand 0.8 → 0.10`, `des 0.8 → 0.9` — RustCrypto ecosystem
-  bump. Coordinated; move all together.
-- `picky-asn1-x509 0.13 → 0.15.4`, `petgraph 0.6 → 0.8` — API breakage
-  possible.
-- `dialoguer 0.11 → 0.12` — TUI-only surface.
+  bump. Coordinated; move all together in one commit.
+- `picky-asn1-x509 0.13 → 0.15.4` — coupled with the picky-krb bump;
+  land in the same commit.
+- `petgraph 0.6 → 0.8` — API breakage likely in `crates/graph`
+  Tier-0 walker; the walker is well-covered by unit tests.
+- `dialoguer 0.11 → 0.12` — TUI-only surface; verify interactive
+  session prompts on Kali VBox per the hard rule.
 
-Action: cherry-merge each PR that keeps CI green (fmt/clippy/test/deny/
-package-check/ledger + fuzz-non-regression). Close breakers with a
-one-line note explaining what would need to change.
+Action: cherry-merge each PR that keeps CI green. Close breakers with
+a one-line note explaining what would need to change.
 
 ### WS-PHASE2 — remove `rsa 0.9` advisory ignore
 
@@ -179,9 +236,29 @@ runs a scan without invoking the binary.
 
 ### WS-WINDOWS-MATRIX-CI — 2019 + 2022 + 2025 in the release gate
 
-The operator has 2019server + 2022server + 2025server1 running in
-Hyper-V. Add a self-hosted (or manual) workflow that:
+Elevated in 1.5.0 because 1.4.9 shipped with 2 of 3 Windows-version
+receipts (2025 partial, 2022 partial, 2019 not booted).
 
+Immediate operator work (before 1.5.0-alpha.1):
+- **2019 VM**: no reachable IP in memory as of 2026-09-01 (stale
+  `172.20.118.200` no longer responds). Boot the VM, capture the
+  current IP + confirm AD services listen on a host-routable NIC,
+  record IP + creds in `project_testlab_creds.md`, run
+  `scripts/live_validation.sh` and commit the receipt.
+- **2022 VM (2026-08-21 rebuild)**: the bridged-LAN NIC responds to
+  ICMP but 445/88/389/636/5985 are filtered on that NIC because AD
+  services bind only to the mshome interface, which isn't routable
+  from the current host. Either re-attach the VM to a routable
+  vSwitch or add a static route so the mshome subnet is reachable
+  from the ADhammer host; then re-run the validator against the
+  mshome IP for full-verb coverage. See `project_testlab_creds.md`
+  in the private memory store for current IPs + creds.
+- **2025 VM**: LDAP verbs still fail-cleanly under 2025 default
+  channel-binding hardening. Long-term fix belongs in a new
+  workstream `WS-LDAPS-CB` that speaks LDAPS with channel-binding
+  tokens; deferred to 1.5.1.
+
+CI workflow (self-hosted or `workflow_dispatch`):
 1. Boots each VM from a clean snapshot.
 2. Runs `scripts/live_validation.sh` against each with per-VM creds
    loaded from GitHub encrypted secrets.
