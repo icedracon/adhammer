@@ -23,10 +23,10 @@ pub(crate) struct PthArgs {
     pub domain_sid: String,
     /// Golden mode: krbtgt AES256 key (64 hex). Mutually exclusive with --service-aes256.
     #[arg(long)]
-    pub krbtgt_aes256: Option<String>,
+    pub krbtgt_aes256: Option<adhammer_core::SecretString>,
     /// Silver mode: target service account AES256 key (64 hex).
     #[arg(long)]
-    pub service_aes256: Option<String>,
+    pub service_aes256: Option<adhammer_core::SecretString>,
     /// Forge RC4-HMAC (etype 23) — interpret the given key as an NT hash (32 hex; legacy DCs).
     #[arg(long)]
     pub rc4: bool,

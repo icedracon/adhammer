@@ -21,7 +21,7 @@ pub(crate) struct SmbAuth {
     pub user: String,
     /// Bind password. Prefer `@file:/path/to/pw` or `$ADHAMMER_PASSWORD`.
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
 }
 
 /// LDAPS-based auth — for `scan`, `check adcs`, `dump laps/gmsa`.
@@ -39,7 +39,7 @@ pub(crate) struct LdapAuth {
     pub user: String,
     /// Bind password. Prefer `@file:/path/to/pw` or `$ADHAMMER_PASSWORD`.
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     /// Skip TLS verification for lab LDAPS.
     #[arg(long)]
     pub insecure: bool,
@@ -55,7 +55,7 @@ pub(crate) struct OptAuth {
     #[arg(long)]
     pub user: Option<String>,
     #[arg(long)]
-    pub password: Option<String>,
+    pub password: Option<adhammer_core::SecretString>,
     #[arg(long)]
     pub insecure: bool,
 }

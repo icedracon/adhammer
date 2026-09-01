@@ -7,13 +7,12 @@
 //! that needs the raw value (LDAP bind, RPC seal, ccache serialize) — that call is visible
 //! in `git grep expose\\(` for audit.
 //!
-//! **1.4.9 WS-ZEROIZE** — for byte-material types (`Vec<u8>`, `[u8; N]`,
+//! **1.4.9 WS-ZEROIZE** — for byte-material types (`Vec<u8>` and
 //! `String`), Redacted also erases the memory on `Drop` via
-//! [`SecretBytes`] / [`SecretArray`] variants. Wrapping a byte vec in
+//! [`SecretBytes`] / [`SecretString`] variants. Wrapping a byte vec in
 //! `Redacted::<Vec<u8>>::new(v)` gives the print-hiding surface but does
-//! NOT erase on drop; use [`Redacted::new_zeroize`] (`Vec<u8>` /
-//! `String`) to also get zero-on-drop. Fixed-size byte arrays use
-//! [`Redacted::new_zeroize_array`]. All erasure paths use the
+//! NOT erase on drop; use [`Redacted::new_zeroize`] for `Vec<u8>`, or
+//! store text directly in [`SecretString`]. All erasure paths use the
 //! `zeroize` crate (RustCrypto-maintained, no-std-friendly, widely
 //! audited).
 //!
@@ -30,6 +29,8 @@
 //! message thanks to the custom `Debug`.
 
 use std::fmt;
+use std::str::FromStr;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A `T` that hides its own value in `Debug`/`Display` output.
 ///
@@ -74,6 +75,120 @@ impl Redacted<SecretBytes> {
     }
 }
 
+/// UTF-8 secret that is redacted in formatting and erased before its heap
+/// allocation is released. CLI parsers should use this type at the first
+/// owned boundary so a derived `Debug` implementation cannot reveal the
+/// value.
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    /// Explicitly reveal the value at the narrow protocol/crypto call site.
+    pub fn expose_secret(&self) -> &str {
+        &self.0
+    }
+
+    /// Compatibility spelling for existing explicit secret-use sites.
+    pub fn expose(&self) -> &String {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl AsRef<str> for SecretString {
+    fn as_ref(&self) -> &str {
+        self.expose_secret()
+    }
+}
+
+impl std::ops::Deref for SecretString {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.expose_secret()
+    }
+}
+
+impl Drop for SecretString {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SecretString {}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("***")
+    }
+}
+
+impl fmt::Display for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("***")
+    }
+}
+
+impl From<String> for SecretString {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for SecretString {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_owned())
+    }
+}
+
+impl FromStr for SecretString {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Some(key) = value.strip_prefix("env:") {
+            if key.is_empty()
+                || !key
+                    .bytes()
+                    .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+                || key.as_bytes()[0].is_ascii_digit()
+            {
+                return Err("invalid environment-variable reference in credential argument".into());
+            }
+            return std::env::var(key)
+                .map(Self::new)
+                .map_err(|_| format!("credential environment variable {key} is not set"));
+        }
+        if let Some(path) = value.strip_prefix("@file:") {
+            if path.is_empty() {
+                return Err("credential file reference has an empty path".into());
+            }
+            return std::fs::read_to_string(path)
+                .map(|raw| Self::new(raw.trim_end_matches(['\n', '\r']).to_owned()))
+                .map_err(|error| format!("read credential file {path}: {error}"));
+        }
+        Ok(Self::from(value))
+    }
+}
+
+impl serde::Serialize for SecretString {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SecretString {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::new)
+    }
+}
+
 /// Byte-buffer secret that erases its heap allocation on Drop. Prefer
 /// [`Redacted<SecretBytes>`] over raw `Redacted<Vec<u8>>` for anything
 /// held longer than one call frame.
@@ -81,8 +196,22 @@ impl Redacted<SecretBytes> {
 /// The `zeroize` crate's `Zeroize` impl for Vec<u8> overwrites the
 /// backing allocation to zero; `ZeroizeOnDrop` invokes that in Drop.
 /// Zero runtime cost when not dropped.
-#[derive(Clone, Default, PartialEq, Eq, Hash, ::zeroize::Zeroize, ::zeroize::ZeroizeOnDrop)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct SecretBytes(Vec<u8>);
+
+impl Zeroize for SecretBytes {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl Drop for SecretBytes {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for SecretBytes {}
 
 impl SecretBytes {
     pub fn from_vec(v: Vec<u8>) -> Self {
@@ -180,6 +309,17 @@ mod tests {
         let key = Redacted::<SecretBytes>::new_zeroize(vec![0xAA; 32]);
         assert_eq!(format!("{key:?}"), "***");
         assert_eq!(key.expose_bytes().len(), 32);
+    }
+
+    #[test]
+    fn secret_string_redacts_and_implements_zeroize_on_drop() {
+        fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<SecretString>();
+
+        let secret = SecretString::from("correct horse battery staple");
+        assert_eq!(secret.expose_secret(), "correct horse battery staple");
+        assert_eq!(format!("{secret:?}"), "***");
+        assert_eq!(format!("{secret}"), "***");
     }
 
     #[test]

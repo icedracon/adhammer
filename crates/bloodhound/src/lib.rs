@@ -422,6 +422,9 @@ fn build_aces(ctx: &Ctx, o: &AdObject) -> Vec<Value> {
     let Ok(sd) = windows_sddl::parse(raw) else {
         return vec![];
     };
+    if sd.dacl_kind != windows_sddl::DaclKind::Present {
+        return vec![ace("S-1-1-0", "Group", "GenericAll", false)];
+    }
     let mut out = Vec::new();
     for a in sd.dacl.iter().flat_map(|d| &d.aces) {
         if a.ace_type == AceType::AccessDenied || a.ace_type == AceType::AccessDeniedObject {

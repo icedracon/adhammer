@@ -18,10 +18,10 @@ pub(crate) struct AsktgtArgs {
     pub kdc: String,
     /// Password auth (AES256). Mutually exclusive with --nt-hash.
     #[arg(long)]
-    pub password: Option<String>,
+    pub password: Option<adhammer_core::SecretString>,
     /// NT hash (32 hex) → overpass-the-hash via RC4-HMAC (legacy / RC4-enabled DCs).
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
     /// Output ccache path (defaults to `<user>.ccache`)
     #[arg(long)]
     pub out: Option<String>,

@@ -1,15 +1,18 @@
-//! Raw LDAP client (BER by hand) with NTLM SASL (GSS-SPNEGO) bind over plaintext 389.
+//! Size-limited raw LDAP client for discrete NTLM relay SASL steps over port 389.
 //!
-//! Two uses: (1) authenticate with a password/hash where a DC requires signing and LDAPS is
-//! unusable (closes the LDAP-389 gap); (2) NTLM **relay** — the bind is exposed as discrete
-//! steps (`sasl_step1`/`sasl_step2`) so a relay server can forward a victim's Type1/Type3 and
-//! act as the victim (e.g. write msDS-KeyCredentialLink → Shadow Credentials → takeover).
+//! NTLM **relay** requires discrete bind steps (`sasl_step1`/`sasl_step2`) so a relay server can
+//! forward a victim's Type1/Type3. Direct credential authentication is refused because this
+//! minimal client does not implement the required post-bind SASL integrity layer.
 
 use anyhow::{anyhow, bail, Context, Result};
-use ntlmssp::Ntlm;
 use smb2_client::spnego;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+const LDAP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const LDAP_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_LDAP_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_BER_LENGTH_OCTETS: usize = 4;
 
 // ---- BER encoding (definite length) ---------------------------------------
 
@@ -72,26 +75,64 @@ fn read_tlv(buf: &[u8], pos: usize) -> Result<(u8, usize, usize, usize)> {
         (b0 as usize, 2)
     } else {
         let n = (b0 & 0x7f) as usize;
-        // A length field wider than a usize can never be satisfiable — reject rather than
-        // silently truncate a hostile server's oversized length into a wrong value.
-        if n > std::mem::size_of::<usize>() {
+        if n == 0 {
+            bail!("BER: indefinite lengths are not accepted");
+        }
+        if n > MAX_BER_LENGTH_OCTETS || n > std::mem::size_of::<usize>() {
             return Err(anyhow!("BER: length field too large ({n} bytes)"));
         }
         let mut l = 0usize;
         for i in 0..n {
-            l = (l << 8)
-                | *buf
-                    .get(pos + 2 + i)
-                    .ok_or_else(|| anyhow!("BER: truncated length"))? as usize;
+            let byte = *buf
+                .get(pos + 2 + i)
+                .ok_or_else(|| anyhow!("BER: truncated length"))?;
+            if i == 0 && byte == 0 {
+                bail!("BER: non-canonical length with leading zero");
+            }
+            l = l
+                .checked_mul(256)
+                .and_then(|v| v.checked_add(byte as usize))
+                .ok_or_else(|| anyhow!("BER: length overflow"))?;
+        }
+        if l < 0x80 {
+            bail!("BER: non-canonical long-form length");
         }
         (l, 2 + n)
     };
-    // Guard against `pos + hdr + len` overflowing on a crafted huge length.
-    let end = pos
+    let content = pos
         .checked_add(hdr)
-        .and_then(|x| x.checked_add(len))
+        .ok_or_else(|| anyhow!("BER: header offset overflow"))?;
+    let end = content
+        .checked_add(len)
         .ok_or_else(|| anyhow!("BER: length overflow"))?;
-    Ok((tag, pos + hdr, len, end))
+    if end > buf.len() {
+        bail!("BER: value escapes input (end {end}, input {})", buf.len());
+    }
+    Ok((tag, content, len, end))
+}
+
+fn read_tlv_in(buf: &[u8], pos: usize, parent_end: usize) -> Result<(u8, usize, usize, usize)> {
+    if parent_end > buf.len() || pos >= parent_end {
+        bail!("BER: child starts outside parent");
+    }
+    let tlv = read_tlv(buf, pos)?;
+    if tlv.3 > parent_end {
+        bail!("BER: child value escapes parent");
+    }
+    Ok(tlv)
+}
+
+fn parse_nonnegative_i64(buf: &[u8], start: usize, len: usize) -> Result<i64> {
+    if len == 0 || len > std::mem::size_of::<i64>() {
+        bail!("BER: invalid integer width {len}");
+    }
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| anyhow!("BER: integer range overflow"))?;
+    let value = buf
+        .get(start..end)
+        .ok_or_else(|| anyhow!("BER: integer escapes input"))?;
+    Ok(value.iter().fold(0i64, |a, &b| (a << 8) | b as i64))
 }
 
 // ---- LDAP client ----------------------------------------------------------
@@ -111,38 +152,84 @@ impl LdapClient {
             }
             _ => (addr, 389u16),
         };
-        let stream = smb2_client::socks::dial(host, port)
-            .await
-            .context("ldap connect")?;
+        let stream =
+            tokio::time::timeout(LDAP_CONNECT_TIMEOUT, smb2_client::socks::dial(host, port))
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "ldap connect timed out after {}s",
+                        LDAP_CONNECT_TIMEOUT.as_secs()
+                    )
+                })?
+                .context("ldap connect")?;
         Ok(LdapClient { stream, msg_id: 0 })
     }
 
     /// Send an LDAPMessage wrapping `protocol_op` and read the next full LDAPMessage back.
     async fn exchange(&mut self, protocol_op: Vec<u8>) -> Result<Vec<u8>> {
-        self.msg_id += 1;
+        self.msg_id = self
+            .msg_id
+            .checked_add(1)
+            .context("LDAP message ID exhausted")?;
         let msg = seq(&[integer(self.msg_id), protocol_op]);
-        self.stream.write_all(&msg).await?;
-        // Read one LDAP message: tag(1) + length + content.
-        let mut head = [0u8; 2];
-        self.stream.read_exact(&mut head).await?;
-        let mut total;
-        let mut prefix = vec![head[0], head[1]];
-        if head[1] & 0x80 == 0 {
-            total = head[1] as usize;
-        } else {
-            let n = (head[1] & 0x7f) as usize;
-            let mut lb = vec![0u8; n];
-            self.stream.read_exact(&mut lb).await?;
-            total = 0;
-            for b in &lb {
-                total = (total << 8) | *b as usize;
-            }
-            prefix.extend(lb);
+        if msg.len() > MAX_LDAP_MESSAGE_BYTES {
+            bail!("LDAP request exceeds {MAX_LDAP_MESSAGE_BYTES} byte limit");
         }
-        let mut body = vec![0u8; total];
-        self.stream.read_exact(&mut body).await?;
-        prefix.extend(body);
-        Ok(prefix)
+        tokio::time::timeout(LDAP_IO_TIMEOUT, async {
+            self.stream.write_all(&msg).await?;
+            let mut head = [0u8; 2];
+            self.stream.read_exact(&mut head).await?;
+            if head[0] != 0x30 {
+                bail!("LDAP response is not an LDAPMessage sequence");
+            }
+            let mut prefix = vec![head[0], head[1]];
+            let total = if head[1] & 0x80 == 0 {
+                head[1] as usize
+            } else {
+                let n = (head[1] & 0x7f) as usize;
+                if n == 0 {
+                    bail!("LDAP response uses an indefinite BER length");
+                }
+                if n > MAX_BER_LENGTH_OCTETS || n > std::mem::size_of::<usize>() {
+                    bail!("LDAP response length uses {n} octets");
+                }
+                let mut lb = vec![0u8; n];
+                self.stream.read_exact(&mut lb).await?;
+                if lb.first() == Some(&0) {
+                    bail!("LDAP response uses a non-canonical BER length");
+                }
+                let mut total = 0usize;
+                for b in &lb {
+                    total = total
+                        .checked_mul(256)
+                        .and_then(|v| v.checked_add(*b as usize))
+                        .context("LDAP response length overflow")?;
+                }
+                prefix.extend_from_slice(&lb);
+                total
+            };
+            if total > MAX_LDAP_MESSAGE_BYTES {
+                bail!("LDAP response body is {total} bytes; limit is {MAX_LDAP_MESSAGE_BYTES}");
+            }
+            let full_len = prefix
+                .len()
+                .checked_add(total)
+                .context("LDAP response size overflow")?;
+            if full_len > MAX_LDAP_MESSAGE_BYTES {
+                bail!("LDAP response exceeds {MAX_LDAP_MESSAGE_BYTES} byte limit");
+            }
+            let mut body = vec![0u8; total];
+            self.stream.read_exact(&mut body).await?;
+            prefix.extend_from_slice(&body);
+            Ok(prefix)
+        })
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "LDAP exchange timed out after {}s",
+                LDAP_IO_TIMEOUT.as_secs()
+            )
+        })?
     }
 
     /// Send a SASL GSS-SPNEGO bind carrying `spnego_token`; return the bindResponse's
@@ -152,19 +239,25 @@ impl LdapClient {
         let bind_req = tlv(0x60, &[integer(3), octet(b""), sasl].concat()); // [APP 0] BindRequest
         let resp = self.exchange(bind_req).await?;
         // LDAPMessage: SEQ { msgID, [APP 1] BindResponse { resultCode ENUM, matchedDN, diag, [7] saslCreds? } }
-        let (_, c, _, _) = read_tlv(&resp, 0)?; // outer SEQ content start
-        let (_, _mc, ml, after_id) = read_tlv(&resp, c)?; // messageID
-        let _ = ml;
-        let (_, bc, _, _) = read_tlv(&resp, after_id)?; // [APP 1] content
-        let (_, rc, rl, next) = read_tlv(&resp, bc)?; // resultCode ENUM
-        let result_code = resp[rc..rc + rl]
-            .iter()
-            .fold(0i64, |a, &b| (a << 8) | b as i64);
+        let (outer_tag, c, _, outer_end) = read_tlv(&resp, 0)?;
+        if outer_tag != 0x30 || outer_end != resp.len() {
+            bail!("BER: malformed LDAPMessage envelope");
+        }
+        let (_, _, _, after_id) = read_tlv_in(&resp, c, outer_end)?;
+        let (bind_tag, bc, _, bind_end) = read_tlv_in(&resp, after_id, outer_end)?;
+        if bind_tag != 0x61 {
+            bail!("BER: expected BindResponse, got tag 0x{bind_tag:02x}");
+        }
+        let (result_tag, rc, rl, next) = read_tlv_in(&resp, bc, bind_end)?;
+        if result_tag != 0x0a {
+            bail!("BER: BindResponse resultCode is not ENUMERATED");
+        }
+        let result_code = parse_nonnegative_i64(&resp, rc, rl)?;
         // skip matchedDN, diagnosticMessage; look for [7] serverSaslCreds (context primitive 0x87)
         let mut p = next;
         let mut sasl_creds = Vec::new();
-        while p < bc + (read_tlv(&resp, after_id)?.2) {
-            let (t, cc, cl, nn) = read_tlv(&resp, p)?;
+        while p < bind_end {
+            let (t, cc, cl, nn) = read_tlv_in(&resp, p, bind_end)?;
             if t == 0x87 {
                 sasl_creds = resp[cc..cc + cl].to_vec();
             }
@@ -195,20 +288,19 @@ impl LdapClient {
         }
     }
 
-    /// Full NTLM SASL bind with a password (own-credential auth over 389, signing-agnostic).
+    /// Direct password authentication over LDAP-389 is intentionally refused: this client does
+    /// not implement the post-bind SASL integrity layer. Relay callers continue to use the two
+    /// discrete SASL steps because they do not possess the victim's exported session key.
     pub async fn bind_ntlm(
         &mut self,
-        domain: &str,
-        user: &str,
-        password: &str,
-        workstation: &str,
+        _domain: &str,
+        _user: &str,
+        _password: &str,
+        _workstation: &str,
     ) -> Result<()> {
-        let ntlm = Ntlm::new();
-        let challenge = self.sasl_step1(ntlm.negotiate()).await?;
-        let (type3, _key) = ntlm
-            .authenticate(&challenge, domain, user, password, workstation)
-            .map_err(|e| anyhow!("ntlm authenticate: {e}"))?;
-        self.sasl_step2(&type3).await
+        bail!(
+            "direct NTLM SASL over LDAP-389 is disabled because post-bind integrity is not implemented; use verified LDAPS"
+        )
     }
 
     /// Search under `base` for `(sAMAccountName=sam)` and return the first entry's DN.
@@ -234,13 +326,19 @@ impl LdapClient {
         );
         let resp = self.exchange(req).await?;
         // Expect a SearchResultEntry [APP 4]; objectName is the first field (its DN).
-        let (_, c, _, _) = read_tlv(&resp, 0)?;
-        let (_, _mc, _ml, after_id) = read_tlv(&resp, c)?;
-        let (t, ec, _el, _) = read_tlv(&resp, after_id)?;
+        let (outer_tag, c, _, outer_end) = read_tlv(&resp, 0)?;
+        if outer_tag != 0x30 || outer_end != resp.len() {
+            bail!("BER: malformed LDAPMessage envelope");
+        }
+        let (_, _, _, after_id) = read_tlv_in(&resp, c, outer_end)?;
+        let (t, ec, _el, entry_end) = read_tlv_in(&resp, after_id, outer_end)?;
         if t != 0x64 {
             bail!("no matching object for sAMAccountName={sam}");
         }
-        let (_, dc, dl, _) = read_tlv(&resp, ec)?; // objectName OCTET STRING
+        let (dn_tag, dc, dl, _) = read_tlv_in(&resp, ec, entry_end)?;
+        if dn_tag != 0x04 {
+            bail!("BER: SearchResultEntry objectName is not an OCTET STRING");
+        }
         Ok(String::from_utf8_lossy(&resp[dc..dc + dl]).into_owned())
     }
 
@@ -251,13 +349,20 @@ impl LdapClient {
         let req = tlv(0x66, &[octet(dn.as_bytes()), seq(&[change])].concat()); // [APP 6] ModifyRequest
         let resp = self.exchange(req).await?;
         // ModifyResponse [APP 7] { resultCode ENUM ... }
-        let (_, c, _, _) = read_tlv(&resp, 0)?;
-        let (_, _mc, _ml, after_id) = read_tlv(&resp, c)?;
-        let (_, mc2, _, _) = read_tlv(&resp, after_id)?;
-        let (_, rc, rl, _) = read_tlv(&resp, mc2)?;
-        let code = resp[rc..rc + rl]
-            .iter()
-            .fold(0i64, |a, &b| (a << 8) | b as i64);
+        let (outer_tag, c, _, outer_end) = read_tlv(&resp, 0)?;
+        if outer_tag != 0x30 || outer_end != resp.len() {
+            bail!("BER: malformed LDAPMessage envelope");
+        }
+        let (_, _, _, after_id) = read_tlv_in(&resp, c, outer_end)?;
+        let (modify_tag, mc2, _, modify_end) = read_tlv_in(&resp, after_id, outer_end)?;
+        if modify_tag != 0x67 {
+            bail!("BER: expected ModifyResponse, got tag 0x{modify_tag:02x}");
+        }
+        let (result_tag, rc, rl, _) = read_tlv_in(&resp, mc2, modify_end)?;
+        if result_tag != 0x0a {
+            bail!("BER: ModifyResponse resultCode is not ENUMERATED");
+        }
+        let code = parse_nonnegative_i64(&resp, rc, rl)?;
         if code != 0 {
             bail!("LDAP modify failed: resultCode {code}");
         }
@@ -299,11 +404,26 @@ mod tests {
         assert_eq!(next, 260);
     }
 
-    /// A crafted huge long-form length must not overflow `pos + hdr + len`.
+    /// A crafted huge long-form length must be rejected without overflow.
     #[test]
     fn read_tlv_huge_length_no_overflow() {
         let m = [0x04, 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; // 8-byte length = u64::MAX
-        let _ = read_tlv(&m, 0); // must return (Err or Ok) without panicking
+        assert!(read_tlv(&m, 0).is_err());
+    }
+
+    #[test]
+    fn read_tlv_rejects_truncated_and_noncanonical_values() {
+        assert!(read_tlv(&[0x04, 0x02, 0xaa], 0).is_err());
+        assert!(read_tlv(&[0x04, 0x80], 0).is_err());
+        assert!(read_tlv(&[0x04, 0x81, 0x7f], 0).is_err());
+        assert!(read_tlv(&[0x04, 0x82, 0x00, 0x80], 0).is_err());
+    }
+
+    #[test]
+    fn child_tlv_cannot_escape_parent_container() {
+        let envelope = [0x30, 0x03, 0x04, 0x05, 0xaa];
+        let (_, content, _, end) = read_tlv(&envelope, 0).unwrap();
+        assert!(read_tlv_in(&envelope, content, end).is_err());
     }
 
     /// Fuzz-lite: LDAP server responses are fully untrusted — `read_tlv` must never panic.

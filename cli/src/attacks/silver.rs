@@ -12,7 +12,7 @@ pub(crate) struct SilverArgs {
     pub realm: String,
     /// Service key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
     #[arg(long)]
-    pub service_aes256: String,
+    pub service_aes256: adhammer_core::SecretString,
     /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the service NT hash (legacy DCs).
     #[arg(long)]
     pub rc4: bool,

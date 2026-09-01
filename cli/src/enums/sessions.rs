@@ -11,7 +11,7 @@ pub(crate) struct SessionsArgs {
     pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
     /// Include machine-account (`$`-suffixed) principals in the output. Default is off —
     /// on a DC these flood the list with the DC's own machine-account service sessions.
     #[arg(long)]

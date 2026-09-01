@@ -17,10 +17,15 @@ use tokio::net::TcpStream;
 
 const SHELL_URI: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd";
 const ENC_CT: &str = "multipart/encrypted;protocol=\"application/HTTP-SPNEGO-session-encrypted\";boundary=\"Encrypted Boundary\"";
+const MAX_WINRM_HEADER_BYTES: usize = 64 * 1024;
+const MAX_WINRM_BODY_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WINRM_CHUNK_LINE_BYTES: usize = 1024;
+const MAX_WINRM_CHUNKS: usize = 8192;
+const MAX_WINRM_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Credential material for the NTLM bind.
 pub enum Secret {
-    Password(String),
+    Password(adhammer_core::SecretString),
     NtHash([u8; 16]),
 }
 
@@ -93,7 +98,9 @@ impl WinRm {
 
         // Step 2: type3 + the exported session key → seal state for message encryption.
         let (type3, exported) = match secret {
-            Secret::Password(p) => ntlm.authenticate(&challenge, domain, user, p, "adhammer"),
+            Secret::Password(p) => {
+                ntlm.authenticate(&challenge, domain, user, p.expose_secret(), "adhammer")
+            }
             Secret::NtHash(h) => ntlm.authenticate_hash(&challenge, domain, user, h, "adhammer"),
         }
         .map_err(|e| anyhow::anyhow!("NTLM authenticate: {e}"))?;
@@ -146,12 +153,13 @@ impl WinRm {
             let xml = self.send(&recv).await?;
             for (name, data) in streams(&xml) {
                 if let Ok(bytes) = STANDARD.decode(data) {
-                    let s = String::from_utf8_lossy(&bytes);
-                    if name == "stderr" {
-                        stderr.push_str(&s);
-                    } else {
-                        stdout.push_str(&s);
-                    }
+                    append_output_chunk(
+                        &mut stdout,
+                        &mut stderr,
+                        &name,
+                        &bytes,
+                        MAX_WINRM_OUTPUT_BYTES,
+                    )?;
                 }
             }
             if xml.contains("/CommandState/Done") || xml.contains("State/Done") {
@@ -276,6 +284,52 @@ impl WinRm {
     }
 }
 
+fn append_output_chunk(
+    stdout: &mut String,
+    stderr: &mut String,
+    name: &str,
+    bytes: &[u8],
+    limit: usize,
+) -> Result<()> {
+    let append_len = lossy_utf8_len(bytes).context("WinRM output length overflow")?;
+    let current = stdout
+        .len()
+        .checked_add(stderr.len())
+        .context("WinRM output length overflow")?;
+    let next = current
+        .checked_add(append_len)
+        .context("WinRM output length overflow")?;
+    if next > limit {
+        bail!("WinRM command output exceeds {limit} byte limit");
+    }
+    // Allocate the lossy representation only after proving the exact stored length fits.
+    let text = String::from_utf8_lossy(bytes);
+    debug_assert_eq!(text.len(), append_len);
+    if name == "stderr" {
+        stderr.push_str(&text);
+    } else {
+        stdout.push_str(&text);
+    }
+    Ok(())
+}
+
+fn lossy_utf8_len(mut bytes: &[u8]) -> Option<usize> {
+    let mut total = 0usize;
+    loop {
+        match std::str::from_utf8(bytes) {
+            Ok(valid) => return total.checked_add(valid.len()),
+            Err(err) => {
+                total = total.checked_add(err.valid_up_to())?;
+                total = total.checked_add('\u{fffd}'.len_utf8())?;
+                let remaining = bytes.len().checked_sub(err.valid_up_to())?;
+                let invalid_len = err.error_len().unwrap_or(remaining);
+                let consumed = err.valid_up_to().checked_add(invalid_len)?;
+                bytes = bytes.get(consumed..)?;
+            }
+        }
+    }
+}
+
 /// All `<rsp:Stream Name="...">base64</rsp:Stream>` payloads (skips empty/end-of-stream markers).
 fn streams(xml: &str) -> Vec<(String, &str)> {
     let mut out = Vec::new();
@@ -341,11 +395,17 @@ fn unwrap_encrypted(seal: &mut SealState, resp: &[u8]) -> Result<String> {
         bail!("encrypted part too short");
     }
     let sig_len = u32::from_le_bytes([enc[0], enc[1], enc[2], enc[3]]) as usize;
-    if enc.len() < 4 + sig_len {
+    if sig_len != 16 {
+        bail!("unexpected WinRM NTLM signature length {sig_len}");
+    }
+    let signature_end = 4usize
+        .checked_add(sig_len)
+        .context("encrypted signature length overflow")?;
+    if enc.len() < signature_end {
         bail!("encrypted part shorter than signature");
     }
-    let signature = &enc[4..4 + sig_len];
-    let sealed = &enc[4 + sig_len..];
+    let signature = &enc[4..signature_end];
+    let sealed = &enc[signature_end..];
     let plain = seal
         .unseal_pdu(sealed, 0, sealed.len(), signature)
         .map_err(|e| anyhow::anyhow!("WinRM unseal: {e}"))?;
@@ -421,7 +481,13 @@ async fn read_http_response_inner(
             bail!("connection closed before headers");
         }
         buf.extend_from_slice(&tmp[..n]);
+        if buf.len() > MAX_WINRM_HEADER_BYTES {
+            bail!("WinRM HTTP headers exceed {MAX_WINRM_HEADER_BYTES} byte limit");
+        }
     };
+    if hdr_end > MAX_WINRM_HEADER_BYTES {
+        bail!("WinRM HTTP headers exceed {MAX_WINRM_HEADER_BYTES} byte limit");
+    }
     let head = String::from_utf8_lossy(&buf[..hdr_end]).into_owned();
     let mut lines = head.split("\r\n");
     let status_line = lines.next().unwrap_or_default();
@@ -437,7 +503,16 @@ async fn read_http_response_inner(
         if let Some((k, v)) = l.split_once(':') {
             let (k, v) = (k.trim().to_string(), v.trim().to_string());
             if k.eq_ignore_ascii_case("content-length") {
-                content_len = v.parse().ok();
+                let parsed = v.parse::<usize>().context("invalid WinRM Content-Length")?;
+                if parsed > MAX_WINRM_BODY_BYTES {
+                    bail!("WinRM body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+                }
+                if content_len
+                    .replace(parsed)
+                    .is_some_and(|prior| prior != parsed)
+                {
+                    bail!("conflicting WinRM Content-Length headers");
+                }
             } else if k.eq_ignore_ascii_case("transfer-encoding")
                 && v.to_lowercase().contains("chunked")
             {
@@ -446,12 +521,18 @@ async fn read_http_response_inner(
             headers.push((k, v));
         }
     }
+    if chunked && content_len.is_some() {
+        bail!("ambiguous WinRM response contains both chunked and Content-Length framing");
+    }
 
     let mut body = buf.split_off(hdr_end);
+    if body.len() > MAX_WINRM_BODY_BYTES {
+        bail!("WinRM buffered body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+    }
     if chunked {
         // Standard HTTP/1.1 chunked decoder: <hex-size>CRLF <data> CRLF … 0 CRLF CRLF.
         let mut decoded = Vec::new();
-        loop {
+        for chunk_index in 0..MAX_WINRM_CHUNKS {
             let line_end = loop {
                 if let Some(p) = find_sub(&body, b"\r\n") {
                     break p;
@@ -461,39 +542,98 @@ async fn read_http_response_inner(
                     bail!("closed mid chunk-size line");
                 }
                 body.extend_from_slice(&tmp[..n]);
+                if body.len() > MAX_WINRM_BODY_BYTES {
+                    bail!("WinRM chunked body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+                }
             };
+            if line_end > MAX_WINRM_CHUNK_LINE_BYTES {
+                bail!("WinRM chunk-size line exceeds {MAX_WINRM_CHUNK_LINE_BYTES} byte limit");
+            }
             let size_str = String::from_utf8_lossy(&body[..line_end]);
-            let size =
-                usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0").trim(), 16)
-                    .unwrap_or(0);
-            let need = line_end + 2 + size + 2; // size line + CRLF + data + trailing CRLF
+            let size_token = size_str
+                .trim()
+                .split(';')
+                .next()
+                .context("missing WinRM chunk size")?
+                .trim();
+            if size_token.is_empty() {
+                bail!("empty WinRM chunk size");
+            }
+            let size = usize::from_str_radix(size_token, 16).context("invalid WinRM chunk size")?;
+            if size > MAX_WINRM_BODY_BYTES {
+                bail!("WinRM chunk exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+            }
+            let (data_start, data_end, need) = checked_chunk_bounds(line_end, size)?;
+            if need > MAX_WINRM_BODY_BYTES {
+                bail!("WinRM chunk frame exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+            }
             while body.len() < need {
                 let n = stream.read(&mut tmp).await?;
                 if n == 0 {
-                    break;
+                    bail!("connection closed mid WinRM chunk");
                 }
                 body.extend_from_slice(&tmp[..n]);
+                if body.len() > MAX_WINRM_BODY_BYTES {
+                    bail!("WinRM chunked body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+                }
+            }
+            if body.get(data_end..need) != Some(b"\r\n".as_slice()) {
+                bail!("invalid WinRM chunk terminator");
             }
             if size == 0 {
+                body.drain(..need);
                 break;
             }
-            let data_end = (line_end + 2 + size).min(body.len());
-            decoded.extend_from_slice(&body[line_end + 2..data_end]);
-            body.drain(..need.min(body.len())); // consume this chunk's framing
+            let decoded_len = decoded
+                .len()
+                .checked_add(size)
+                .context("WinRM decoded body length overflow")?;
+            if decoded_len > MAX_WINRM_BODY_BYTES {
+                bail!("WinRM decoded body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+            }
+            decoded.extend_from_slice(&body[data_start..data_end]);
+            body.drain(..need);
+            if chunk_index + 1 == MAX_WINRM_CHUNKS {
+                bail!("WinRM response exceeds {MAX_WINRM_CHUNKS} chunks");
+            }
         }
         Ok((code, headers, decoded))
     } else {
-        let len = content_len.unwrap_or(0);
+        let Some(len) = content_len else {
+            if body.is_empty() {
+                return Ok((code, headers, body));
+            }
+            bail!("WinRM response body has no Content-Length or chunked framing");
+        };
         while body.len() < len {
             let n = stream.read(&mut tmp).await?;
             if n == 0 {
                 break;
             }
             body.extend_from_slice(&tmp[..n]);
+            if body.len() > MAX_WINRM_BODY_BYTES {
+                bail!("WinRM body exceeds {MAX_WINRM_BODY_BYTES} byte limit");
+            }
+        }
+        if body.len() < len {
+            bail!("connection closed before complete WinRM body");
         }
         body.truncate(len);
         Ok((code, headers, body))
     }
+}
+
+fn checked_chunk_bounds(line_end: usize, size: usize) -> Result<(usize, usize, usize)> {
+    let data_start = line_end
+        .checked_add(2)
+        .context("WinRM chunk framing overflow")?;
+    let data_end = data_start
+        .checked_add(size)
+        .context("WinRM chunk size overflow")?;
+    let need = data_end
+        .checked_add(2)
+        .context("WinRM chunk framing overflow")?;
+    Ok((data_start, data_end, need))
 }
 
 /// Pull the base64 challenge out of a `WWW-Authenticate: Negotiate <b64>` header.
@@ -552,5 +692,48 @@ mod tests {
     fn find_sub_locates_bytes() {
         assert_eq!(find_sub(b"abcdef", b"cd"), Some(2));
         assert_eq!(find_sub(b"abcdef", b"xy"), None);
+    }
+
+    #[test]
+    fn hostile_chunk_size_cannot_overflow_ranges() {
+        assert!(checked_chunk_bounds(16, usize::MAX).is_err());
+        assert_eq!(checked_chunk_bounds(3, 5).unwrap(), (5, 10, 12));
+    }
+
+    #[test]
+    fn output_limit_counts_lossy_utf8_expansion() {
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        let err = append_output_chunk(&mut stdout, &mut stderr, "stdout", &[0xff], 2)
+            .expect_err("one invalid byte expands to a three-byte replacement character");
+        assert!(err.to_string().contains("exceeds 2 byte limit"));
+        assert!(stdout.is_empty());
+        assert!(stderr.is_empty());
+    }
+
+    #[test]
+    fn output_limit_preserves_valid_stdout_and_stderr() {
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        append_output_chunk(&mut stdout, &mut stderr, "stdout", b"ok", 5).unwrap();
+        append_output_chunk(&mut stdout, &mut stderr, "stderr", b"err", 5).unwrap();
+        assert_eq!(stdout, "ok");
+        assert_eq!(stderr, "err");
+    }
+
+    #[test]
+    fn lossy_length_matches_the_stored_representation() {
+        for input in [
+            b"valid".as_slice(),
+            &[0xff],
+            &[b'a', 0xff, b'b'],
+            &[0xe2, 0x82],
+            &[0xf0, 0x28, 0x8c, 0xbc],
+        ] {
+            assert_eq!(
+                lossy_utf8_len(input),
+                Some(String::from_utf8_lossy(input).len())
+            );
+        }
     }
 }

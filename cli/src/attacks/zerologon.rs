@@ -37,12 +37,12 @@ pub(crate) struct ZerologonArgs {
     /// secret after an exploit. Run this after `--exploit` (machine password is empty) with the
     /// original DC$ hash (recorded pre-exploit, or recovered via secretsdump of $MACHINE.ACC).
     #[arg(long)]
-    pub restore: Option<String>,
+    pub restore: Option<adhammer_core::SecretString>,
     /// FULL restore: set the machine account back to this CLEARTEXT (regenerates NT + AES keys, so
     /// the AES secure channel heals — unlike --restore which only sets the NT hash). Use the DC's
     /// current local machine password.
     #[arg(long)]
-    pub restore_password: Option<String>,
+    pub restore_password: Option<adhammer_core::SecretString>,
 }
 
 /// Zerologon (CVE-2020-1472) SAFE detection: try the all-zero Netlogon handshake over MS-NRPC and

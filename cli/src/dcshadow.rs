@@ -141,7 +141,7 @@ pub struct DrsAuth {
     pub host: String,
     pub domain: String,
     pub user: String,
-    pub password: String,
+    pub password: adhammer_core::SecretString,
 }
 
 /// Register a rogue Server + nTDSDSA via DRSUAPI `IDL_DRSAddEntry` (opnum 17).

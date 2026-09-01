@@ -15,7 +15,7 @@ thiserror = { workspace = true }
 windows-sddl = { workspace = true }
 # WS-ZEROIZE (1.4.9) — Redacted<T> Drop-erases byte-material secrets via
 # ZeroizeOnDrop wrapping. Small, no-std-friendly, widely-audited (RustCrypto).
-zeroize = { version = "1.8", features = ["derive"] }
+zeroize = ">=1.8, <1.9"
 
 [dev-dependencies]
 serde_json = { workspace = true }

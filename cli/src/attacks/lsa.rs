@@ -10,7 +10,7 @@ pub(crate) struct LsaArgs {
     pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
     /// Name to resolve to a SID, e.g. Administrator
     #[arg(long)]
     pub name: String,

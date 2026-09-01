@@ -21,7 +21,7 @@ pub(crate) struct SprayArgs {
     pub users: String,
     /// Single password to spray across all users
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     /// Stop targeting a user after N failed attempts within --lockout-window.
     /// Prevents accidentally locking accounts on a domain with an aggressive
     /// lockout policy. 0 = no lockout guard (default).

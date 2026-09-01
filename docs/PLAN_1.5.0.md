@@ -18,6 +18,36 @@ Any bug found in the 1.4.9 tree that isn't a same-cycle fix lands here.
 Every entry: title + severity + reproducer path + landing commit or
 "pending" + which 1.5.0 workstream absorbs the fix.
 
+### SEC-1 — protocol-library security review remediation
+
+**Severity:** release blocking until the High findings are resolved.
+
+**Source review:** `ADHAMMER_PROTOCOL_LIBRARY_SECURITY_REVIEW_1.4.9.md`
+(2026-09-01, canonical revision `9752c8f29da3b5a00f6ebc448591a4f5a44d5e9c`).
+
+**Scope:** LDAP BER/message bounds and integrity (AH-001/002/003), WinRM
+response budgets and checked chunk framing (AH-004/005), secret ingress
+(AH-006), write-DACL and Windows-SDDL correctness (AH-007/WS-001/WS-002).
+
+**Landing policy:** local-only in 1.5.0 until the full regression matrix is
+green. Each landing must add a regression test for the exact malformed input
+class, preserve the authorized-testing boundary, and update the review with
+the commit plus residual risk.
+
+**Exit criteria:** no High review findings remain open; every untrusted parser
+has an allocation budget and no-panic regression coverage; sensitive LDAP
+writes require a verified integrity channel; and the final review is rerun on
+the exact release commit.
+
+| Finding | Local 1.5.0 state | Evidence |
+| --- | --- | --- |
+| AH-001 / AH-002 | fixed | LDAP rejects truncated, indefinite, non-canonical, oversized and cross-container BER values; it caps messages and times out I/O. |
+| AH-003 | mitigated | Direct password-authenticated LDAP-389 writes are refused pending verified LDAPS or a negotiated SASL integrity layer. Relay steps remain explicitly separate. |
+| AH-004 / AH-005 | fixed | WinRM has header, wire-body, decoded-body, chunk-line, chunk-count and command-output limits with checked framing arithmetic. |
+| AH-007 | fixed | Write-DACL validates declared ACL/ACE boundaries before rebuilding an ACL. |
+| WS-001 / WS-002 | fixed locally | The sibling `windows-sddl` checkout models DACL presence/NULL semantics and validates ACL/ACE bounds; Cargo patches every workspace and transitive user to that same local implementation. |
+| AH-006 | fixed | `SecretString` (zeroize-on-drop, redacted `Debug`/`Display`) at every CLI ingress via `shared_args::{SmbAuth,LdapAuth,OptAuth}`, `winrm::Secret::Password`, `shadowcred::pfx_password`, `guided::GuidedArgs.password`, and the 3 `dialoguer::Password` prompt sites in `interactive.rs`. Child-argv literal-pw propagation refused: `guided.rs` passes `env:ADHAMMER_GUIDED_PASSWORD` verbatim as the argv `--password` value and sets the env var on the `Command` before spawn — the literal never appears in argv. `SecretString::FromStr` accepts `env:VAR`, `@file:PATH`, or literal (deprecated). |
+
 ### CI-1 — `package-check` cannot run per-commit under "all local"
 
 **Severity:** low (CI process, not code correctness).
@@ -69,6 +99,22 @@ top of `pac_parse_full` once it comes back, so residual generic-array
 shapes get exercised end-to-end again.
 
 ## Workstreams (planned)
+
+### WS-PROTOCOL-SECURITY — close the 1.4.9 library review findings
+
+1. Replace raw LDAP BER ranges with parent-bounded value slices; reject
+   indefinite, non-canonical, truncated, oversized, and out-of-container
+   definite lengths. Bound a complete LDAP response and apply one operation
+   deadline across connect-adjacent read/write work.
+2. Add separate WinRM limits for headers, wire body, decoded body, SOAP XML,
+   chunks, per-stream output, and total command output; use checked framing
+   arithmetic and reject malformed chunks.
+3. Model `SE_DACL_PRESENT`, NULL DACL, ACL size, ACE size, and ACE boundaries
+   explicitly in `windows-sddl`; remove the write-DACL path's partial parser.
+4. Convert CLI credential ingress to a non-formatting, zeroizing secret type;
+   prohibit propagation of literal passwords into child argv.
+5. Refuse direct password-authenticated LDAP writes unless the channel has
+   verified LDAPS or negotiated SASL integrity.
 
 ### WS-DEPS-MAJORS — take the Dependabot semver-major bumps
 

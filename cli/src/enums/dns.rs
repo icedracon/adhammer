@@ -13,7 +13,7 @@ pub(crate) struct DnsArgs {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
 }

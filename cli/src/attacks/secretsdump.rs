@@ -16,7 +16,7 @@ pub(crate) struct SecretsdumpArgs {
     pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
 }
 
 /// Local secretsdump: run `reg save` for SYSTEM + SAM as LocalSystem, pull the hives over C$,

@@ -29,9 +29,9 @@ repository = "https://github.com/icedracon/adhammer"
 [workspace.dependencies]
 # the from-scratch protocol stack, now consumed as standalone published crates
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
-windows-sddl = "0.1.2"
+windows-sddl = "0.1.3"
 ad-acl       = "0.1"
-ntlmssp      = "0.1"
+ntlmssp      = "0.1.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
@@ -96,6 +96,9 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-# [patch.crates-io] removed 2026-08-27 — dcerpc 0.2.8 shipped to crates.io with the
-# Kerberos-sealed-DCE-RPC transport methods + BIND_NAK reason + DC-quirk BIND_ACK
-# tolerance. Workspace consumes from crates.io directly now.
+# Local-only 1.5.0 security-review validation. This override applies to direct
+# and transitive users (including ad-acl), keeping one SecurityDescriptor type.
+# Remove it only after the reviewed windows-sddl release is published.
+[patch.crates-io]
+windows-sddl = { path = "../windows-sddl" }
+ntlmssp = { path = "../ntlmssp" }

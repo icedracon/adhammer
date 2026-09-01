@@ -94,7 +94,7 @@ const PKI_FILTER: &str =
 pub struct LdapConfig {
     pub url: String,     // ldap://dc.corp.local:389  or ldaps://...
     pub bind_dn: String, // CORP\\user  or user@corp.local  or full DN
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     pub base_dn: Option<String>, // default: RootDSE defaultNamingContext
     pub insecure: bool,          // skip TLS cert verification (labs / self-signed DC certs)
     pub gssapi: bool,            // SASL GSSAPI bind (signed LDAP over 389, ambient Kerberos)
@@ -324,7 +324,7 @@ impl Collector {
             anyhow::bail!("--gssapi requires a build with `--features gssapi`");
         }
         let bind_dn = qualify_bind(&cfg.bind_dn, domain);
-        ldap.simple_bind(&bind_dn, &cfg.password)
+        ldap.simple_bind(&bind_dn, cfg.password.expose_secret())
             .await?
             .success()
             .with_context(|| {

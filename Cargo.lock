@@ -140,7 +140,6 @@ name = "adhammer-ldap"
 version = "1.4.9"
 dependencies = [
  "anyhow",
- "ntlmssp",
  "smb2-client",
  "thiserror 2.0.20",
  "tokio",
@@ -1531,15 +1530,14 @@ dependencies = [
 
 [[package]]
 name = "ntlmssp"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96c082c39c4f89145da2e663af77d1b5a267b50db36a14b802f990218afe1daa"
+version = "0.1.1"
 dependencies = [
  "hmac",
  "md-5",
  "md4",
  "rand",
  "thiserror 2.0.20",
+ "zeroize",
 ]
 
 [[package]]
@@ -2776,9 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "windows-sddl"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bcf4405edb39ab1e36f23bce08c2cd9a08ac1aaf3d8b7fcbb7dba90be20a923"
+version = "0.1.3"
 dependencies = [
  "bitflags",
  "thiserror 2.0.20",
@@ -2994,9 +2990,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.0"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 dependencies = [
  "zeroize_derive",
 ]

@@ -13,7 +13,7 @@ pub(crate) struct GmsaArgs {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// gMSA sAMAccountName (e.g. gmsa_web$)

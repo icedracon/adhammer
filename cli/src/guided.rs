@@ -25,7 +25,7 @@ const PREMIUM_GUIDED_REPORT_TEMPLATE: &str =
 pub struct GuidedArgs {
     pub url: String,
     pub user: String,
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     pub insecure: bool,
     pub host: Option<String>,
     pub domain: Option<String>,
@@ -43,7 +43,7 @@ pub struct GuidedArgs {
 struct Ctx {
     url: String,
     user: String,
-    password: String,
+    password: adhammer_core::SecretString,
     insecure: bool,
     host: String,
     domain: String,
@@ -492,7 +492,11 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
                     }
                     let sp = ui::Spinner::start(format!("running {label}"));
                     let cmd = redacted_cmd(&argv);
-                    match Command::new(&exe).args(&argv).output() {
+                    match Command::new(&exe)
+                        .env("ADHAMMER_GUIDED_PASSWORD", ctx.password.expose_secret())
+                        .args(&argv)
+                        .output()
+                    {
                         Ok(o) => {
                             // Confirm the *specific* proof is present, not just exit 0 — e.g. an
                             // actual `$krb5tgs$` hash, an ISSUED cert. Check the full (untruncated)
@@ -537,7 +541,11 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
         if a.yes || confirm("read LAPS local-admin passwords across the estate?") {
             let sp = ui::Spinner::start("LAPS local-admin read");
             let cmd = redacted_cmd(&argv);
-            match Command::new(&exe).args(&argv).output() {
+            match Command::new(&exe)
+                .env("ADHAMMER_GUIDED_PASSWORD", ctx.password.expose_secret())
+                .args(&argv)
+                .output()
+            {
                 Ok(o) => {
                     let full = full_out(&o.stdout, &o.stderr);
                     // Success = at least one recovered credential row (HOST$<TAB>account<TAB>pw).
@@ -564,7 +572,11 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
         if a.yes || confirm("probe the CA(s) for ESC8 web-enrollment relay exposure?") {
             let sp = ui::Spinner::start("ADCS ESC8 web-enrollment probe");
             let cmd = redacted_cmd(&argv);
-            match Command::new(&exe).args(&argv).output() {
+            match Command::new(&exe)
+                .env("ADHAMMER_GUIDED_PASSWORD", ctx.password.expose_secret())
+                .args(&argv)
+                .output()
+            {
                 Ok(o) => {
                     let full = full_out(&o.stdout, &o.stderr);
                     let hit = o.status.success() && full.contains("exposes NTLM");
@@ -594,7 +606,7 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
             "--user".into(),
             ctx.sam_user(),
             "--password".into(),
-            ctx.password.clone(),
+            "env:ADHAMMER_GUIDED_PASSWORD".into(),
         ];
         if a.yes
             || confirm(
@@ -603,7 +615,11 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
         {
             let sp = ui::Spinner::start("DC posture probe (MS-RRP + \\spoolss)");
             let cmd = redacted_cmd(&argv);
-            match Command::new(&exe).args(&argv).output() {
+            match Command::new(&exe)
+                .env("ADHAMMER_GUIDED_PASSWORD", ctx.password.expose_secret())
+                .args(&argv)
+                .output()
+            {
                 Ok(o) => {
                     let full = full_out(&o.stdout, &o.stderr);
                     let exposed = o.status.success()
@@ -682,7 +698,7 @@ fn ldap_args(c: &Ctx) -> Vec<String> {
         "--user".into(),
         c.user.clone(),
         "--password".into(),
-        c.password.clone(),
+        "env:ADHAMMER_GUIDED_PASSWORD".into(),
     ];
     if c.insecure {
         v.push("--insecure".into());
@@ -724,7 +740,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--user".into(),
                 c.sam_user(),
                 "--password".into(),
-                c.password.clone(),
+                "env:ADHAMMER_GUIDED_PASSWORD".into(),
                 "--target".into(),
                 "krbtgt".into(),
             ];
@@ -743,7 +759,7 @@ fn validator(f: &Finding, c: &Ctx) -> Option<(String, Vec<String>, &'static str)
                 "--user".into(),
                 c.sam_user(),
                 "--password".into(),
-                c.password.clone(),
+                "env:ADHAMMER_GUIDED_PASSWORD".into(),
                 "--ca".into(),
                 ca,
                 "--template".into(),

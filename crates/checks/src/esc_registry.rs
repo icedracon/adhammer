@@ -171,6 +171,20 @@ fn esc7_from_sd(sd: &windows_sddl::SecurityDescriptor) -> Vec<EscHit> {
 /// ESC7 from the raw `Security` REG_BINARY under the CA config key.
 pub fn esc7(sd_bytes: &[u8]) -> Vec<EscHit> {
     match windows_sddl::parse(sd_bytes) {
+        Ok(sd) if sd.dacl_kind != windows_sddl::DaclKind::Present => {
+            let kind = match sd.dacl_kind {
+                windows_sddl::DaclKind::Null => "NULL",
+                windows_sddl::DaclKind::NotPresent => "not-present",
+                windows_sddl::DaclKind::Present => unreachable!(),
+            };
+            vec![EscHit {
+                id: "A-Esc7",
+                title: "ESC7: CA security descriptor grants unrestricted access",
+                detail: format!(
+                    "CA Security has a {kind} DACL, which grants unrestricted access rather than denying access. Any principal can exercise CA management rights. Remediation: install an explicit non-NULL DACL restricted to Tier-0 administrators."
+                ),
+            }]
+        }
         Ok(sd) => esc7_from_sd(&sd),
         Err(_) => Vec::new(),
     }
@@ -231,6 +245,7 @@ mod tests {
                     inherited_object_type: None,
                 }],
             }),
+            ..SecurityDescriptor::default()
         }
     }
 
@@ -252,6 +267,16 @@ mod tests {
         .is_empty());
         assert!(esc7_from_sd(&sd_with("S-1-5-32-544", CA_MANAGE_CA)).is_empty());
         assert!(esc7_from_sd(&sd_with("S-1-5-11", 0x200)).is_empty());
+    }
+
+    #[test]
+    fn esc7_flags_null_dacl_as_unrestricted() {
+        let mut sd = vec![1, 0];
+        sd.extend_from_slice(&0x8004u16.to_le_bytes());
+        sd.extend_from_slice(&[0u8; 16]);
+        let hits = esc7(&sd);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].detail.contains("NULL"));
     }
 
     #[test]

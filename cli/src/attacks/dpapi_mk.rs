@@ -47,13 +47,13 @@ pub(crate) struct DpapiMkArgs {
     /// Tries standalone SHA1 → domain MD4 → Protected-Users PBKDF2-SHA256
     /// and picks the winning one. Mutually exclusive with `--pwdkey`.
     #[arg(long, conflicts_with = "pwdkey")]
-    pub password: Option<String>,
+    pub password: Option<adhammer_core::SecretString>,
     /// Pre-derived 20-byte pwdkey (40 hex chars). Skips the derivation loop —
     /// use this when the account category is known and the pwdkey was
     /// computed externally (captured NT hash + SID → external HMAC-SHA1).
     /// Mutually exclusive with `--password`.
     #[arg(long, conflicts_with = "password")]
-    pub pwdkey: Option<String>,
+    pub pwdkey: Option<adhammer_core::SecretString>,
 }
 
 pub(crate) async fn dpapi_master_key(mut a: DpapiMkArgs) -> Result<()> {

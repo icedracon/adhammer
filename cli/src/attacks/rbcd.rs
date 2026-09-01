@@ -15,7 +15,7 @@ pub(crate) struct RbcdArgs {
     pub account: String,
     /// Controlled account password
     #[arg(long, default_value = "")]
-    pub account_password: String,
+    pub account_password: adhammer_core::SecretString,
     /// User to impersonate, e.g. Administrator
     #[arg(long)]
     pub impersonate: String,

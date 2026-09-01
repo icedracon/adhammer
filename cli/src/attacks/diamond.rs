@@ -34,12 +34,12 @@ pub(crate) struct DiamondArgs {
     /// `env:VAR` to read from an environment variable so the value never appears
     /// in `ps` / shell history.
     #[arg(long)]
-    pub template_password: String,
+    pub template_password: adhammer_core::SecretString,
     /// krbtgt key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with `--rc4`.
     /// Supports `env:VAR` to read from an environment variable so the value never
     /// appears in `ps` / shell history.
     #[arg(long)]
-    pub krbtgt_aes256: String,
+    pub krbtgt_aes256: adhammer_core::SecretString,
     /// Forge an RC4-HMAC (etype 23) ticket — interpret the krbtgt key as the NT hash (legacy DCs).
     #[arg(long)]
     pub rc4: bool,

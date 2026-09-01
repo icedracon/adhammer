@@ -86,7 +86,7 @@ pub(crate) struct IcprEsc1Args {
     pub user: Option<String>,
     /// Password (required when --host is set).
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
 
     /// ESC variant to exercise. Default `esc1` = classic SAN-in-CSR.
     #[arg(long, value_enum, default_value = "esc1")]

@@ -12,7 +12,7 @@ pub(crate) struct Esc4Args {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// cn of the certificate template to weaponize (e.g. `User` or a custom one).

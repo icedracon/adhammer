@@ -10,7 +10,6 @@ categories = ["authentication", "network-programming"]
 repository.workspace = true
 
 [dependencies]
-ntlmssp = { workspace = true }
 smb2-client = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

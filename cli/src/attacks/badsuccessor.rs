@@ -14,7 +14,7 @@ pub(crate) struct BadsuccessorArgs {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// OU/container the attacker can create objects in (e.g. `OU=Servers,DC=corp,DC=local`).

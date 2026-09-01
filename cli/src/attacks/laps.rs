@@ -15,7 +15,7 @@ pub(crate) struct LapsArgs {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// Computer sAMAccountName to read (e.g. WIN11$). Omit to dump every LAPS password you can read.

@@ -18,7 +18,7 @@ pub(crate) struct WinrmArgs {
     pub port: u16,
     /// Pass-the-hash: NT hash (32 hex) instead of --password
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
     /// Command to run (via cmd.exe /c)
     #[arg(long)]
     pub command: String,

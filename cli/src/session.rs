@@ -2,7 +2,7 @@
 //! On Windows the session file is DPAPI-encrypted (CryptProtectData) so creds at rest
 //! are bound to the current user's login session. On Unix it's chmod 600.
 
-use adhammer_core::Redacted;
+use adhammer_core::{Redacted, SecretString};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -20,10 +20,10 @@ pub struct Session {
     /// Bind password. Wrapped so `{session:?}` and `--debug` output print "***" instead
     /// of the plaintext. Reach through with `.expose()` at the auth call sites.
     /// Serde is transparent so on-disk session files keep the same JSON shape.
-    pub password: Redacted<String>,
+    pub password: Redacted<SecretString>,
     /// Optional NT hash (32 hex) for pass-the-hash on the SMB-based actions.
     #[serde(default)]
-    pub nt_hash: Option<Redacted<String>>,
+    pub nt_hash: Option<Redacted<SecretString>>,
     /// Skip TLS verification for lab LDAPS
     #[serde(default)]
     pub insecure: bool,

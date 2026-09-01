@@ -15,7 +15,7 @@ pub(crate) struct ShadowcredArgs {
     #[arg(long)]
     pub user: String,
     #[arg(long, default_value = "")]
-    pub password: String,
+    pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// sAMAccountName to plant the KeyCredential on.
@@ -43,7 +43,7 @@ pub(crate) struct ShadowcredArgs {
     pub yes: bool,
     /// Password for the PFX bundle emitted alongside the .key.pem on ADD (default: "adhammer").
     #[arg(long, default_value = "adhammer")]
-    pub pfx_password: String,
+    pub pfx_password: adhammer_core::SecretString,
     /// Print what --remove / --clear would send without actually writing.
     #[arg(long)]
     pub dry_run: bool,

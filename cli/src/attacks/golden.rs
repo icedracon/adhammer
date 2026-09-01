@@ -15,7 +15,7 @@ pub(crate) struct GoldenArgs {
     pub realm: String,
     /// krbtgt key: AES256 (64 hex) by default, or the RC4/NT hash (32 hex) with --rc4.
     #[arg(long)]
-    pub krbtgt_aes256: String,
+    pub krbtgt_aes256: adhammer_core::SecretString,
     /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the krbtgt NT hash (legacy DCs).
     #[arg(long)]
     pub rc4: bool,

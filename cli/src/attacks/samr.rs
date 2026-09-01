@@ -10,7 +10,7 @@ pub(crate) struct SamrArgs {
     pub auth: crate::shared_args::SmbAuth,
     /// Pass-the-hash: NT hash (32 hex, or LM:NT) instead of --password
     #[arg(long)]
-    pub nt_hash: Option<String>,
+    pub nt_hash: Option<adhammer_core::SecretString>,
 }
 
 /// Full path: SMB2 negotiate → NTLM session → IPC$ → \samr pipe →

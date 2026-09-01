@@ -498,8 +498,8 @@ fn setup_wizard() -> Result<Session> {
         domain: domain.trim().to_string(),
         dc: dc_clean,
         username: username.trim().to_string(),
-        password: adhammer_core::Redacted::new(password),
-        nt_hash: nt_hash.map(adhammer_core::Redacted::new),
+        password: adhammer_core::Redacted::new(password.into()),
+        nt_hash: nt_hash.map(|value| adhammer_core::Redacted::new(value.into())),
         insecure,
         ldap_url_override,
     })
@@ -546,8 +546,8 @@ fn probe_ldap_scheme(dc: &str) -> Option<String> {
     }
 }
 
-/// The session's NT hash as `Option<String>` for the pass-the-hash-capable actions.
-fn sess_hash(s: &Session) -> Option<String> {
+/// The session's zeroizing NT hash for pass-the-hash-capable actions.
+fn sess_hash(s: &Session) -> Option<adhammer_core::SecretString> {
     s.nt_hash.as_ref().map(|h| h.expose().clone())
 }
 
@@ -610,10 +610,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("Users (@file or comma-separated)")
                 .with_initial_text("@users.txt")
                 .interact_text()?;
-            let password: String = Password::new()
-                .with_prompt("Password to spray")
-                .interact()
-                .or_else(|_| prompt_password("Password to spray"))?;
+            let password = adhammer_core::SecretString::new(
+                Password::new()
+                    .with_prompt("Password to spray")
+                    .interact()
+                    .or_else(|_| prompt_password("Password to spray"))?,
+            );
             spray(SprayArgs {
                 kdc: s.dc.clone(),
                 realm: s.realm(),
@@ -899,10 +901,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             let account: String = Input::new()
                 .with_prompt("Controlled account (RBCD trustee)")
                 .interact_text()?;
-            let account_password: String = Password::new()
-                .with_prompt("Controlled account password")
-                .interact()
-                .or_else(|_| prompt_password("Controlled account password"))?;
+            let account_password = adhammer_core::SecretString::new(
+                Password::new()
+                    .with_prompt("Controlled account password")
+                    .interact()
+                    .or_else(|_| prompt_password("Controlled account password"))?,
+            );
             let impersonate: String = Input::new()
                 .with_prompt("User to impersonate")
                 .with_initial_text("Administrator")
@@ -1153,7 +1157,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
             golden(GoldenArgs {
                 kdc: s.dc.clone(),
                 realm: s.realm(),
-                krbtgt_aes256,
+                krbtgt_aes256: krbtgt_aes256.into(),
                 domain_sid,
                 user,
                 rid,
@@ -1182,7 +1186,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             silver(SilverArgs {
                 realm: s.realm(),
-                service_aes256,
+                service_aes256: service_aes256.into(),
                 spn,
                 domain_sid,
                 user,
@@ -1228,8 +1232,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 kdc: Some(s.dc.clone()),
                 realm: s.realm(),
                 domain_sid,
-                krbtgt_aes256,
-                service_aes256,
+                krbtgt_aes256: krbtgt_aes256.map(Into::into),
+                service_aes256: service_aes256.map(Into::into),
                 spn: Some(spn),
                 user,
                 rid,
@@ -1349,7 +1353,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             // WS-1.4.7-P1-A: password for the controlled account is a password-equivalent
             // secret — MUST be hidden. Prior `Input::new().interact_text()` echoed it.
-            let account_password: String = prompt_password(&format!("Password for {account}"))?;
+            let account_password =
+                adhammer_core::SecretString::new(prompt_password(&format!("Password for {account}"))?);
             let impersonate: String = Input::new()
                 .with_prompt("Identity to impersonate (e.g. Administrator)")
                 .with_initial_text("Administrator")

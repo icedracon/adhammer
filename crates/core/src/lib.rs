@@ -12,6 +12,6 @@ pub use finding::{
     WireLayer,
 };
 pub use object::AdObject;
-pub use redact::Redacted;
+pub use redact::{Redacted, SecretBytes, SecretString};
 pub use sid::{Guid, Sid};
 pub use snapshot::{SearchOp, Snapshot};
