@@ -147,7 +147,7 @@ been grep'd and confirmed missing.
 | G-3 | LDAP simple-bind integrity requirement | collector `ldap.simple_bind` unconditional at line 327 | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
 | G-4 | GPP secret boundary + Debug redaction | `decrypt_cpassword -> Result<String>` — plain caller wrap only | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
 | G-5 | LDAP + SYSVOL resource budgets | no `MAX_RESPONSE_BYTES`, no walk-depth cap in either collector | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
-| G-6 | Output control-char sanitization | no `sanitize_terminal_output` helper called on network-derived strings | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
+| G-6 | Output control-char sanitization | ~closed 2026-09-02 (adhammer_core::sanitize + Report::build wiring); direct-println sites in cli/ still owed via WS-CLI-SHRINK | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
 | G-7 | picky-krb 0.9 → 0.12 (BUG-19 killer) | attempt 2026-09-01 reverted; 30+ mechanical edits owed | ~300 edits | ★★★★★ | `WS-DEPS-MAJORS` |
 | G-8 | `rsa 0.9` advisory removal (RUSTSEC-2023-0071) | `.cargo/audit.toml` still ignores it | ~200 (aws-lc-rs wrapper) | ★★★★ | `WS-ADVISORY-CLEANUP` |
 | G-9 | Anonymous cross-platform SYSVOL SMB walk | `crates/sysvol` has fs/UNC scanner but no `smb2-client`-driven anonymous share walk | ~250 | ★★★ | `WS-SYSVOL-ANON` |
@@ -215,13 +215,26 @@ helper that enforces `0o600` + POSIX / Windows-DACL parity.
 **Verifiable close:** grep of `String::from(decrypted)` in report
 crate returns 0; `find_debug_leaks` compile-fail test passes.
 
-### WS-OUTPUT-SANITIZE (P0)
-Add `sanitize_terminal_output` that strips C0 (except `\n\t`), CSI
-sequences, and OSC sequences from network-derived strings before
-they hit stdout / stderr / Finding.detail / report body. Wire at
-every terminal-writing site + at JSON/HTML/MD/TXT report builders.
-**Verifiable close:** a unit test feeding `"\x1b[31m\x07inject"`
-into every writer path shows the escape stripped.
+### WS-OUTPUT-SANITIZE (closed 2026-09-02)
+Landed. `adhammer_core::sanitize::sanitize_terminal_output` strips
+C0 (except `\n\t`), DEL, Unicode C1, CSI, OSC (BEL- or ST-terminated,
+byte-capped), and 2-byte ESC-N escapes. Wired in `Report::build` so
+`domain`, every `Finding` (title/detail/impact/remediation/affected/
+evidence) and every `AttackPath` (principal/target/step endpoints/
+step commands) go through the sanitizer BEFORE the JSON / HTML /
+Markdown / text renderers read them. `Step`'s `edge` / `impact` /
+`mitigation` are `&'static str` compile-time constants — not touched.
+`WireExchange` intentionally not sanitized (raw wire dumps must stay
+byte-exact for reproducibility; sanitize at presentation site).
+**Verifiable close:** `build_scrubs_terminal_control_from_every_renderer`
+in `crates/report/src/lib.rs` (green); 15 unit tests in
+`crates/core/src/sanitize.rs` (green).
+
+Remaining follow-ups (not blocking; folded into later workstreams):
+- Stream-of-stdout `println!` sites that print LDAP-derived strings
+  directly (not via Report::build) still need per-site wiring. Enumerate
+  and address alongside `WS-CLI-SHRINK` (all CLI direct-println of
+  network text migrates into SDK-provided formatters).
 
 ### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
 Budgets first (max file size, max recursion depth, max cpassword-

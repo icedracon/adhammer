@@ -2,11 +2,74 @@
 //! weights) and emits JSON / HTML / Markdown / plain-text reports. No external template
 //! engine — keeps the dependency surface small.
 
-use adhammer_core::finding::{Category, Severity};
-use adhammer_core::Finding;
-use adhammer_graph::AttackPath;
+use adhammer_core::finding::{Category, Evidence, Severity};
+use adhammer_core::{sanitize_terminal_output, Finding};
+use adhammer_graph::{AttackPath, Step};
 use serde::Serialize;
 use std::collections::BTreeMap;
+
+/// WS-OUTPUT-SANITIZE (1.5.0): rewrite a Finding so every user-facing string
+/// field is stripped of terminal control sequences that a hostile network
+/// peer may have embedded. Report::build calls this once per finding at
+/// aggregation time; every downstream renderer (JSON/HTML/MD/TXT) reads the
+/// sanitized copy, so a report can never re-materialize a CSI colour, an OSC
+/// title spoof, a bell flood or a `\r`-based line overwrite.
+///
+/// Fields left untouched:
+/// - `id`, `category`, `severity`, `mitre`, `weight_bonus` — controlled by us
+///   or non-string; no injection surface.
+/// - `exchange: Vec<WireExchange>` — raw wire-frame dumps whose purpose is
+///   byte-exact reproducibility; sanitizing them defeats that purpose.
+///   Callers that render an exchange must sanitize at the presentation site,
+///   never inside the wire log itself.
+fn sanitize_finding(f: Finding) -> Finding {
+    Finding {
+        title: sanitize_terminal_output(&f.title),
+        affected: f
+            .affected
+            .into_iter()
+            .map(|s| sanitize_terminal_output(&s))
+            .collect(),
+        detail: sanitize_terminal_output(&f.detail),
+        evidence: f
+            .evidence
+            .into_iter()
+            .map(|e| Evidence {
+                source: sanitize_terminal_output(&e.source),
+                value: sanitize_terminal_output(&e.value),
+            })
+            .collect(),
+        impact: f.impact.as_deref().map(sanitize_terminal_output),
+        remediation: sanitize_terminal_output(&f.remediation),
+        ..f
+    }
+}
+
+/// WS-OUTPUT-SANITIZE (1.5.0): mirror of `sanitize_finding` for `AttackPath`.
+/// Principals, targets and per-step endpoint names are LDAP-derived and can
+/// therefore carry escape sequences from a hostile directory. `edge`,
+/// `impact`, `mitigation` inside `Step` are `&'static str` (compile-time
+/// constants) — not touched.
+fn sanitize_attack_path(p: AttackPath) -> AttackPath {
+    AttackPath {
+        principal: sanitize_terminal_output(&p.principal),
+        principal_sid: sanitize_terminal_output(&p.principal_sid),
+        target: sanitize_terminal_output(&p.target),
+        steps: p
+            .steps
+            .into_iter()
+            .map(|st| Step {
+                from: sanitize_terminal_output(&st.from),
+                from_sid: sanitize_terminal_output(&st.from_sid),
+                to: sanitize_terminal_output(&st.to),
+                to_sid: sanitize_terminal_output(&st.to_sid),
+                command: st.command.as_deref().map(sanitize_terminal_output),
+                ..st
+            })
+            .collect(),
+        ..p
+    }
+}
 
 pub mod baseline;
 pub mod composite;
@@ -124,6 +187,17 @@ impl Report {
         graph_stats: (usize, usize),
         cfg: &RiskConfig,
     ) -> Self {
+        // WS-OUTPUT-SANITIZE (1.5.0): rewrite the domain string + every
+        // Finding + every AttackPath at aggregation time so that the four
+        // downstream renderers (to_json / to_html / to_markdown /
+        // to_text_summary) all read data that a hostile network peer cannot
+        // have injected terminal-control sequences into. Do this BEFORE the
+        // score aggregation + composite::detect so those computations run
+        // over sanitized data too.
+        let domain: String = sanitize_terminal_output(domain);
+        let findings: Vec<Finding> = findings.into_iter().map(sanitize_finding).collect();
+        let paths: Vec<AttackPath> = paths.into_iter().map(sanitize_attack_path).collect();
+
         let mut category_scores: BTreeMap<&'static str, u64> = BTreeMap::new();
         for f in &findings {
             let w = cfg
@@ -137,7 +211,7 @@ impl Report {
         let total_score = category_scores.values().sum();
         let composite_chains = composite::detect(&findings);
         Report {
-            domain: domain.into(),
+            domain,
             total_score,
             category_scores,
             findings,
@@ -2036,5 +2110,83 @@ mod tests {
         assert!(dirty.contains("sha256"));
         assert!(clean.contains("Report fingerprint"));
         assert!(clean.contains("sha256"));
+    }
+
+    /// WS-OUTPUT-SANITIZE (1.5.0). Hostile Finding text carrying every
+    /// terminal-injection shape we sanitize; each of the four render paths
+    /// (json / html / markdown / text_summary) must emit output free of
+    /// them.
+    #[test]
+    fn build_scrubs_terminal_control_from_every_renderer() {
+        const HOSTILE: &str = "\x1b[31m\x1b]0;pwned\x07evil\rSAFE\x07\x08";
+        let hostile_dn = format!("CN=alice{HOSTILE},DC=corp,DC=local");
+
+        let f = Finding {
+            id: "A-Test".into(),
+            title: format!("bad {HOSTILE} title"),
+            category: Category::Anomalies,
+            severity: Severity::High,
+            mitre: vec![mitre::CERT_ABUSE],
+            affected: vec![hostile_dn.clone()],
+            evidence: vec![Evidence::new(
+                format!("LDAP {HOSTILE}"),
+                format!("value {HOSTILE}"),
+            )],
+            detail: format!("detail {HOSTILE}"),
+            impact: Some(format!("impact {HOSTILE}")),
+            remediation: format!("remediation {HOSTILE}"),
+            weight_bonus: 0,
+            exchange: Vec::new(),
+        };
+
+        let hostile_domain = format!("corp{HOSTILE}.local");
+        let r = Report::build(
+            &hostile_domain,
+            vec![f],
+            Vec::new(),
+            (0, 0),
+            &RiskConfig::default(),
+        );
+
+        for (label, body) in [
+            ("json", r.to_json()),
+            ("html", r.to_html()),
+            ("markdown", r.to_markdown()),
+            ("text", r.to_text_summary(50)),
+        ] {
+            assert!(
+                !body.contains('\x1b'),
+                "{label} output leaks ESC byte: {body:?}"
+            );
+            assert!(
+                !body.contains('\x07'),
+                "{label} output leaks BEL byte: {body:?}"
+            );
+            assert!(
+                !body.contains('\x08'),
+                "{label} output leaks BS byte: {body:?}"
+            );
+            // \r appears in HTTP-line captures inside wire exchanges (not
+            // used in this fixture); assert against untrusted-derived \r
+            // by requiring the hostile literal is fully stripped.
+            assert!(
+                !body.contains("\x1b[31m"),
+                "{label} output leaks CSI seq: {body:?}"
+            );
+            assert!(
+                !body.contains("\x1b]0;pwned"),
+                "{label} output leaks OSC seq: {body:?}"
+            );
+        }
+
+        // The stored (sanitized) copies also do not contain the bytes.
+        assert!(!r.domain.contains('\x1b'));
+        assert!(!r.findings[0].title.contains('\x1b'));
+        assert!(!r.findings[0].affected[0].contains('\x1b'));
+        assert!(!r.findings[0].detail.contains('\x1b'));
+        assert!(!r.findings[0].evidence[0].source.contains('\x1b'));
+        assert!(!r.findings[0].evidence[0].value.contains('\x1b'));
+        assert!(!r.findings[0].impact.as_deref().unwrap().contains('\x1b'));
+        assert!(!r.findings[0].remediation.contains('\x1b'));
     }
 }
