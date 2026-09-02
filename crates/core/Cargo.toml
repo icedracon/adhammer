@@ -8,6 +8,7 @@ description = "ADhammer core model — SID/GUID, AD object snapshot, findings, M
 keywords = ["active-directory", "kerberos", "sid", "pentesting", "security"]
 categories = ["authentication", "parser-implementations"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 serde = { workspace = true }

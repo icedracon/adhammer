@@ -8,6 +8,7 @@ description = "ADhammer reporting — configurable risk scoring to JSON/HTML."
 keywords = ["active-directory", "report", "html", "security", "audit"]
 categories = ["command-line-utilities", "authentication"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 adhammer-core = { workspace = true }

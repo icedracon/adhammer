@@ -8,6 +8,7 @@ description = "ADHammer Core — the AD audit + offensive toolkit as one importa
 keywords = ["active-directory", "audit", "sdk", "pentesting", "kerberos"]
 categories = ["authentication", "network-programming"]
 repository.workspace = true
+readme = "README.md"
 
 [features]
 default = ["tls-rustls"]

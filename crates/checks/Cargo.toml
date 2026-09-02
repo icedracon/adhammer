@@ -8,6 +8,7 @@ description = "ADhammer check engine — Active Directory misconfiguration rules
 keywords = ["active-directory", "audit", "security", "mitre-attack", "pentesting"]
 categories = ["authentication", "parser-implementations"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 adhammer-core = { workspace = true }

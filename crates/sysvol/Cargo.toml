@@ -8,6 +8,7 @@ description = "ADhammer SYSVOL — GPP cpassword (MS14-025) and GptTmpl.inf poli
 keywords = ["active-directory", "sysvol", "gpp", "windows", "pentesting"]
 categories = ["cryptography", "parser-implementations"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 adhammer-core = { workspace = true }

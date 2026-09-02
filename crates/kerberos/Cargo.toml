@@ -8,6 +8,7 @@ description = "ADhammer Kerberos — AS-REP/Kerberoast, S4U/RBCD, Shadow Credent
 keywords = ["kerberos", "active-directory", "pkinit", "asrep", "pentesting"]
 categories = ["cryptography", "authentication"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 adhammer-core = { workspace = true }

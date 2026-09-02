@@ -8,6 +8,7 @@ description = "ADhammer raw LDAP client — NTLM SASL (GSS-SPNEGO) bind + search
 keywords = ["ldap", "ntlm", "sasl", "active-directory", "pentesting"]
 categories = ["authentication", "network-programming"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 smb2-client = { workspace = true }

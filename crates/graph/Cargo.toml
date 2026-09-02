@@ -8,6 +8,7 @@ description = "ADhammer control-path graph — cheapest-path attack chains to Ti
 keywords = ["active-directory", "graph", "attack-path", "petgraph", "security"]
 categories = ["authentication", "algorithms"]
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 adhammer-core = { workspace = true }

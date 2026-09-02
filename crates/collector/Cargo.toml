@@ -8,6 +8,7 @@ description = "ADhammer LDAP collector — domain + Configuration NC collection 
 keywords = ["active-directory", "ldap", "collection", "pentesting", "audit"]
 categories = ["authentication", "network-programming"]
 repository.workspace = true
+readme = "README.md"
 
 [features]
 default = ["tls-rustls"]

@@ -97,7 +97,7 @@ Every finding in the report is either an audit observation, a supported validati
 
 ## Release Truth
 
-The current workspace version is **1.4.9** (2026-08-31).
+The current workspace version is **1.4.10** (2026-09-02).
 
 Public claims for ADhammer should follow three rules:
 
@@ -106,6 +106,24 @@ Public claims for ADhammer should follow three rules:
 - **No public copy should claim more than the validation ledger supports.**
 
 That keeps the README useful across release lines without turning the first screen into a moving archive.
+
+### 1.4.10 highlights
+
+**Hardening patch — bug-fix / defence-in-depth only, no new capability.** Closes eight
+behavioural findings from the 2026-09-02 audit against the 1.4.9 tree.
+`crates/collector` now refuses an authenticated `simple_bind` over plaintext `ldap://`
+unless the operator explicitly opts in (BF-1); LDAP paged-search and SYSVOL-walk both
+enforce hostile-server DoS-defence budgets (BF-7). `crates/sysvol::decrypt_cpassword`
+returns `SecretString` and the GPP `Finding` no longer embeds recovered plaintext into
+the report body (BF-2); a new `adhammer_core::write_secret_artifact` helper writes
+recovered credentials to a 0600 file on request. Every string a report renderer sees is
+scrubbed of terminal control sequences via `adhammer_core::sanitize_terminal_output`
+(BF-8). The runner types (`EngagementScope`, `BlackBoxRunner`) land as a patch-safe
+additive foundation; the observable no-cred assessment capability they support is
+1.5.0 scope. Live-DC receipts against Server 2019 / 2022 / 2025 landed under
+`docs/receipts/1.4.10__*.md` with the receipt scrubber hardened for UTF-8 stdout and
+context-aware short-hex-key redaction. Full detail in [CHANGELOG.md](CHANGELOG.md) and
+[docs/PLAN_1.4.10.md](docs/PLAN_1.4.10.md).
 
 ### 1.4.9 highlights
 
