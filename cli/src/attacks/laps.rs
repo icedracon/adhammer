@@ -121,6 +121,7 @@ async fn laps_impl(mut a: LapsArgs, checklist: &mut ui::StageChecklist) -> Resul
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let sp = ui::Spinner::start("reading LAPS passwords over LDAPS");
     let mut c = Collector::connect(&cfg).await?;

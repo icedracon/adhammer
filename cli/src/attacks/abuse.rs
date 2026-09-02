@@ -178,6 +178,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         base_dn: None,
         insecure: a.auth.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let mut c = Collector::connect(&cfg).await?;
     // ux-2: accept SID / sAMAccountName / DN — classify() dispatches to the right resolver.

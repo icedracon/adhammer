@@ -215,6 +215,7 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
 
     let connect_host = a.host.clone().unwrap_or_else(|| url_host(&a.url));

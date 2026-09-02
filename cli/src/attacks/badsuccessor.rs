@@ -48,6 +48,7 @@ pub(crate) async fn badsuccessor(mut a: BadsuccessorArgs) -> Result<()> {
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let mut c = Collector::connect(&cfg).await?;
     // ux-2: accept SID / sAMAccountName / DN via unified classifier.

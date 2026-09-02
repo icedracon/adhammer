@@ -122,6 +122,7 @@ async fn connect(a: &ShadowcredArgs) -> Result<Collector> {
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     Collector::connect(&cfg).await
 }

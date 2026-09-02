@@ -90,6 +90,7 @@ pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
         base_dn: a.base_dn.clone(),
         insecure: a.auth.insecure,
         gssapi: a.gssapi,
+        allow_plaintext_bind: false,
     }
 }
 

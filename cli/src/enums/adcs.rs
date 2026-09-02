@@ -17,6 +17,7 @@ pub(crate) async fn adcsenum(a: DnsArgs) -> Result<()> {
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let sp = ui::Spinner::start("enumerating enterprise CAs");
     let mut c = Collector::connect(&cfg).await?;

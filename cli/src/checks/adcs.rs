@@ -55,6 +55,7 @@ async fn check_adcs_impl(
         base_dn: None,
         insecure: a.auth.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let collector = match Collector::connect(&cfg).await {
         Ok(c) => c,

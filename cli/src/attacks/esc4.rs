@@ -41,6 +41,7 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let mut c = Collector::connect(&cfg).await?;
     let base = c.base_dn().to_string();

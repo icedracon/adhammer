@@ -77,6 +77,7 @@ async fn gmsa_impl(mut a: GmsaArgs, checklist: &mut ui::StageChecklist) -> Resul
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
+        allow_plaintext_bind: false,
     };
     let mut c = Collector::connect(&cfg).await?;
     checklist.record_ok("sealed LDAP bind (LDAPS)", format!("→ {}", a.url));

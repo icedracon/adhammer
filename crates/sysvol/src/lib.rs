@@ -33,15 +33,41 @@ pub struct GppHit {
     pub password: SecretString,
 }
 
+/// WS-LDAP-INTEGRITY (1.5.0) — SYSVOL DoS-defence budgets. Real SYSVOL
+/// trees have depths well under 10 and GPP XML files well under 100 KiB.
+/// Ceiling values here are ~2 orders of magnitude above realistic
+/// production shapes so a hostile / broken SYSVOL server (or an fs-loop
+/// mounted at the walk root) cannot consume unbounded memory. See BF-7.
+const SYSVOL_MAX_WALK_DEPTH: usize = 32;
+const SYSVOL_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024; // 4 MiB
+const SYSVOL_MAX_HITS: usize = 10_000;
+
 /// Recursively scan a SYSVOL path for GPP XML files carrying a `cpassword`.
 /// `root` is typically `\\<domain-fqdn>\SYSVOL` on a domain-joined host.
+///
+/// Walk stops early on any of: [`SYSVOL_MAX_WALK_DEPTH`] recursion
+/// depth reached, [`SYSVOL_MAX_HITS`] recovered credentials, or a file
+/// larger than [`SYSVOL_MAX_FILE_BYTES`] (that file is skipped, walk
+/// continues). All three refusals are logged at `warn` so an operator
+/// sees the truncation without a silent short-return.
 pub fn scan(root: &Path) -> Vec<GppHit> {
     let mut hits = Vec::new();
-    walk(root, &mut hits);
+    walk(root, 0, &mut hits);
     hits
 }
 
-fn walk(dir: &Path, out: &mut Vec<GppHit>) {
+fn walk(dir: &Path, depth: usize, out: &mut Vec<GppHit>) {
+    if depth > SYSVOL_MAX_WALK_DEPTH {
+        tracing::warn!(
+            ?dir,
+            depth,
+            "sysvol walk depth cap {SYSVOL_MAX_WALK_DEPTH} reached — stopping this subtree"
+        );
+        return;
+    }
+    if out.len() >= SYSVOL_MAX_HITS {
+        return;
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -50,13 +76,28 @@ fn walk(dir: &Path, out: &mut Vec<GppHit>) {
         }
     };
     for entry in entries.flatten() {
+        if out.len() >= SYSVOL_MAX_HITS {
+            tracing::warn!("sysvol hit cap {SYSVOL_MAX_HITS} reached — stopping the walk");
+            return;
+        }
         let path = entry.path();
         if path.is_dir() {
-            walk(&path, out);
+            walk(&path, depth + 1, out);
         } else if path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
         {
+            let size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(u64::MAX);
+            if size > SYSVOL_MAX_FILE_BYTES {
+                tracing::warn!(
+                    ?path,
+                    size,
+                    "sysvol file exceeds {SYSVOL_MAX_FILE_BYTES}-byte cap — skipping"
+                );
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 for (b64, user) in gpp::extract_cpasswords(&content) {
                     match gpp::decrypt_cpassword(&b64) {
@@ -249,6 +290,62 @@ mod tests {
         if let Some(ref im) = f.impact {
             assert!(!im.contains(leak_probe));
         }
+    }
+
+    /// WS-LDAP-INTEGRITY (1.5.0) — BF-7 sysvol budgets. A file larger than
+    /// [`SYSVOL_MAX_FILE_BYTES`] must be skipped, and the walk must keep
+    /// going for the other files in the same directory.
+    #[test]
+    fn walk_skips_oversized_xml_but_keeps_processing_siblings() {
+        let dir =
+            std::env::temp_dir().join(format!("adhammer_sysvol_budget_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Sibling under the cap — must be processed and produce a hit.
+        std::fs::write(
+            dir.join("small.xml"),
+            r#"<Groups><User><Properties userName="svc_admin"
+               cpassword="j1Uyj3Vx8TY9LtLZil2uAuZkFQA/4latT76ZwgdHdhw"/></User></Groups>"#,
+        )
+        .unwrap();
+        // Oversized sibling — must be skipped with a warn, walk continues.
+        let big = "A".repeat(SYSVOL_MAX_FILE_BYTES as usize + 1024);
+        std::fs::write(dir.join("big.xml"), big.as_bytes()).unwrap();
+
+        let hits = scan(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(hits.len(), 1, "small.xml must still produce a hit");
+        assert_eq!(hits[0].user.as_deref(), Some("svc_admin"));
+    }
+
+    /// WS-LDAP-INTEGRITY (1.5.0). Recursive-loop / hostile-depth defence.
+    #[test]
+    fn walk_stops_at_max_depth() {
+        let root =
+            std::env::temp_dir().join(format!("adhammer_sysvol_depth_{}", std::process::id()));
+        // Build a tree deeper than SYSVOL_MAX_WALK_DEPTH so the guard fires.
+        let mut deep = root.clone();
+        for _ in 0..(SYSVOL_MAX_WALK_DEPTH + 4) {
+            deep.push("nested");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        // Place a cpassword under a depth WELL past the cap; must NOT be
+        // found (proves the guard actually stopped the recursion).
+        std::fs::write(
+            deep.join("Groups.xml"),
+            r#"<Groups><User><Properties userName="svc_admin"
+               cpassword="j1Uyj3Vx8TY9LtLZil2uAuZkFQA/4latT76ZwgdHdhw"/></User></Groups>"#,
+        )
+        .unwrap();
+
+        let hits = scan(&root);
+        std::fs::remove_dir_all(&root).ok();
+
+        assert!(
+            hits.is_empty(),
+            "walk_stops_at_max_depth guard leaked past cap; got {} hits",
+            hits.len()
+        );
     }
 
     /// WS-SECRET-BOUNDARY (1.5.0). `write_dump` is the ONE exposure site;

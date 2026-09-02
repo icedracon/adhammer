@@ -144,9 +144,9 @@ been grep'd and confirmed missing.
 |---|---|---|---|---|---|
 | G-1 | Foundation files tracked + integrated + tests | `git ls-files` on scope.rs/discovery.rs/blackbox.rs = untracked; `grep '^mod scope\\|blackbox\\|discovery'` in lib.rs = 0 hits | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
 | G-2 | Feature-matrix boundary diagnostic (defensive) | ldap3 already guards mutex upstream; wanted our own `compile_error!` at collector so the diagnostic is ours if the feature-graph shifts | ~15 | ★★ | `WS-FEATURE-MATRIX` |
-| G-3 | LDAP simple-bind integrity requirement | collector `ldap.simple_bind` unconditional at line 327 | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
+| G-3 | LDAP simple-bind integrity requirement | closed 2026-09-02 (BF-1); CLI plumbing owed via `WS-CLI-PLAINTEXT-LDAP-FLAG` (1.5.1) | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
 | G-4 | GPP secret boundary + Debug redaction | closed 2026-09-02 (BF-2); ccache/hashcat call-sites owed via `WS-SECRET-BOUNDARY-CALLSITES` (1.5.1); Windows-DACL parity owed via `WS-SECRET-BOUNDARY-WINDOWS-DACL` (1.5.1) | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
-| G-5 | LDAP + SYSVOL resource budgets | no `MAX_RESPONSE_BYTES`, no walk-depth cap in either collector | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
+| G-5 | LDAP + SYSVOL resource budgets | closed 2026-09-02 (BF-7); byte-level cap owed via `WS-LDAP-INTEGRITY-RESPONSE-BYTES` (1.5.1) | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
 | G-6 | Output control-char sanitization | ~closed 2026-09-02 (adhammer_core::sanitize + Report::build wiring); direct-println sites in cli/ still owed via WS-CLI-SHRINK | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
 | G-7 | picky-krb 0.9 → 0.12 (BUG-19 killer) | attempt 2026-09-01 reverted; 30+ mechanical edits owed | ~300 edits | ★★★★★ | `WS-DEPS-MAJORS` |
 | G-8 | `rsa 0.9` advisory removal (RUSTSEC-2023-0071) | `.cargo/audit.toml` still ignores it | ~200 (aws-lc-rs wrapper) | ★★★★ | `WS-ADVISORY-CLEANUP` |
@@ -197,14 +197,49 @@ Defensive `compile_error!` boundary guard landed at
 "check supported feature variants" CI step as authority for
 supported combinations. No further code change owed.
 
-### WS-LDAP-INTEGRITY (P0)
-Refuse `ldap.simple_bind` unless (a) LDAPS is verified end-to-end or
-(b) SASL sealing / signing is negotiated. Downgrade to hard error the
-plaintext-389 read path. Add LDAP response-size + entry-count +
-per-call deadline budgets to match WinRM (BF-7).
-**Verifiable close:** an integration test against a fake LDAP server
-that offers only plaintext-389 returns `Err`; a fuzz target exercising
-budget rejection lives under `fuzz/fuzz_targets/`.
+### WS-LDAP-INTEGRITY (closed 2026-09-02, minimum-viable root)
+Same-cycle scope landed:
+- `crates/collector/src/lib.rs::require_bind_integrity` — free
+  function refuses an authed simple_bind over plaintext `ldap://`
+  unless the operator explicitly opts in via the new
+  `LdapConfig.allow_plaintext_bind` field. Anonymous binds
+  (empty `bind_dn`) always allowed — no credential in flight.
+  GSSAPI over 389 allowed — SASL sealing on the wire. LDAPS always
+  allowed. Called from `Collector::connect` before the socket dials.
+- `LdapConfig` grew the `allow_plaintext_bind: bool` field; all 13
+  in-tree construction sites default to `false`. A CLI flag
+  `--allow-plaintext-ldap` that plumbs to the field lands as a 1.5.1
+  follow-up (`WS-CLI-PLAINTEXT-LDAP-FLAG`) — same-cycle change
+  keeps the SECURE default without shipping a foot-gun.
+- LDAP paged-search loop now enforces
+  `LDAP_MAX_ENTRIES_PER_SEARCH = 500_000` and refuses any hostile
+  server that dribbles more (BF-7 for LDAP).
+- SYSVOL walk now enforces `SYSVOL_MAX_WALK_DEPTH = 32`,
+  `SYSVOL_MAX_FILE_BYTES = 4 MiB`, `SYSVOL_MAX_HITS = 10_000`
+  (BF-7 for SYSVOL). File over cap is skipped with `warn`; depth or
+  hit cap stops the walk with `warn` — never a silent short-return.
+
+Regression coverage:
+- 5 new collector tests for `require_bind_integrity` cover:
+  refuses authed plaintext-389 · allows LDAPS authed · allows GSSAPI
+  over plaintext-389 · allows anonymous plaintext · respects
+  explicit `allow_plaintext_bind`.
+- 2 new sysvol tests cover: oversized file skipped-but-walk-continues
+  · depth cap stops recursion before a deep cpassword is seen.
+
+Deferred (tracked here):
+- **WS-LDAP-INTEGRITY-RESPONSE-BYTES** (1.5.1): a byte-level cap on
+  paged responses requires wrapping ldap3's stream to count decoded
+  BER frames. Entry-count cap covers the same DoS class today; the
+  byte cap is a stricter belt-and-braces.
+- **WS-LDAP-INTEGRITY-FAKE-SERVER** (1.5.1): a hermetic fake LDAP
+  server test that offers only plaintext-389 + verifies our refusal.
+  Requires ldap-fixture infrastructure.
+- **WS-CLI-PLAINTEXT-LDAP-FLAG** (1.5.1): plumb the new field to a
+  CLI arg per attack verb.
+
+**Verifiable close (this cycle):** 5 new `require_bind_integrity`
+tests green; 2 new sysvol budget tests green.
 
 ### WS-SECRET-BOUNDARY (closed 2026-09-02)
 Same-cycle scope landed:

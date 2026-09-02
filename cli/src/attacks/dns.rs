@@ -74,6 +74,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
             .clone()
             .context("attack dns needs --password")?,
         base_dn: None,
+        allow_plaintext_bind: false,
         insecure: a.auth.insecure,
         gssapi: false,
     };

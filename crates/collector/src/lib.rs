@@ -113,6 +113,13 @@ pub struct LdapConfig {
     pub base_dn: Option<String>, // default: RootDSE defaultNamingContext
     pub insecure: bool,          // skip TLS cert verification (labs / self-signed DC certs)
     pub gssapi: bool,            // SASL GSSAPI bind (signed LDAP over 389, ambient Kerberos)
+    /// WS-LDAP-INTEGRITY (1.5.0). Default false. When true, the collector
+    /// will not refuse an authed simple_bind over plaintext `ldap://`. The
+    /// operator has to set this explicitly (e.g. in a lab where the DC has
+    /// no LDAPS certificate). Anonymous binds are always allowed regardless
+    /// of this flag — no identity is transmitted so there is no credential
+    /// to expose. See BF-1 in docs/PLAN_1.5.0.md.
+    pub allow_plaintext_bind: bool,
 }
 
 /// The server FQDN from an LDAP URL, for the GSSAPI service principal (ldap/<fqdn>).
@@ -281,9 +288,49 @@ async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> 
     Ok(Some(format!("{scheme}://127.0.0.1:{local}")))
 }
 
+/// WS-LDAP-INTEGRITY (1.5.0). Return `Err` if `cfg` would send a
+/// password-carrying simple_bind over plaintext `ldap://`. Anonymous binds
+/// (empty `bind_dn`) are always allowed — no credential is transmitted, so
+/// there is nothing to expose. GSSAPI binds negotiate SASL sealing on wire
+/// so plaintext-389 is safe under `--gssapi`. LDAPS is safe by construction.
+/// Operators who genuinely need authed plaintext-389 (a lab DC that has no
+/// LDAPS certificate) set `allow_plaintext_bind = true` explicitly.
+///
+/// This is exposed as a free function so tests can exercise it without a
+/// live LDAP server.
+pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
+    if cfg.bind_dn.is_empty() {
+        return Ok(()); // anonymous — no credential in flight
+    }
+    if cfg.gssapi {
+        return Ok(()); // SASL sealing on the wire
+    }
+    let scheme = cfg
+        .url
+        .split_once("://")
+        .map(|(s, _)| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if scheme == "ldaps" {
+        return Ok(());
+    }
+    if cfg.allow_plaintext_bind {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "refusing to send an authenticated LDAP simple_bind over plaintext {url:?}: \
+         switch to `ldaps://` (default port 636), pass `--gssapi` for SASL-sealed LDAP \
+         over 389, or set `allow_plaintext_bind = true` on the LdapConfig if this is a \
+         lab DC without an LDAPS certificate. See docs/PLAN_1.5.0.md §WS-LDAP-INTEGRITY.",
+        url = cfg.url
+    );
+}
+
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
         ensure_tls_configuration(&cfg.url, cfg.insecure)?;
+        // WS-LDAP-INTEGRITY (1.5.0): refuse authed plaintext-389 before we
+        // ever open a socket. BF-1 in docs/PLAN_1.5.0.md.
+        require_bind_integrity(cfg)?;
         // Route ldap3's connect through the SOCKS pivot when one is configured.
         let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
             .await?
@@ -463,6 +510,14 @@ impl Collector {
         // seconds. 60 s per entry is roughly four orders of magnitude above
         // that and still catches a hostile / broken server that dribbles.
         const LDAP_PER_ENTRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+        // WS-LDAP-INTEGRITY (1.5.0). Absolute upper bound on how many
+        // objects any single paged search may materialize before we give
+        // up. Real DCs have ~10^5 users; a paged sweep for a fresh forest
+        // has never crossed 5×10^5 in practice. This is a DoS-defence
+        // guard against a hostile / broken server that returns entries
+        // forever — WinRM has the analogous cap (AH-004/005); LDAP did
+        // not until BF-7 landed. Adjust only with a plan-doc ADR.
+        const LDAP_MAX_ENTRIES_PER_SEARCH: usize = 500_000;
         loop {
             let maybe_entry = tokio::time::timeout(LDAP_PER_ENTRY_TIMEOUT, stream.next())
                 .await
@@ -472,6 +527,14 @@ impl Collector {
             dn_links.push((obj.dn.clone(), search_idx));
             out.push(obj);
             count += 1;
+            if count > LDAP_MAX_ENTRIES_PER_SEARCH {
+                stream.finish().await.success().ok();
+                anyhow::bail!(
+                    "LDAP search returned more than {LDAP_MAX_ENTRIES_PER_SEARCH} entries \
+                     (base={base:?}, filter={filter:?}); refusing to continue — possible \
+                     hostile / broken server. See docs/PLAN_1.5.0.md §WS-LDAP-INTEGRITY."
+                );
+            }
         }
         stream.finish().await.success().ok();
         searches.push(adhammer_core::SearchOp {
@@ -1309,7 +1372,9 @@ fn to_object(se: SearchEntry) -> AdObject {
 
 #[cfg(test)]
 mod tests {
-    use super::{dns_from_nc, json_field, laps_from_entry, qualify_bind};
+    use super::{
+        dns_from_nc, json_field, laps_from_entry, qualify_bind, require_bind_integrity, LdapConfig,
+    };
     use ldap3::SearchEntry;
     use std::collections::HashMap;
 
@@ -1483,5 +1548,68 @@ mod tests {
     fn no_domain_leaves_bare_name() {
         assert_eq!(qualify_bind("administrator", None), "administrator");
         assert_eq!(qualify_bind("administrator", Some("")), "administrator");
+    }
+
+    // WS-LDAP-INTEGRITY (1.5.0) — BF-1 regression coverage.
+    fn cfg(url: &str, user: &str, gssapi: bool, allow_plaintext: bool) -> LdapConfig {
+        LdapConfig {
+            url: url.into(),
+            bind_dn: user.into(),
+            password: adhammer_core::SecretString::new("pw".into()),
+            base_dn: None,
+            insecure: false,
+            gssapi,
+            allow_plaintext_bind: allow_plaintext,
+        }
+    }
+
+    #[test]
+    fn require_bind_integrity_refuses_authed_plaintext_ldap_389() {
+        let err = require_bind_integrity(&cfg("ldap://dc:389", "alice", false, false))
+            .expect_err("must refuse authed plaintext bind");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("plaintext"),
+            "error should name the class: {msg}"
+        );
+        assert!(
+            msg.contains("ldaps://"),
+            "error should suggest ldaps: {msg}"
+        );
+        assert!(
+            msg.contains("--gssapi"),
+            "error should suggest gssapi: {msg}"
+        );
+    }
+
+    #[test]
+    fn require_bind_integrity_allows_ldaps_authed() {
+        require_bind_integrity(&cfg("ldaps://dc:636", "alice", false, false))
+            .expect("ldaps authed bind is safe");
+    }
+
+    #[test]
+    fn require_bind_integrity_allows_gssapi_over_plaintext_ldap() {
+        // GSSAPI negotiates SASL sealing on the wire, so plaintext-389
+        // is safe under --gssapi.
+        require_bind_integrity(&cfg("ldap://dc:389", "alice", true, false))
+            .expect("gssapi over plaintext-389 is sealed");
+    }
+
+    #[test]
+    fn require_bind_integrity_allows_anonymous_plaintext() {
+        // Empty bind_dn == anonymous simple_bind. No credential in flight;
+        // safe on plaintext-389.
+        require_bind_integrity(&cfg("ldap://dc:389", "", false, false))
+            .expect("anonymous bind carries no credential");
+    }
+
+    #[test]
+    fn require_bind_integrity_allows_authed_plaintext_when_explicitly_opted_in() {
+        // Lab escape hatch: `allow_plaintext_bind = true` on the LdapConfig
+        // says the operator understands the plaintext-389 risk (lab DC
+        // without an LDAPS cert, etc.). Documented on the struct field.
+        require_bind_integrity(&cfg("ldap://dc:389", "alice", false, true))
+            .expect("explicit opt-in must be respected");
     }
 }
