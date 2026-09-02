@@ -92,6 +92,7 @@ dependencies = [
 name = "adhammer-core"
 version = "1.4.9"
 dependencies = [
+ "ipnet",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -1208,6 +1209,15 @@ checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "block-padding",
  "generic-array",
+]
+
+[[package]]
+name = "ipnet"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

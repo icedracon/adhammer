@@ -142,7 +142,7 @@ been grep'd and confirmed missing.
 
 | ID | Gap | Verified missing where | LOC est | ROI | Path |
 |---|---|---|---|---|---|
-| G-1 | Foundation files tracked + integrated + tests | `git ls-files` on scope.rs/discovery.rs/blackbox.rs = untracked; `grep '^mod scope\\|blackbox\\|discovery'` in lib.rs = 0 hits | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
+| G-1 | Foundation files tracked + integrated + tests | closed 2026-09-02 for scope.rs + blackbox.rs (BF-3/4/5 landed); discovery.rs deferred to `WS-FOUNDATION-DNS-HANDROLL` (1.5.1) per D2 hand-roll lock | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
 | G-2 | Feature-matrix boundary diagnostic (defensive) | ldap3 already guards mutex upstream; wanted our own `compile_error!` at collector so the diagnostic is ours if the feature-graph shifts | ~15 | ★★ | `WS-FEATURE-MATRIX` |
 | G-3 | LDAP simple-bind integrity requirement | closed 2026-09-02 (BF-1); CLI plumbing owed via `WS-CLI-PLAINTEXT-LDAP-FLAG` (1.5.1) | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
 | G-4 | GPP secret boundary + Debug redaction | closed 2026-09-02 (BF-2); ccache/hashcat call-sites owed via `WS-SECRET-BOUNDARY-CALLSITES` (1.5.1); Windows-DACL parity owed via `WS-SECRET-BOUNDARY-WINDOWS-DACL` (1.5.1) | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
@@ -174,20 +174,61 @@ Explicitly **not** on this list (previously claimed as gap, actually present):
 Priorities are release-gate-derived. **P0 = required for score to
 stop decreasing.** No P0 can be deferred to 1.5.1.
 
-### WS-FOUNDATION-INTEGRATE (P0)
-Track `scope.rs` / `discovery.rs` / `blackbox.rs`. Add `mod` declarations
-in each `lib.rs`. Add `ipnet` + `hickory-resolver` to workspace deps.
-Fix BF-3 (unified `contains(target)` that resolves identity forms
-before applying excludes). Fix BF-4 (enforce `max_hosts` +
-`max_duration_secs` in runner path; enforce `allow_impact` +
-`allow_spoof` before `PostCred` / spoof-class checks). Fix BF-5
-(gate `PostCred` behind capability presence). Add integration tests
-that exercise each policy field. Land `cli/tests/live_safe.rs` +
-`live_impact.rs` under formatted state; wire behind `--ignored`
-gates + env-var opt-in so CI stays green offline.
-**Verifiable close:** `cargo build --workspace` compiles the three
-new files; `cargo test --workspace` includes ≥ 12 new tests; a
-capability-missing `PostCred` selection returns `Err`.
+### WS-FOUNDATION-INTEGRATE (closed 2026-09-02, D2 lock applied)
+Same-cycle scope landed:
+- `crates/core/src/scope.rs` tracked + `pub mod scope;` declared;
+  re-exports `EngagementScope`, `ScopeTarget`, `CheckId`, `CheckClass`,
+  `FindingStatus`, `Capability`, `CapabilityKind`, `NextAction`,
+  `SecretHandle`, `ScopeError`. `ipnet 2.11` added to workspace +
+  core `[dependencies]`.
+- BF-3 fixed: `EngagementScope::allows(ip, hostname)` treats excludes
+  as cross-cutting across identity forms. Two regression tests
+  (`hostname_exclude_blocks_ip_lookup_via_allows`,
+  `ip_exclude_blocks_hostname_lookup_via_allows`) prove that with
+  both forms supplied, an exclude on EITHER axis blocks the target.
+- `crates/sdk/src/blackbox.rs` tracked + `pub mod blackbox;`
+  declared; re-exports `BlackBoxRunner`, `RunPolicy`, `ConsentPolicy`,
+  `CheckSelection`, `RunSummary`, `RunnerRefusal`.
+- BF-4 fixed: `BlackBoxRunner::start_host(ip)` enforces `max_hosts`
+  (first-touch counted, repeat touches free); `duration_within_budget`
+  + `may_run` enforce `max_duration_secs`; runners that broadcast-
+  spoof query `policy.consent.allow_spoof` directly (documented).
+- BF-5 fixed: `may_run(check, PostCred)` returns
+  `RunnerRefusal::PostCredRequiresCapability` unless at least one
+  capability has been recorded via `record_capability`.
+- `RunnerRefusal` is a distinct enum so a report can render "why not"
+  (`NotInSelection` / `ImpactRequiresConsent` /
+  `PostCredRequiresCapability` / `HostBudgetExhausted` /
+  `DurationBudgetExhausted`) with a `Display` impl per variant.
+
+D2 lock applied — `hickory-resolver` NOT added. Draft
+`crates/collector/src/discovery.rs` stays untracked-on-disk (it
+uses hickory and needs a hand-roll rewrite). `blackbox::discover_dns`
+was removed for this cycle; comes back as a runner method when the
+hand-rolled backend lands.
+
+Regression tests (target ≥ 12): landed 20.
+- scope: 11 tests (BF-3 cross-cut coverage + existing round-trips +
+  invalid-input rejection).
+- blackbox: 9 tests (BF-4 max_hosts, BF-4 duration, BF-5 postcred
+  gate, selection filter, refusal `Display` messages, defensive-
+  clone capability snapshot).
+
+Explicit follow-up (1.5.1):
+- **WS-FOUNDATION-DNS-HANDROLL**: hand-roll DNS SRV + A + PTR from
+  scratch (UDP + TCP fallback, retries, timeout, CNAME chase,
+  NXDOMAIN / SERVFAIL / truncation handling). ~400-600 LOC in
+  `crates/collector/src/discovery.rs` (overwrites the current
+  hickory-based draft). Adds a `discover_dns` method back to
+  `BlackBoxRunner` that respects `may_run` + `start_host`.
+- **WS-FOUNDATION-BLACKBOX-CLI**: expose `BlackBoxRunner` via a
+  `adhammer run --scope <json>` subcommand so operators actually
+  reach it. Currently the runner is library-only.
+
+**Verifiable close (this cycle):** `cargo build --workspace` green;
+`cargo test --workspace` adds 20 new tests (≥ 12 required); a
+`may_run(_, PostCred)` without a recorded capability returns
+`RunnerRefusal::PostCredRequiresCapability`.
 
 ### WS-FEATURE-MATRIX (closed 2026-09-02)
 CLOSED as audit misinterpretation. `--all-features` cannot be green

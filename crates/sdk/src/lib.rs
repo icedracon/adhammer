@@ -33,6 +33,14 @@ pub use adhammer_report as report;
 pub use adhammer_secrets as secrets;
 pub use adhammer_sysvol as sysvol;
 
+// WS-FOUNDATION-INTEGRATE (1.5.0). Black-box runner control-plane +
+// budget + capability accounting. Wire-format-free — see the module's
+// docstring for the D2 rationale on the deferred DNS backend.
+pub mod blackbox;
+pub use blackbox::{
+    BlackBoxRunner, CheckSelection, ConsentPolicy, RunPolicy, RunSummary, RunnerRefusal,
+};
+
 #[cfg(test)]
 mod tests {
     /// The SDK surface resolves: every subsystem is reachable through one import, and the
