@@ -5,6 +5,7 @@ pub mod finding;
 pub mod object;
 pub mod redact;
 pub mod sanitize;
+pub mod secret_write;
 pub mod sid;
 pub mod snapshot;
 
@@ -15,5 +16,6 @@ pub use finding::{
 pub use object::AdObject;
 pub use redact::{Redacted, SecretBytes, SecretString};
 pub use sanitize::sanitize_terminal_output;
+pub use secret_write::{write_secret_artifact, SecretArtifact};
 pub use sid::{Guid, Sid};
 pub use snapshot::{SearchOp, Snapshot};

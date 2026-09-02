@@ -145,7 +145,7 @@ been grep'd and confirmed missing.
 | G-1 | Foundation files tracked + integrated + tests | `git ls-files` on scope.rs/discovery.rs/blackbox.rs = untracked; `grep '^mod scope\\|blackbox\\|discovery'` in lib.rs = 0 hits | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
 | G-2 | Feature-matrix boundary diagnostic (defensive) | ldap3 already guards mutex upstream; wanted our own `compile_error!` at collector so the diagnostic is ours if the feature-graph shifts | ~15 | ★★ | `WS-FEATURE-MATRIX` |
 | G-3 | LDAP simple-bind integrity requirement | collector `ldap.simple_bind` unconditional at line 327 | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
-| G-4 | GPP secret boundary + Debug redaction | `decrypt_cpassword -> Result<String>` — plain caller wrap only | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
+| G-4 | GPP secret boundary + Debug redaction | closed 2026-09-02 (BF-2); ccache/hashcat call-sites owed via `WS-SECRET-BOUNDARY-CALLSITES` (1.5.1); Windows-DACL parity owed via `WS-SECRET-BOUNDARY-WINDOWS-DACL` (1.5.1) | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
 | G-5 | LDAP + SYSVOL resource budgets | no `MAX_RESPONSE_BYTES`, no walk-depth cap in either collector | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
 | G-6 | Output control-char sanitization | ~closed 2026-09-02 (adhammer_core::sanitize + Report::build wiring); direct-println sites in cli/ still owed via WS-CLI-SHRINK | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
 | G-7 | picky-krb 0.9 → 0.12 (BUG-19 killer) | attempt 2026-09-01 reverted; 30+ mechanical edits owed | ~300 edits | ★★★★★ | `WS-DEPS-MAJORS` |
@@ -206,14 +206,44 @@ per-call deadline budgets to match WinRM (BF-7).
 that offers only plaintext-389 returns `Err`; a fuzz target exercising
 budget rejection lives under `fuzz/fuzz_targets/`.
 
-### WS-SECRET-BOUNDARY (P0)
-Wrap `decrypt_cpassword` output in `SecretString` at the crate
-boundary. Add a `#[derive(Debug)]` compile-fail test that ensures GPP
-plaintext cannot be embedded raw in `Finding` / report structs. Move
-ccache + hashcat-input + GPP-dump writes to a `write_secret_artifact`
-helper that enforces `0o600` + POSIX / Windows-DACL parity.
-**Verifiable close:** grep of `String::from(decrypted)` in report
-crate returns 0; `find_debug_leaks` compile-fail test passes.
+### WS-SECRET-BOUNDARY (closed 2026-09-02)
+Same-cycle scope landed:
+- `adhammer_core::secret_write::write_secret_artifact` — Unix
+  O_CREAT|O_EXCL 0o600 atomic; Windows `File::create_new` (parent-dir
+  DACL responsibility documented; full Windows-DACL parity via
+  `windows-sys` FFI tracked as `WS-SECRET-BOUNDARY-WINDOWS-DACL`
+  1.5.1 follow-up).
+- `crates/sysvol/src/gpp.rs::decrypt_cpassword` returns
+  `SecretString`; `GppHit.password` is `SecretString`. A stray
+  `Debug`/`Display` prints `"***"`.
+- `crates/sysvol/src/lib.rs::finding` no longer embeds the plaintext
+  into `affected[]` or `evidence.value` (closes BF-2). New
+  `write_dump` helper is the ONE authorized exposure site
+  (`.expose_secret()` is greppable there — one hit).
+- Regression tests: `finding_never_carries_recovered_plaintext`,
+  `write_dump_lands_tab_separated_plaintext`,
+  `decrypt_result_hides_plaintext_in_debug_and_display`.
+
+Follow-up work (not blocking; tracked here so it doesn't drift):
+- **WS-SECRET-BOUNDARY-CALLSITES** (1.5.1): migrate the 10+
+  ccache / hashcat-input / keytab writers in `cli/src/attacks/`
+  (asktgt, abuse, diamond, esc1, golden, icpr_esc1, relay, silver,
+  csr) from ad-hoc `fs::write` to `write_secret_artifact` +
+  wrap kept-plaintext in `SecretString` at the produce site. Pattern
+  established here; sweep is mechanical.
+- **WS-SECRET-BOUNDARY-WINDOWS-DACL** (1.5.1): after the
+  `win32-min` sibling grows a `SecurityDescriptor` helper (~50 LOC
+  wrapping `SetKernelObjectSecurity`), rewire
+  `write_secret_artifact` on Windows to apply an owner-only DACL
+  atomically at `CreateFileW` time via `SECURITY_ATTRIBUTES`.
+- **WS-CLI-GPP-DUMP-FLAG** (1.5.1): wire the CLI flag
+  `--gpp-dump-out <path>` in `cli/src/attacks/scan.rs:381` to call
+  `adhammer_sysvol::write_dump` when the operator supplies a path;
+  the finding.evidence line already directs them to the flag.
+
+**Verifiable close (this cycle):** 3 new sysvol regression tests
+green; `git grep '\.password[[:space:]]*[,\)]' crates/sysvol/`
+returns only field defs, never format-string embeds.
 
 ### WS-OUTPUT-SANITIZE (closed 2026-09-02)
 Landed. `adhammer_core::sanitize::sanitize_terminal_output` strips

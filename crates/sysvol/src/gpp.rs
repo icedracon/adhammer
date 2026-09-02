@@ -2,6 +2,7 @@
 //! published in MS-GPPREF; it is identical on every domain, which is exactly why GPP
 //! passwords are considered plaintext-equivalent (MS14-025).
 
+use adhammer_core::SecretString;
 use aes::Aes256;
 use anyhow::{bail, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -17,7 +18,14 @@ const GPP_IV: [u8; 16] = [0u8; 16];
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
 
 /// Decrypt a base64 `cpassword` value to its plaintext (UTF-16LE inside).
-pub fn decrypt_cpassword(cpassword: &str) -> Result<String> {
+///
+/// WS-SECRET-BOUNDARY (1.5.0): returns a `SecretString`, not a bare `String`.
+/// Callers that render the value into a `Finding` field or a report body will
+/// only see `"***"` unless they call `.expose_secret()` — which is greppable
+/// (`git grep '\.expose_secret('`) so a security review can enumerate every
+/// site that intentionally consumes the plaintext (secure-artifact dump,
+/// hashcat-input file writer).
+pub fn decrypt_cpassword(cpassword: &str) -> Result<SecretString> {
     // GPP base64 often lacks trailing padding.
     let mut s = cpassword.trim().to_string();
     while !s.len().is_multiple_of(4) {
@@ -48,9 +56,11 @@ pub fn decrypt_cpassword(cpassword: &str) -> Result<String> {
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
-    Ok(String::from_utf16_lossy(&units)
-        .trim_end_matches('\0')
-        .to_string())
+    Ok(SecretString::new(
+        String::from_utf16_lossy(&units)
+            .trim_end_matches('\0')
+            .to_string(),
+    ))
 }
 
 /// Find every non-empty `cpassword="..."` in an XML document, paired with the nearest
@@ -99,7 +109,17 @@ mod tests {
     #[test]
     fn decrypts_known_cpassword() {
         let pw = decrypt_cpassword("j1Uyj3Vx8TY9LtLZil2uAuZkFQA/4latT76ZwgdHdhw").unwrap();
-        assert_eq!(pw, "Local*P4ssword!");
+        assert_eq!(pw.expose_secret(), "Local*P4ssword!");
+    }
+
+    #[test]
+    fn decrypt_result_hides_plaintext_in_debug_and_display() {
+        let pw = decrypt_cpassword("j1Uyj3Vx8TY9LtLZil2uAuZkFQA/4latT76ZwgdHdhw").unwrap();
+        // WS-SECRET-BOUNDARY: SecretString formatting cannot leak.
+        assert_eq!(format!("{pw}"), "***");
+        assert_eq!(format!("{pw:?}"), "***");
+        // A stray println! of the value cannot show "Local*P4ssword!".
+        assert!(!format!("{pw}").contains("Local"));
     }
 
     #[test]
@@ -109,7 +129,10 @@ mod tests {
         let hits = extract_cpasswords(xml);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].1.as_deref(), Some("Administrator (built-in)"));
-        assert_eq!(decrypt_cpassword(&hits[0].0).unwrap(), "Local*P4ssword!");
+        assert_eq!(
+            decrypt_cpassword(&hits[0].0).unwrap().expose_secret(),
+            "Local*P4ssword!"
+        );
     }
 
     #[test]

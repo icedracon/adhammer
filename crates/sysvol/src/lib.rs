@@ -11,18 +11,26 @@
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use adhammer_core::finding::{mitre, Category, Evidence, Severity};
-use adhammer_core::Finding;
+use adhammer_core::secret_write::{write_secret_artifact, SecretArtifact};
+use adhammer_core::{Finding, SecretString};
 use std::path::{Path, PathBuf};
 
 pub mod gpp;
 pub mod gptmpl;
 
 /// One recovered GPP credential.
+///
+/// WS-SECRET-BOUNDARY (1.5.0): `password` is a `SecretString`, so a stray
+/// `tracing::debug!("{hit:?}")` or `println!("{}", hit.password)` cannot
+/// leak the plaintext — `Debug`/`Display` both print `"***"`. Sites that
+/// intentionally consume the plaintext (dump-to-secure-file, feeding an
+/// operator-supplied hashcat pipeline) must call `.expose_secret()`, which
+/// makes them greppable for security review.
 #[derive(Clone, Debug)]
 pub struct GppHit {
     pub file: PathBuf,
     pub user: Option<String>,
-    pub password: String,
+    pub password: SecretString,
 }
 
 /// Recursively scan a SYSVOL path for GPP XML files carrying a `cpassword`.
@@ -66,6 +74,14 @@ fn walk(dir: &Path, out: &mut Vec<GppHit>) {
 }
 
 /// Roll the recovered credentials into a single Critical finding.
+///
+/// WS-SECRET-BOUNDARY (1.5.0): the returned `Finding` never carries the
+/// recovered plaintext. `affected` lists user + file only; `evidence` cites
+/// the file + attests the decrypt succeeded without printing the value.
+/// Operators who need the plaintext call [`write_dump`] to land it in a
+/// 0600 secure-artifact file. This closes BF-2 from the 1.5.0 audit —
+/// prior versions embedded `h.password` directly into `affected` and
+/// `evidence.value`, which then reached every report renderer.
 pub fn finding(hits: &[GppHit]) -> Option<Finding> {
     if hits.is_empty() {
         return None;
@@ -74,14 +90,15 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
         .iter()
         .map(|h| {
             format!(
-                "{} [{}] :: {}",
+                "{} :: {}",
                 h.user.as_deref().unwrap_or("<no user>"),
-                h.password,
                 h.file.display()
             )
         })
         .collect::<Vec<_>>();
-    // Ground-truth evidence: the file + the actually-decrypted cpassword (MS14-025 AES key).
+    // Ground-truth evidence: the file + a statement that the MS14-025 AES
+    // key produced a valid decrypt for this cpassword. The plaintext itself
+    // is redacted here; call `write_dump` to obtain it under a 0600 file.
     let evidence: Vec<Evidence> = hits
         .iter()
         .take(25)
@@ -89,9 +106,10 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
             Evidence::new(
                 format!("SYSVOL GPP {}", h.file.display()),
                 format!(
-                    "cpassword decrypts to `{}` (user {})",
-                    h.password,
-                    h.user.as_deref().unwrap_or("<no user>")
+                    "cpassword decrypts under the MS14-025 AES key (user {}); \
+                     plaintext redacted here — use `--gpp-dump-out <path>` to \
+                     land the recovered secret in a 0600 artifact file.",
+                    h.user.as_deref().unwrap_or("<no user>"),
                 ),
             )
         })
@@ -141,6 +159,33 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
     })
 }
 
+/// WS-SECRET-BOUNDARY (1.5.0): dump recovered GPP plaintext to a 0600
+/// secure-artifact file. This is the ONLY path in the crate that exposes
+/// the plaintext; `finding()` above stripped it from the reporting surface.
+///
+/// Format: one line per hit as `<file>\t<user>\t<plaintext>\n`. Fields are
+/// tab-separated so awk/cut can split; embedded tabs in a file path (rare
+/// on SYSVOL) are preserved as-is. Trailing newline on every line so `cat`
+/// output is well-formed.
+///
+/// The file is created O_EXCL 0600; the call fails if `path` already
+/// exists. Callers who intend to append across scans should route through
+/// a per-scan output directory rather than a single fixed file.
+pub fn write_dump(hits: &[GppHit], path: &Path) -> std::io::Result<()> {
+    let mut buf = String::new();
+    for h in hits {
+        buf.push_str(&h.file.display().to_string());
+        buf.push('\t');
+        buf.push_str(h.user.as_deref().unwrap_or("<no user>"));
+        buf.push('\t');
+        // The one authorized `.expose_secret()` call in the crate; every
+        // other consumer stays print-hidden.
+        buf.push_str(h.password.expose_secret());
+        buf.push('\n');
+    }
+    write_secret_artifact(path, SecretArtifact::GppDump, buf.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,7 +207,67 @@ mod tests {
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].user.as_deref(), Some("svc_admin"));
-        assert_eq!(hits[0].password, "Local*P4ssword!");
+        assert_eq!(hits[0].password.expose_secret(), "Local*P4ssword!");
         assert!(finding(&hits).is_some());
+    }
+
+    /// WS-SECRET-BOUNDARY (1.5.0). Regression for BF-2: prior versions
+    /// embedded the recovered plaintext into `affected[]` and
+    /// `evidence.value`, so it reached every report renderer verbatim. This
+    /// test asserts that no field of the emitted Finding contains the
+    /// canonical MS14-025 test-vector plaintext.
+    #[test]
+    fn finding_never_carries_recovered_plaintext() {
+        let hit = GppHit {
+            file: std::path::PathBuf::from("SYSVOL/policy/Groups.xml"),
+            user: Some("svc_admin".into()),
+            password: SecretString::from("Local*P4ssword!"),
+        };
+        let f = finding(std::slice::from_ref(&hit)).expect("finding emitted");
+
+        let leak_probe = "Local*P4ssword!";
+        for a in &f.affected {
+            assert!(
+                !a.contains(leak_probe),
+                "affected line leaks plaintext: {a}"
+            );
+        }
+        for e in &f.evidence {
+            assert!(
+                !e.source.contains(leak_probe),
+                "evidence.source leaks plaintext: {}",
+                e.source
+            );
+            assert!(
+                !e.value.contains(leak_probe),
+                "evidence.value leaks plaintext: {}",
+                e.value
+            );
+        }
+        assert!(!f.detail.contains(leak_probe));
+        assert!(!f.remediation.contains(leak_probe));
+        if let Some(ref im) = f.impact {
+            assert!(!im.contains(leak_probe));
+        }
+    }
+
+    /// WS-SECRET-BOUNDARY (1.5.0). `write_dump` is the ONE exposure site;
+    /// verifies it lands the tab-separated line with the plaintext to disk.
+    #[test]
+    fn write_dump_lands_tab_separated_plaintext() {
+        let hit = GppHit {
+            file: std::path::PathBuf::from("SYSVOL/policy/Groups.xml"),
+            user: Some("svc_admin".into()),
+            password: SecretString::from("Local*P4ssword!"),
+        };
+        let out =
+            std::env::temp_dir().join(format!("adhammer_gpp_dump_{}.tsv", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        write_dump(std::slice::from_ref(&hit), &out).unwrap();
+        let back = std::fs::read_to_string(&out).unwrap();
+        std::fs::remove_file(&out).ok();
+        assert!(back.contains("Local*P4ssword!"));
+        assert!(back.contains("svc_admin"));
+        assert!(back.contains("Groups.xml"));
     }
 }
