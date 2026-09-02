@@ -3,7 +3,7 @@
 //! live), and normalizes them into `core::Snapshot`. Binary attrs (objectSid,
 //! nTSecurityDescriptor, objectGUID, RBCD) are requested raw so we parse them ourselves.
 
-// WS-FEATURE-MATRIX (1.5.0): `tls-native` and `tls-rustls` propagate to
+// WS-FEATURE-MATRIX (1.4.10 close as audit misinterpretation): `tls-native` and `tls-rustls` propagate to
 // `ldap3/tls-native` and `ldap3/tls-rustls-aws-lc-rs`, which are mutually
 // exclusive TLS backends in ldap3. Activating both surfaces as 15
 // type-annotation errors deep in ldap3's TLS glue rather than as a clear
@@ -15,7 +15,7 @@
 compile_error!(
     "features `tls-native` and `tls-rustls` are mutually exclusive — \
      pick one. This crate wraps ldap3 whose TLS backends collide when both \
-     are active. See docs/PLAN_1.5.0.md §WS-FEATURE-MATRIX."
+     are active. See docs/PLAN_1.4.10.md §WS-FEATURE-MATRIX."
 );
 
 use adhammer_core::object::AdObject;
@@ -113,12 +113,12 @@ pub struct LdapConfig {
     pub base_dn: Option<String>, // default: RootDSE defaultNamingContext
     pub insecure: bool,          // skip TLS cert verification (labs / self-signed DC certs)
     pub gssapi: bool,            // SASL GSSAPI bind (signed LDAP over 389, ambient Kerberos)
-    /// WS-LDAP-INTEGRITY (1.5.0). Default false. When true, the collector
+    /// WS-LDAP-INTEGRITY (1.4.10). Default false. When true, the collector
     /// will not refuse an authed simple_bind over plaintext `ldap://`. The
     /// operator has to set this explicitly (e.g. in a lab where the DC has
     /// no LDAPS certificate). Anonymous binds are always allowed regardless
     /// of this flag — no identity is transmitted so there is no credential
-    /// to expose. See BF-1 in docs/PLAN_1.5.0.md.
+    /// to expose. See BF-1 in docs/PLAN_1.4.10.md.
     pub allow_plaintext_bind: bool,
 }
 
@@ -288,7 +288,7 @@ async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> 
     Ok(Some(format!("{scheme}://127.0.0.1:{local}")))
 }
 
-/// WS-LDAP-INTEGRITY (1.5.0). Return `Err` if `cfg` would send a
+/// WS-LDAP-INTEGRITY (1.4.10). Return `Err` if `cfg` would send a
 /// password-carrying simple_bind over plaintext `ldap://`. Anonymous binds
 /// (empty `bind_dn`) are always allowed — no credential is transmitted, so
 /// there is nothing to expose. GSSAPI binds negotiate SASL sealing on wire
@@ -320,7 +320,7 @@ pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
         "refusing to send an authenticated LDAP simple_bind over plaintext {url:?}: \
          switch to `ldaps://` (default port 636), pass `--gssapi` for SASL-sealed LDAP \
          over 389, or set `allow_plaintext_bind = true` on the LdapConfig if this is a \
-         lab DC without an LDAPS certificate. See docs/PLAN_1.5.0.md §WS-LDAP-INTEGRITY.",
+         lab DC without an LDAPS certificate. See docs/PLAN_1.4.10.md §WS-LDAP-INTEGRITY.",
         url = cfg.url
     );
 }
@@ -328,8 +328,8 @@ pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
         ensure_tls_configuration(&cfg.url, cfg.insecure)?;
-        // WS-LDAP-INTEGRITY (1.5.0): refuse authed plaintext-389 before we
-        // ever open a socket. BF-1 in docs/PLAN_1.5.0.md.
+        // WS-LDAP-INTEGRITY (1.4.10): refuse authed plaintext-389 before we
+        // ever open a socket. BF-1 in docs/PLAN_1.4.10.md.
         require_bind_integrity(cfg)?;
         // Route ldap3's connect through the SOCKS pivot when one is configured.
         let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
@@ -510,7 +510,7 @@ impl Collector {
         // seconds. 60 s per entry is roughly four orders of magnitude above
         // that and still catches a hostile / broken server that dribbles.
         const LDAP_PER_ENTRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-        // WS-LDAP-INTEGRITY (1.5.0). Absolute upper bound on how many
+        // WS-LDAP-INTEGRITY (1.4.10). Absolute upper bound on how many
         // objects any single paged search may materialize before we give
         // up. Real DCs have ~10^5 users; a paged sweep for a fresh forest
         // has never crossed 5×10^5 in practice. This is a DoS-defence
@@ -532,7 +532,7 @@ impl Collector {
                 anyhow::bail!(
                     "LDAP search returned more than {LDAP_MAX_ENTRIES_PER_SEARCH} entries \
                      (base={base:?}, filter={filter:?}); refusing to continue — possible \
-                     hostile / broken server. See docs/PLAN_1.5.0.md §WS-LDAP-INTEGRITY."
+                     hostile / broken server. See docs/PLAN_1.4.10.md §WS-LDAP-INTEGRITY."
                 );
             }
         }
@@ -1550,7 +1550,7 @@ mod tests {
         assert_eq!(qualify_bind("administrator", Some("")), "administrator");
     }
 
-    // WS-LDAP-INTEGRITY (1.5.0) — BF-1 regression coverage.
+    // WS-LDAP-INTEGRITY (1.4.10) — BF-1 regression coverage.
     fn cfg(url: &str, user: &str, gssapi: bool, allow_plaintext: bool) -> LdapConfig {
         LdapConfig {
             url: url.into(),

@@ -8,7 +8,7 @@ use adhammer_graph::{AttackPath, Step};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// WS-OUTPUT-SANITIZE (1.5.0): rewrite a Finding so every user-facing string
+/// WS-OUTPUT-SANITIZE (1.4.10): rewrite a Finding so every user-facing string
 /// field is stripped of terminal control sequences that a hostile network
 /// peer may have embedded. Report::build calls this once per finding at
 /// aggregation time; every downstream renderer (JSON/HTML/MD/TXT) reads the
@@ -45,7 +45,7 @@ fn sanitize_finding(f: Finding) -> Finding {
     }
 }
 
-/// WS-OUTPUT-SANITIZE (1.5.0): mirror of `sanitize_finding` for `AttackPath`.
+/// WS-OUTPUT-SANITIZE (1.4.10): mirror of `sanitize_finding` for `AttackPath`.
 /// Principals, targets and per-step endpoint names are LDAP-derived and can
 /// therefore carry escape sequences from a hostile directory. `edge`,
 /// `impact`, `mitigation` inside `Step` are `&'static str` (compile-time
@@ -187,7 +187,7 @@ impl Report {
         graph_stats: (usize, usize),
         cfg: &RiskConfig,
     ) -> Self {
-        // WS-OUTPUT-SANITIZE (1.5.0): rewrite the domain string + every
+        // WS-OUTPUT-SANITIZE (1.4.10): rewrite the domain string + every
         // Finding + every AttackPath at aggregation time so that the four
         // downstream renderers (to_json / to_html / to_markdown /
         // to_text_summary) all read data that a hostile network peer cannot
@@ -2112,7 +2112,7 @@ mod tests {
         assert!(clean.contains("sha256"));
     }
 
-    /// WS-OUTPUT-SANITIZE (1.5.0). Hostile Finding text carrying every
+    /// WS-OUTPUT-SANITIZE (1.4.10). Hostile Finding text carrying every
     /// terminal-injection shape we sanitize; each of the four render paths
     /// (json / html / markdown / text_summary) must emit output free of
     /// them.

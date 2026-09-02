@@ -20,7 +20,7 @@ pub mod gptmpl;
 
 /// One recovered GPP credential.
 ///
-/// WS-SECRET-BOUNDARY (1.5.0): `password` is a `SecretString`, so a stray
+/// WS-SECRET-BOUNDARY (1.4.10): `password` is a `SecretString`, so a stray
 /// `tracing::debug!("{hit:?}")` or `println!("{}", hit.password)` cannot
 /// leak the plaintext — `Debug`/`Display` both print `"***"`. Sites that
 /// intentionally consume the plaintext (dump-to-secure-file, feeding an
@@ -33,7 +33,7 @@ pub struct GppHit {
     pub password: SecretString,
 }
 
-/// WS-LDAP-INTEGRITY (1.5.0) — SYSVOL DoS-defence budgets. Real SYSVOL
+/// WS-LDAP-INTEGRITY (1.4.10) — SYSVOL DoS-defence budgets. Real SYSVOL
 /// trees have depths well under 10 and GPP XML files well under 100 KiB.
 /// Ceiling values here are ~2 orders of magnitude above realistic
 /// production shapes so a hostile / broken SYSVOL server (or an fs-loop
@@ -116,11 +116,11 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<GppHit>) {
 
 /// Roll the recovered credentials into a single Critical finding.
 ///
-/// WS-SECRET-BOUNDARY (1.5.0): the returned `Finding` never carries the
+/// WS-SECRET-BOUNDARY (1.4.10): the returned `Finding` never carries the
 /// recovered plaintext. `affected` lists user + file only; `evidence` cites
 /// the file + attests the decrypt succeeded without printing the value.
 /// Operators who need the plaintext call [`write_dump`] to land it in a
-/// 0600 secure-artifact file. This closes BF-2 from the 1.5.0 audit —
+/// 0600 secure-artifact file. This closes BF-2 from the 2026-09-02 audit —
 /// prior versions embedded `h.password` directly into `affected` and
 /// `evidence.value`, which then reached every report renderer.
 pub fn finding(hits: &[GppHit]) -> Option<Finding> {
@@ -200,7 +200,7 @@ pub fn finding(hits: &[GppHit]) -> Option<Finding> {
     })
 }
 
-/// WS-SECRET-BOUNDARY (1.5.0): dump recovered GPP plaintext to a 0600
+/// WS-SECRET-BOUNDARY (1.4.10): dump recovered GPP plaintext to a 0600
 /// secure-artifact file. This is the ONLY path in the crate that exposes
 /// the plaintext; `finding()` above stripped it from the reporting surface.
 ///
@@ -252,7 +252,7 @@ mod tests {
         assert!(finding(&hits).is_some());
     }
 
-    /// WS-SECRET-BOUNDARY (1.5.0). Regression for BF-2: prior versions
+    /// WS-SECRET-BOUNDARY (1.4.10). Regression for BF-2: prior versions
     /// embedded the recovered plaintext into `affected[]` and
     /// `evidence.value`, so it reached every report renderer verbatim. This
     /// test asserts that no field of the emitted Finding contains the
@@ -292,7 +292,7 @@ mod tests {
         }
     }
 
-    /// WS-LDAP-INTEGRITY (1.5.0) — BF-7 sysvol budgets. A file larger than
+    /// WS-LDAP-INTEGRITY (1.4.10) — BF-7 sysvol budgets. A file larger than
     /// [`SYSVOL_MAX_FILE_BYTES`] must be skipped, and the walk must keep
     /// going for the other files in the same directory.
     #[test]
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(hits[0].user.as_deref(), Some("svc_admin"));
     }
 
-    /// WS-LDAP-INTEGRITY (1.5.0). Recursive-loop / hostile-depth defence.
+    /// WS-LDAP-INTEGRITY (1.4.10). Recursive-loop / hostile-depth defence.
     #[test]
     fn walk_stops_at_max_depth() {
         let root =
@@ -348,7 +348,7 @@ mod tests {
         );
     }
 
-    /// WS-SECRET-BOUNDARY (1.5.0). `write_dump` is the ONE exposure site;
+    /// WS-SECRET-BOUNDARY (1.4.10). `write_dump` is the ONE exposure site;
     /// verifies it lands the tab-separated line with the plaintext to disk.
     #[test]
     fn write_dump_lands_tab_separated_plaintext() {

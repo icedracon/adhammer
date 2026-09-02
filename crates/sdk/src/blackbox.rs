@@ -1,6 +1,6 @@
 //! Black-box runner control-plane.
 //!
-//! WS-FOUNDATION-INTEGRATE (1.5.0). Small, protocol-agnostic surface that
+//! WS-FOUNDATION-INTEGRATE (1.4.10 foundation, capability in 1.5.0). Small, protocol-agnostic surface that
 //! lets a runner:
 //!   - filter checks by an `only`/`skip` selection,
 //!   - refuse a check whose class violates the current consent posture
@@ -86,13 +86,13 @@ impl RunSummary {
 pub enum RunnerRefusal {
     NotInSelection,
     ImpactRequiresConsent,
-    /// BF-5 (1.5.0): PostCred fired without a landed capability.
+    /// BF-5 (1.4.10): PostCred fired without a landed capability.
     PostCredRequiresCapability,
-    /// BF-4 (1.5.0): host budget exhausted.
+    /// BF-4 (1.4.10): host budget exhausted.
     HostBudgetExhausted {
         limit: usize,
     },
-    /// BF-4 (1.5.0): wall-clock budget exhausted.
+    /// BF-4 (1.4.10): wall-clock budget exhausted.
     DurationBudgetExhausted {
         limit_secs: u64,
     },

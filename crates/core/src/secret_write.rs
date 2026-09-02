@@ -1,6 +1,6 @@
 //! Atomic secure-file-write helper for secret artifacts.
 //!
-//! WS-SECRET-BOUNDARY (1.5.0): every secret ADhammer writes to disk (recovered
+//! WS-SECRET-BOUNDARY (1.4.10): every secret ADhammer writes to disk (recovered
 //! GPP plaintext, Kerberos ccache, hashcat-input, DPAPI master-key material,
 //! LAPS clear passwords, keytabs) must land with narrow permissions so that
 //! another local principal — a low-priv service account on a shared jump-box,

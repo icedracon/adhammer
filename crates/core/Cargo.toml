@@ -13,7 +13,7 @@ repository.workspace = true
 serde = { workspace = true }
 thiserror = { workspace = true }
 windows-sddl = { workspace = true }
-# WS-FOUNDATION-INTEGRATE (1.5.0) — CIDR types for scope::ScopeTarget::Cidr.
+# WS-FOUNDATION-INTEGRATE (1.4.10 foundation) — CIDR types for scope::ScopeTarget::Cidr.
 ipnet = { workspace = true, features = ["serde"] }
 # WS-ZEROIZE (1.4.9) — Redacted<T> Drop-erases byte-material secrets via
 # ZeroizeOnDrop wrapping. Small, no-std-friendly, widely-audited (RustCrypto).

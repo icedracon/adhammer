@@ -1,6 +1,6 @@
 //! Engagement scope and no-cred assessment control-plane types.
 //!
-//! WS-FOUNDATION-INTEGRATE (1.5.0). These types describe what the operator
+//! WS-FOUNDATION-INTEGRATE (1.4.10 foundation, capability in 1.5.0). These types describe what the operator
 //! is allowed to touch, what a check reports, and which capability a later
 //! phase may consume. Protocol-agnostic — the network implementation lives
 //! elsewhere.

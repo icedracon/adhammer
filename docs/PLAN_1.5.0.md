@@ -1,6 +1,14 @@
 # ADhammer 1.5.0 — canonical plan
 
-Written 2026-09-02. Supersedes:
+Written 2026-09-02. **Hardening carve-out:** the P0 bug-fix work
+(BF-1..8, CI-FAIL-1/2, G-1) moved to a separate patch release —
+see [`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md). This document now
+covers only genuine 1.5.0 capability work: new attack verbs,
+dependency major bumps, advisory cleanup, CLI shrink into SDK,
+receipt schema + cascade rehearsal, deep fuzz, MSRV policy, LDAPS-CB
+investigation, DNS hand-roll, and the black-box orchestrator CLI.
+
+Supersedes:
 - `docs/PLAN_1.5.0_REVAMP.md` (untracked; kept in-tree for now with
   a superseded header)
 - `docs/PLAN_1.5.0_100_100_ANALYSIS.md` (committed `383c47c`;
@@ -32,91 +40,26 @@ Tier-2 siblings (touched during `WS-DEPS-MAJORS`, `WS-ADVISORY-CLEANUP`
 or `WS-FOUNDATION-INTEGRATE`) — breaking changes allowed with an ADR
 under `docs/adr/` recording the trigger + migration.
 
-## Verified code-state audit (2026-09-02)
+## Audit history (2026-09-02, all closed in 1.4.10)
 
-### Passes today
-- `cargo test --workspace` — green.
-- `cargo clippy --workspace --all-targets -- -D warnings` — green.
-- `cargo build --workspace` at MSRV 1.88 — green.
-- Offline `cargo audit` — passes with the standing `RUSTSEC-2023-0071`
-  ignore for `rsa 0.9.10` (Marvin sidechannel; closes in
-  `WS-ADVISORY-CLEANUP`).
+The 2026-09-02 audit surfaced 8 behavioural findings (BF-1..8), 2 CI
+failures (CI-FAIL-1/2) and 1 foundation-drift finding (G-1). Every
+item landed in the 1.4.10 patch release — see
+[`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md) for the workstream-by-
+workstream close notes. Original finding text preserved in the
+1.4.10 plan; not duplicated here.
 
-### Fails today (blocks release)
-- **CI-FAIL-1 (RECLASSIFIED as audit misinterpretation, closed
-  2026-09-02):** `cargo check --workspace --all-features` was expected
-  to be green in the earlier ship-gate. It is not, and never can be:
-  `adhammer-collector` legitimately exposes both `tls-native` and
-  `tls-rustls` for operator choice (rustls default; native-tls for
-  legacy SHA-1 DCs); `ldap3` treats those as mutually-exclusive TLS
-  backends and its own upstream `compile_error!` fires when both
-  activate. `--all-features` is not a supported invocation on this
-  workspace. Ship-gate replaced with "supported-feature-matrix job
-  green" (the existing "check supported feature variants" step covers
-  {no-default, default, tls-native only, mssql+gssapi, experimental-
-  gkdi}). A defensive `compile_error!` guard was added at
-  `crates/collector/src/lib.rs` in commit `<pending>` so the boundary
-  message is ours, not ldap3's, if the feature propagation ever
-  changes.
-- **CI-FAIL-2**: `cargo fmt --all --check` fails on
-  `cli/tests/live_safe.rs:120` (untracked test file — `run(&["attack",
-  "zerologon", …])` needs multi-line reformat). Fix in the same commit
-  that lands the file into tracking.
-
-### Untracked-but-on-disk (foundation drift)
-- `crates/core/src/scope.rs` — draft `EngagementScope`, `ScopeTarget`,
-  hostname normalization. Not `mod scope;`-declared in
-  `crates/core/src/lib.rs`; not compiled.
-- `crates/collector/src/discovery.rs` — draft DNS SRV discovery using
-  `hickory-resolver`. Not `mod discovery;`-declared in
-  `crates/collector/src/lib.rs`; not compiled. `hickory-resolver` +
-  `ipnet` are NOT in any `Cargo.toml` yet.
-- `crates/sdk/src/blackbox.rs` — 176-LOC control-plane scaffold
-  (`RunPolicy`, `ConsentPolicy`, `CheckSelection`). Not
-  `mod blackbox;`-declared in `crates/sdk/src/lib.rs`; not compiled.
-  SDK today is a pub-use façade only.
-- `cli/tests/live_impact.rs`, `cli/tests/live_safe.rs`,
-  `cli/tests/common/` — untracked live-DC integration test files
-  (source of CI-FAIL-2).
-
-The previous `docs/PLAN_1.5.0_REVAMP.md` claimed the foundation was
-"already implemented locally"; the disk files exist but nothing is
-integrated. `WS-FOUNDATION-INTEGRATE` closes this drift; it is P0.
-
-### Behavioural findings (from the same audit — each becomes a same-cycle same-plan workstream)
-- **BF-1** LDAP collector `crates/collector/src/lib.rs:327` calls
-  `ldap.simple_bind(&bind_dn, cfg.password.expose_secret())` without
-  requiring a verified integrity channel (SASL sealing / verified
-  LDAPS). AH-003 refused a specific *write* path in 1.4.9; the *read*
-  simple-bind path is still open. Fold into `WS-LDAP-INTEGRITY`.
-- **BF-2** `crates/sysvol/src/gpp.rs:20` — `decrypt_cpassword` returns
-  `Result<String>`; caller responsibility to wrap in `SecretString`.
-  If a caller stashes into a `Finding`, plaintext GPP password reaches
-  `Debug`, JSON report and MD report unredacted. Fold into
-  `WS-SECRET-BOUNDARY`.
-- **BF-3** Draft `EngagementScope::contains_ip` and
-  `contains_hostname` are separate paths; a target excluded by name
-  can be re-included by IP (and vice versa). Excludes must win across
-  all identity forms. Fix in `WS-FOUNDATION-INTEGRATE` before the code
-  ever lands into tracking.
-- **BF-4** Draft `RunPolicy` fields `max_hosts`, `max_duration_secs`
-  and `ConsentPolicy.allow_impact` / `allow_spoof` are not enforced
-  anywhere the code compiles today. Fix in `WS-FOUNDATION-INTEGRATE`.
-- **BF-5** No capability gate on `CheckClass::PostCred` — a PostCred
-  check can currently be selected without a landed credential
-  capability. Fix in `WS-FOUNDATION-INTEGRATE` when the runner path is
-  brought online.
-- **BF-6** No centralized secure-write policy for artifact files
-  containing secrets (ccache, hashcat-input, GPP dumps). Filesystem
-  perms + shred-on-drop are ad-hoc. Fold into `WS-SECRET-BOUNDARY`.
-- **BF-7** LDAP + SYSVOL collectors lack global response-size / walk-
-  depth / per-call deadline budgets. WinRM has these under AH-004/005;
-  LDAP + SYSVOL do not. Fold into `WS-LDAP-INTEGRITY` (for LDAP) and
-  `WS-SYSVOL-BUDGETS` (for SYSVOL).
-- **BF-8** Network-controlled text (server banners, LDAP attribute
-  values, GPO comment fields) reaches stdout without control-character
-  sanitization; a hostile target can inject ANSI escapes or embed
-  U+0007 in report output. Fold into `WS-OUTPUT-SANITIZE`.
+Post-1.4.10 baseline for 1.5.0 planning:
+- `cargo test --workspace` green.
+- `cargo clippy --workspace --all-targets -- -D warnings` green.
+- `cargo build --workspace` at MSRV 1.88 green.
+- `cargo fmt --all --check` green.
+- Supported-feature-matrix job green ({no-default, default,
+  tls-native only, mssql+gssapi, experimental-gkdi}).
+- Offline `cargo audit` — one standing ignore (`RUSTSEC-2023-0071`,
+  rsa 0.9.10 Marvin sidechannel; closes here in `WS-ADVISORY-CLEANUP`).
+- BUG-19 (picky-krb generic-array panic) production-mitigated;
+  fuzz still red — closes here in `WS-DEPS-MAJORS`.
 
 ## Score model — 4 axes, computed from release gates only
 
@@ -142,12 +85,7 @@ been grep'd and confirmed missing.
 
 | ID | Gap | Verified missing where | LOC est | ROI | Path |
 |---|---|---|---|---|---|
-| G-1 | Foundation files tracked + integrated + tests | closed 2026-09-02 for scope.rs + blackbox.rs (BF-3/4/5 landed); discovery.rs deferred to `WS-FOUNDATION-DNS-HANDROLL` (1.5.1) per D2 hand-roll lock | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
-| G-2 | Feature-matrix boundary diagnostic (defensive) | ldap3 already guards mutex upstream; wanted our own `compile_error!` at collector so the diagnostic is ours if the feature-graph shifts | ~15 | ★★ | `WS-FEATURE-MATRIX` |
-| G-3 | LDAP simple-bind integrity requirement | closed 2026-09-02 (BF-1); CLI plumbing owed via `WS-CLI-PLAINTEXT-LDAP-FLAG` (1.5.1) | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
-| G-4 | GPP secret boundary + Debug redaction | closed 2026-09-02 (BF-2); ccache/hashcat call-sites owed via `WS-SECRET-BOUNDARY-CALLSITES` (1.5.1); Windows-DACL parity owed via `WS-SECRET-BOUNDARY-WINDOWS-DACL` (1.5.1) | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
-| G-5 | LDAP + SYSVOL resource budgets | closed 2026-09-02 (BF-7); byte-level cap owed via `WS-LDAP-INTEGRITY-RESPONSE-BYTES` (1.5.1) | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
-| G-6 | Output control-char sanitization | ~closed 2026-09-02 (adhammer_core::sanitize + Report::build wiring); direct-println sites in cli/ still owed via WS-CLI-SHRINK | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
+| G-1..G-6 | 1.4.10 hardening | landed in 1.4.10; see [`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md). Deferred call-site follow-ups (WS-SECRET-BOUNDARY-CALLSITES / WS-CLI-PLAINTEXT-LDAP-FLAG / WS-LDAP-INTEGRITY-RESPONSE-BYTES / WS-SECRET-BOUNDARY-WINDOWS-DACL / WS-CLI-GPP-DUMP-FLAG / direct-println wiring) fold into 1.5.0's WS-CLI-SHRINK | — | — | landed |
 | G-7 | picky-krb 0.9 → 0.12 (BUG-19 killer) | attempt 2026-09-01 reverted; 30+ mechanical edits owed | ~300 edits | ★★★★★ | `WS-DEPS-MAJORS` |
 | G-8 | `rsa 0.9` advisory removal (RUSTSEC-2023-0071) | `.cargo/audit.toml` still ignores it | ~200 (aws-lc-rs wrapper) | ★★★★ | `WS-ADVISORY-CLEANUP` |
 | G-9 | Anonymous cross-platform SYSVOL SMB walk | `crates/sysvol` has fs/UNC scanner but no `smb2-client`-driven anonymous share walk | ~250 | ★★★ | `WS-SYSVOL-ANON` |
@@ -171,176 +109,34 @@ Explicitly **not** on this list (previously claimed as gap, actually present):
 
 ## Workstreams (locked defaults)
 
-Priorities are release-gate-derived. **P0 = required for score to
-stop decreasing.** No P0 can be deferred to 1.5.1.
+Priorities are release-gate-derived. The five hardening workstreams
+that previously sat at P0 (WS-FEATURE-MATRIX, WS-OUTPUT-SANITIZE,
+WS-SECRET-BOUNDARY, WS-LDAP-INTEGRITY, WS-FOUNDATION-INTEGRATE)
+moved to 1.4.10 (see PLAN_1.4.10.md). 1.5.0's remaining priority
+tier is P1 + P2 as originally categorized — no new P0 for this
+release.
 
-### WS-FOUNDATION-INTEGRATE (closed 2026-09-02, D2 lock applied)
-Same-cycle scope landed:
-- `crates/core/src/scope.rs` tracked + `pub mod scope;` declared;
-  re-exports `EngagementScope`, `ScopeTarget`, `CheckId`, `CheckClass`,
-  `FindingStatus`, `Capability`, `CapabilityKind`, `NextAction`,
-  `SecretHandle`, `ScopeError`. `ipnet 2.11` added to workspace +
-  core `[dependencies]`.
-- BF-3 fixed: `EngagementScope::allows(ip, hostname)` treats excludes
-  as cross-cutting across identity forms. Two regression tests
-  (`hostname_exclude_blocks_ip_lookup_via_allows`,
-  `ip_exclude_blocks_hostname_lookup_via_allows`) prove that with
-  both forms supplied, an exclude on EITHER axis blocks the target.
-- `crates/sdk/src/blackbox.rs` tracked + `pub mod blackbox;`
-  declared; re-exports `BlackBoxRunner`, `RunPolicy`, `ConsentPolicy`,
-  `CheckSelection`, `RunSummary`, `RunnerRefusal`.
-- BF-4 fixed: `BlackBoxRunner::start_host(ip)` enforces `max_hosts`
-  (first-touch counted, repeat touches free); `duration_within_budget`
-  + `may_run` enforce `max_duration_secs`; runners that broadcast-
-  spoof query `policy.consent.allow_spoof` directly (documented).
-- BF-5 fixed: `may_run(check, PostCred)` returns
-  `RunnerRefusal::PostCredRequiresCapability` unless at least one
-  capability has been recorded via `record_capability`.
-- `RunnerRefusal` is a distinct enum so a report can render "why not"
-  (`NotInSelection` / `ImpactRequiresConsent` /
-  `PostCredRequiresCapability` / `HostBudgetExhausted` /
-  `DurationBudgetExhausted`) with a `Display` impl per variant.
+### Hardening workstreams — moved to 1.4.10 (see [`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md))
 
-D2 lock applied — `hickory-resolver` NOT added. Draft
-`crates/collector/src/discovery.rs` stays untracked-on-disk (it
-uses hickory and needs a hand-roll rewrite). `blackbox::discover_dns`
-was removed for this cycle; comes back as a runner method when the
-hand-rolled backend lands.
+The five P0 workstreams below landed 2026-09-02 as bug-fix / defence-
+in-depth against 1.4.9's tree, not as new 1.5.0 capability. They now
+live in the 1.4.10 patch-release plan. Named here so cross-references
+from 1.5.0 workstreams below (WS-DEPS-MAJORS, WS-CLI-SHRINK etc.)
+resolve:
 
-Regression tests (target ≥ 12): landed 20.
-- scope: 11 tests (BF-3 cross-cut coverage + existing round-trips +
-  invalid-input rejection).
-- blackbox: 9 tests (BF-4 max_hosts, BF-4 duration, BF-5 postcred
-  gate, selection filter, refusal `Display` messages, defensive-
-  clone capability snapshot).
+| Workstream | Bug fixed | Landed at |
+|---|---|---|
+| WS-FEATURE-MATRIX | CI-FAIL-1 (audit misinterpretation) | 1.4.10 |
+| WS-OUTPUT-SANITIZE | BF-8 (control-char sanitization) | 1.4.10 |
+| WS-SECRET-BOUNDARY | BF-2 (GPP plaintext boundary) | 1.4.10 |
+| WS-LDAP-INTEGRITY | BF-1, BF-7 (simple_bind + budgets) | 1.4.10 |
+| WS-FOUNDATION-INTEGRATE | G-1, BF-3, BF-4, BF-5 (type foundation + gates) | 1.4.10 foundation, capability in 1.5.0 |
 
-Explicit follow-up (1.5.1):
-- **WS-FOUNDATION-DNS-HANDROLL**: hand-roll DNS SRV + A + PTR from
-  scratch (UDP + TCP fallback, retries, timeout, CNAME chase,
-  NXDOMAIN / SERVFAIL / truncation handling). ~400-600 LOC in
-  `crates/collector/src/discovery.rs` (overwrites the current
-  hickory-based draft). Adds a `discover_dns` method back to
-  `BlackBoxRunner` that respects `may_run` + `start_host`.
-- **WS-FOUNDATION-BLACKBOX-CLI**: expose `BlackBoxRunner` via a
-  `adhammer run --scope <json>` subcommand so operators actually
-  reach it. Currently the runner is library-only.
-
-**Verifiable close (this cycle):** `cargo build --workspace` green;
-`cargo test --workspace` adds 20 new tests (≥ 12 required); a
-`may_run(_, PostCred)` without a recorded capability returns
-`RunnerRefusal::PostCredRequiresCapability`.
-
-### WS-FEATURE-MATRIX (closed 2026-09-02)
-CLOSED as audit misinterpretation. `--all-features` cannot be green
-on this workspace by design (see CI-FAIL-1 reclassification above).
-Defensive `compile_error!` boundary guard landed at
-`crates/collector/src/lib.rs`. Ship-gate uses the existing
-"check supported feature variants" CI step as authority for
-supported combinations. No further code change owed.
-
-### WS-LDAP-INTEGRITY (closed 2026-09-02, minimum-viable root)
-Same-cycle scope landed:
-- `crates/collector/src/lib.rs::require_bind_integrity` — free
-  function refuses an authed simple_bind over plaintext `ldap://`
-  unless the operator explicitly opts in via the new
-  `LdapConfig.allow_plaintext_bind` field. Anonymous binds
-  (empty `bind_dn`) always allowed — no credential in flight.
-  GSSAPI over 389 allowed — SASL sealing on the wire. LDAPS always
-  allowed. Called from `Collector::connect` before the socket dials.
-- `LdapConfig` grew the `allow_plaintext_bind: bool` field; all 13
-  in-tree construction sites default to `false`. A CLI flag
-  `--allow-plaintext-ldap` that plumbs to the field lands as a 1.5.1
-  follow-up (`WS-CLI-PLAINTEXT-LDAP-FLAG`) — same-cycle change
-  keeps the SECURE default without shipping a foot-gun.
-- LDAP paged-search loop now enforces
-  `LDAP_MAX_ENTRIES_PER_SEARCH = 500_000` and refuses any hostile
-  server that dribbles more (BF-7 for LDAP).
-- SYSVOL walk now enforces `SYSVOL_MAX_WALK_DEPTH = 32`,
-  `SYSVOL_MAX_FILE_BYTES = 4 MiB`, `SYSVOL_MAX_HITS = 10_000`
-  (BF-7 for SYSVOL). File over cap is skipped with `warn`; depth or
-  hit cap stops the walk with `warn` — never a silent short-return.
-
-Regression coverage:
-- 5 new collector tests for `require_bind_integrity` cover:
-  refuses authed plaintext-389 · allows LDAPS authed · allows GSSAPI
-  over plaintext-389 · allows anonymous plaintext · respects
-  explicit `allow_plaintext_bind`.
-- 2 new sysvol tests cover: oversized file skipped-but-walk-continues
-  · depth cap stops recursion before a deep cpassword is seen.
-
-Deferred (tracked here):
-- **WS-LDAP-INTEGRITY-RESPONSE-BYTES** (1.5.1): a byte-level cap on
-  paged responses requires wrapping ldap3's stream to count decoded
-  BER frames. Entry-count cap covers the same DoS class today; the
-  byte cap is a stricter belt-and-braces.
-- **WS-LDAP-INTEGRITY-FAKE-SERVER** (1.5.1): a hermetic fake LDAP
-  server test that offers only plaintext-389 + verifies our refusal.
-  Requires ldap-fixture infrastructure.
-- **WS-CLI-PLAINTEXT-LDAP-FLAG** (1.5.1): plumb the new field to a
-  CLI arg per attack verb.
-
-**Verifiable close (this cycle):** 5 new `require_bind_integrity`
-tests green; 2 new sysvol budget tests green.
-
-### WS-SECRET-BOUNDARY (closed 2026-09-02)
-Same-cycle scope landed:
-- `adhammer_core::secret_write::write_secret_artifact` — Unix
-  O_CREAT|O_EXCL 0o600 atomic; Windows `File::create_new` (parent-dir
-  DACL responsibility documented; full Windows-DACL parity via
-  `windows-sys` FFI tracked as `WS-SECRET-BOUNDARY-WINDOWS-DACL`
-  1.5.1 follow-up).
-- `crates/sysvol/src/gpp.rs::decrypt_cpassword` returns
-  `SecretString`; `GppHit.password` is `SecretString`. A stray
-  `Debug`/`Display` prints `"***"`.
-- `crates/sysvol/src/lib.rs::finding` no longer embeds the plaintext
-  into `affected[]` or `evidence.value` (closes BF-2). New
-  `write_dump` helper is the ONE authorized exposure site
-  (`.expose_secret()` is greppable there — one hit).
-- Regression tests: `finding_never_carries_recovered_plaintext`,
-  `write_dump_lands_tab_separated_plaintext`,
-  `decrypt_result_hides_plaintext_in_debug_and_display`.
-
-Follow-up work (not blocking; tracked here so it doesn't drift):
-- **WS-SECRET-BOUNDARY-CALLSITES** (1.5.1): migrate the 10+
-  ccache / hashcat-input / keytab writers in `cli/src/attacks/`
-  (asktgt, abuse, diamond, esc1, golden, icpr_esc1, relay, silver,
-  csr) from ad-hoc `fs::write` to `write_secret_artifact` +
-  wrap kept-plaintext in `SecretString` at the produce site. Pattern
-  established here; sweep is mechanical.
-- **WS-SECRET-BOUNDARY-WINDOWS-DACL** (1.5.1): after the
-  `win32-min` sibling grows a `SecurityDescriptor` helper (~50 LOC
-  wrapping `SetKernelObjectSecurity`), rewire
-  `write_secret_artifact` on Windows to apply an owner-only DACL
-  atomically at `CreateFileW` time via `SECURITY_ATTRIBUTES`.
-- **WS-CLI-GPP-DUMP-FLAG** (1.5.1): wire the CLI flag
-  `--gpp-dump-out <path>` in `cli/src/attacks/scan.rs:381` to call
-  `adhammer_sysvol::write_dump` when the operator supplies a path;
-  the finding.evidence line already directs them to the flag.
-
-**Verifiable close (this cycle):** 3 new sysvol regression tests
-green; `git grep '\.password[[:space:]]*[,\)]' crates/sysvol/`
-returns only field defs, never format-string embeds.
-
-### WS-OUTPUT-SANITIZE (closed 2026-09-02)
-Landed. `adhammer_core::sanitize::sanitize_terminal_output` strips
-C0 (except `\n\t`), DEL, Unicode C1, CSI, OSC (BEL- or ST-terminated,
-byte-capped), and 2-byte ESC-N escapes. Wired in `Report::build` so
-`domain`, every `Finding` (title/detail/impact/remediation/affected/
-evidence) and every `AttackPath` (principal/target/step endpoints/
-step commands) go through the sanitizer BEFORE the JSON / HTML /
-Markdown / text renderers read them. `Step`'s `edge` / `impact` /
-`mitigation` are `&'static str` compile-time constants — not touched.
-`WireExchange` intentionally not sanitized (raw wire dumps must stay
-byte-exact for reproducibility; sanitize at presentation site).
-**Verifiable close:** `build_scrubs_terminal_control_from_every_renderer`
-in `crates/report/src/lib.rs` (green); 15 unit tests in
-`crates/core/src/sanitize.rs` (green).
-
-Remaining follow-ups (not blocking; folded into later workstreams):
-- Stream-of-stdout `println!` sites that print LDAP-derived strings
-  directly (not via Report::build) still need per-site wiring. Enumerate
-  and address alongside `WS-CLI-SHRINK` (all CLI direct-println of
-  network text migrates into SDK-provided formatters).
+WS-FOUNDATION-INTEGRATE lands the type surface (`EngagementScope`,
+`BlackBoxRunner`) in 1.4.10 as a patch-safe additive change; the
+observable no-cred discovery capability the types support is a 1.5.0
+addition (WS-FOUNDATION-DNS-HANDROLL + WS-FOUNDATION-BLACKBOX-CLI
+below).
 
 ### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
 Budgets first (max file size, max recursion depth, max cpassword-
@@ -451,14 +247,14 @@ Release blocks until every row below is green.
 | `cargo test --workspace` green on ubuntu + macos + windows | required | ✓ today |
 | `cargo clippy --workspace --all-targets -- -D warnings` green | required | ✓ today |
 | `cargo build` at MSRV 1.88 green | required | ✓ today |
-| `cargo fmt --all --check` green | required | ✗ today (CI-FAIL-2) |
-| Supported-feature-matrix job green (see "check supported feature variants" step; enumerates {no-default, default, tls-native only, mssql+gssapi, experimental-gkdi}) | required | ✓ today (CI-FAIL-1 reclassified) |
+| `cargo fmt --all --check` green | required | ✓ post-1.4.10 (CI-FAIL-2 closed) |
+| Supported-feature-matrix job green ({no-default, default, tls-native only, mssql+gssapi, experimental-gkdi}) | required | ✓ post-1.4.10 (CI-FAIL-1 reclassified) |
 | `cargo audit` 0 vulnerabilities + 0 ignores | 8 | 0 (rsa 0.9 ignore) |
 | `cargo deny check` 0 warnings + 0 skips | 4 | 0 (transitive dupes) |
 | Fuzz job green 7 consecutive nights | 5 | 0 (BUG-19 outstanding) |
 | Reproducible-build attestation green | 4 | 0 |
 | Signed evidence bundle (SBOM + sigstore + receipts + fuzz summary) | 4 | 0 |
-| Foundation integrated + policy-enforced tests | 5 | 0 |
+| Foundation integrated + policy-enforced tests | 5 | ✓ post-1.4.10 (WS-FOUNDATION-INTEGRATE landed) |
 | DNS / RootDSE / SMB null scope-driven | 5 | 0 |
 | Anonymous SMB SYSVOL walk cross-platform | 3 | 0 |
 | HTTP fingerprint on 10 AD web endpoints | 3 | 0 |
@@ -484,8 +280,11 @@ WS-WEB-FP landed, WS-CLI-SHRINK optional). Higher requires more of P2
 
 ## Release cadence
 
-- **1.5.0-alpha.1** — all P0 landed; `cargo fmt --check` and
-  `cargo check --all-features` green.
+- **1.4.10** — hardening batch (see `docs/PLAN_1.4.10.md`) tagged
+  and green locally before 1.5.0 branch opens.
+- **1.5.0-alpha.1** — WS-DEPS-MAJORS + WS-ADVISORY-CLEANUP landed
+  on top of 1.4.10; foundation types become observable via
+  WS-FOUNDATION-BLACKBOX-CLI + WS-FOUNDATION-DNS-HANDROLL.
 - **1.5.0-beta.1** — WS-DEPS-MAJORS + WS-ADVISORY-CLEANUP green;
   WS-FUZZ-DEEP running for 3 nights.
 - **1.5.0-rc.1** — WS-CASCADE-REHEARSAL green on the rc commit;
@@ -496,15 +295,12 @@ WS-WEB-FP landed, WS-CLI-SHRINK optional). Higher requires more of P2
 ## Bug-carry (append-only during shakedown)
 
 ### CI-FAIL-1 — `--all-features` breaks ldap3
-**State:** closed 2026-09-02 as audit misinterpretation. `--all-features`
-was never a supportable invocation on this workspace (mutually-
-exclusive TLS backends by design). Ship-gate updated to reference
-the supported-feature-matrix job instead. Boundary `compile_error!`
-guard landed at `crates/collector/src/lib.rs`.
+**State:** closed 2026-09-02 in 1.4.10; see
+[`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md) §WS-FEATURE-MATRIX.
 
 ### CI-FAIL-2 — `cargo fmt --check` fails on live-test files
-**State:** open. **Owner:** WS-FOUNDATION-INTEGRATE (lands the files
-formatted). **Same-cycle.**
+**State:** closed 2026-09-02 in 1.4.10; see
+[`docs/PLAN_1.4.10.md`](PLAN_1.4.10.md) §CI-FAIL-2.
 
 ### BUG-19 — `pac_credential_info` fuzz-found panic (picky-krb class)
 **State:** open, production-mitigated only. **Owner:**

@@ -19,7 +19,7 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 
 /// Decrypt a base64 `cpassword` value to its plaintext (UTF-16LE inside).
 ///
-/// WS-SECRET-BOUNDARY (1.5.0): returns a `SecretString`, not a bare `String`.
+/// WS-SECRET-BOUNDARY (1.4.10): returns a `SecretString`, not a bare `String`.
 /// Callers that render the value into a `Finding` field or a report body will
 /// only see `"***"` unless they call `.expose_secret()` — which is greppable
 /// (`git grep '\.expose_secret('`) so a security review can enumerate every

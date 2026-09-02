@@ -1,6 +1,6 @@
 //! Strip terminal control sequences from network-derived text.
 //!
-//! WS-OUTPUT-SANITIZE (1.5.0): a hostile target can embed ANSI CSI escapes
+//! WS-OUTPUT-SANITIZE (1.4.10): a hostile target can embed ANSI CSI escapes
 //! (`ESC [ 31 m`), operating-system-command sequences (`ESC ] 0 ; title BEL`)
 //! or bare C0 controls (BEL, backspace, carriage-return, form-feed) into any
 //! string an operator later prints. Without stripping, those bytes can:
