@@ -19,6 +19,10 @@ adhammer-secrets = { path = "../crates/secrets" }
 # WS-FUZZ-6 (1.4.9) — parsers touching attacker-controlled bytes.
 adhammer-kerberos = { path = "../crates/kerberos" }
 adhammer-sysvol = { path = "../crates/sysvol" }
+# WS-FUZZ-CORE (1.4.10) — new adhammer_core defence surfaces (sanitizer +
+# scope hostname parser) that consume attacker-controlled bytes.
+adhammer-core = { path = "../crates/core" }
+serde_json = "1"
 dpapi-offline = "0.1.2"
 ntlmssp = "0.1"
 
@@ -105,6 +109,25 @@ bench = false
 [[bin]]
 name = "ntlmssp_type3"
 path = "fuzz_targets/ntlmssp_type3.rs"
+test = false
+doc = false
+bench = false
+
+# WS-FUZZ-CORE (1.4.10) — sanitize_terminal_output: strips terminal escape
+# sequences from network-derived text. Prime fuzz candidate: byte-level
+# parser, attacker-controlled input, must never panic on any bytes.
+[[bin]]
+name = "sanitize_terminal"
+path = "fuzz_targets/sanitize_terminal.rs"
+test = false
+doc = false
+bench = false
+
+# WS-FUZZ-CORE (1.4.10) — scope::normalize_name: parses attacker-controlled
+# hostnames. Reachable via EngagementScope JSON deserialize.
+[[bin]]
+name = "scope_hostname"
+path = "fuzz_targets/scope_hostname.rs"
 test = false
 doc = false
 bench = false

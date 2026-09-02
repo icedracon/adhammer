@@ -3,6 +3,115 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [1.4.10] — 2026-09-02
+
+Hardening patch on top of 1.4.9 — bug-fix / defence-in-depth only, no
+new operator-observable capability. The 1.5.0 branch (`docs/PLAN_1.5.0.md`)
+carries the black-box no-cred assessment capability push on top of this
+tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
+
+### Security
+
+- **BF-1 — refuse authed plaintext LDAP-389 simple_bind.** New
+  `crates/collector/src/lib.rs::require_bind_integrity` refuses to send
+  an authenticated `simple_bind` over plaintext `ldap://` unless the
+  operator sets the new `LdapConfig.allow_plaintext_bind = true`
+  explicitly. Anonymous binds stay allowed (no credential in flight);
+  GSSAPI over 389 stays allowed (SASL sealing on the wire); LDAPS stays
+  allowed. Called from `Collector::connect` before the socket dials.
+  1.4.9 AH-003 fixed the *write* path only; this closes the *read*
+  path. 5 regression tests cover every branch.
+- **BF-2 — GPP plaintext boundary.** `crates/sysvol/src/gpp.rs::
+  decrypt_cpassword` now returns `SecretString` (was bare `String`).
+  `GppHit.password` is `SecretString`. `finding()` no longer embeds
+  plaintext into `affected[]` or `evidence.value` — the report body is
+  redacted. New `write_dump()` helper is the ONE authorized exposure
+  site (`.expose_secret()` greppable — exactly one hit). Regression
+  tests cover the boundary + the write-dump helper.
+- **BF-7 — LDAP + SYSVOL resource budgets.** LDAP paged-search loop
+  enforces `LDAP_MAX_ENTRIES_PER_SEARCH = 500_000`. SYSVOL walk
+  enforces `SYSVOL_MAX_WALK_DEPTH = 32`, `SYSVOL_MAX_FILE_BYTES = 4
+  MiB`, `SYSVOL_MAX_HITS = 10_000`. Refusals log at `warn`; never
+  silent short-return.
+- **BF-8 — output control-char sanitization.** New
+  `adhammer_core::sanitize::sanitize_terminal_output` strips C0 (except
+  `\n\t`), DEL, Unicode C1, CSI, OSC (BEL- or ST-terminated, byte-
+  capped) and 2-byte ESC escapes. Wired at `Report::build` — every
+  `Finding` (title/detail/impact/remediation/affected/evidence) and
+  every `AttackPath` (principal/target/step endpoints/step commands)
+  passes through before the JSON / HTML / Markdown / text renderers
+  read them. `WireExchange` intentionally not sanitized (wire dumps
+  must stay byte-exact for reproducibility). 15 unit tests + one
+  cross-renderer regression test.
+
+### Added
+
+- **Foundation types** (patch-safe additive; observable capability
+  lands in 1.5.0). `crates/core/src/scope.rs` — `EngagementScope`,
+  `ScopeTarget`, `CheckId`, `CheckClass`, `FindingStatus`,
+  `Capability`, `CapabilityKind`, `NextAction`, `SecretHandle`,
+  `ScopeError`. `crates/sdk/src/blackbox.rs` — `BlackBoxRunner`,
+  `RunPolicy`, `ConsentPolicy`, `CheckSelection`, `RunSummary`,
+  `RunnerRefusal`.
+- **BF-3 — cross-cutting excludes.** `EngagementScope::allows(ip,
+  hostname)` treats excludes as cross-cutting across identity forms:
+  an exclude on either the hostname or the IP blocks the target when
+  the caller supplies both.
+- **BF-4 — runner budgets.** `BlackBoxRunner::start_host(ip)` enforces
+  `max_hosts` (first-touch counted, repeat touches free);
+  `may_run` enforces `max_duration_secs`. `RunnerRefusal` is a distinct
+  enum so reports can render "why not."
+- **BF-5 — PostCred capability gate.** `may_run(check, PostCred)`
+  returns `RunnerRefusal::PostCredRequiresCapability` unless at least
+  one capability has landed via `record_capability`.
+- **`adhammer_core::secret_write::write_secret_artifact`** — atomic
+  create-file helper for secret artifacts. Unix: `OpenOptions::
+  create_new + mode(0o600)`. Windows: `File::create_new` (parent-dir
+  DACL responsibility documented; full Windows-DACL parity is a 1.5.1
+  follow-up). `SecretArtifact` enum names the artifact class for
+  error messages.
+- **`compile_error!` boundary guard at `crates/collector/src/lib.rs`**
+  for the `tls-native ⊕ tls-rustls` mutex. `--all-features` was never
+  supportable on this workspace (ldap3 upstream guards the same
+  mutex); the ship-gate references the existing "check supported
+  feature variants" job instead.
+- **Live-DC integration tests** landed under `cli/tests/live_safe.rs`,
+  `cli/tests/live_impact.rs`, `cli/tests/common/`. All `#[ignore]`d
+  and env-var-gated (`ADH_DC`, `ADH_IMPACT=1`). `cargo test` stays
+  hermetic offline.
+- **Fuzz targets** for the new defence surfaces:
+  `fuzz_targets/sanitize_terminal.rs` (byte-level sanitizer) +
+  `fuzz_targets/scope_hostname.rs` (scope JSON deserialize +
+  hostname normalize).
+
+### Fixed
+
+- `cargo fmt --all --check` — closes CI-FAIL-2 by landing
+  `cli/tests/live_safe.rs` under formatted state.
+
+### Deferred to 1.5.1 (tracked in `docs/PLAN_1.4.10.md`)
+
+- WS-SECRET-BOUNDARY-CALLSITES: migrate 10+ `cli/src/attacks/`
+  ccache / hashcat-input / keytab writers to `write_secret_artifact`.
+- WS-SECRET-BOUNDARY-WINDOWS-DACL: owner-only DACL at
+  `CreateFileW` on Windows via `win32-min` sibling extension.
+- WS-CLI-GPP-DUMP-FLAG: expose `--gpp-dump-out <path>` in
+  `attack scan` to reach `write_dump`.
+- WS-LDAP-INTEGRITY-RESPONSE-BYTES: byte-level cap on paged responses.
+- WS-LDAP-INTEGRITY-FAKE-SERVER: hermetic fake LDAP server test.
+- WS-CLI-PLAINTEXT-LDAP-FLAG: expose `allow_plaintext_bind` per verb.
+
+### Bug carry from 1.4.9
+
+- **BUG-19** — `pac_credential_info` fuzz-found panic (picky-krb
+  0.9.6 `generic-array` in AES-CTS-HMAC-SHA1 decrypt). Production-
+  mitigated via `catch_unwind` around `decrypt_ticket_pac`; fuzz
+  build (`-C panic=abort`) cannot catch the panic, so fuzz stays red
+  until picky-krb 0.12+ lands (1.5.0 `WS-DEPS-MAJORS`).
+- **CI-1** — `cargo package` under all-local. Mitigated via
+  gate-on-tag + `manifest-sanity` job; closes when 1.5.0
+  `WS-CASCADE-REHEARSAL` lands.
+
 ## [1.4.9] — 2026-09-01
 
 ### Security — SEC-1 protocol-library remediation (2026-09-01)

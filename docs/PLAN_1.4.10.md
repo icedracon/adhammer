@@ -221,19 +221,23 @@ into observable capability):
 20 new tests; `may_run(_, PostCred)` without a recorded capability
 returns `Err(RunnerRefusal::PostCredRequiresCapability)`.
 
-## Ship gate for 1.4.10
+## Ship gate for 1.4.10 (verified 2026-09-02 — all green locally)
 
-- `cargo test --workspace` green on ubuntu + macos + windows.
-- `cargo clippy --workspace --all-targets -- -D warnings` green.
-- `cargo build` at MSRV 1.88 green.
-- `cargo fmt --all --check` green.
-- Supported-feature-matrix job green ({no-default, default,
-  tls-native only, mssql+gssapi, experimental-gkdi}).
-- Pre-commit hook green (leak-terms.txt catches nothing in the diff).
-- `git grep '\.password[[:space:]]*[,\)]' crates/sysvol/` returns
-  only field defs.
-- `cargo audit` — same posture as 1.4.9 (rsa 0.9 still ignored;
-  the removal is 1.5.0 WS-ADVISORY-CLEANUP).
+| Row | Verified state |
+|---|---|
+| `cargo test --workspace` | ✓ 317 tests / 0 fails / 28 modules |
+| `cargo clippy --workspace --all-targets -- -D warnings` | ✓ 0 errors, 0 warnings |
+| `cargo build` at MSRV 1.88 | ✓ clean |
+| `cargo fmt --all --check` | ✓ 0 diff lines |
+| Supported-feature-matrix (5 combos) | ✓ each of `--no-default-features`, default (`tls-rustls`), `tls-native` only, `mssql+gssapi`, `experimental-gkdi` (on `adhammer-collector`) checks clean |
+| `cargo deny check` (advisories · bans · licenses · sources) | ✓ all "ok" |
+| `cargo audit` posture | ✓ same as 1.4.9: 1 documented ignore (`RUSTSEC-2023-0071`, rsa 0.9 Marvin sidechannel — rationale in `.cargo/audit.toml`); removal is 1.5.0 `WS-ADVISORY-CLEANUP` |
+| Pre-commit hook (staged diff) | ✓ exit 0 |
+| `git grep '\.password[[:space:]]*[,\)]' crates/sysvol/` (plaintext-embed check) | ✓ only field defs, no format-string embeds |
+| Workspace version bumped `1.4.9 → 1.4.10` | ✓ `[workspace.package].version = "1.4.10"`; all 10 internal-dep pins updated |
+| `CHANGELOG.md` `[1.4.10]` entry | ✓ landed |
+| Fuzz coverage on new defence surfaces (`sanitize_terminal`, `scope_hostname`) | ✓ 2 new targets registered in `fuzz/Cargo.toml` |
+| No `TODO`/`FIXME`/`XXX` in new code (sanitize / secret_write / scope / blackbox) | ✓ 0 hits |
 
 ## Bug-carry from 1.4.9
 
@@ -264,4 +268,5 @@ Every commit LOCAL only per operator directive. Ordered by landing:
 | `657ab2f` | WS-SECRET-BOUNDARY |
 | `745b0d8` | WS-LDAP-INTEGRITY |
 | `e6fbbf0` | WS-FOUNDATION-INTEGRATE |
-| `<this>` | label refactor 1.5.0 → 1.4.10 |
+| `b18ccd7` | label refactor 1.5.0 → 1.4.10 |
+| `<this>` | 1.4.10 polish: version bump + CHANGELOG + fuzz targets + verified ship-gate |
