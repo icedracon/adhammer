@@ -1,3 +1,15 @@
+> **Superseded by [docs/PLAN_1.5.0.md](PLAN_1.5.0.md).** Kept in-tree
+> for the 4-axis score model which the canonical plan now carries.
+> This document's "gap list" was built from stale research (2026-09-01)
+> — verified 2026-09-02 that ~half the listed gaps (GPP/SYSVOL/DNS-first/
+> anon-scan/SAMR/HTTP-fingerprint pattern) are present in draft or
+> integrated form. Baseline number `65/100` claimed here was
+> optimistic; canonical plan recomputes to `~64/100` from verifiable
+> release gates. `ms-samr` sibling proposed here is rejected — `dcerpc
+> 0.2.8` already ships `SamrClient`.
+
+---
+
 # ADhammer 1.5.0 — comprehensive vector + lib + 100/100 analysis
 
 Written 2026-09-02 in response to operator directive: "think about

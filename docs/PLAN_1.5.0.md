@@ -1,351 +1,397 @@
-# ADhammer 1.5.0 — hard plan (post-1.4.9-SEC-close + capability push)
+# ADhammer 1.5.0 — canonical plan
 
-Written 2026-08-31, revised 2026-09-01 after the SEC-1 remediation
-batch landed in 1.4.9 (`docs/CHANGELOG.md` §1.4.9 Security, commit
-`1fd4b80`). Score target: **95/100 self-reachable ceiling.** The
-final 3 points (external audit + 6-month track record + independent
-red-team attestation) stay explicitly out of this plan.
+Written 2026-09-02. Supersedes:
+- `docs/PLAN_1.5.0_REVAMP.md` (untracked; kept in-tree for now with
+  a superseded header)
+- `docs/PLAN_1.5.0_100_100_ANALYSIS.md` (committed `383c47c`;
+  kept in-tree with a superseded header)
+- The earlier tracked `docs/PLAN_1.5.0.md` this file now replaces
 
-**1.5.0 restores normal ship cadence.** 1.4.9 shipped LOCAL-only per
-operator directive. 1.5.0 goes back to bottom-up crates.io publish +
-tag + GitHub release. If a sibling crate has a live RustSec advisory
-during 1.5.0's cycle, that specific publish stays permitted mid-cycle
-per the same-cycle-mitigation rule.
+Nothing below is claimed unless it survives verification. `cargo test`,
+Clippy, MSRV 1.88 and offline `cargo audit` all pass at
+`main` today; every other statement is either backed by grep, by a
+build result, or is flagged as **HYPOTHESIS — packet-trace or live-DC
+evidence owed before it becomes a decision**.
 
-**SEC-1 closed in 1.4.9.** The `WS-PROTOCOL-SECURITY` workstream that
-sat at the top of this plan through 1.4.9's shakedown is now
-historical — every High and Medium finding from the SEC-1 review
-landed in 1.4.9. This plan retains the workstream heading below as a
-receipt-with-commit-pointer; new 1.5.0 scope starts with
-`WS-DEPS-MAJORS`.
+## Ship policy (locked)
 
-**Ship policy — 1.5.0 stays LOCAL initially.** Same rule as 1.4.9. When
-the plan says "publish sibling crate X 0.y.z", that means the git tree
-gains the code + version bump; the actual `cargo publish` waits for an
-authorized cycle. Only exception is if a sibling-crate bump is required
-to remove a live RustSec advisory (in which case that one publish is
-justified).
+**1.5.0 stays LOCAL until `WS-CASCADE-REHEARSAL` closes green.** Same
+rule as 1.4.9. When the plan says "publish sibling crate X 0.y.z", the
+git tree gains the version bump; `cargo publish` waits for rehearsal.
+Only exception: a sibling-crate bump required to close a live RustSec
+advisory — that one publish is justified same-cycle. There is no
+"restore normal cadence early" clause.
 
-## Bug-carry from 1.4.9 (append-only during 1.4.9 shakedown)
+## Sibling-crate breaking-changes policy (locked)
 
-Any bug found in the 1.4.9 tree that isn't a same-cycle fix lands here.
-Every entry: title + severity + reproducer path + landing commit or
-"pending" + which 1.5.0 workstream absorbs the fix.
+Tier-1 siblings (`windows-sddl`, `ad-acl`, `ccache-io`, `win32-min`) —
+no breaking changes during 1.5.0. Publish tier-1 first so downstream
+can pin before tier-2 churn.
 
-### SEC-1 — protocol-library security review remediation
+Tier-2 siblings (touched during `WS-DEPS-MAJORS`, `WS-ADVISORY-CLEANUP`
+or `WS-FOUNDATION-INTEGRATE`) — breaking changes allowed with an ADR
+under `docs/adr/` recording the trigger + migration.
 
-**Severity:** release blocking until the High findings are resolved.
+## Verified code-state audit (2026-09-02)
 
-**Source review:** `ADHAMMER_PROTOCOL_LIBRARY_SECURITY_REVIEW_1.4.9.md`
-(2026-09-01, canonical revision `9752c8f29da3b5a00f6ebc448591a4f5a44d5e9c`).
+### Passes today
+- `cargo test --workspace` — green.
+- `cargo clippy --workspace --all-targets -- -D warnings` — green.
+- `cargo build --workspace` at MSRV 1.88 — green.
+- Offline `cargo audit` — passes with the standing `RUSTSEC-2023-0071`
+  ignore for `rsa 0.9.10` (Marvin sidechannel; closes in
+  `WS-ADVISORY-CLEANUP`).
 
-**Scope:** LDAP BER/message bounds and integrity (AH-001/002/003), WinRM
-response budgets and checked chunk framing (AH-004/005), secret ingress
-(AH-006), write-DACL and Windows-SDDL correctness (AH-007/WS-001/WS-002).
+### Fails today (blocks release)
+- **CI-FAIL-1**: `cargo check --workspace --all-features` fails on
+  `ldap3` with 15 errors: `--features tls-native,tls-rustls` are
+  mutually exclusive and both wire in under `--all-features`. Fix in
+  `WS-FEATURE-MATRIX`.
+- **CI-FAIL-2**: `cargo fmt --all --check` fails on
+  `cli/tests/live_safe.rs:120` (untracked test file — `run(&["attack",
+  "zerologon", …])` needs multi-line reformat). Fix in the same commit
+  that lands the file into tracking.
 
-**Landing policy:** local-only in 1.5.0 until the full regression matrix is
-green. Each landing must add a regression test for the exact malformed input
-class, preserve the authorized-testing boundary, and update the review with
-the commit plus residual risk.
+### Untracked-but-on-disk (foundation drift)
+- `crates/core/src/scope.rs` — draft `EngagementScope`, `ScopeTarget`,
+  hostname normalization. Not `mod scope;`-declared in
+  `crates/core/src/lib.rs`; not compiled.
+- `crates/collector/src/discovery.rs` — draft DNS SRV discovery using
+  `hickory-resolver`. Not `mod discovery;`-declared in
+  `crates/collector/src/lib.rs`; not compiled. `hickory-resolver` +
+  `ipnet` are NOT in any `Cargo.toml` yet.
+- `crates/sdk/src/blackbox.rs` — 176-LOC control-plane scaffold
+  (`RunPolicy`, `ConsentPolicy`, `CheckSelection`). Not
+  `mod blackbox;`-declared in `crates/sdk/src/lib.rs`; not compiled.
+  SDK today is a pub-use façade only.
+- `cli/tests/live_impact.rs`, `cli/tests/live_safe.rs`,
+  `cli/tests/common/` — untracked live-DC integration test files
+  (source of CI-FAIL-2).
 
-**Exit criteria:** no High review findings remain open; every untrusted parser
-has an allocation budget and no-panic regression coverage; sensitive LDAP
-writes require a verified integrity channel; and the final review is rerun on
-the exact release commit.
+The previous `docs/PLAN_1.5.0_REVAMP.md` claimed the foundation was
+"already implemented locally"; the disk files exist but nothing is
+integrated. `WS-FOUNDATION-INTEGRATE` closes this drift; it is P0.
 
-| Finding | Local 1.5.0 state | Evidence |
-| --- | --- | --- |
-| AH-001 / AH-002 | fixed | LDAP rejects truncated, indefinite, non-canonical, oversized and cross-container BER values; it caps messages and times out I/O. |
-| AH-003 | mitigated | Direct password-authenticated LDAP-389 writes are refused pending verified LDAPS or a negotiated SASL integrity layer. Relay steps remain explicitly separate. |
-| AH-004 / AH-005 | fixed | WinRM has header, wire-body, decoded-body, chunk-line, chunk-count and command-output limits with checked framing arithmetic. |
-| AH-007 | fixed | Write-DACL validates declared ACL/ACE boundaries before rebuilding an ACL. |
-| WS-001 / WS-002 | fixed locally | The sibling `windows-sddl` checkout models DACL presence/NULL semantics and validates ACL/ACE bounds; Cargo patches every workspace and transitive user to that same local implementation. |
-| AH-006 | fixed | `SecretString` (zeroize-on-drop, redacted `Debug`/`Display`) at every CLI ingress via `shared_args::{SmbAuth,LdapAuth,OptAuth}`, `winrm::Secret::Password`, `shadowcred::pfx_password`, `guided::GuidedArgs.password`, and the 3 `dialoguer::Password` prompt sites in `interactive.rs`. Child-argv literal-pw propagation refused: `guided.rs` passes `env:ADHAMMER_GUIDED_PASSWORD` verbatim as the argv `--password` value and sets the env var on the `Command` before spawn — the literal never appears in argv. `SecretString::FromStr` accepts `env:VAR`, `@file:PATH`, or literal (deprecated). |
+### Behavioural findings (from the same audit — each becomes a same-cycle same-plan workstream)
+- **BF-1** LDAP collector `crates/collector/src/lib.rs:327` calls
+  `ldap.simple_bind(&bind_dn, cfg.password.expose_secret())` without
+  requiring a verified integrity channel (SASL sealing / verified
+  LDAPS). AH-003 refused a specific *write* path in 1.4.9; the *read*
+  simple-bind path is still open. Fold into `WS-LDAP-INTEGRITY`.
+- **BF-2** `crates/sysvol/src/gpp.rs:20` — `decrypt_cpassword` returns
+  `Result<String>`; caller responsibility to wrap in `SecretString`.
+  If a caller stashes into a `Finding`, plaintext GPP password reaches
+  `Debug`, JSON report and MD report unredacted. Fold into
+  `WS-SECRET-BOUNDARY`.
+- **BF-3** Draft `EngagementScope::contains_ip` and
+  `contains_hostname` are separate paths; a target excluded by name
+  can be re-included by IP (and vice versa). Excludes must win across
+  all identity forms. Fix in `WS-FOUNDATION-INTEGRATE` before the code
+  ever lands into tracking.
+- **BF-4** Draft `RunPolicy` fields `max_hosts`, `max_duration_secs`
+  and `ConsentPolicy.allow_impact` / `allow_spoof` are not enforced
+  anywhere the code compiles today. Fix in `WS-FOUNDATION-INTEGRATE`.
+- **BF-5** No capability gate on `CheckClass::PostCred` — a PostCred
+  check can currently be selected without a landed credential
+  capability. Fix in `WS-FOUNDATION-INTEGRATE` when the runner path is
+  brought online.
+- **BF-6** No centralized secure-write policy for artifact files
+  containing secrets (ccache, hashcat-input, GPP dumps). Filesystem
+  perms + shred-on-drop are ad-hoc. Fold into `WS-SECRET-BOUNDARY`.
+- **BF-7** LDAP + SYSVOL collectors lack global response-size / walk-
+  depth / per-call deadline budgets. WinRM has these under AH-004/005;
+  LDAP + SYSVOL do not. Fold into `WS-LDAP-INTEGRITY` (for LDAP) and
+  `WS-SYSVOL-BUDGETS` (for SYSVOL).
+- **BF-8** Network-controlled text (server banners, LDAP attribute
+  values, GPO comment fields) reaches stdout without control-character
+  sanitization; a hostile target can inject ANSI escapes or embed
+  U+0007 in report output. Fold into `WS-OUTPUT-SANITIZE`.
 
-### CI-1 — `package-check` cannot run per-commit under "all local"
+## Score model — 4 axes, computed from release gates only
 
-**Severity:** low (CI process, not code correctness).
+Score is `sum(gate_pass ? weight : 0)`. **A workstream that ships new
+verbs but doesn't turn a gate green is worth 0 score points.**
 
-**Repro:** `cargo package -p adhammer-graph --allow-dirty --no-verify` on
-the 1.4.9 tree with no 1.4.9 tag published to crates.io.
+| Axis | Weight | Gates → weight |
+|---|---|---|
+| **Correctness + supply chain** | 25 | `cargo audit` 0-ignores (+8) · `cargo deny check` 0-skips (+4) · fuzz 7-nights-clean (+5) · reproducible-build attestation green (+4) · SBOM + sigstore evidence bundle green (+4) |
+| **Protocol coverage — no-cred** | 25 | Foundation integrated (+5) · DNS SRV + RootDSE + SMB null probe scope-driven (+5) · Anonymous SMB SYSVOL cross-platform walk (+3) · HTTP fingerprint on AD web surface (+3) · Coerce scan-all mode (+3) · SNMP + web fingerprint at range (+3) · Black-box orchestrator ties them into one run (+3) |
+| **Protocol coverage — post-cred** | 25 | Every 1.4.9 authed verb still passing (+8) · LDAPS-CB *if evidence justifies* (+5) · picky-krb 0.9→0.12 + BUG-19 retired (+5) · NTDS.dit offline (+4) · noPac CVE-2021-42278 (+3) |
+| **Ecosystem + operator UX** | 25 | Foundation SDK is real orchestration API not façade (+5) · CLI-shrink into SDK done (+4) · Per-crate MSRV published (+3) · Receipt schema + validator in CI (+4) · CASCADE-REHEARSAL green (+5) · Cross-version live-DC receipts approved (+4) |
+| **Total self-reachable** | **100** | **91 without external audit / 6-month track record / red-team attestation** |
 
-**Symptom:** `failed to select a version for the requirement
-adhammer-core = "^1.4.9"` — cargo strips path deps and resolves internal
-`version = "1.4.9"` refs against crates.io; 1.4.9 is not on the index
-during local-only cycles.
+**Verified baseline today:** ~64/100. Every point above 64 requires a
+gate to close, not a verb to ship.
 
-**Same-cycle mitigation (landed 1.4.9):** `package-check` job gated to
-tag pushes + `workflow_dispatch`; new `manifest-sanity` job
-(`cargo metadata --locked`) covers per-commit manifest sanity.
+## True gap-list (grep-verified, mapped to code)
 
-**1.5.0 workstream:** WS-EVIDENCE-BUNDLE (folds a full pre-publish
-package check into the release step) + WS-STABILITY-1-0 (once
-bottom-of-stack siblings hit 1.0, publishing frequency drops and the
-gate-on-tag policy is a natural fit).
+Anything that is not in this list is either already in the tree or is
+a 1.5.1+ item. Nothing is claimed as "gap" unless every file below has
+been grep'd and confirmed missing.
 
-### BUG-19 — `pac_credential_info` fuzz-found panic (fifth of the picky-krb class)
+| ID | Gap | Verified missing where | LOC est | ROI | Path |
+|---|---|---|---|---|---|
+| G-1 | Foundation files tracked + integrated + tests | `git ls-files` on scope.rs/discovery.rs/blackbox.rs = untracked; `grep '^mod scope\\|blackbox\\|discovery'` in lib.rs = 0 hits | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
+| G-2 | Feature-matrix hygiene (tls-native ⊕ tls-rustls) | `cargo check --all-features` fails ldap3 with 15 errors | ~30 | ★★★★ | `WS-FEATURE-MATRIX` |
+| G-3 | LDAP simple-bind integrity requirement | collector `ldap.simple_bind` unconditional at line 327 | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
+| G-4 | GPP secret boundary + Debug redaction | `decrypt_cpassword -> Result<String>` — plain caller wrap only | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
+| G-5 | LDAP + SYSVOL resource budgets | no `MAX_RESPONSE_BYTES`, no walk-depth cap in either collector | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
+| G-6 | Output control-char sanitization | no `sanitize_terminal_output` helper called on network-derived strings | ~80 | ★★★ | `WS-OUTPUT-SANITIZE` |
+| G-7 | picky-krb 0.9 → 0.12 (BUG-19 killer) | attempt 2026-09-01 reverted; 30+ mechanical edits owed | ~300 edits | ★★★★★ | `WS-DEPS-MAJORS` |
+| G-8 | `rsa 0.9` advisory removal (RUSTSEC-2023-0071) | `.cargo/audit.toml` still ignores it | ~200 (aws-lc-rs wrapper) | ★★★★ | `WS-ADVISORY-CLEANUP` |
+| G-9 | Anonymous cross-platform SYSVOL SMB walk | `crates/sysvol` has fs/UNC scanner but no `smb2-client`-driven anonymous share walk | ~250 | ★★★ | `WS-SYSVOL-ANON` |
+| G-10 | Coerce scan-all mode | `ms-coerce 0.1.0` has vector table; no `attack coerce --scan-all` verb wraps it | ~100 | ★★★ | `WS-COERCER` |
+| G-11 | `enum web --fingerprint` beyond `/certsrv` + `/wsman` | net.rs probes only 2 endpoints; RDWeb/ADFS/OWA/EWS/SCCM absent | ~200 | ★★ | `WS-WEB-FP` |
+| G-12 | Receipt schema + CI validator | `docs/receipts/README.md` sets naming; no schema + no `scripts/validate_receipt.py` | ~150 | ★★ | `WS-RECEIPT-SCHEMA` |
+| G-13 | Cascade rehearsal dry-run | `docs/PUSH_1.4.9.md` runbook exists; no scripted per-crate `cargo publish --dry-run` in CI | ~100 | ★★★ | `WS-CASCADE-REHEARSAL` |
+| G-14 | LDAPS channel-binding (RFC 5929) | **HYPOTHESIS.** 1.4.9 receipts show `AcceptSecurityContext data 52e`; code interprets `52e` as invalid-creds. Need packet capture against 2019/2022/2025 to prove CBT enforcement before pricing. Do NOT block ship-gate on this until evidence justifies it. | tbd | tbd | `WS-LDAPS-CB-INVESTIGATE` |
 
-**Severity:** low (only reachable when a compromised KDC returns a
-malformed PAC_CREDENTIAL_INFO; `pac_credential_info` outer walk still
-converts panic → err via caller `catch_unwind`, but the fuzz target
-runs the parser directly and asserts no-panic).
+Explicitly **not** on this list (previously claimed as gap, actually present):
+- DNS SRV enum — `discovery.rs` draft exists (needs G-1 to become live).
+- SMB signing probe — `enum net` line 100.
+- Anonymous scan mode — `attacks/scan_anonymous.rs` 348 LOC.
+- SAMR enum via SMB pipe — `attacks/samr.rs` + `dcerpc 0.2.8`'s
+  `SamrClient` (no `ms-samr` sibling needed).
+- ADIDNS enum via LDAP — `enums/dns.rs`.
+- HTTP fingerprint of `/certsrv` + `/wsman` — `enum net`.
+- MachineAccountQuota read — collector line 925 (baseline for noPac
+  assessment).
+- Cross-platform TLS — `tokio-rustls 0.26` + `rustls 0.23` in cli/.
 
-**Repro:** CI run
-https://github.com/icedracon/adhammer/actions/runs/33427141674 job
-`cargo-fuzz (nightly, short)`; crash artifact
-`fuzz/artifacts/pac_credential_info/crash-2f1c7c633177a2bf96d2c4a5b86333f19f55385b`
-(uploaded starting with the ci.yml commit that added the upload step).
+## Workstreams (locked defaults)
 
-**Root cause:** same class as BUG-16/17/18 — `picky-krb 0.9.6`'s
-AES-CTS-HMAC-SHA1 decrypt path calls `generic_array::GenericArray::
-from_slice` on a slice whose length the callsite hasn't proved matches
-the expected block size. Some shape leaks past `AES_MIN = 44` +
-`RC4_MIN = 40`. Whack-a-mole via a further byte-count bump is not the
-right fix.
+Priorities are release-gate-derived. **P0 = required for score to
+stop decreasing.** No P0 can be deferred to 1.5.1.
 
-**Right fix:** WS-DEPS-MAJORS picky-krb 0.9 → 0.12 (returns `Err`
-instead of panicking on malformed ct — behavior claimed in the
-Dependabot bump commit body). If the upstream fix is real, restore the
-retired `pac_parse_full` fuzz target at the same time.
+### WS-FOUNDATION-INTEGRATE (P0)
+Track `scope.rs` / `discovery.rs` / `blackbox.rs`. Add `mod` declarations
+in each `lib.rs`. Add `ipnet` + `hickory-resolver` to workspace deps.
+Fix BF-3 (unified `contains(target)` that resolves identity forms
+before applying excludes). Fix BF-4 (enforce `max_hosts` +
+`max_duration_secs` in runner path; enforce `allow_impact` +
+`allow_spoof` before `PostCred` / spoof-class checks). Fix BF-5
+(gate `PostCred` behind capability presence). Add integration tests
+that exercise each policy field. Land `cli/tests/live_safe.rs` +
+`live_impact.rs` under formatted state; wire behind `--ignored`
+gates + env-var opt-in so CI stays green offline.
+**Verifiable close:** `cargo build --workspace` compiles the three
+new files; `cargo test --workspace` includes ≥ 12 new tests; a
+capability-missing `PostCred` selection returns `Err`.
 
-**1.4.9 attempt (2026-09-01) — deferred, not risk-worth mid-cycle.**
-Bumping to `picky-krb 0.12.4` locally triggered a public-API break:
-`Authenticator` / `EncTicketPart` moved from struct-with-fields to
-`ApplicationTag<Inner, N>` newtype form. All construction sites need
-`X(XInner { .. })` instead of `X::from(XInner { .. })` and every
-field access needs `.0.field`. Estimated 30+ mechanical edits in
-`crates/kerberos/src/tgs.rs` alone, plus follow-on typing cascade
-through `pac.rs` and consumers. Reverted to `0.9.6`; BUG-19 stays
-mitigated by the existing `catch_unwind` guard around
-`decrypt_ticket_pac` + `AES_MIN = 44` in the outer picky-krb call
-sites. Targeted WS-DEPS-MAJORS session budgets the migration
-alongside `picky-asn1-x509 0.13 → 0.15.4` and the RustCrypto
-ecosystem bump (`md-5/md4/sha2 0.10 → 0.11`, `rc4 0.1 → 0.2`,
-`rand 0.8 → 0.10`, `des 0.8 → 0.9`).
+### WS-FEATURE-MATRIX (P0)
+Split `--all-features` so `tls-native` and `tls-rustls` cannot both
+activate. Make one a workspace-default feature; make the other
+mutually-exclusive via `#[cfg]` + a compile-time diagnostic. Add a CI
+job that runs `cargo check --workspace --all-features` and blocks red.
+**Verifiable close:** the new CI job green.
 
-**Belt-and-braces:** WS-FUZZ-12 rebases every PAC-touching target on
-top of `pac_parse_full` once it comes back, so residual generic-array
-shapes get exercised end-to-end again.
+### WS-LDAP-INTEGRITY (P0)
+Refuse `ldap.simple_bind` unless (a) LDAPS is verified end-to-end or
+(b) SASL sealing / signing is negotiated. Downgrade to hard error the
+plaintext-389 read path. Add LDAP response-size + entry-count +
+per-call deadline budgets to match WinRM (BF-7).
+**Verifiable close:** an integration test against a fake LDAP server
+that offers only plaintext-389 returns `Err`; a fuzz target exercising
+budget rejection lives under `fuzz/fuzz_targets/`.
 
-## Workstreams (planned)
+### WS-SECRET-BOUNDARY (P0)
+Wrap `decrypt_cpassword` output in `SecretString` at the crate
+boundary. Add a `#[derive(Debug)]` compile-fail test that ensures GPP
+plaintext cannot be embedded raw in `Finding` / report structs. Move
+ccache + hashcat-input + GPP-dump writes to a `write_secret_artifact`
+helper that enforces `0o600` + POSIX / Windows-DACL parity.
+**Verifiable close:** grep of `String::from(decrypted)` in report
+crate returns 0; `find_debug_leaks` compile-fail test passes.
 
-### WS-PROTOCOL-SECURITY — CLOSED in 1.4.9 (historical)
+### WS-OUTPUT-SANITIZE (P0)
+Add `sanitize_terminal_output` that strips C0 (except `\n\t`), CSI
+sequences, and OSC sequences from network-derived strings before
+they hit stdout / stderr / Finding.detail / report body. Wire at
+every terminal-writing site + at JSON/HTML/MD/TXT report builders.
+**Verifiable close:** a unit test feeding `"\x1b[31m\x07inject"`
+into every writer path shows the escape stripped.
 
-Every finding from the SEC-1 protocol/library review closed in 1.4.9
-under commit `1fd4b80` (adhammer) + `bb57722` (windows-sddl sibling):
+### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
+Budgets first (max file size, max recursion depth, max cpassword-
+match count). Then extend the sysvol walker with `smb2-client`
+null-session anonymous walk — filesystem/UNC scanner exists, anon-SMB
+does not.
+**Verifiable close:** a synthetic 100 MB `Groups.xml` gets refused;
+a live-tested anon walk against Server 2019 succeeds against a share
+configured for null access and refuses cleanly against a share that
+isn't.
 
-1. AH-001 / AH-002 — LDAP BER hardening (parent-bounded slices,
-   indefinite/non-canonical/oversized rejection, 15/30 s deadlines,
-   16 MiB message cap).
-2. AH-003 — direct plaintext-LDAP-389 write refusal;
-   `sasl_step1/sasl_step2` relay path preserved.
-3. AH-004 / AH-005 — WinRM header/body/chunk/output budgets +
-   `checked_add` framing arithmetic + 60 s HTTP read deadline.
-4. AH-006 — `SecretString` / `SecretBytes` `ZeroizeOnDrop` types at
-   every CLI ingress; guided-mode argv uses `env:VAR` indirection
-   so the child spawn never carries a literal password.
-5. AH-007 — write-DACL `validate_acl_bytes` refuses `AclSize < 8`,
-   `AceSize < 4`, cross-boundary ACEs and mismatched counts.
-6. WS-001 / WS-002 — `windows-sddl 0.1.3` models `DaclKind::{Null,
-   NotPresent, Present}` and validates ACL/ACE bounds.
+### WS-DEPS-MAJORS (P1)
+`picky-krb 0.9 → 0.12` (~30 mechanical edits in `crates/kerberos/
+src/tgs.rs` + follow-on in `pac.rs` / `unpac.rs`). Coupled with
+`picky-asn1-x509 0.13 → 0.15.4`. Land RustCrypto ecosystem bump
+(`md-5 0.11`, `md4 0.11`, `sha2 0.11`, `rc4 0.2`, `rand 0.10`, `des 0.9`)
+in a second commit. Retire `catch_unwind` around `decrypt_ticket_pac` +
+drop `AES_MIN = 44` / `RC4_MIN = 40` outer-bound workarounds. Restore
+the retired `pac_parse_full` fuzz target. Fuzz-non-regression for 3
+nights before removing mitigation notes.
+**Verifiable close:** fuzz job runs `pac_parse_full` clean for 3
+consecutive nights; BUG-19 line in `docs/PLAN_1.5.0.md` moves to
+CHANGELOG as closed.
 
-Live-validation receipts: `docs/receipts/1.4.9__2025.md` (3 pass on
-SMB path, LDAP verbs error cleanly under 2025 channel-binding
-hardening), `docs/receipts/1.4.9__2022.md` (1 pass, rest error
-cleanly against non-routable-NIC config). Both approved.
-2019 receipt owed — moved to `WS-WINDOWS-MATRIX-CI` below.
+### WS-ADVISORY-CLEANUP (P1)
+Fork `ms-icpr` in-tree as `crates/ms-icpr` + `[patch.crates-io]`.
+Replace `rsa 0.9` with `aws-lc-rs` RSA API. Remove
+`RUSTSEC-2023-0071` from `.cargo/audit.toml` + `deny.toml`. Add
+`docs/adr/0002-remove-rsa-0.9.md`.
+**Verifiable close:** `cargo tree -i rsa --locked` returns 0 hits;
+`cargo audit` passes zero-ignores.
 
-**Nothing further planned here in 1.5.0.** If a follow-up review
-surfaces new findings against the 1.4.9 tree, they get their own
-`SEC-N` workstream.
+### WS-COERCER + WS-WEB-FP (P2)
+`attack coerce --scan-all` wraps `ms-coerce`'s vector table. `enum web
+--fingerprint` extends net.rs's 2-endpoint probe to
+{`/`, `/certsrv/`, `/RDWeb/`, `/adfs/ls/`, `/FederationMetadata/2007-06/`,
+`/EWS/Exchange.asmx`, `/owa/`, `/CCM_Client/`, `/CertEnroll/`,
+`/Autodiscover/Autodiscover.xml`}. HTTPS via existing `tokio-rustls
+0.26`. Zero new deps.
+**Verifiable close:** each verb has ≥ 3 unit tests + wire-format
+snapshots.
 
-### WS-DEPS-MAJORS — take the Dependabot semver-major bumps (highest priority)
+### WS-RECEIPT-SCHEMA + WS-CASCADE-REHEARSAL (P2)
+`docs/receipts/SCHEMA.md` names required fields; `scripts/
+validate_receipt.py` parses + exits non-zero on schema drift; new CI
+job blocks red. `scripts/cascade_dry_run.sh` computes bottom-up
+publish order from `cargo metadata`, runs `cargo publish --dry-run`
+per crate on `workflow_dispatch`. `docs/CASCADE_1.5.0.md` auto-
+generated.
+**Verifiable close:** both CI jobs green on `main` for 3 consecutive
+runs.
 
-Dependabot generated 15 PRs on 2026-08-31 as its first sweep. Ten cargo
-bumps + five GitHub-Actions bumps. The picky-krb bump is the
-single highest-EV lift in the whole plan.
+### WS-CLI-SHRINK (P2)
+Move ~5000 LOC of orchestration from `cli/` into `adhammer-sdk` so
+the SDK is a real orchestration API not a pub-use façade. Land AFTER
+`WS-FOUNDATION-INTEGRATE` so new verbs migrate at the same time.
+Deliverable: one lib-only `examples/scan_no_binary.rs` that runs a
+scan without invoking the binary.
+**Verifiable close:** `cargo run --example scan_no_binary` succeeds
+end-to-end against the offline test fixture.
 
-**picky-krb 0.9.6 → 0.12.4 (BUG-19 killer).**
+### WS-FUZZ-DEEP (P2)
+Add `.github/workflows/fuzz-deep.yml` — nightly 03:00 UTC, 30 min /
+target, coverage-guided, seeded from `fuzz/corpus/<target>/seeds/`,
+corpus stored as workflow artifact. Extend fuzz surface with
+`pkinit_as_rep`, `ldap_entry`, `dpapi_ng` targets.
+**Verifiable close:** 7 consecutive nights green after `WS-DEPS-MAJORS`
+lands.
 
-- Verified 2026-09-01 during 1.4.9 that the naive `[workspace.dependencies]
-  picky-krb = "0.12"` bump compiles clean at the resolver layer and
-  breaks at the *use* layer: `Authenticator`, `EncTicketPart` and
-  their siblings moved from struct-with-fields to
-  `ApplicationTag<XInner, N>` newtype form.
-- Mechanical fix pattern for every construction site
-  (`crates/kerberos/src/tgs.rs` lines 501, 716, 774, 840, 1157–1185):
-  ```rust
-  // before (0.9):
-  Authenticator::from(AuthenticatorInner { authenticator_bno: ..., .. })
-  // after (0.12):
-  Authenticator(AuthenticatorInner { authenticator_bno: ..., .. })
-  ```
-  And for every field access (`etp.auth_time` → `etp.0.auth_time`).
-- Follow-on cascade to audit before declaring done: `crates/kerberos/
-  src/pac.rs` (uses the same `EncTicketPart` fields via
-  `decrypt_ticket_pac`), `crates/kerberos/src/unpac.rs` (PAC field
-  access), `crates/secrets/src/pac*.rs` (any consumer of the same
-  ASN.1 structs).
-- Once compiled: retire the `catch_unwind` guard around
-  `decrypt_ticket_pac`, drop the `AES_MIN = 44` / `RC4_MIN = 40`
-  outer-bound workarounds, restore the retired `pac_parse_full`
-  fuzz target, run the full corpus for 3 consecutive nightly runs
-  before removing the mitigation notes from `docs/PLAN_1.4.9.md`.
+### WS-MSRV-POLICY (P2)
+`docs/MSRV.md` — workspace floor "stable N-3"; sibling-crate floor
+per-crate in `Cargo.toml`. Extend `msrv` CI job to verify per-crate
+floor. Populate rows in `docs/STABILITY.md`.
+**Verifiable close:** CI matrix at declared floor green.
 
-**Other semver-major cargo bumps** (each its own dedicated commit,
-each landed only if CI stays green — fmt/clippy/test/deny/
-package-check/ledger + fuzz-non-regression):
-- `md-5 0.10 → 0.11`, `md4 0.10 → 0.11`, `sha2 0.10 → 0.11`, `rc4 0.1
-  → 0.2`, `rand 0.8 → 0.10`, `des 0.8 → 0.9` — RustCrypto ecosystem
-  bump. Coordinated; move all together in one commit.
-- `picky-asn1-x509 0.13 → 0.15.4` — coupled with the picky-krb bump;
-  land in the same commit.
-- `petgraph 0.6 → 0.8` — API breakage likely in `crates/graph`
-  Tier-0 walker; the walker is well-covered by unit tests.
-- `dialoguer 0.11 → 0.12` — TUI-only surface; verify interactive
-  session prompts on Kali VBox per the hard rule.
-
-Action: cherry-merge each PR that keeps CI green. Close breakers with
-a one-line note explaining what would need to change.
-
-### WS-PHASE2 — remove `rsa 0.9` advisory ignore
-
-- Inventory every RSA operation in ADhammer + ms-icpr + adhammer-
-  kerberos-via-pkinit.
-- Fork `ms-icpr` in-tree as `crates/ms-icpr` + `[patch.crates-io]`.
-- Replace `rsa 0.9` with `aws-lc-rs` RSA API. Wrapper LOC on top of the
-  FFI shape.
-- Remove `RUSTSEC-2023-0071` from `.cargo/audit.toml` and `deny.toml`.
-- Update `SECURITY.md` — delete the "Marvin sidechannel accepted" note.
-
-Verification: `cargo tree -i rsa --locked` returns nothing; `cargo
-audit` passes with zero ignores.
-
-### WS-CLI-SHRINK — move orchestration into `adhammer-sdk`
-
-Move about 5,000 LOC from `cli/` into the SDK crate so a downstream
-library consumer can compose without the binary. Target:
-- `attacks/scan.rs` orchestration → `lib::scan()`
-- `attacks/auto.rs` composite chain → `lib::auto()`
-- `interactive.rs` state machine → `lib::interactive::Session`
-- `ui::StageChecklist` → `lib::ui`
-CLI stays as an argument parser + I/O wrapper.
-
-Deliverable: one end-to-end lib-only example under `examples/` that
-runs a scan without invoking the binary.
-
-### WS-WINDOWS-MATRIX-CI — 2019 + 2022 + 2025 in the release gate
-
-1.4.9 shipped with **three-of-three** Windows-version receipts under
-`docs/receipts/1.4.9__{2019,2022,2025}.md` — every OS in the release
-matrix produced an approved receipt. Every DC also showed the same
-LDAP + SMB split under the default LDAPS channel-binding hardening:
-SMB / Kerberos verbs pass, LDAP-dependent verbs return
-`AcceptSecurityContext data 52e` regardless of bind identity form,
-and the SMB code path uses the same credentials successfully. That
-`data 52e` gap is what `WS-LDAPS-CB` closes.
-
-Immediate operator work for 1.5.0:
-- **All three VMs**: no operator setup required — the current mshome
-  vSwitch config is routable from the ADhammer host. IPs + creds
-  captured in the private `project_testlab_creds.md` memory file.
-- **`WS-LDAPS-CB`** (new — added 1.5.1 candidate): implement LDAPS
-  channel-binding tokens end-to-end in `crates/collector` +
-  `crates/ldap` so `scan` / `enum_adcs` / `attack_roast` bind
-  successfully against Server 2019/2022/2025 with default LDAP
-  signing + channel-binding enforcement. Ship gate should target
-  10/10 verb-passes per DC once this lands.
-
-CI workflow (self-hosted or `workflow_dispatch`):
-1. Boots each VM from a clean snapshot.
-2. Runs `scripts/live_validation.sh` against each with per-VM creds
-   loaded from GitHub encrypted secrets.
-3. Uploads the scrubbed receipt to `docs/receipts/<version>__<label>.md`.
-4. Rolls back the snapshot.
-5. Blocks the release tag until three fresh green receipts land.
-
-### WS-NTDS-OFFLINE — the last-standing 1.4.8 deferral
-
-Requires sibling `ese-parser` v0.2 to ship (B-tree walk + catalog +
-row decode + long-value reassembly). Then `attack ntds-offline` verb
-lands as the last 1.4.8-plan capability.
-
-### WS-FUZZ-12 — extend fuzz surface to every parser
-
-Add targets for:
-- `pkinit_as_rep` — hostile AS-REP decode (via a stub that constructs
-  from bytes without needing a real KDC round-trip)
-- `ldap_entry` — `adhammer_collector::to_object` under random
-  `SearchEntry`-shaped input
-- `ntlmssp_type3` — hostile NTLMSSP Type3 parse
-- `ntds_offline` — after ese-parser v0.2 lands
-- `dpapi_ng` — LAPS-v2 GKDI envelope parse
-- Re-add `pac_parse_full` if picky-krb 0.12 shipped a fix for the AES-CTS
-  panic surface
-
-### WS-BLOB-BYTE-ORACLE — impacket-oracle KAT for DPAPI blob
-
-Complete WS-DPAPI-BLOB-ORACLE from 1.4.9. Run
-`docs/synthetic_kat_blob.py` on Kali against impacket 0.14; embed the
-expected ciphertext constants in `dpapi-offline masterkey::tests`
-alongside the existing roundtrip test.
-
-### WS-ZEROIZE-MIGRATE — actually migrate byte-Redacted sites
-
-1.4.9 added `SecretBytes` + `Redacted<SecretBytes>::new_zeroize`.
-1.5.0 migrates the audit-flagged sites:
-- `adhammer_kerberos::pkinit::PkinitTgt` (`ccache`, `session_key`)
-- `adhammer_kerberos::Tgt` (session key)
-- `adhammer_cli::session` DPAPI seal buffers
-- DPAPI master-key output holder in `attack dpapi-master-key`
-
-Deprecate `Redacted::<Vec<u8>>::new` for byte material at the same
-time.
-
-### WS-EVIDENCE-BUNDLE — one signed bundle per release
-
-Consolidate SBOM + sha256 sidecars + sigstore attestations + validation
-receipts + fuzz-run summaries into one signed evidence bundle
-(`adhammer_<version>_evidence.tar.zst.sig`). Emitted by
-`release.yml` alongside binaries.
-
-### WS-NDR64 — support Server 2025's optimal RPC path
-
-Multi-crate. Extend `ms-ndr` sibling to encode/decode NDR64.
-`dcerpc` sibling gains NDR64 transfer syntax option in bind
-negotiation. Consumers opt in.
-
-### WS-STABILITY-1-0 — cut 1.0 on the bottom-of-stack sibling crates
-
-Per `docs/STABILITY.md` tier-1: `windows-sddl`, `ad-acl`, `ccache-io`,
-`win32-min`. All stable enough. Semver-1.0 signals downstream
-consumers to pin.
+### WS-LDAPS-CB-INVESTIGATE (P2 — investigation only)
+Capture LDAPS traffic against 2019 / 2022 / 2025 lab DCs with
+`--bind-user` set. Confirm whether `data 52e` originates from CBT
+enforcement or from something else (Kerberos PA, LDAP signing, etc.).
+If CBT: file `WS-LDAPS-CB` implementation workstream in 1.5.1 plan
+with real effort estimate + `docs/adr/0003-ldaps-cbt.md`. If NOT
+CBT: document root cause + close as "no code change owed."
+**Verifiable close:** one packet-trace receipt + one decision doc.
 
 ## Non-goals for 1.5.0
+- Azure / Entra ID / M365 — permanent NO.
+- Persistence framework (Skeleton-Key / SSP-inject / DSRM-hijack) —
+  permanent NO per `feedback-adhammer-hard-rules`.
+- GUI — TUI is the operator-in-the-loop story.
+- C2 features — NO_C2 stance.
+- AI features — WS-21/22 rejected.
+- `ms-samr` sibling crate — `dcerpc 0.2.8`'s `SamrClient` is sufficient;
+  extend transport / opnums in `dcerpc` if needed rather than spawn.
+- `mitm6` / DHCPv6 WPAD — deferred to 1.5.1; needs new raw-socket
+  sibling.
+- Black-box one-command orchestrator (`black-box` verb) — deferred to
+  1.5.1; requires WS-FOUNDATION-INTEGRATE + WS-COERCER + WS-WEB-FP
+  landed as building blocks first.
+- LDAPS-CB implementation — 1.5.1 candidate ONLY if WS-LDAPS-CB-
+  INVESTIGATE proves the hypothesis.
 
-- Azure / Entra ID / M365 anything. Permanent no.
-- Persistence framework (Skeleton-Key etc.). Same rule.
-- GUI. Interactive TUI is the operator-in-the-loop story.
-- Formal external audit — that's separate operator work, budgeted per
-  the "external validation" line in the audit report.
+## Ship-gate — canonical release rubric
 
-## Ship gate (target)
+Release blocks until every row below is green.
 
-- `cargo audit` — 0 vulnerabilities, 0 ignores (after WS-PHASE2).
-- `cargo deny check` — 0 warnings, 0 skips (after Dependabot triage
-  resolves duplicate-versions).
-- `cargo package -p X --allow-dirty` — green on every crate.
-- Ledger green + at least one green receipt for each of 2019 / 2022 /
-  2025 in `docs/receipts/`.
-- Fuzz job green for 3 consecutive runs (no discovered inputs cause
-  panics after WS-FUZZ-12 landings).
-- Every VALIDATION.md row that says "Windows: 2019 + 2022 receipt"
-  moves to "Windows: 2019, 2022, 2025".
+| Gate | Weight | State |
+|---|---|---|
+| `cargo test --workspace` green on ubuntu + macos + windows | required | ✓ today |
+| `cargo clippy --workspace --all-targets -- -D warnings` green | required | ✓ today |
+| `cargo build` at MSRV 1.88 green | required | ✓ today |
+| `cargo fmt --all --check` green | required | ✗ today (CI-FAIL-2) |
+| `cargo check --workspace --all-features` green | required | ✗ today (CI-FAIL-1) |
+| `cargo audit` 0 vulnerabilities + 0 ignores | 8 | 0 (rsa 0.9 ignore) |
+| `cargo deny check` 0 warnings + 0 skips | 4 | 0 (transitive dupes) |
+| Fuzz job green 7 consecutive nights | 5 | 0 (BUG-19 outstanding) |
+| Reproducible-build attestation green | 4 | 0 |
+| Signed evidence bundle (SBOM + sigstore + receipts + fuzz summary) | 4 | 0 |
+| Foundation integrated + policy-enforced tests | 5 | 0 |
+| DNS / RootDSE / SMB null scope-driven | 5 | 0 |
+| Anonymous SMB SYSVOL walk cross-platform | 3 | 0 |
+| HTTP fingerprint on 10 AD web endpoints | 3 | 0 |
+| Coerce scan-all mode | 3 | 0 |
+| SNMP + web fingerprint at range | 3 | ★ partial |
+| Black-box orchestrator ties them into one run | 3 | 0 |
+| Every 1.4.9 authed verb still passing | 8 | ✓ today |
+| LDAPS-CB (IF INVESTIGATE justifies) | 5 | pending investigation |
+| picky-krb 0.9→0.12 + BUG-19 retired | 5 | 0 |
+| NTDS.dit offline (needs external `ese-parser 0.2`) | 4 | 0 |
+| noPac CVE-2021-42278 | 3 | 0 |
+| SDK is real orchestration API not façade | 5 | 0 |
+| CLI-shrink into SDK done | 4 | 0 |
+| Per-crate MSRV published | 3 | 0 |
+| Receipt schema + validator in CI | 4 | 0 |
+| CASCADE-REHEARSAL green | 5 | 0 |
+| Cross-version live-DC receipts approved (2019 + 2022 + 2025) | 4 | ★ 1.4.9 partial |
+
+**Verifiable ship target:** 80/100 (with LDAPS-CB decided one way or
+the other, WS-FOUNDATION-INTEGRATE + all P0/P1 + WS-COERCER +
+WS-WEB-FP landed, WS-CLI-SHRINK optional). Higher requires more of P2
++ the calendar-time / external-audit ceiling items.
 
 ## Release cadence
 
-- 1.5.0-alpha.1 tag when WS-DEPS-MAJORS + WS-PHASE2 + WS-CLI-SHRINK
-  are green.
-- 1.5.0-beta.1 when WS-WINDOWS-MATRIX-CI is producing receipts.
-- 1.5.0 when all ship-gate criteria green + operator approves
-  cascade-publish.
+- **1.5.0-alpha.1** — all P0 landed; `cargo fmt --check` and
+  `cargo check --all-features` green.
+- **1.5.0-beta.1** — WS-DEPS-MAJORS + WS-ADVISORY-CLEANUP green;
+  WS-FUZZ-DEEP running for 3 nights.
+- **1.5.0-rc.1** — WS-CASCADE-REHEARSAL green on the rc commit;
+  WS-RECEIPT-SCHEMA validator green; every P1 landed.
+- **1.5.0** — every ship-gate row above ≥ target weight + operator
+  approves cascade-publish.
+
+## Bug-carry (append-only during shakedown)
+
+### CI-FAIL-1 — `--all-features` breaks ldap3
+**State:** open. **Owner:** WS-FEATURE-MATRIX. **Same-cycle.**
+
+### CI-FAIL-2 — `cargo fmt --check` fails on live-test files
+**State:** open. **Owner:** WS-FOUNDATION-INTEGRATE (lands the files
+formatted). **Same-cycle.**
+
+### BUG-19 — `pac_credential_info` fuzz-found panic (picky-krb class)
+**State:** open, production-mitigated only. **Owner:**
+WS-DEPS-MAJORS. `catch_unwind` guard around `decrypt_ticket_pac`
+mitigates production callers; the fuzz build uses `-C panic=abort`
+which cannot catch the panic, so fuzz stays red until picky-krb 0.12
+lands. Do not conflate "prod mitigated" with "fuzz clean."
+
+### CI-1 — package-check under all-local (from 1.4.9)
+**State:** mitigated by gate-on-tag + `manifest-sanity` job.
+**Owner:** closes automatically when WS-CASCADE-REHEARSAL lands.
+
+## Notes on superseded docs
+- `docs/PLAN_1.5.0_REVAMP.md` — kept in-tree with superseded header;
+  its 5 principles ("start from scope", consent gates, low-impact
+  first, reuse authed stack only when prereqs met, evidence over
+  guaranteed-DA) are now the framing of this canonical plan.
+- `docs/PLAN_1.5.0_100_100_ANALYSIS.md` — kept in-tree with
+  superseded header; its 4-axis score model is now this plan's
+  §"Score model" (baseline recomputed against verified gates).
+- `ADHAMMER_BLACKBOX_RESEARCH.md` (Documents root, external to repo) —
+  research doc from 2026-09-01; its 14-workstream list was accurate
+  at write time but ~half of the listed gaps have since been filled
+  in draft or integrated form. This canonical plan's §"True gap-list"
+  reflects the code state as of 2026-09-02.
