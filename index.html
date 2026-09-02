@@ -1119,7 +1119,7 @@
       mask-image: linear-gradient(90deg, #000, rgba(0, 0, 0, .54) 58%, transparent);
     }
     .release-pulse::after {
-      content: "1.4.9";
+      content: "1.4.x";
       position: absolute;
       top: -8vw;
       right: -3vw;
@@ -1139,57 +1139,125 @@
       gap: clamp(56px, 8vw, 118px);
       align-items: stretch;
     }
-    .release-version-panel {
+    .release-lineage {
+      position: relative;
       min-height: 610px;
-      display: flex;
-      flex-direction: column;
-      padding: 8px 0 8px clamp(24px, 3vw, 42px);
-      border-left: 1px solid rgba(255, 67, 94, .62);
+      margin: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-left-color: rgba(255, 67, 94, .62);
+      background:
+        radial-gradient(circle at 36% 46%, rgba(255, 67, 94, .1), transparent 15rem),
+        linear-gradient(rgba(255, 255, 255, .022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .022) 1px, transparent 1px),
+        rgba(4, 7, 12, .72);
+      background-size: auto, 46px 46px, 46px 46px, auto;
+      box-shadow: 0 34px 90px rgba(0, 0, 0, .22);
     }
-    .release-current {
-      display: inline-flex;
+    .release-lineage-head {
+      position: absolute;
+      inset: 0 0 auto;
+      z-index: 4;
+      min-height: 70px;
+      padding: 17px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(5, 7, 13, .72);
+      backdrop-filter: blur(12px);
+    }
+    .release-lineage-head span { display: block; color: var(--ice); font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+    .release-lineage-head b { display: block; margin-top: 8px; color: #7e8b97; font: 500 9px/1 var(--mono); }
+    .release-lineage-map { position: absolute; inset: 70px 0 0; }
+    .release-lineage-visual { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .release-line, .release-line-pulse, .release-line-ambient { fill: none; vector-effect: non-scaling-stroke; }
+    .release-line-public { stroke: url(#release-line-gradient); stroke-width: 2; }
+    .release-line-candidate { stroke: rgba(121, 210, 255, .62); stroke-width: 1.5; stroke-dasharray: 7 12; }
+    .release-line-pulse {
+      stroke: #fff;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-dasharray: .03 .97;
+      filter: drop-shadow(0 0 8px rgba(255, 67, 94, .92));
+      animation: release-proof-travel 4.2s linear infinite;
+    }
+    .release-line-ambient { stroke: rgba(121, 210, 255, .1); stroke-width: 1; stroke-dasharray: 2 8; }
+    .release-lineage-dot { fill: var(--ice); opacity: .24; }
+    .release-publish-boundary {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      top: 61%;
+      z-index: 1;
+      display: flex;
       align-items: center;
       gap: 10px;
-      color: var(--white);
-      font: 600 10px/1 var(--mono);
-      letter-spacing: .13em;
+      color: #52606c;
+      font: 500 7px/1 var(--mono);
+      letter-spacing: .1em;
       text-transform: uppercase;
+      pointer-events: none;
     }
-    .release-current i {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 0 5px rgba(130, 228, 178, .08), 0 0 18px rgba(130, 228, 178, .58);
-      animation: eye-live 2.8s ease-in-out infinite;
-    }
-    .release-date { margin: 15px 0 0; color: var(--muted); font: 500 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
-    .release-version {
-      display: flex;
-      align-items: baseline;
-      margin: auto 0 22px -7px;
-      color: var(--white);
-      font-size: clamp(104px, 13vw, 188px);
-      font-weight: 650;
-      line-height: .72;
-      letter-spacing: -.09em;
-      text-shadow: 0 0 54px rgba(46, 168, 255, .12);
-    }
-    .release-version b { color: var(--proof); font-weight: inherit; }
-    .release-signal {
+    .release-publish-boundary::before { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(121, 210, 255, .18)); }
+    .release-lineage-node {
+      position: absolute;
+      z-index: 3;
+      width: min(70%, 280px);
       display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 14px;
+      grid-template-columns: 50px minmax(0, 1fr);
+      gap: 16px;
       align-items: center;
-      max-width: 380px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
-      color: #99a5b1;
-      font: 500 9px/1.55 var(--mono);
-      letter-spacing: .05em;
+      padding: 8px;
+      border: 0;
+      color: var(--white);
+      background: transparent;
+      text-align: left;
+      transform: translateY(-50%);
+    }
+    a.release-lineage-node { transition: background .2s ease, transform .25s ease; }
+    a.release-lineage-node:hover { background: linear-gradient(90deg, rgba(121, 210, 255, .06), transparent); transform: translateY(-50%) translateX(4px); }
+    .release-lineage-148 { left: 8%; top: 18%; }
+    .release-lineage-149 { left: 28%; top: 47%; }
+    .release-lineage-1410 { left: 8%; top: 79%; }
+    .release-lineage-orb {
+      position: relative;
+      width: 50px;
+      height: 50px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #5f7789;
+      border-radius: 50%;
+      background: #0a121c;
+      box-shadow: 0 0 0 7px rgba(121, 210, 255, .025), 0 0 24px rgba(121, 210, 255, .1);
+    }
+    .release-lineage-orb i { width: 8px; height: 8px; border-radius: 50%; background: #7d96a8; box-shadow: 0 0 12px rgba(121, 210, 255, .34); }
+    .release-lineage-current .release-lineage-orb { border-color: var(--proof); background: rgba(52, 9, 18, .9); box-shadow: 0 0 0 8px rgba(255, 67, 94, .04), 0 0 34px rgba(255, 67, 94, .3); }
+    .release-lineage-current .release-lineage-orb i { background: #fff; box-shadow: 0 0 4px #fff, 0 0 18px var(--proof); }
+    .release-lineage-current .release-lineage-orb::after {
+      content: "";
+      position: absolute;
+      inset: 11px;
+      border: 1px solid var(--proof);
+      border-radius: 50%;
+      animation: heart-live 2.2s ease-out infinite;
+    }
+    .release-lineage-candidate .release-lineage-orb { border-style: dashed; border-color: var(--ice); background: rgba(8, 28, 41, .9); }
+    .release-lineage-candidate .release-lineage-orb i { width: 10px; height: 10px; border-radius: 1px; background: var(--ice); box-shadow: 0 0 16px rgba(121, 210, 255, .74); transform: rotate(45deg); }
+    .release-lineage-copy small { display: block; color: var(--muted); font: 600 10px/1.35 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+    .release-lineage-copy strong { display: block; margin-top: 6px; font-size: 25px; line-height: 1; letter-spacing: -.055em; }
+    .release-lineage-current .release-lineage-copy strong { color: var(--proof-bright); font-size: clamp(34px, 4.2vw, 52px); }
+    .release-lineage-candidate .release-lineage-copy strong { color: var(--ice); }
+    .release-lineage-copy em { display: block; margin-top: 7px; color: #74818d; font: 500 9px/1.35 var(--mono); font-style: normal; }
+    .release-lineage-status {
+      position: absolute;
+      right: 16px;
+      bottom: 14px;
+      color: var(--proof-bright);
+      font: 600 7px/1 var(--mono);
+      letter-spacing: .08em;
       text-transform: uppercase;
     }
-    .release-signal strong { color: var(--ice); font: 600 12px/1 var(--mono); }
+    @keyframes release-proof-travel { to { stroke-dashoffset: -1; } }
+    .js .release-line-pulse { animation-play-state: paused; }
+    .js .release-lineage.in .release-line-pulse { animation-play-state: running; }
     .release-story { align-self: center; }
     .release-story h2 { margin: 25px 0 24px; font-size: clamp(54px, 6.8vw, 98px); line-height: .88; letter-spacing: -.07em; }
     .release-story h2 span { display: block; color: #8d98a5; }
@@ -1218,6 +1286,9 @@
     }
     .release-boundary b { color: var(--proof-bright); font: 600 9px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
     .release-boundary p { margin: 0; color: #8c98a4; font: 500 10px/1.65 var(--mono); }
+    .release-next-note { margin-top: 18px; padding: 18px 20px; border: 1px solid rgba(121, 210, 255, .18); background: rgba(121, 210, 255, .035); }
+    .release-next-note span { color: var(--ice); font: 600 9px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .release-next-note p { margin: 9px 0 0; color: #8996a2; font: 500 10px/1.6 var(--mono); }
     .release-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
     .release-link {
       display: inline-flex;
@@ -1232,28 +1303,6 @@
     .release-link:first-child { color: var(--ink); border-color: var(--white); background: var(--white); font-weight: 600; }
     .release-link:hover { color: var(--white); border-color: rgba(121, 210, 255, .42); background: rgba(121, 210, 255, .07); }
     .release-link:first-child:hover { color: var(--ink); border-color: var(--ice-bright); background: var(--ice-bright); }
-    .release-previous {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(210px, .42fr) minmax(0, 1fr) auto;
-      gap: 34px;
-      align-items: center;
-      margin-top: 86px;
-      padding: 28px 30px;
-      border: 1px solid var(--line);
-      background: rgba(6, 9, 15, .72);
-      backdrop-filter: blur(14px);
-    }
-    .release-previous + .release-previous { margin-top: 14px; }
-    .release-candidate { border-color: rgba(121, 210, 255, .22); background: rgba(11, 20, 31, .78); }
-    .release-candidate .release-previous-kicker b { color: var(--ice); }
-    .release-previous-kicker { color: var(--muted); font: 500 9px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
-    .release-previous-kicker b { display: block; margin-top: 7px; color: var(--white); font-size: 28px; letter-spacing: -.05em; }
-    .release-previous-copy b { display: block; font-size: 17px; letter-spacing: -.02em; }
-    .release-previous-copy p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    .release-previous a { color: var(--ice); font: 600 10px/1 var(--mono); white-space: nowrap; }
-    .release-state { color: var(--proof-bright); font: 600 9px/1.4 var(--mono); letter-spacing: .06em; text-align: right; text-transform: uppercase; white-space: nowrap; }
-
     .benchmarks { padding: 164px 0 176px; overflow: hidden; }
     .benchmarks::before {
       content: "";
@@ -1663,11 +1712,8 @@
       .artifact-panel { min-height: 470px; }
       .release-pulse { padding: 124px 0 126px; }
       .release-grid { grid-template-columns: 1fr; }
-      .release-version-panel { min-height: 330px; }
-      .release-version { margin-top: auto; font-size: clamp(104px, 25vw, 176px); }
+      .release-lineage { width: min(100%, 560px); min-height: 520px; margin-inline: auto; }
       .release-story { align-self: auto; }
-      .release-previous { grid-template-columns: 180px 1fr; }
-      .release-previous a, .release-state { grid-column: 2; }
       .benchmarks { padding: 124px 0 136px; }
       .bench-layout { grid-template-columns: 1fr; }
       .race-panel { position: relative; top: auto; min-height: 500px; }
@@ -1752,18 +1798,15 @@
       .export-row { grid-template-columns: 72px 1fr; }
       .export-row i { grid-column: 2; }
       .release-pulse { padding: 104px 0 112px; }
-      .release-version-panel { min-height: 260px; padding-left: 18px; }
-      .release-version { margin-left: -4px; font-size: clamp(92px, 30vw, 142px); }
+      .release-lineage { min-height: 500px; }
+      a.release-lineage-node:hover { transform: translateY(-50%); }
+      .release-lineage-copy small { font-size: 9px; }
       .release-facts { grid-template-columns: 1fr; }
       .release-fact { min-height: 0; }
       .release-fact + .release-fact { border-left: 0; border-top: 1px solid var(--line); }
       .release-boundary { grid-template-columns: 1fr; gap: 10px; }
       .release-links { display: grid; }
       .release-link { justify-content: center; }
-      .release-previous { grid-template-columns: 1fr; gap: 18px; margin-top: 58px; padding: 24px 20px; }
-      .release-previous + .release-previous { margin-top: 12px; }
-      .release-previous a { grid-column: 1; }
-      .release-state { grid-column: 1; text-align: left; }
       .race-number { font-size: 100px; }
       .coverage-score { font-size: 90px; }
       .esc-orbit {
@@ -1801,6 +1844,8 @@
       .js .reveal { opacity: 1; transform: none; }
       .dragon-rig { will-change: auto; }
       .theatre-route-current { stroke-dasharray: none; }
+      .release-line-pulse, .release-lineage-current .release-lineage-orb::after { animation: none !important; }
+      .release-line-pulse { display: none; }
     }
   </style>
   <script type="application/ld+json">
@@ -2079,12 +2124,41 @@
 
     <section class="release-pulse" id="release" aria-labelledby="release-title">
       <div class="shell release-grid">
-        <div class="release-version-panel reveal">
-          <span class="release-current"><i></i>Current release</span>
-          <p class="release-date">Published / 2026-09-01</p>
-          <div class="release-version" aria-label="Version 1.4.9"><span aria-hidden="true">1.4</span><b aria-hidden="true">.9</b></div>
-          <div class="release-signal"><strong>stable</strong><span>GitHub release + crates.io package</span></div>
-        </div>
+        <figure class="release-lineage reveal" aria-labelledby="release-lineage-title" aria-describedby="release-lineage-caption">
+          <div class="release-lineage-head"><span id="release-lineage-title">Release lineage</span><b>Version graph / trust state</b></div>
+          <div class="release-lineage-map">
+            <svg class="release-lineage-visual" viewBox="0 0 400 540" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+              <defs>
+                <linearGradient id="release-line-gradient" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#587083"></stop>
+                  <stop offset=".56" stop-color="#79d2ff"></stop>
+                  <stop offset="1" stop-color="#ff435e"></stop>
+                </linearGradient>
+              </defs>
+              <path class="release-line-ambient" d="M20 52 L118 88 L164 34 M256 52 L320 92 L382 62 M26 482 L116 454 M270 478 L382 438"></path>
+              <circle class="release-lineage-dot" cx="20" cy="52" r="2"></circle><circle class="release-lineage-dot" cx="118" cy="88" r="3"></circle><circle class="release-lineage-dot" cx="164" cy="34" r="2"></circle>
+              <circle class="release-lineage-dot" cx="256" cy="52" r="2"></circle><circle class="release-lineage-dot" cx="320" cy="92" r="3"></circle><circle class="release-lineage-dot" cx="382" cy="62" r="2"></circle>
+              <path class="release-line release-line-public" d="M65 97 C72 156 128 188 145 254"></path>
+              <path class="release-line-pulse" pathLength="1" d="M65 97 C72 156 128 188 145 254"></path>
+              <path class="release-line release-line-candidate" d="M145 254 C150 329 82 357 65 427"></path>
+            </svg>
+            <span class="release-publish-boundary">Publish boundary</span>
+            <a class="release-lineage-node release-lineage-148" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.8" target="_blank" rel="noopener">
+              <span class="release-lineage-orb"><i></i></span>
+              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.8</strong><em>Capability expansion</em></span>
+            </a>
+            <a class="release-lineage-node release-lineage-149 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">
+              <span class="release-lineage-orb"><i></i></span>
+              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
+            </a>
+            <div class="release-lineage-node release-lineage-1410 release-lineage-candidate">
+              <span class="release-lineage-orb"><i></i></span>
+              <span class="release-lineage-copy"><small>Local candidate · not published</small><strong>v1.4.10</strong><em>LDAP · GPP · budgets · output</em></span>
+            </div>
+            <span class="release-lineage-status">03 nodes / 02 trust states</span>
+          </div>
+          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.8 is a previous published release, version 1.4.9 is the current published release, and version 1.4.10 is a local candidate that is not published.</figcaption>
+        </figure>
         <div class="release-story reveal">
           <span class="eyebrow proof">03 / Release signal</span>
           <h2 id="release-title">Harder boundaries.<span>Same evidence.</span></h2>
@@ -2098,6 +2172,7 @@
             <b>Truth boundary</b>
             <p>The validation ledger remains authoritative. The three-server receipts record working SMB / Kerberos paths and a graceful LDAP-dependent failure under hardened LDAPS channel binding; the site does not promote that limitation as validated support.</p>
           </div>
+          <div class="release-next-note"><span>In the forge / v1.4.10</span><p>A local defence-in-depth candidate: authenticated LDAP simple-bind refusal over plaintext 389, GPP report-secret redaction, LDAP / SYSVOL resource budgets, and network-derived output sanitization. It is not published and adds no operator-observable capability.</p></div>
           <div class="release-links">
             <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">Read v1.4.9 notes ↗</a>
             <a class="release-link" href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">Open on crates.io ↗</a>
@@ -2105,16 +2180,6 @@
           </div>
         </div>
       </div>
-      <article class="shell release-previous release-candidate reveal">
-        <div class="release-previous-kicker">Next in the forge<b>v1.4.10</b></div>
-        <div class="release-previous-copy"><b>Defence-in-depth candidate</b><p>Authenticated LDAP simple-bind refusal over plaintext 389, GPP report-secret redaction, LDAP / SYSVOL resource budgets, and network-derived report-output sanitization. Ship gates are green locally; no new operator-observable capability.</p></div>
-        <span class="release-state">Local candidate · not published</span>
-      </article>
-      <article class="shell release-previous reveal">
-        <div class="release-previous-kicker">Previous signal<b>v1.4.8</b></div>
-        <div class="release-previous-copy"><b>Capability expansion</b><p>18 of 19 planned vectors implemented, including Kerberos user enumeration, Diamond Ticket, SIDHistory, ESC1 / ESC3, UnPAC, and offline DPAPI. Validation depth varies by capability.</p></div>
-        <a href="https://github.com/icedracon/adhammer/releases/tag/v1.4.8" target="_blank" rel="noopener">View release ↗</a>
-      </article>
     </section>
 
     <section class="benchmarks" id="benchmarks">
