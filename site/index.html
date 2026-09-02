@@ -87,6 +87,17 @@
     a { color: inherit; text-decoration: none; }
     button { color: inherit; font: inherit; }
     img { max-width: 100%; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     ::selection { color: #fff; background: #a61d34; }
     :focus-visible { outline: 2px solid var(--ice); outline-offset: 4px; }
     .shell { width: min(calc(100% - 48px), var(--max)); margin-inline: auto; }
@@ -642,7 +653,14 @@
     }
     .thesis-note p { margin: 0; color: var(--soft); font-size: 18px; }
 
-    .engine { padding: 154px 0 170px; }
+    .engine {
+      position: relative;
+      padding: 154px 0 170px;
+      border-top: 1px solid rgba(121, 210, 255, .07);
+      background:
+        radial-gradient(circle at 74% 35%, rgba(46, 168, 255, .07), transparent 31rem),
+        linear-gradient(180deg, rgba(8, 11, 18, 0), rgba(8, 11, 18, .72) 48%, rgba(8, 11, 18, 0));
+    }
     .engine-story {
       display: grid;
       grid-template-columns: minmax(300px, .74fr) minmax(0, 1.26fr);
@@ -651,17 +669,33 @@
     }
     .phase-list { position: relative; }
     .phase {
+      position: relative;
       min-height: 47vh;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      padding: 46px 0;
+      padding: 46px 0 46px 24px;
       border-top: 1px solid var(--line);
       opacity: .38;
-      transition: opacity .35s ease;
+      transition: opacity .35s ease, transform .45s cubic-bezier(.22, 1, .36, 1);
+    }
+    .phase::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 2px;
+      height: 0;
+      background: var(--ice);
+      box-shadow: 0 0 16px rgba(121, 210, 255, .7);
+      transform: translateY(-50%);
+      transition: height .45s cubic-bezier(.22, 1, .36, 1), background .25s ease, box-shadow .25s ease;
     }
     .phase:last-child { border-bottom: 1px solid var(--line); }
-    .phase.active { opacity: 1; }
+    .phase.active { opacity: 1; transform: translateX(6px); }
+    .phase.active::before { height: 52%; }
+    .phase[data-scene="2"].active::before { background: var(--proof); box-shadow: 0 0 16px rgba(255, 67, 94, .72); }
+    .phase[data-scene="3"].active::before { background: var(--green); box-shadow: 0 0 16px rgba(130, 228, 178, .62); }
     .phase-button {
       width: 100%;
       padding: 0;
@@ -681,8 +715,10 @@
     .phase-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 20px; }
     .phase-tags span { padding: 7px 9px; border: 1px solid var(--line); color: #8793a0; font: 500 9px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
     .schema-wrap {
+      --scene-accent: 121, 210, 255;
       position: sticky;
       top: 108px;
+      margin: 0;
       height: min(74vh, 720px);
       min-height: 520px;
       border: 1px solid var(--line);
@@ -692,8 +728,27 @@
         radial-gradient(circle at 50% 50%, rgba(46, 168, 255, .09), transparent 60%),
         #080b12;
       background-size: 44px 44px, 44px 44px, auto, auto;
+      box-shadow: 0 38px 110px rgba(0, 5, 12, .34), inset 0 0 80px rgba(var(--scene-accent), .025);
       overflow: hidden;
+      isolation: isolate;
+      transition: border-color .6s ease, box-shadow .6s ease;
     }
+    .schema-wrap[data-scene="2"] { --scene-accent: 255, 67, 94; border-color: rgba(255, 67, 94, .2); }
+    .schema-wrap[data-scene="3"] { --scene-accent: 130, 228, 178; border-color: rgba(130, 228, 178, .18); }
+    .schema-wrap::before {
+      content: "";
+      position: absolute;
+      inset: -30%;
+      z-index: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 54% 48%, rgba(var(--scene-accent), .12), transparent 34%);
+      opacity: .62;
+      transform: scale(.9);
+      transition: background .65s ease, transform .8s cubic-bezier(.22, 1, .36, 1), opacity .65s ease;
+    }
+    .schema-wrap[data-scene="1"]::before { transform: scale(1.08); }
+    .schema-wrap[data-scene="2"]::before { opacity: .82; transform: scale(1.16); }
+    .schema-wrap[data-scene="3"]::before { opacity: .42; transform: scale(.78); }
     .schema-wrap::after {
       content: "";
       position: absolute;
@@ -721,6 +776,150 @@
     .schema-wrap[data-scene="2"] .schema-dragon { opacity: .17; filter: saturate(.3) brightness(.45) drop-shadow(0 0 36px rgba(255, 67, 94, .32)); transform: translate(-50%, -50%) scale(1.08) rotateY(6deg); }
     .schema-wrap[data-scene="3"] .schema-dragon { opacity: .07; filter: saturate(.45) brightness(.42); transform: translate(-50%, -50%) scale(.78); }
     #schema-canvas { position: relative; z-index: 2; width: 100%; height: 100%; display: block; }
+    .theatre-route-visual {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      transform: translateY(12px) scale(.98);
+      transition: opacity .45s ease, transform .7s cubic-bezier(.22, 1, .36, 1);
+      pointer-events: none;
+    }
+    .schema-wrap[data-scene="1"] .theatre-route-visual,
+    .schema-wrap[data-scene="2"] .theatre-route-visual { opacity: 1; transform: none; }
+    .theatre-route-base {
+      fill: none;
+      stroke: rgba(201, 242, 255, .17);
+      stroke-width: 2;
+    }
+    .theatre-route-current {
+      fill: none;
+      stroke: var(--ice);
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-dasharray: .1 .9;
+      filter: drop-shadow(0 0 8px rgba(121, 210, 255, .9));
+      animation: theatre-route-flow 2.4s linear infinite;
+    }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-route-current {
+      stroke: var(--proof-bright);
+      filter: drop-shadow(0 0 9px rgba(255, 67, 94, .9));
+      animation-duration: 1.45s;
+    }
+    .theatre-route-node { fill: #08111a; stroke: var(--ice); stroke-width: 2; transition: stroke .35s ease, filter .35s ease; }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-route-node { stroke: var(--proof-bright); filter: drop-shadow(0 0 7px rgba(255, 67, 94, .75)); }
+    .theatre-route-label { fill: rgba(223, 235, 244, .72); font: 500 12px var(--mono); letter-spacing: .08em; text-anchor: middle; }
+    @keyframes theatre-route-flow { to { stroke-dashoffset: -1; } }
+
+    .theatre-lab-note {
+      position: absolute;
+      left: 20px;
+      top: 42px;
+      z-index: 4;
+      color: rgba(201, 242, 255, .44);
+      font: 500 8px/1 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .theatre-lab-note::before { content: ""; display: inline-block; width: 16px; height: 1px; margin: 0 7px 3px 0; background: currentColor; }
+    .theatre-overlay {
+      position: absolute;
+      z-index: 4;
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity .42s ease, transform .55s cubic-bezier(.22, 1, .36, 1);
+      pointer-events: none;
+    }
+    .theatre-intake {
+      left: 22px;
+      top: 86px;
+      width: min(286px, calc(100% - 44px));
+      padding: 14px;
+      border: 1px solid rgba(121, 210, 255, .14);
+      background: rgba(5, 10, 17, .62);
+      backdrop-filter: blur(9px);
+    }
+    .schema-wrap[data-scene="0"] .theatre-intake { opacity: 1; transform: none; }
+    .theatre-intake > span,
+    .theatre-proof > span,
+    .theatre-report > span,
+    .theatre-verdict > span {
+      display: block;
+      color: rgba(201, 242, 255, .48);
+      font: 500 8px/1 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .theatre-signal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px; }
+    .theatre-signal-grid b {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px;
+      border: 1px solid rgba(255, 255, 255, .07);
+      color: #b9c7d3;
+      background: rgba(255, 255, 255, .025);
+      font: 500 9px/1 var(--mono);
+      letter-spacing: .04em;
+    }
+    .theatre-signal-grid b::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ice); box-shadow: 0 0 8px rgba(121, 210, 255, .8); }
+    .theatre-verdict {
+      left: 50%;
+      top: 82px;
+      width: min(430px, calc(100% - 44px));
+      text-align: center;
+      transform: translate(-50%, 14px);
+    }
+    .schema-wrap[data-scene="1"] .theatre-verdict,
+    .schema-wrap[data-scene="2"] .theatre-verdict { opacity: 1; transform: translate(-50%, 0); }
+    .theatre-verdict-shift { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
+    .theatre-verdict-shift b {
+      padding: 8px 11px;
+      border: 1px solid rgba(121, 210, 255, .28);
+      color: var(--ice-bright);
+      background: rgba(46, 168, 255, .08);
+      font: 600 10px/1 var(--mono);
+      letter-spacing: .12em;
+      transition: opacity .3s ease, color .3s ease, border-color .3s ease, background .3s ease, box-shadow .3s ease;
+    }
+    .theatre-verdict-shift i { color: rgba(255, 255, 255, .22); font: 400 12px/1 var(--mono); }
+    .theatre-verdict-shift .proven { opacity: .22; border-color: rgba(255, 67, 94, .24); color: var(--proof-bright); background: rgba(255, 67, 94, .06); }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-verdict-shift .possible { opacity: .28; }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-verdict-shift i { color: var(--proof-bright); }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-verdict-shift .proven { opacity: 1; border-color: rgba(255, 67, 94, .55); background: rgba(255, 67, 94, .13); box-shadow: 0 0 28px rgba(255, 67, 94, .16); }
+    .theatre-proof {
+      right: 20px;
+      bottom: 88px;
+      width: min(322px, calc(100% - 40px));
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 67, 94, .2);
+      background: rgba(12, 7, 13, .78);
+      backdrop-filter: blur(12px);
+    }
+    .schema-wrap[data-scene="2"] .theatre-proof { opacity: .28; transform: translateY(8px); }
+    .schema-wrap[data-scene="2"][data-verdict="proven"] .theatre-proof { opacity: 1; transform: none; }
+    .theatre-proof dl { display: grid; grid-template-columns: 78px 1fr; gap: 6px 12px; margin: 12px 0 0; font: 500 9px/1.35 var(--mono); }
+    .theatre-proof dt { color: #687482; }
+    .theatre-proof dd { margin: 0; color: #cbd7e0; }
+    .theatre-proof dd:last-child { color: var(--proof-bright); }
+    .theatre-report {
+      right: 22px;
+      top: 86px;
+      width: min(350px, calc(100% - 44px));
+      padding: 18px;
+      border: 1px solid rgba(130, 228, 178, .22);
+      color: #0d1b20;
+      background: rgba(235, 244, 241, .94);
+      box-shadow: 0 26px 70px rgba(0, 0, 0, .24);
+    }
+    .schema-wrap[data-scene="3"] .theatre-report { opacity: 1; transform: none; }
+    .theatre-report > span { color: #59716f; }
+    .theatre-report h4 { margin: 14px 0 5px; font-size: 19px; line-height: 1.05; letter-spacing: -.035em; }
+    .theatre-report p { margin: 0; color: #526763; font-size: 11px; line-height: 1.45; }
+    .theatre-report-formats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 15px; }
+    .theatre-report-formats b { padding: 6px 8px; border: 1px solid rgba(12, 50, 43, .16); color: #25483f; font: 600 8px/1 var(--mono); letter-spacing: .06em; }
     .schema-chrome { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
     .schema-top {
       position: absolute;
@@ -748,6 +947,7 @@
     .schema-step-dots i { width: 22px; height: 2px; background: rgba(255, 255, 255, .14); }
     .schema-step-dots i.on { background: var(--ice); box-shadow: 0 0 8px rgba(121, 210, 255, .5); }
     .schema-step-dots i.proof-on { background: var(--proof); box-shadow: 0 0 8px rgba(255, 67, 94, .5); }
+    .schema-step-dots i.export-on { background: var(--green); box-shadow: 0 0 8px rgba(130, 228, 178, .5); }
 
     .proof-section {
       padding: 158px 0;
@@ -1293,7 +1493,7 @@
       .thesis-note { grid-template-columns: 1fr; margin-top: 52px; }
       .engine { padding: 120px 0 130px; }
       .engine-story { grid-template-columns: 1fr; }
-      .phase { min-height: auto; opacity: 1; }
+      .phase { min-height: 52svh; opacity: 1; }
       .phase:not(.active) { opacity: .5; }
       .schema-wrap { position: sticky; top: 82px; z-index: 5; order: -1; height: min(48svh, 420px); min-height: 340px; }
       .proof-section { padding: 120px 0; }
@@ -1353,10 +1553,25 @@
       .section-head h2, .proof-copy h2, .bench-head h2, .coverage-head h2, .protocol-head h2 { font-size: clamp(44px, 13vw, 66px); }
       .thesis-line { font-size: clamp(52px, 16vw, 78px); }
       .phase h3 { font-size: 34px; }
-      .schema-wrap { top: 74px; height: min(45svh, 380px); min-height: 320px; }
+      .schema-wrap { top: 74px; height: min(42svh, 360px); min-height: 300px; }
       .schema-top { inset: 14px; }
       .schema-bottom { inset: auto 14px 14px; }
       .schema-step-dots { display: none; }
+      .theatre-lab-note { left: 14px; top: 34px; font-size: 7px; }
+      .theatre-intake { left: 14px; top: 58px; width: min(230px, calc(100% - 28px)); padding: 10px; }
+      .theatre-signal-grid { margin-top: 8px; }
+      .theatre-signal-grid b { padding: 7px; font-size: 7px; }
+      .theatre-verdict { top: 54px; width: calc(100% - 28px); }
+      .theatre-verdict-shift { margin-top: 7px; }
+      .theatre-verdict-shift b { padding: 6px 8px; font-size: 8px; }
+      .theatre-route-label { display: none; }
+      .theatre-proof { left: 14px; right: 14px; bottom: 64px; width: auto; padding: 10px 12px; }
+      .theatre-proof dl { grid-template-columns: 62px 1fr; gap: 4px 8px; margin-top: 8px; font-size: 8px; }
+      .theatre-report { left: 14px; right: 14px; top: 58px; width: auto; padding: 13px; }
+      .theatre-report h4 { margin-top: 10px; font-size: 16px; }
+      .theatre-report p { font-size: 9px; }
+      .theatre-report-formats { margin-top: 10px; }
+      .theatre-report-formats b { padding: 5px 6px; font-size: 7px; }
       .artifact-tabs { grid-template-columns: 1fr; }
       .artifact-tab { border-right: 0; border-bottom: 1px solid var(--line-dark); }
       .artifact-tab:last-child { border-bottom: 0; }
@@ -1404,6 +1619,7 @@
       *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; }
       .js .reveal { opacity: 1; transform: none; }
       .dragon-rig { will-change: auto; }
+      .theatre-route-current { stroke-dasharray: none; }
     }
   </style>
   <script type="application/ld+json">
@@ -1447,7 +1663,7 @@
         <span>AD<span class="brand-slash">//</span>HAMMER</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
-        <a href="#engine">System</a>
+        <a href="#engine">Theatre</a>
         <a href="#proof">Proof</a>
         <a href="#benchmarks">Benchmarks</a>
         <a href="#coverage">Coverage</a>
@@ -1505,7 +1721,7 @@
         <div class="rail-item" style="--i:0"><small>01 / Collect</small><b>Directory objects</b></div>
         <div class="rail-item" style="--i:1"><small>02 / Graph</small><b>Directional control</b></div>
         <div class="rail-item" style="--i:2"><small>03 / Validate</small><b>Captured evidence</b></div>
-        <div class="rail-item" style="--i:3"><small>04 / Export</small><b>Portable context</b></div>
+        <div class="rail-item" style="--i:3"><small>04 / Report</small><b>Portable context</b></div>
       </div>
     </section>
 
@@ -1523,56 +1739,89 @@
     <section class="engine" id="engine">
       <div class="shell">
         <div class="section-head reveal">
-          <span class="section-no">01 / Four-method engine</span>
-          <div><h2>Four methods.<br>One living model.</h2><p>Follow the authorized assessment workflow through Collect, Graph, Validate, and Report. Directory objects become attack-path relationships; supported routes become evidence; evidence becomes a portable record.</p></div>
+          <span class="section-no">01 / Attack Path Theatre</span>
+          <div><h2>Watch one route<br>become proof.</h2><p>Follow an illustrative authorized assessment through Collect, Graph, Validate, and Report. The same route remains visible as directory data becomes a possible path, a supported finding, and a portable evidence record.</p></div>
         </div>
         <div class="engine-story">
           <div class="phase-list">
             <article class="phase active" data-scene="0">
-              <button class="phase-button" type="button" aria-pressed="true">
+              <button class="phase-button" type="button" aria-pressed="true" aria-current="step" aria-controls="attack-path-stage">
                 <span class="phase-top"><span>01 / Collect</span><i></i></span>
-                <h3>Read the directory.</h3>
+                <h3>See the domain assemble.</h3>
                 <p>LDAP objects, access-control entries, trusts, certificate services, delegation, and posture checks enter one typed in-memory model.</p>
                 <span class="phase-tags"><span>LDAP</span><span>SD_FLAGS</span><span>AD CS</span><span>Trusts</span></span>
               </button>
             </article>
             <article class="phase" data-scene="1">
-              <button class="phase-button" type="button" aria-pressed="false">
+              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
                 <span class="phase-top"><span>02 / Graph</span><i></i></span>
-                <h3>Resolve control.</h3>
+                <h3>Watch control emerge.</h3>
                 <p>Identity and permission relationships become directional edges. In-process path analysis makes the route legible without breaking context.</p>
                 <span class="phase-tags"><span>ACL edges</span><span>Dijkstra</span><span>Tier-0</span><span>BloodHound</span></span>
               </button>
             </article>
             <article class="phase" data-scene="2">
-              <button class="phase-button" type="button" aria-pressed="false">
+              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
                 <span class="phase-top"><span>03 / Validate</span><i></i></span>
-                <h3>Attach proof.</h3>
+                <h3>Turn possible into proven.</h3>
                 <p>Supported findings can be exercised under authorization. Evidence changes path state; unsupported routes remain explicitly potential.</p>
                 <span class="phase-tags"><span>Hash</span><span>Certificate</span><span>Ticket</span><span>Artifact</span></span>
               </button>
             </article>
             <article class="phase" data-scene="3">
-              <button class="phase-button" type="button" aria-pressed="false">
+              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
                 <span class="phase-top"><span>04 / Report</span><i></i></span>
-                <h3>Preserve context.</h3>
+                <h3>Carry the proof forward.</h3>
                 <p>Finding, technique, route, validation state, and artifact remain connected across human-readable and machine-readable exports.</p>
                 <span class="phase-tags"><span>JSON</span><span>HTML</span><span>Markdown</span><span>BloodHound CE</span></span>
               </button>
             </article>
           </div>
 
-          <div class="schema-wrap" data-scene="0" aria-label="Animated ice-dragon architecture schema for the selected engine method">
+          <figure class="schema-wrap" id="attack-path-stage" data-scene="0" data-verdict="possible" role="region" aria-label="Illustrative Attack Path Theatre: directory objects are being collected into a typed model." aria-describedby="theatre-caption">
             <img class="schema-dragon" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675" aria-hidden="true">
             <canvas id="schema-canvas" aria-hidden="true"></canvas>
+            <svg class="theatre-route-visual" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <path class="theatre-route-base" d="M150 370 C270 292 350 360 445 318 S650 224 820 260"></path>
+              <path class="theatre-route-current" pathLength="1" d="M150 370 C270 292 350 360 445 318 S650 224 820 260"></path>
+              <circle class="theatre-route-node" cx="150" cy="370" r="9"></circle>
+              <circle class="theatre-route-node" cx="355" cy="338" r="9"></circle>
+              <circle class="theatre-route-node" cx="590" cy="270" r="9"></circle>
+              <circle class="theatre-route-node" cx="820" cy="260" r="11"></circle>
+              <text class="theatre-route-label" x="150" y="402">SVC-BUILD</text>
+              <text class="theatre-route-label" x="355" y="370">WORKSTATION-07</text>
+              <text class="theatre-route-label" x="590" y="302">DELEGATION</text>
+              <text class="theatre-route-label" x="820" y="294">TIER-0</text>
+            </svg>
             <div class="schema-chrome">
+              <span class="theatre-lab-note">Illustrative lab data · authorized flow</span>
+              <div class="theatre-overlay theatre-intake" aria-hidden="true">
+                <span>Directory signals / normalized</span>
+                <div class="theatre-signal-grid"><b>LDAP object</b><b>ACE</b><b>Trust</b><b>AD CS</b></div>
+              </div>
+              <div class="theatre-overlay theatre-verdict" aria-hidden="true">
+                <span>Selected control path / state transition</span>
+                <div class="theatre-verdict-shift"><b class="possible">POSSIBLE</b><i>→</i><b class="proven">PROVEN</b></div>
+              </div>
+              <div class="theatre-overlay theatre-proof" aria-hidden="true">
+                <span>Evidence docked to selected route</span>
+                <dl><dt>primitive</dt><dd>supported validation</dd><dt>artifact</dt><dd>sha256:a81f…7c2e</dd><dt>path state</dt><dd>PROVEN</dd></dl>
+              </div>
+              <div class="theatre-overlay theatre-report" aria-hidden="true">
+                <span>Report ready / context preserved</span>
+                <h4>Supported path</h4>
+                <p>Finding, technique, route, command, validation state, and evidence remain linked.</p>
+                <div class="theatre-report-formats"><b>JSON</b><b>HTML</b><b>MARKDOWN</b><b>BLOODHOUND CE</b></div>
+              </div>
               <div class="schema-top"><span>ADHAMMER / CONTROL MODEL</span><strong id="schema-status">COLLECTING</strong></div>
               <div class="schema-bottom">
                 <div><b id="schema-title">Directory intake</b><span id="schema-meta">objects → typed model<br>50+ checks in context</span></div>
                 <div class="schema-step-dots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
               </div>
             </div>
-          </div>
+            <figcaption class="sr-only" id="theatre-caption">Illustrative four-stage authorized workflow: collect Active Directory objects, resolve a possible Tier-0 control path, attach evidence to mark it proven, and preserve the result in portable reports.</figcaption>
+            <span class="sr-only" id="theatre-announcer" aria-live="polite"></span>
+          </figure>
         </div>
       </div>
     </section>
@@ -1759,7 +2008,7 @@
       <div class="footer-main">
         <a class="brand" href="#top"><img src="assets/favicon.png" alt="" width="36" height="36"><span>AD<span class="brand-slash">//</span>HAMMER</span></a>
         <nav class="footer-links" aria-label="Footer navigation">
-          <a href="#engine">System</a>
+          <a href="#engine">Theatre</a>
           <a href="#benchmarks">Benchmarks</a>
           <a href="#coverage">Coverage</a>
           <a href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">crates.io</a>
@@ -2389,14 +2638,15 @@
         var nodes = [];
         var sceneTargets = [[], [], [], []];
         var labels = [
-          { status: "COLLECTING", title: "Directory intake", meta: "objects → typed model<br>50+ checks in context" },
-          { status: "RESOLVING", title: "Control topology", meta: "directional edges<br>route context retained" },
-          { status: "VALIDATING", title: "Evidence path", meta: "possible → proven<br>artifact attached" },
-          { status: "EXPORTING", title: "Portable record", meta: "JSON · HTML · Markdown<br>BloodHound CE" }
+          { status: "COLLECTING", title: "Directory intake", meta: "objects → typed model<br>50+ checks in context", aria: "Illustrative Attack Path Theatre: directory objects are being collected into a typed model." },
+          { status: "PATH / POSSIBLE", title: "Control path resolved", meta: "svc-build → tier-0<br>state: possible", aria: "Illustrative Attack Path Theatre: a possible directional control path from a service identity to Tier-0 is selected." },
+          { status: "VALIDATING", title: "Evidence in flight", meta: "supported primitive<br>artifact pending", aria: "Illustrative Attack Path Theatre: a supported validation is moving along the selected route toward evidence." },
+          { status: "REPORT READY", title: "Portable evidence record", meta: "JSON · HTML · Markdown<br>BloodHound CE", aria: "Illustrative Attack Path Theatre: the proven route and its evidence are preserved in portable reports." }
         ];
         var status = document.getElementById("schema-status");
         var schemaTitle = document.getElementById("schema-title");
         var schemaMeta = document.getElementById("schema-meta");
+        var announcer = document.getElementById("theatre-announcer");
         var dots = Array.prototype.slice.call(wrap.querySelectorAll(".schema-step-dots i"));
 
         for (var i = 0; i < 28; i += 1) {
@@ -2408,15 +2658,16 @@
           });
           var angle = i / 28 * Math.PI * 2;
           var radius = .35 + (i % 3) * .18;
-          sceneTargets[1].push({
+          var graphTarget = {
             x: Math.cos(angle * 1.03) * radius,
             y: Math.sin(angle) * radius * .78,
             z: Math.sin(angle * 2.3) * .45
-          });
+          };
+          sceneTargets[1].push(graphTarget);
           sceneTargets[2].push({
-            x: Math.cos(angle) * (.34 + (i % 4) * .12),
-            y: Math.sin(angle * .92) * (.32 + (i % 3) * .1),
-            z: Math.cos(angle * 1.7) * .48
+            x: graphTarget.x,
+            y: graphTarget.y,
+            z: graphTarget.z
           });
           var column = i % 4;
           var row = Math.floor(i / 4);
@@ -2428,22 +2679,41 @@
           nodes.push({ x: sceneTargets[0][i].x, y: sceneTargets[0][i].y, z: sceneTargets[0][i].z, pulse: random() * Math.PI * 2 });
         }
 
-        function setScene(nextScene) {
+        function setVerdict(isProven) {
+          var proven = Boolean(isProven);
+          wrap.setAttribute("data-verdict", proven ? "proven" : "possible");
+          if (scene !== 2) return;
+          status.textContent = proven ? "PATH / PROVEN" : "VALIDATING";
+          status.style.color = "var(--proof-bright)";
+          schemaTitle.textContent = proven ? "Evidence attached" : "Evidence in flight";
+          schemaMeta.innerHTML = proven ? "possible → proven<br>artifact attached" : "supported primitive<br>artifact pending";
+          wrap.setAttribute("aria-label", proven ? "Illustrative Attack Path Theatre: evidence is attached and the selected Tier-0 route is now proven." : labels[2].aria);
+          if (reduced && width && height) draw(0);
+        }
+
+        function setScene(nextScene, shouldAnnounce) {
           scene = nextScene;
           wrap.setAttribute("data-scene", String(scene));
+          if (scene !== 2) wrap.setAttribute("data-verdict", "possible");
           phases.forEach(function (phase, index) {
             var active = index === scene;
             phase.classList.toggle("active", active);
             var button = phase.querySelector(".phase-button");
-            if (button) button.setAttribute("aria-pressed", active ? "true" : "false");
+            if (button) {
+              button.setAttribute("aria-pressed", active ? "true" : "false");
+              if (active) button.setAttribute("aria-current", "step");
+              else button.removeAttribute("aria-current");
+            }
           });
           status.textContent = labels[scene].status;
-          status.style.color = scene === 2 ? "var(--proof-bright)" : "var(--ice)";
+          status.style.color = scene === 2 ? "var(--proof-bright)" : scene === 3 ? "var(--green)" : "var(--ice)";
           schemaTitle.textContent = labels[scene].title;
           schemaMeta.innerHTML = labels[scene].meta;
+          wrap.setAttribute("aria-label", labels[scene].aria);
           dots.forEach(function (dot, index) {
-            dot.className = index === scene ? (scene === 2 ? "proof-on" : "on") : "";
+            dot.className = index === scene ? (scene === 2 ? "proof-on" : scene === 3 ? "export-on" : "on") : "";
           });
+          if (shouldAnnounce && announcer) announcer.textContent = labels[scene].aria;
           if (reduced) {
             nodes.forEach(function (node, index) {
               node.x = sceneTargets[scene][index].x;
@@ -2459,7 +2729,7 @@
           if (!rect.width || !rect.height) return;
           width = rect.width;
           height = rect.height;
-          dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.2 : 1.5);
+          dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1 : 1.5);
           var pixelWidth = Math.round(width * dpr);
           var pixelHeight = Math.round(height * dpr);
           if (canvas.width === pixelWidth && canvas.height === pixelHeight) return;
@@ -2493,49 +2763,55 @@
             node.z += (target.z - node.z) * ease;
           });
           var points = nodes.map(project);
+          var verdictProven = scene === 2 && wrap.getAttribute("data-verdict") === "proven";
           var connections = [];
           if (scene === 0) {
-            for (var i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), false]);
+            for (var i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), "normal"]);
           } else if (scene === 3) {
-            for (i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), i > 20]);
+            for (i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), i >= 20 ? "export" : "normal"]);
           } else {
             for (i = 0; i < points.length; i += 1) {
               var next = (i + 1) % points.length;
               var chord = (i + 7) % points.length;
-              connections.push([i, next, scene === 2 && i >= 7 && i <= 12]);
-              if (i % 2 === 0) connections.push([i, chord, scene === 2 && i === 8]);
+              var routeKind = i >= 7 && i <= 12 ? (verdictProven ? "proven" : "possible") : "normal";
+              connections.push([i, next, routeKind]);
+              if (i % 2 === 0) connections.push([i, chord, i === 8 ? routeKind : "normal"]);
             }
           }
           connections.forEach(function (edge) {
             var a = points[edge[0]];
             var b = points[edge[1]];
+            var edgeKind = edge[2];
+            var emphasized = edgeKind !== "normal";
             context.beginPath();
             context.moveTo(a.x, a.y);
             context.lineTo(b.x, b.y);
-            context.strokeStyle = edge[2] ? "rgba(255,67,94,.82)" : "rgba(121,210,255,.2)";
-            context.lineWidth = edge[2] ? 1.5 : .7;
-            if (edge[2]) {
-              context.shadowBlur = 14;
-              context.shadowColor = "rgba(255,67,94,.8)";
+            context.strokeStyle = edgeKind === "proven" ? "rgba(255,67,94,.82)" : edgeKind === "possible" ? "rgba(121,210,255,.74)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.2)";
+            context.lineWidth = emphasized ? 1.5 : .7;
+            if (emphasized) {
+              context.shadowBlur = edgeKind === "proven" ? 14 : 9;
+              context.shadowColor = edgeKind === "proven" ? "rgba(255,67,94,.8)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.7)";
             }
             context.stroke();
             context.shadowBlur = 0;
           });
           points.forEach(function (point, index) {
-            var proofNode = scene === 2 && index >= 8 && index <= 13;
-            var outputNode = scene === 3 && index >= 24;
-            var radius = (proofNode ? 3.2 : outputNode ? 2.6 : 1.7) * Math.max(.75, point.scale);
+            var pathNode = (scene === 1 || scene === 2) && index >= 8 && index <= 13;
+            var proofNode = verdictProven && pathNode;
+            var possibleNode = pathNode && !verdictProven;
+            var outputNode = scene === 3 && index >= 20;
+            var radius = (proofNode ? 3.2 : possibleNode ? 2.8 : outputNode ? 2.6 : 1.7) * Math.max(.75, point.scale);
             context.beginPath();
             context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-            context.fillStyle = proofNode ? "#ff7187" : outputNode ? "#82e4b2" : "rgba(201,242,255,.88)";
-            if (proofNode) {
-              context.shadowBlur = 14;
-              context.shadowColor = "rgba(255,67,94,.9)";
+            context.fillStyle = proofNode ? "#ff7187" : possibleNode ? "#c9f2ff" : outputNode ? "#82e4b2" : "rgba(201,242,255,.88)";
+            if (proofNode || possibleNode || outputNode) {
+              context.shadowBlur = proofNode ? 14 : 9;
+              context.shadowColor = proofNode ? "rgba(255,67,94,.9)" : outputNode ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)";
             }
             context.fill();
             context.shadowBlur = 0;
           });
-          if (scene === 2 && !reduced) {
+          if ((scene === 1 || scene === 2) && !reduced) {
             var pulse = (time * .0007) % 5;
             var step = Math.floor(pulse);
             var amount = pulse - step;
@@ -2545,8 +2821,8 @@
             var py = start.y + (end.y - start.y) * amount;
             var glow = context.createRadialGradient(px, py, 0, px, py, 24);
             glow.addColorStop(0, "rgba(255,255,255,.95)");
-            glow.addColorStop(.18, "rgba(255,67,94,.8)");
-            glow.addColorStop(1, "rgba(255,67,94,0)");
+            glow.addColorStop(.18, verdictProven ? "rgba(255,67,94,.8)" : "rgba(121,210,255,.82)");
+            glow.addColorStop(1, verdictProven ? "rgba(255,67,94,0)" : "rgba(121,210,255,0)");
             context.fillStyle = glow;
             context.beginPath();
             context.arc(px, py, 24, 0, Math.PI * 2);
@@ -2570,34 +2846,67 @@
           running = false;
           if (raf) window.cancelAnimationFrame(raf);
         }
+        var sceneScrollQueued = false;
+        function syncSceneFromScroll() {
+          sceneScrollQueued = false;
+          var marker = window.innerHeight * .55;
+          var closestIndex = 0;
+          var closestDistance = Infinity;
+          var activeRect = null;
+          phases.forEach(function (phase, index) {
+            var rect = phase.getBoundingClientRect();
+            var distance = Math.abs(rect.top + rect.height * .5 - marker);
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestIndex = index;
+              activeRect = rect;
+            }
+          });
+          if (closestIndex !== scene) setScene(closestIndex, false);
+          if (closestIndex === 2 && activeRect) {
+            var sceneProgress = Math.max(0, Math.min(1, (marker - activeRect.top) / Math.max(1, activeRect.height)));
+            setVerdict(reduced || sceneProgress > .58);
+          }
+        }
+        function requestSceneSync() {
+          if (sceneScrollQueued) return;
+          sceneScrollQueued = true;
+          window.requestAnimationFrame(syncSceneFromScroll);
+        }
         phases.forEach(function (phase, index) {
           var button = phase.querySelector(".phase-button");
-          if (button) button.addEventListener("click", function () { setScene(index); });
+          if (button) button.addEventListener("click", function () {
+            setScene(index, true);
+            if (index === 2) setVerdict(true);
+          });
         });
         if ("IntersectionObserver" in window) {
-          var phaseObserver = new IntersectionObserver(function (entries) {
-            entries.forEach(function (entry) {
-              if (entry.isIntersecting) setScene(Number(entry.target.getAttribute("data-scene")));
-            });
-          }, { rootMargin: "-38% 0px -44% 0px", threshold: 0 });
-          phases.forEach(function (phase) { phaseObserver.observe(phase); });
           var canvasObserver = new IntersectionObserver(function (entries) {
             visible = entries[0].isIntersecting;
             if (visible) start(); else stop();
           }, { threshold: 0 });
           canvasObserver.observe(wrap);
         }
-        wrap.addEventListener("pointermove", function (event) {
-          if (reduced) return;
-          var rect = wrap.getBoundingClientRect();
-          targetRotY = ((event.clientX - rect.left) / rect.width - .5) * .45;
-          targetRotX = -((event.clientY - rect.top) / rect.height - .5) * .28;
-        }, { passive: true });
-        wrap.addEventListener("pointerleave", function () { targetRotX = 0; targetRotY = 0; }, { passive: true });
+        if (!window.matchMedia || window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+          wrap.addEventListener("pointermove", function (event) {
+            if (reduced) return;
+            var rect = wrap.getBoundingClientRect();
+            targetRotY = ((event.clientX - rect.left) / rect.width - .5) * .45;
+            targetRotX = -((event.clientY - rect.top) / rect.height - .5) * .28;
+          }, { passive: true });
+          wrap.addEventListener("pointerleave", function () { targetRotX = 0; targetRotY = 0; }, { passive: true });
+        }
         if ("ResizeObserver" in window) new ResizeObserver(resize).observe(wrap);
         else window.addEventListener("resize", resize, { passive: true });
-        setScene(0);
+        window.addEventListener("scroll", requestSceneSync, { passive: true });
+        window.addEventListener("resize", requestSceneSync, { passive: true });
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) stop();
+          else if (visible) start();
+        });
+        setScene(0, false);
         resize();
+        requestSceneSync();
         if (reduced) draw(0); else start();
         motionListeners.push(function (isReduced) {
           if (isReduced) {
@@ -2607,8 +2916,10 @@
               node.y = sceneTargets[scene][index].y;
               node.z = sceneTargets[scene][index].z;
             });
+            if (scene === 2) setVerdict(true);
             draw(0);
           } else {
+            requestSceneSync();
             start();
           }
         });
