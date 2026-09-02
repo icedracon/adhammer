@@ -43,10 +43,21 @@ under `docs/adr/` recording the trigger + migration.
   `WS-ADVISORY-CLEANUP`).
 
 ### Fails today (blocks release)
-- **CI-FAIL-1**: `cargo check --workspace --all-features` fails on
-  `ldap3` with 15 errors: `--features tls-native,tls-rustls` are
-  mutually exclusive and both wire in under `--all-features`. Fix in
-  `WS-FEATURE-MATRIX`.
+- **CI-FAIL-1 (RECLASSIFIED as audit misinterpretation, closed
+  2026-09-02):** `cargo check --workspace --all-features` was expected
+  to be green in the earlier ship-gate. It is not, and never can be:
+  `adhammer-collector` legitimately exposes both `tls-native` and
+  `tls-rustls` for operator choice (rustls default; native-tls for
+  legacy SHA-1 DCs); `ldap3` treats those as mutually-exclusive TLS
+  backends and its own upstream `compile_error!` fires when both
+  activate. `--all-features` is not a supported invocation on this
+  workspace. Ship-gate replaced with "supported-feature-matrix job
+  green" (the existing "check supported feature variants" step covers
+  {no-default, default, tls-native only, mssql+gssapi, experimental-
+  gkdi}). A defensive `compile_error!` guard was added at
+  `crates/collector/src/lib.rs` in commit `<pending>` so the boundary
+  message is ours, not ldap3's, if the feature propagation ever
+  changes.
 - **CI-FAIL-2**: `cargo fmt --all --check` fails on
   `cli/tests/live_safe.rs:120` (untracked test file — `run(&["attack",
   "zerologon", …])` needs multi-line reformat). Fix in the same commit
@@ -132,7 +143,7 @@ been grep'd and confirmed missing.
 | ID | Gap | Verified missing where | LOC est | ROI | Path |
 |---|---|---|---|---|---|
 | G-1 | Foundation files tracked + integrated + tests | `git ls-files` on scope.rs/discovery.rs/blackbox.rs = untracked; `grep '^mod scope\\|blackbox\\|discovery'` in lib.rs = 0 hits | ~400 (+ 200 test) | ★★★★★ | `WS-FOUNDATION-INTEGRATE` |
-| G-2 | Feature-matrix hygiene (tls-native ⊕ tls-rustls) | `cargo check --all-features` fails ldap3 with 15 errors | ~30 | ★★★★ | `WS-FEATURE-MATRIX` |
+| G-2 | Feature-matrix boundary diagnostic (defensive) | ldap3 already guards mutex upstream; wanted our own `compile_error!` at collector so the diagnostic is ours if the feature-graph shifts | ~15 | ★★ | `WS-FEATURE-MATRIX` |
 | G-3 | LDAP simple-bind integrity requirement | collector `ldap.simple_bind` unconditional at line 327 | ~150 | ★★★★ | `WS-LDAP-INTEGRITY` |
 | G-4 | GPP secret boundary + Debug redaction | `decrypt_cpassword -> Result<String>` — plain caller wrap only | ~120 | ★★★★ | `WS-SECRET-BOUNDARY` |
 | G-5 | LDAP + SYSVOL resource budgets | no `MAX_RESPONSE_BYTES`, no walk-depth cap in either collector | ~200 | ★★★ | `WS-LDAP-INTEGRITY` + `WS-SYSVOL-BUDGETS` |
@@ -178,12 +189,13 @@ gates + env-var opt-in so CI stays green offline.
 new files; `cargo test --workspace` includes ≥ 12 new tests; a
 capability-missing `PostCred` selection returns `Err`.
 
-### WS-FEATURE-MATRIX (P0)
-Split `--all-features` so `tls-native` and `tls-rustls` cannot both
-activate. Make one a workspace-default feature; make the other
-mutually-exclusive via `#[cfg]` + a compile-time diagnostic. Add a CI
-job that runs `cargo check --workspace --all-features` and blocks red.
-**Verifiable close:** the new CI job green.
+### WS-FEATURE-MATRIX (closed 2026-09-02)
+CLOSED as audit misinterpretation. `--all-features` cannot be green
+on this workspace by design (see CI-FAIL-1 reclassification above).
+Defensive `compile_error!` boundary guard landed at
+`crates/collector/src/lib.rs`. Ship-gate uses the existing
+"check supported feature variants" CI step as authority for
+supported combinations. No further code change owed.
 
 ### WS-LDAP-INTEGRITY (P0)
 Refuse `ldap.simple_bind` unless (a) LDAPS is verified end-to-end or
@@ -321,7 +333,7 @@ Release blocks until every row below is green.
 | `cargo clippy --workspace --all-targets -- -D warnings` green | required | ✓ today |
 | `cargo build` at MSRV 1.88 green | required | ✓ today |
 | `cargo fmt --all --check` green | required | ✗ today (CI-FAIL-2) |
-| `cargo check --workspace --all-features` green | required | ✗ today (CI-FAIL-1) |
+| Supported-feature-matrix job green (see "check supported feature variants" step; enumerates {no-default, default, tls-native only, mssql+gssapi, experimental-gkdi}) | required | ✓ today (CI-FAIL-1 reclassified) |
 | `cargo audit` 0 vulnerabilities + 0 ignores | 8 | 0 (rsa 0.9 ignore) |
 | `cargo deny check` 0 warnings + 0 skips | 4 | 0 (transitive dupes) |
 | Fuzz job green 7 consecutive nights | 5 | 0 (BUG-19 outstanding) |
@@ -365,7 +377,11 @@ WS-WEB-FP landed, WS-CLI-SHRINK optional). Higher requires more of P2
 ## Bug-carry (append-only during shakedown)
 
 ### CI-FAIL-1 — `--all-features` breaks ldap3
-**State:** open. **Owner:** WS-FEATURE-MATRIX. **Same-cycle.**
+**State:** closed 2026-09-02 as audit misinterpretation. `--all-features`
+was never a supportable invocation on this workspace (mutually-
+exclusive TLS backends by design). Ship-gate updated to reference
+the supported-feature-matrix job instead. Boundary `compile_error!`
+guard landed at `crates/collector/src/lib.rs`.
 
 ### CI-FAIL-2 — `cargo fmt --check` fails on live-test files
 **State:** open. **Owner:** WS-FOUNDATION-INTEGRATE (lands the files

@@ -3,6 +3,21 @@
 //! live), and normalizes them into `core::Snapshot`. Binary attrs (objectSid,
 //! nTSecurityDescriptor, objectGUID, RBCD) are requested raw so we parse them ourselves.
 
+// WS-FEATURE-MATRIX (1.5.0): `tls-native` and `tls-rustls` propagate to
+// `ldap3/tls-native` and `ldap3/tls-rustls-aws-lc-rs`, which are mutually
+// exclusive TLS backends in ldap3. Activating both surfaces as 15
+// type-annotation errors deep in ldap3's TLS glue rather than as a clear
+// "pick one" message, so guard here at the crate boundary. Consequence:
+// `cargo check --all-features` is not a supported invocation on this
+// workspace and never will be; use the supported-feature-matrix job
+// (see `.github/workflows/ci.yml` "check supported feature variants").
+#[cfg(all(feature = "tls-native", feature = "tls-rustls"))]
+compile_error!(
+    "features `tls-native` and `tls-rustls` are mutually exclusive — \
+     pick one. This crate wraps ldap3 whose TLS backends collide when both \
+     are active. See docs/PLAN_1.5.0.md §WS-FEATURE-MATRIX."
+);
+
 use adhammer_core::object::AdObject;
 use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::{DomainInfo, Snapshot};
