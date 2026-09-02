@@ -88,6 +88,25 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
 
 - `cargo fmt --all --check` — closes CI-FAIL-2 by landing
   `cli/tests/live_safe.rs` under formatted state.
+- **`scripts/scrub_receipt.py` — UTF-8 stdout + context-aware DES-key
+  scrub.** WS-RECEIPT-UTF8 forces `sys.stdout/stderr.reconfigure(utf-8)`
+  so non-ASCII glyphs (✗ ✓ box-drawing) in adhammer output no longer
+  crash the scrubber on Windows (default cp1252). WS-RECEIPT-DES adds
+  a context-aware pattern for `krbtgt:<alg>:<hex>` short-hex values
+  that the length-≥32 rule missed (des-cbc-md5 keys are 16 hex chars).
+
+### Live-DC receipts
+
+- `docs/receipts/1.4.10__{2019,2022,2025}.md` — cross-version live-
+  validation against `testlab.local` DCs (Windows Server 2019, 2022,
+  2025). Every receipt scrubber-approved (0 leak-terms matches).
+  Behavioral fingerprint confirms OS mapping: Server 2025's krbtgt no
+  longer emits DES keys (deprecated in default config), 2019/2022 do.
+  Passing verb set consistent across all 3 (enum_krb_users,
+  attack_dcsync_krbtgt, attack_secretsdump) — LDAPS-bind verbs
+  (scan / enum adcs / attack roast) fail uniformly, matching the
+  documented WS-LDAPS-CB-INVESTIGATE hypothesis (channel-binding
+  hardening across the 2019+ line).
 
 ### Deferred to 1.5.1 (tracked in `docs/PLAN_1.4.10.md`)
 

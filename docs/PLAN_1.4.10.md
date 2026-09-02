@@ -238,6 +238,7 @@ returns `Err(RunnerRefusal::PostCredRequiresCapability)`.
 | `CHANGELOG.md` `[1.4.10]` entry | ✓ landed |
 | Fuzz coverage on new defence surfaces (`sanitize_terminal`, `scope_hostname`) | ✓ 2 new targets registered in `fuzz/Cargo.toml` |
 | No `TODO`/`FIXME`/`XXX` in new code (sanitize / secret_write / scope / blackbox) | ✓ 0 hits |
+| Cross-version live-DC receipts approved (2019 + 2022 + 2025) | ✓ `docs/receipts/1.4.10__{2019,2022,2025}.md` landed 2026-09-02; scrubber-verified (0 leak-terms matches; DES-key context-aware scrub added); `Review status: approved`; behavioral fingerprint confirmed OS mapping (2025 has no DES emission, 2019/2022 do — Server-2025 default deprecates DES from krbtgt). WS-RECEIPT-UTF8 + WS-RECEIPT-DES scrubber patches landed same-cycle. |
 
 ## Bug-carry from 1.4.9
 
@@ -269,4 +270,5 @@ Every commit LOCAL only per operator directive. Ordered by landing:
 | `745b0d8` | WS-LDAP-INTEGRITY |
 | `e6fbbf0` | WS-FOUNDATION-INTEGRATE |
 | `b18ccd7` | label refactor 1.5.0 → 1.4.10 |
-| `<this>` | 1.4.10 polish: version bump + CHANGELOG + fuzz targets + verified ship-gate |
+| `9581870` | 1.4.10 polish: version bump + CHANGELOG + fuzz targets + verified ship-gate |
+| `<this>` | 1.4.10 live-DC receipts (2019/2022/2025) + scrubber utf-8 + DES-key context scrub |

@@ -40,6 +40,17 @@ import sys
 from pathlib import Path
 from urllib.parse import quote, quote_plus
 
+# WS-RECEIPT-UTF8 (1.4.10): force UTF-8 on stdout/stderr so non-ASCII
+# glyphs ('✗', '✓', box-drawing, arrows) that adhammer emits do not
+# crash the scrubber on Windows, where default Python stdout encoding
+# is cp1252. `errors="replace"` guarantees a graceful degradation
+# rather than a UnicodeEncodeError abort in the middle of receipt
+# assembly. Applied once at module load — no runtime cost.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 ROOT = Path(__file__).resolve().parent.parent
 HARD_BLOCK_FILE = ROOT / ".githooks" / "leak-terms.txt"
@@ -162,6 +173,27 @@ def scrub(
     out = re.sub(
         r"(?<![0-9a-fA-F])[0-9a-fA-F]{32,}(?![0-9a-fA-F])",
         hex_secret,
+        out,
+    )
+
+    # 7b. WS-RECEIPT-DES (1.4.10) — context-aware short-hex scrub for
+    # Kerberos key emissions the length-≥32 rule misses (des-cbc-md5 is
+    # 16 hex chars; some LM-hash halves 16 too). Any hex after a well-
+    # known secret label (`krbtgt:<alg>:` or `<user>:<rid>:` secretsdump
+    # output columns) is a key, regardless of length. Apply BEFORE the
+    # generic hex_secret above would fire so labels stay accurate; the
+    # generic pass then no-ops the placeholder tokens.
+    out = re.sub(
+        r"(krbtgt:[a-zA-Z0-9-]+:)([0-9a-fA-F]{8,})",
+        r"\1<krbtgt-key>",
+        out,
+    )
+    # secretsdump default format: `user:RID:LMHASH:NTHASH:::` — the
+    # 32-hex NT hash is caught by rule 7; the 32-hex LM half too. If
+    # either is < 32 (aad3... halves can appear as 16) they'd escape.
+    out = re.sub(
+        r"(:[0-9]+:)([0-9a-fA-F]{16,32})(:[0-9a-fA-F]{16,32}:::)",
+        r"\1<lm-hash>\3",
         out,
     )
 
