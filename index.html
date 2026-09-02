@@ -1244,11 +1244,15 @@
       background: rgba(6, 9, 15, .72);
       backdrop-filter: blur(14px);
     }
+    .release-previous + .release-previous { margin-top: 14px; }
+    .release-candidate { border-color: rgba(121, 210, 255, .22); background: rgba(11, 20, 31, .78); }
+    .release-candidate .release-previous-kicker b { color: var(--ice); }
     .release-previous-kicker { color: var(--muted); font: 500 9px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
     .release-previous-kicker b { display: block; margin-top: 7px; color: var(--white); font-size: 28px; letter-spacing: -.05em; }
     .release-previous-copy b { display: block; font-size: 17px; letter-spacing: -.02em; }
     .release-previous-copy p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
     .release-previous a { color: var(--ice); font: 600 10px/1 var(--mono); white-space: nowrap; }
+    .release-state { color: var(--proof-bright); font: 600 9px/1.4 var(--mono); letter-spacing: .06em; text-align: right; text-transform: uppercase; white-space: nowrap; }
 
     .benchmarks { padding: 164px 0 176px; overflow: hidden; }
     .benchmarks::before {
@@ -1663,7 +1667,7 @@
       .release-version { margin-top: auto; font-size: clamp(104px, 25vw, 176px); }
       .release-story { align-self: auto; }
       .release-previous { grid-template-columns: 180px 1fr; }
-      .release-previous a { grid-column: 2; }
+      .release-previous a, .release-state { grid-column: 2; }
       .benchmarks { padding: 124px 0 136px; }
       .bench-layout { grid-template-columns: 1fr; }
       .race-panel { position: relative; top: auto; min-height: 500px; }
@@ -1757,7 +1761,9 @@
       .release-links { display: grid; }
       .release-link { justify-content: center; }
       .release-previous { grid-template-columns: 1fr; gap: 18px; margin-top: 58px; padding: 24px 20px; }
+      .release-previous + .release-previous { margin-top: 12px; }
       .release-previous a { grid-column: 1; }
+      .release-state { grid-column: 1; text-align: left; }
       .race-number { font-size: 100px; }
       .coverage-score { font-size: 90px; }
       .esc-orbit {
@@ -2099,6 +2105,11 @@
           </div>
         </div>
       </div>
+      <article class="shell release-previous release-candidate reveal">
+        <div class="release-previous-kicker">Next in the forge<b>v1.4.10</b></div>
+        <div class="release-previous-copy"><b>Defence-in-depth candidate</b><p>Authenticated LDAP simple-bind refusal over plaintext 389, GPP report-secret redaction, LDAP / SYSVOL resource budgets, and network-derived report-output sanitization. Ship gates are green locally; no new operator-observable capability.</p></div>
+        <span class="release-state">Local candidate · not published</span>
+      </article>
       <article class="shell release-previous reveal">
         <div class="release-previous-kicker">Previous signal<b>v1.4.8</b></div>
         <div class="release-previous-copy"><b>Capability expansion</b><p>18 of 19 planned vectors implemented, including Kerberos user enumeration, Diamond Ticket, SIDHistory, ESC1 / ESC3, UnPAC, and offline DPAPI. Validation depth varies by capability.</p></div>
