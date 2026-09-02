@@ -13,6 +13,12 @@
 - Attack / validate: AD CS ESC coverage, Kerberoasting, DCSync, RBCD, Zerologon safe-detect, and more — each hop is promoted from POSSIBLE to PROVEN only when supported by concrete evidence.
 - Report: JSON, HTML, Markdown, and BloodHound-CE; finding, path, proof, command, and MITRE technique stay linked across every export.
 
+## Current release
+- Version 1.4.9 was published on 2026-09-01 through GitHub Releases and crates.io.
+- Focus: protocol and parser bounds, safer credential handling, release-integrity checks, and validation receipts for Windows Server 2019, 2022, and 2025.
+- The receipts record working SMB / Kerberos paths and graceful failure for LDAP-dependent paths under hardened LDAPS channel binding. `docs/VALIDATION.md` is authoritative for current support.
+- Version 1.4.8 was the preceding capability-expansion release: 18 of 19 planned vectors were implemented, with validation depth varying by capability.
+
 ## Who it is for
 - Penetration testers, red teamers, and Active Directory security specialists.
 - Built on the icedracon ecosystem of published standalone Rust crates implementing Microsoft security protocols.
@@ -21,6 +27,8 @@
 - Install: `cargo install adhammer` — https://crates.io/crates/adhammer
 - Library: `cargo add adhammer-sdk`
 - Source: https://github.com/icedracon/adhammer
+- Release notes: https://github.com/icedracon/adhammer/releases/tag/v1.4.9
+- Validation ledger: https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md
 - Crates by author: https://crates.io/users/zevs
 
 ## Authorized use only
