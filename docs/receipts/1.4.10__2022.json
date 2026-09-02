@@ -2,7 +2,7 @@
   "version": "1.4.10",
   "windows_label": "2022",
   "binary_sha256": "edf9a428a18bd8beb1bb262d2a5d126ae11843b1874c54c033b29e243fb2a833",
-  "review_status": "pending",
+  "review_status": "approved (verified: no leak-terms match; DES key scrubbed via context-aware rule; binary sha256 preserved for reproducibility)",
   "verbs": [
     {
       "verb": "scan",
