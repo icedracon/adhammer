@@ -686,9 +686,7 @@ dependencies = [
 
 [[package]]
 name = "dcerpc"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "756cf5b5425f2eb3419ddeefd4bdf4a56ccd36c0cee4f31f872f0597f1c09c9a"
+version = "0.2.9"
 dependencies = [
  "aes",
  "des",

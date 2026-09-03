@@ -109,3 +109,7 @@ codegen-units = 1
 # (see feedback-adhammer-hard-rules § [patch.crates-io] strip discipline).
 [patch.crates-io]
 smb2-client = { path = "../smb2-client" }
+# WS-BB-SHARES (1.5.0, LOCAL-ONLY) — local dcerpc 0.2.9 adds srvsvc
+# `NetrShareEnum` (opnum 15, SHARE_INFO_1) consumed by `enum shares --anon`.
+# Strip before any adhammer crates.io publish, same as smb2-client above.
+dcerpc = { path = "../dcerpc" }

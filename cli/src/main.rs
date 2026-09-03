@@ -222,10 +222,14 @@ enum EnumCmd {
     /// refused (2019+ default).
     Nullbind(enums::nullbind::NullbindArgs),
     /// **1.5.0 WS-BB-RPCNULL.** No-cred anonymous RPC probe (rpcclient shape):
-    /// srvsvc NetSessionEnum + wkssvc user-enum + sarpc policy over a
+    /// srvsvc NetSessionEnum + wkssvc user-enum + lsarpc policy over a
     /// null session. Reports which interfaces a DC exposes anonymously.
     #[command(name = "rpc-null")]
     RpcNull(enums::rpcnull::RpcNullArgs),
+    /// **1.5.0 WS-BB-SHARES.** No-cred anonymous share enumeration
+    /// (smbclient -L shape): srvsvc NetrShareEnum level 1 over a null
+    /// session. Requires `--anon`. Lists shares a DC exposes anonymously.
+    Shares(enums::shares::SharesArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -737,6 +741,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Web(_) => "enum web",
             EnumCmd::Nullbind(_) => "enum nullbind",
             EnumCmd::RpcNull(_) => "enum rpc-null",
+            EnumCmd::Shares(_) => "enum shares",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -806,6 +811,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Web(a)) => enums::web::webenum(a).await,
         Command::Enum(EnumCmd::Nullbind(a)) => enums::nullbind::nullbind(a).await,
         Command::Enum(EnumCmd::RpcNull(a)) => enums::rpcnull::rpcnull(a).await,
+        Command::Enum(EnumCmd::Shares(a)) => enums::shares::shares(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

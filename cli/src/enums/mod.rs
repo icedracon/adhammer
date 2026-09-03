@@ -18,4 +18,5 @@ pub(crate) mod posture;
 pub(crate) mod rpcnull;
 pub(crate) mod sccm;
 pub(crate) mod sessions;
+pub(crate) mod shares;
 pub(crate) mod web;
