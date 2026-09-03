@@ -12,14 +12,17 @@ leaked bytes.
 The historical plan below records the local development policy used while
 1.4.10 was being prepared. Current distribution truth supersedes that policy:
 
-- GitHub `v1.4.10` binaries/source were published from commit `b98a73b`.
-- Receipt approval was committed immediately afterward at `7dee1dd`; the tag's
-  JSON copies still say `pending`, while `main` carries the approved review.
-- The executable source is unchanged by that approval-only commit.
-- crates.io intentionally remains at 1.4.9 until the maintainer explicitly
-  authorizes the bottom-up 12-crate cascade.
-- Consequently, GitHub release/install paths are the authoritative 1.4.10
-  distribution; `cargo install adhammer` from crates.io installs 1.4.9.
+- **Final alignment (2026-09-03):** `v1.4.10` was retagged to `d0791e4` so
+  the tag source carries the finished secret-writer hardening, approved
+  receipts, green ledger/CI, and the Intel macOS build leg. The GitHub
+  release rebuilt from that tag (5 binaries incl. Intel x64).
+- **crates.io cascade published (2026-09-03):** all 12 crates at 1.4.10,
+  bottom-up (core → secrets/ldap/graph/sysvol/kerberos/collector/bloodhound
+  → checks → report → sdk → adhammer). `cargo install adhammer` now
+  installs 1.4.10. Distribution is fully aligned: GitHub source + tag +
+  release binaries + crates.io all at 1.4.10.
+- Historical note: the original tag pointed to `b98a73b` (red ledger CI +
+  pending-status receipt JSON); superseded by the `d0791e4` retag above.
 
 ### Historical preparation policy
 

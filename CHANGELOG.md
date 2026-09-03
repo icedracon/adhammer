@@ -27,8 +27,10 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
   post-cascade crates.io resolution check, so a GitHub-only tag is not marked
   red merely because same-version crates are intentionally unpublished.
 - The release matrix now includes `x86_64-apple-darwin` on GitHub's Intel macOS
-  runner; public install documentation explicitly distinguishes GitHub 1.4.10
-  from crates.io 1.4.9.
+  runner. Distribution is fully aligned at 1.4.10: GitHub source + tag +
+  release binaries, plus all 12 crates published to crates.io in the
+  bottom-up cascade (core → secrets/ldap/graph/sysvol/kerberos/collector/
+  bloodhound → checks → report → sdk → adhammer).
 
 ### Security
 

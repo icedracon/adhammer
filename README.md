@@ -99,10 +99,10 @@ Every finding in the report is either an audit observation, a supported validati
 
 The current workspace version is **1.4.10** (2026-09-02).
 
-Distribution state: **GitHub binaries/source are 1.4.10; crates.io remains
-1.4.9 by explicit maintainer policy.** Until the 12-crate publish cascade is
-authorized, `cargo install adhammer` installs 1.4.9. Use the GitHub release,
-`cargo binstall`, or the installer below for 1.4.10.
+Distribution state: **fully aligned at 1.4.10** — GitHub source + tag +
+release binaries, and all 12 crates on crates.io. `cargo install adhammer`
+installs 1.4.10; the GitHub release, `cargo binstall`, and the installer
+below all deliver the same version.
 
 Public claims for ADhammer should follow three rules:
 
@@ -318,7 +318,7 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 <tr>
 <td width="50%">
 
-**From crates.io** — currently 1.4.9:
+**From crates.io** — 1.4.10:
 
 ```sh
 cargo install --locked adhammer
