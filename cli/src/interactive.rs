@@ -894,6 +894,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 listener,
                 pipe,
                 target: None,
+                scan_all: false,
+                json: false,
             })
             .await
         }
