@@ -138,6 +138,29 @@ observable no-cred discovery capability the types support is a 1.5.0
 addition (WS-FOUNDATION-DNS-HANDROLL + WS-FOUNDATION-BLACKBOX-CLI
 below).
 
+### WS-FOUNDATION-DNS-HANDROLL (landed 2026-09-03, all local)
+
+The D2-locked hand-rolled DNS resolver — no `hickory-resolver`.
+Landed in two slices:
+
+1. `crates/collector/src/dns_wire.rs` — pure RFC 1035 message codec
+   (`encode_query` + `parse_response`), zero I/O, name decompression
+   with a bounded pointer budget. No-panic on hostile bytes (10 unit
+   tests + `fuzz/fuzz_targets/dns_wire.rs`).
+2. `crates/collector/src/discovery.rs` — rewritten off the untracked
+   hickory draft onto `dns_wire` + tokio UDP/TCP. `HandRolledDnsLookup`
+   (UDP → TCP-on-truncation, txn-id match); `DnsLookup` trait keeps the
+   SRV-family walk + scope filter + PTR collection transport-agnostic.
+   `discover_dns(scope, nameservers)` + `system_nameservers()`
+   (unix resolv.conf). BF-3 `allows()` scope semantics wired at the
+   discovery layer. `BlackBoxRunner::discover_dns` restored in the SDK
+   as a Discovery-class gated check.
+
+This closes the "foundation drift" — `discovery.rs` is now tracked +
+compiled + tested (was an untracked non-compiling draft). Remaining
+Windows nameserver auto-detection (adapter enumeration) folds into
+`WS-FOUNDATION-BLACKBOX-CLI` when the `run` verb lands.
+
 ### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
 Budgets first (max file size, max recursion depth, max cpassword-
 match count). Then extend the sysvol walker with `smb2-client`
