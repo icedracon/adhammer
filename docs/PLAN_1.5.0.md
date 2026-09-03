@@ -220,15 +220,28 @@ Replace `rsa 0.9` with `aws-lc-rs` RSA API. Remove
 **Verifiable close:** `cargo tree -i rsa --locked` returns 0 hits;
 `cargo audit` passes zero-ignores.
 
-### WS-COERCER + WS-WEB-FP (P2)
-`attack coerce --scan-all` wraps `ms-coerce`'s vector table. `enum web
---fingerprint` extends net.rs's 2-endpoint probe to
-{`/`, `/certsrv/`, `/RDWeb/`, `/adfs/ls/`, `/FederationMetadata/2007-06/`,
-`/EWS/Exchange.asmx`, `/owa/`, `/CCM_Client/`, `/CertEnroll/`,
-`/Autodiscover/Autodiscover.xml`}. HTTPS via existing `tokio-rustls
-0.26`. Zero new deps.
-**Verifiable close:** each verb has ≥ 3 unit tests + wire-format
-snapshots.
+### WS-WEB-FP (landed 2026-09-03, all local)
+`enum web` — no-cred HTTP/80 + HTTPS/443 fingerprint of a host's AD web
+surface across 13 endpoints (root, `/certsrv/` + certfnsh/certrqxt,
+RD Web, ADFS sign-in + FederationMetadata, OWA/EWS/Autodiscover, SCCM,
+ASP.NET). `cli/src/enums/web.rs`: `probe_http` (raw TCP) + `probe_https`
+(tokio-rustls, AcceptAny verifier for self-signed DC certs). Cleartext
+`WWW-Authenticate: NTLM` on `/certsrv/` flagged as ESC8 relay surface.
+Output sanitized (BF-8), human + JSON, 3 parse-head unit tests.
+**Live-validated:** 2019 + 2022 flagged ESC8 (401 Negotiate,NTLM);
+2025 correctly NOT flagged (403 hardened). No false positive.
+
+### WS-BLACKBOX-COMPOSE (landed 2026-09-03, all local)
+`adhammer run --web` chains DNS discovery → per-DC web fingerprint in
+one no-cred command ("one binary replaces the manual paste chain").
+`fingerprint_host` / `is_esc8` extracted from `enum web` for reuse;
+`run` collects every unique discovered DC IP and fingerprints each.
+**Live-validated** against <realm> end-to-end.
+
+### WS-COERCER (P2, still planned)
+`attack coerce --scan-all` wraps `ms-coerce`'s vector table (unified
+Coercer-style probe across spoolss/efsr/dfsr/fsrvp).
+**Verifiable close:** ≥ 3 unit tests + a live coerce-scan receipt.
 
 ### WS-RECEIPT-SCHEMA + WS-CASCADE-REHEARSAL (P2)
 `docs/receipts/SCHEMA.md` names required fields; `scripts/
