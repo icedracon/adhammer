@@ -87,7 +87,7 @@ tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # crypto / kerberos (roasting layer)
-picky-krb   = "0.9"
+picky-krb   = "0.12"
 picky-asn1  = "0.10"
 md-5        = "0.10"
 md4         = "0.10"
