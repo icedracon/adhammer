@@ -58,14 +58,55 @@ const ENDPOINTS: &[(&str, &str)] = &[
     ("/aspnet_client/", "IIS / ASP.NET"),
 ];
 
-struct WebHit {
-    scheme: &'static str,
-    port: u16,
-    path: String,
-    tech: &'static str,
-    status: String,
-    server: Option<String>,
-    www_authenticate: Option<String>,
+pub(crate) struct WebHit {
+    pub(crate) scheme: &'static str,
+    pub(crate) port: u16,
+    pub(crate) path: String,
+    pub(crate) tech: &'static str,
+    pub(crate) status: String,
+    pub(crate) server: Option<String>,
+    pub(crate) www_authenticate: Option<String>,
+}
+
+/// Fingerprint one host's AD web surface over HTTP/80 + HTTPS/443.
+/// Reusable by the `run` orchestrator to fold web results under each
+/// discovered DC. Returns every endpoint that responded.
+pub(crate) async fn fingerprint_host(host: &str, timeout: u64) -> Vec<WebHit> {
+    let mut hits = Vec::new();
+    for (path, tech) in ENDPOINTS {
+        if let Some((status, server, auth)) = probe_http(host, 80, path, timeout).await {
+            hits.push(WebHit {
+                scheme: "http",
+                port: 80,
+                path: (*path).to_string(),
+                tech,
+                status,
+                server,
+                www_authenticate: auth,
+            });
+        }
+        if let Some((status, server, auth)) = probe_https(host, 443, path, timeout).await {
+            hits.push(WebHit {
+                scheme: "https",
+                port: 443,
+                path: (*path).to_string(),
+                tech,
+                status,
+                server,
+                www_authenticate: auth,
+            });
+        }
+    }
+    hits
+}
+
+/// True if a hit is the ESC8 cleartext-NTLM relay tell.
+pub(crate) fn is_esc8(h: &WebHit) -> bool {
+    h.scheme == "http"
+        && h.path.starts_with("/certsrv")
+        && h.www_authenticate
+            .as_deref()
+            .is_some_and(|a| a.to_ascii_lowercase().contains("ntlm"))
 }
 
 #[derive(Debug)]
@@ -212,32 +253,7 @@ pub(crate) async fn webenum(a: WebArgs) -> Result<()> {
     let mut all: Vec<(String, Vec<WebHit>)> = Vec::new();
     for host in &a.hosts {
         let sp = ui::Spinner::start(format!("fingerprinting web surface on {host}"));
-        let mut hits = Vec::new();
-        for (path, tech) in ENDPOINTS {
-            // HTTP/80 — skip re-probing "/" tech-tag duplication is fine.
-            if let Some((status, server, auth)) = probe_http(host, 80, path, a.timeout).await {
-                hits.push(WebHit {
-                    scheme: "http",
-                    port: 80,
-                    path: (*path).to_string(),
-                    tech,
-                    status,
-                    server,
-                    www_authenticate: auth,
-                });
-            }
-            if let Some((status, server, auth)) = probe_https(host, 443, path, a.timeout).await {
-                hits.push(WebHit {
-                    scheme: "https",
-                    port: 443,
-                    path: (*path).to_string(),
-                    tech,
-                    status,
-                    server,
-                    www_authenticate: auth,
-                });
-            }
-        }
+        let hits = fingerprint_host(host, a.timeout).await;
         sp.done(&format!("{}: {} endpoint hit(s)", host, hits.len()));
         all.push((host.clone(), hits));
     }

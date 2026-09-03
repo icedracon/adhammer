@@ -11,10 +11,12 @@
 //! targets outside it (or matching an `--exclude`, which wins across
 //! identity forms per BF-3) are dropped, not probed.
 //!
-//! This first slice is discovery-only. Consent (`--allow-impact` /
+//! `--web` composes the `enum web` fingerprint onto every discovered DC
+//! IP — the "one binary ties the no-cred flow together" step (DNS
+//! discovery → web surface in one command). Consent (`--allow-impact` /
 //! `--allow-spoof`) and budget (`--max-hosts` / `--max-duration-secs`)
-//! flags land when Impact/PostCred verbs are chained onto the runner;
-//! DNS discovery is Discovery-class and always permitted within scope.
+//! flags land when Impact/PostCred verbs join the chain; DNS discovery
+//! + web fingerprint are Discovery-class and always permitted in scope.
 
 use std::net::IpAddr;
 
@@ -45,6 +47,14 @@ pub(crate) struct RunArgs {
     /// (`/etc/resolv.conf` on Unix). On Windows, pass at least one.
     #[arg(long = "dns-server")]
     pub dns_servers: Vec<IpAddr>,
+    /// Chain an HTTP(S) web-surface fingerprint on every discovered DC IP
+    /// (composes `enum web` into the no-cred flow — flags ESC8 relay
+    /// surface, RD Web, ADFS, OWA/EWS, SCCM).
+    #[arg(long)]
+    pub web: bool,
+    /// Per-request timeout (seconds) for the chained web fingerprint.
+    #[arg(long, default_value = "5")]
+    pub web_timeout: u64,
     /// Emit JSON instead of the human-readable summary.
     #[arg(long)]
     pub json: bool,
@@ -133,6 +143,56 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
         print_json(&discoveries);
     } else {
         print_human(&discoveries);
+    }
+
+    // Composition: chain the web-surface fingerprint on every unique
+    // discovered DC IP (the "one binary ties the flow together" step).
+    if a.web {
+        let mut seen = std::collections::BTreeSet::new();
+        for d in &discoveries {
+            for t in d
+                .ldap_dc
+                .iter()
+                .chain(&d.kerberos_kdc)
+                .chain(&d.global_catalog)
+            {
+                for addr in &t.addrs {
+                    seen.insert(*addr);
+                }
+            }
+        }
+        if seen.is_empty() {
+            crate::ui::warn("--web: no discovered DC IPs to fingerprint");
+        } else {
+            println!("\n=== web surface on discovered DCs ===");
+            for ip in seen {
+                let host = ip.to_string();
+                let sp = crate::ui::Spinner::start(format!("web fingerprint {host}"));
+                let hits = crate::enums::web::fingerprint_host(&host, a.web_timeout).await;
+                sp.done(&format!("{host}: {} endpoint hit(s)", hits.len()));
+                for h in &hits {
+                    // Only surface interesting (non-404) hits in the compact view.
+                    if h.status.contains("404") {
+                        continue;
+                    }
+                    let esc = if crate::enums::web::is_esc8(h) {
+                        "  ** ESC8 relay surface **"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "    {}://{}:{}{}  {}  [{}]{}",
+                        h.scheme,
+                        host,
+                        h.port,
+                        adhammer_core::sanitize_terminal_output(&h.path),
+                        adhammer_core::sanitize_terminal_output(&h.status),
+                        h.tech,
+                        esc
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }
