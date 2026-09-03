@@ -212,6 +212,10 @@ enum EnumCmd {
     /// (DONT_REQ_PREAUTH flag) with a copy-pasteable `attack roast` command.
     #[command(name = "krb-users")]
     KrbUsers(enums::krb::KrbArgs),
+    /// **1.5.0 WS-WEB-FP.** No-cred HTTP(S) fingerprint of a host's AD web
+    /// surface — AD CS Web Enrollment (`/certsrv/`, the ESC8 relay tell),
+    /// RD Web Access, ADFS sign-in + metadata, Exchange OWA/EWS, SCCM.
+    Web(enums::web::WebArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -720,6 +724,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Sccm(_) => "enum sccm",
             EnumCmd::Scom(_) => "enum scom",
             EnumCmd::KrbUsers(_) => "enum krb-users",
+            EnumCmd::Web(_) => "enum web",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -786,6 +791,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Sccm(a)) => enums::sccm::sccmenum(a).await,
         Command::Enum(EnumCmd::Scom(a)) => enums::sccm::scomenum(a).await,
         Command::Enum(EnumCmd::KrbUsers(a)) => enums::krb::krbenum(a).await,
+        Command::Enum(EnumCmd::Web(a)) => enums::web::webenum(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,
