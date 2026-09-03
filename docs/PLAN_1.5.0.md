@@ -157,9 +157,37 @@ Landed in two slices:
    as a Discovery-class gated check.
 
 This closes the "foundation drift" — `discovery.rs` is now tracked +
-compiled + tested (was an untracked non-compiling draft). Remaining
-Windows nameserver auto-detection (adapter enumeration) folds into
-`WS-FOUNDATION-BLACKBOX-CLI` when the `run` verb lands.
+compiled + tested (was an untracked non-compiling draft).
+
+### WS-FOUNDATION-BLACKBOX-CLI (landed 2026-09-03, all local)
+
+`adhammer run` — the operator-reachable no-cred Phase-0 verb.
+`cli/src/blackbox.rs`:
+- `RunArgs`: `--domain` (realm, repeatable, required),
+  `--range`/`--host`/`--hostname` (in-scope includes, ≥1 required),
+  `--exclude` (excludes win across identity forms, BF-3),
+  `--dns-server` (repeatable; default `system_nameservers()`),
+  `--json`.
+- `run()` builds an `EngagementScope`, calls
+  `adhammer_collector::discover_dns`, and prints per-domain
+  LDAP-DC / KDC / GC families (host:port, priority/weight, resolved
+  A/AAAA) + reverse DNS + a next-actions footer. All DNS-derived
+  strings pass through `sanitize_terminal_output` (BF-8). Hand-built
+  JSON keeps the collector types serde-free.
+- `Command::Run` wired into `main.rs` (dispatch + label + JSON-exempt).
+  cli gained `ipnet` for `--range` CIDR parsing.
+
+Live-validated on `<realm>` (Server 2025 DC, DNS on the DC):
+resolved <dc-2025-host-lower> for LDAP(389)/KDC(88)/GC(3268) both NICs + PTR;
+`--exclude <dc-2025-host>.<realm>` dropped the DC to 0 in-scope targets
+even though its IP is inside the included `/20` — BF-3 cross-cutting
+exclude proven end-to-end.
+
+Deferred to when Impact/PostCred verbs chain onto the runner: the
+`--allow-impact`/`--allow-spoof` consent + `--max-hosts`/
+`--max-duration-secs` budget flags (DNS discovery is Discovery-class,
+always in-scope). Windows nameserver auto-detection (adapter
+enumeration) still owed — operator passes `--dns-server` there.
 
 ### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
 Budgets first (max file size, max recursion depth, max cpassword-
