@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand};
 
 // adcs_relay moved to attacks::adcs_relay in arch-1
 mod attacks;
+mod blackbox;
 mod checks;
 mod dcshadow;
 mod dumps;
@@ -110,6 +111,9 @@ enum Command {
     /// One-shot onboarding helpers: `setup krb5` writes a working krb5.conf.
     #[command(subcommand)]
     Setup(setup::SetupCmd),
+    /// No-cred black-box discovery: resolve a realm's DC/KDC/GC SRV records
+    /// over the hand-rolled DNS client, filtered to your authorized scope.
+    Run(blackbox::RunArgs),
 }
 
 #[derive(Subcommand)]
@@ -646,7 +650,11 @@ async fn dispatch_json(cmd: Command) -> Result<()> {
     // Report/audit/config commands own their human output — never JSON-wrap them.
     if matches!(
         cmd,
-        Command::Scan(_) | Command::Auto(_) | Command::Check(_) | Command::Setup(_)
+        Command::Scan(_)
+            | Command::Auto(_)
+            | Command::Check(_)
+            | Command::Setup(_)
+            | Command::Run(_)
     ) {
         return dispatch(cmd).await;
     }
@@ -758,6 +766,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
         Command::Setup(s) => match s {
             setup::SetupCmd::Krb5(_) => "setup krb5",
         },
+        Command::Run(_) => "run",
     }
 }
 
@@ -830,6 +839,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
         Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,
         Command::Setup(setup::SetupCmd::Krb5(a)) => setup::krb5::run(a).await,
+        Command::Run(a) => blackbox::run(a).await,
         Command::Auto(a) => {
             guided::guided(guided::GuidedArgs {
                 url: a.url,

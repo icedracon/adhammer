@@ -74,6 +74,8 @@ mssql = ["dep:ms-tds"]
 adhammer-core = { workspace = true }
 windows-sddl = { workspace = true }
 adhammer-collector = { workspace = true }
+# WS-FOUNDATION-BLACKBOX-CLI (1.5.0) — CIDR parsing for `run --range`.
+ipnet = { workspace = true }
 adhammer-checks = { workspace = true }
 adhammer-graph = { workspace = true }
 adhammer-report = { workspace = true }

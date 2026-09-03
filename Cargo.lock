@@ -33,6 +33,7 @@ dependencies = [
  "dpapi-ng",
  "dpapi-offline",
  "hex",
+ "ipnet",
  "ms-crtd",
  "ms-drsr",
  "ms-icpr",
