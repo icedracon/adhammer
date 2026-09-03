@@ -92,7 +92,7 @@ ms-tds = { workspace = true, optional = true }
 # ms-icpr's build_csr_with_upn_san signs with an RSA key; `attack icpr-esc1`
 # generates a fresh 2048-bit key when the caller doesn't supply one.
 rsa = { version = "0.9", features = ["sha2", "pem"] }
-rand = "0.8"
+rand = "0.10"
 
 # ESC8 (adcs-http relay) — minimal NTLM-over-HTTP client. Same rustls/tokio-rustls versions
 # ldap3 already pulls in, so no duplicate-crate risk.
