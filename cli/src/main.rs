@@ -230,6 +230,10 @@ enum EnumCmd {
     /// (smbclient -L shape): srvsvc NetrShareEnum level 1 over a null
     /// session. Requires `--anon`. Lists shares a DC exposes anonymously.
     Shares(enums::shares::SharesArgs),
+    /// **1.5.0 WS-BB-HOST.** Unified no-cred host posture (enum4linux-ng
+    /// shape): SAMR users + srvsvc sessions/shares + wkssvc + lsarpc over
+    /// ONE null session. Requires `--anon`. The single-shot anon sweep.
+    Host(enums::host::HostArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -742,6 +746,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Nullbind(_) => "enum nullbind",
             EnumCmd::RpcNull(_) => "enum rpc-null",
             EnumCmd::Shares(_) => "enum shares",
+            EnumCmd::Host(_) => "enum host",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -812,6 +817,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Nullbind(a)) => enums::nullbind::nullbind(a).await,
         Command::Enum(EnumCmd::RpcNull(a)) => enums::rpcnull::rpcnull(a).await,
         Command::Enum(EnumCmd::Shares(a)) => enums::shares::shares(a).await,
+        Command::Enum(EnumCmd::Host(a)) => enums::host::host(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

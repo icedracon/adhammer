@@ -55,6 +55,11 @@ pub(crate) struct RunArgs {
     /// Per-request timeout (seconds) for the chained web fingerprint.
     #[arg(long, default_value = "5")]
     pub web_timeout: u64,
+    /// Chain the anonymous SMB host posture (`enum host --anon`) on every
+    /// discovered DC IP: SAMR users + srvsvc sessions/shares + wkssvc +
+    /// lsarpc over one null session per host. No credentials used.
+    #[arg(long)]
+    pub deep: bool,
     /// Emit JSON instead of the human-readable summary.
     #[arg(long)]
     pub json: bool,
@@ -145,27 +150,57 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
         print_human(&discoveries);
     }
 
-    // Composition: chain the web-surface fingerprint on every unique
-    // discovered DC IP (the "one binary ties the flow together" step).
-    if a.web {
-        let mut seen = std::collections::BTreeSet::new();
-        for d in &discoveries {
-            for t in d
-                .ldap_dc
-                .iter()
-                .chain(&d.kerberos_kdc)
-                .chain(&d.global_catalog)
-            {
-                for addr in &t.addrs {
-                    seen.insert(*addr);
-                }
+    // Composition: chain per-DC probes on every unique discovered DC IP
+    // (the "one binary ties the flow together" step). Both --web and --deep
+    // work off the same in-scope IP set.
+    let dc_ips: std::collections::BTreeSet<IpAddr> = if a.web || a.deep {
+        discoveries
+            .iter()
+            .flat_map(|d| {
+                d.ldap_dc
+                    .iter()
+                    .chain(&d.kerberos_kdc)
+                    .chain(&d.global_catalog)
+            })
+            .flat_map(|t| t.addrs.iter().copied())
+            .collect()
+    } else {
+        std::collections::BTreeSet::new()
+    };
+
+    // --deep: anonymous SMB host posture per discovered DC IP.
+    if a.deep {
+        if dc_ips.is_empty() {
+            crate::ui::warn("--deep: no discovered DC IPs to probe");
+        } else {
+            println!("\n=== anonymous SMB posture on discovered DCs ===");
+            for ip in &dc_ips {
+                let host = ip.to_string();
+                let sp = crate::ui::Spinner::start(format!("anonymous host posture {host}"));
+                let p = crate::enums::host::probe_host(&host).await;
+                let headline = if !p.reachable {
+                    "unreachable".to_string()
+                } else if !p.null_session {
+                    "null refused (hardened)".to_string()
+                } else if p.anon_exposed() {
+                    "anon surface exposed".to_string()
+                } else {
+                    "null OK, all RPC refused".to_string()
+                };
+                sp.done(&format!("{host}: {headline}"));
+                println!("\n  -- {host} --");
+                crate::enums::host::print_posture(&p, "    ");
             }
         }
-        if seen.is_empty() {
+    }
+
+    // --web: HTTP(S) web-surface fingerprint per discovered DC IP.
+    if a.web {
+        if dc_ips.is_empty() {
             crate::ui::warn("--web: no discovered DC IPs to fingerprint");
         } else {
             println!("\n=== web surface on discovered DCs ===");
-            for ip in seen {
+            for ip in &dc_ips {
                 let host = ip.to_string();
                 let sp = crate::ui::Spinner::start(format!("web fingerprint {host}"));
                 let hits = crate::enums::web::fingerprint_host(&host, a.web_timeout).await;

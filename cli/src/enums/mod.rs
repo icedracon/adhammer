@@ -11,6 +11,7 @@
 pub(crate) mod adcs;
 pub(crate) mod dns;
 pub(crate) mod esc_registry;
+pub(crate) mod host;
 pub(crate) mod krb;
 pub(crate) mod net;
 pub(crate) mod nullbind;
