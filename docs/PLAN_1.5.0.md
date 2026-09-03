@@ -189,15 +189,25 @@ Deferred to when Impact/PostCred verbs chain onto the runner: the
 always in-scope). Windows nameserver auto-detection (adapter
 enumeration) still owed — operator passes `--dns-server` there.
 
-### WS-SYSVOL-BUDGETS + WS-SYSVOL-ANON (P1)
-Budgets first (max file size, max recursion depth, max cpassword-
-match count). Then extend the sysvol walker with `smb2-client`
-null-session anonymous walk — filesystem/UNC scanner exists, anon-SMB
-does not.
-**Verifiable close:** a synthetic 100 MB `Groups.xml` gets refused;
-a live-tested anon walk against Server 2019 succeeds against a share
-configured for null access and refuses cleanly against a share that
-isn't.
+### WS-SYSVOL-ANON (landed 2026-09-03, all local)
+`enum sysvol` — walks `\\dc\SYSVOL` over SMB2 QUERY_DIRECTORY (new
+`smb2-client` 0.2.3 `list_directory` + non-deleting `read_file`),
+reads every `*.xml`, and decrypts `cpassword=` via `adhammer_sysvol::gpp`
+(MS14-025 public key). Two modes: `--anon` (null session, the G-9
+zero-cred path) and `--user/--password/--domain` (authenticated — any
+domain user can read SYSVOL). Iterative walk (explicit dir stack) with
+depth/dir/file caps. Secret boundary held (BF-2): decrypted plaintext
+never touches stdout/JSON — `[REDACTED]` in the summary, plaintext only
+to a `--dump` 0600/protected-DACL artifact; `.gitignore` filters
+`gpp_dump*.txt`.
+**Closed:** live-validated vs <dc-2025-host> (2025). `--anon` → SYSVOL root read
+`0xc0000022` ACCESS_DENIED → "not readable anonymously (secure posture)"
+(well-formed after the `create_file` empty-name fix). Authenticated →
+recursed `{GUID}\{USER,MACHINE}\Preferences\Groups`, recovered 2 GPP
+cpasswords, exercising the new QUERY_DIRECTORY parser + `read_file`
+against real wire data. `--dump` wrote 0600; stdout stayed redacted.
+Deferred within this WS: file-size/match-count budgets (walk has
+depth/dir/file caps; per-file byte cap owed) → fold into WS-SYSVOL-BUDGETS.
 
 ### WS-DEPS-MAJORS (P1)
 `picky-krb 0.9 → 0.12` (~30 mechanical edits in `crates/kerberos/
@@ -236,12 +246,43 @@ Output sanitized (BF-8), human + JSON, 3 parse-head unit tests.
 one no-cred command ("one binary replaces the manual paste chain").
 `fingerprint_host` / `is_esc8` extracted from `enum web` for reuse;
 `run` collects every unique discovered DC IP and fingerprints each.
-**Live-validated** against <realm> end-to-end.
+**Live-validated** end-to-end.
 
-### WS-COERCER (P2, still planned)
-`attack coerce --scan-all` wraps `ms-coerce`'s vector table (unified
-Coercer-style probe across spoolss/efsr/dfsr/fsrvp).
-**Verifiable close:** ≥ 3 unit tests + a live coerce-scan receipt.
+### WS-BB-ANON-ENUM suite (landed 2026-09-03, all local)
+The no-cred SMB enumeration verbs, all built on `smb2-client`
+`login_null` (0.2.2) and live-validated against the lab DCs:
+- `enum nullbind` — anon SAMR user enum (`\samr`).
+- `enum rpc-null` — anon `\srvsvc` NetSessionEnum + `\wkssvc`
+  NetrWkstaUserEnum + `\lsarpc` LsarOpenPolicy.
+- `enum shares --anon` — anon `NetrShareEnum` (new dcerpc 0.2.9
+  `srvsvc::enum_shares`, opnum 15 SHARE_INFO_1).
+- `enum host --anon` — the enum4linux-ng single-shot: all of the above
+  over ONE null session via a shared `probe_host` core returning
+  `HostPosture`.
+- `run --deep` — chains `probe_host` on every discovered DC IP (reuses
+  the `--web` unique-IP set).
+Each interface is tried independently; a per-pipe refusal is recorded
+as a hardened-posture finding, never aborts the sweep — the exposed-vs-
+refused pattern is the finding. Human + JSON, all target text sanitized
+(BF-8). **Live result:** 2025/<dc-2025-host> exposes srvsvc/wkssvc/lsarpc + shares
+(SYSVOL/NETLOGON/CertEnroll) anonymously but blocks SAMR (0xc0000022);
+2019 refuses the null session outright (0xc000006d) — genuine posture
+discrimination surfaced in one block.
+
+### WS-COERCER (landed 2026-09-03, all local)
+`attack coerce --scan-all` runs all five vectors (PrinterBug,
+PetitPotam ×2 pipes, DFSCoerce, ShadowyCoerce) over one authenticated
+login and prints a which-fired matrix. Each vector refactored into a
+`try_*` helper returning `VectorOutcome`; single `--pipe` mode and
+`--scan-all` share them. Wraps the dcerpc coercion encoders already
+byte- + live-validated in 1.4.8 — this WS adds only orchestration +
+reporting. Human + JSON; wire-derived error text sanitized (BF-8).
+**Closed:** live-validated vs a hardened 2025 DC — all five handled
+gracefully with exact wire detail (spoolss RPC timeout, lsarpc BIND
+ctx reject, efsrpc/FssagentRpc 0xc0000034, netdfs BIND_NAK) →
+"no vector fired, hardened against all four families". No DFS root
+added (DFSCoerce did not fire). Orchestration never panics across
+timeout / BIND-reject / pipe-not-found paths.
 
 ### WS-RECEIPT-SCHEMA + WS-CASCADE-REHEARSAL (P2)
 `docs/receipts/SCHEMA.md` names required fields; `scripts/
