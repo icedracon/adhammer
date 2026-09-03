@@ -22,6 +22,9 @@ adhammer-sysvol = { path = "../crates/sysvol" }
 # WS-FUZZ-CORE (1.4.10) — new adhammer_core defence surfaces (sanitizer +
 # scope hostname parser) that consume attacker-controlled bytes.
 adhammer-core = { path = "../crates/core" }
+# WS-FOUNDATION-DNS-HANDROLL (1.5.0) — fuzz the raw DNS response parser.
+# no-default-features: dns_wire is pure + needs no TLS backend.
+adhammer-collector = { path = "../crates/collector", default-features = false }
 serde_json = "1"
 dpapi-offline = "0.1.2"
 ntlmssp = "0.1"
@@ -128,6 +131,15 @@ bench = false
 [[bin]]
 name = "scope_hostname"
 path = "fuzz_targets/scope_hostname.rs"
+test = false
+doc = false
+bench = false
+
+# WS-FOUNDATION-DNS-HANDROLL (1.5.0) — raw DNS response parser (hostile
+# server / spoofed bytes off a UDP socket).
+[[bin]]
+name = "dns_wire"
+path = "fuzz_targets/dns_wire.rs"
 test = false
 doc = false
 bench = false

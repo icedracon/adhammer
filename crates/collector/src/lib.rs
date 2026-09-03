@@ -28,6 +28,7 @@ use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use std::collections::{HashMap, HashSet};
 
 pub mod dns_record;
+pub mod dns_wire;
 pub mod sources;
 
 /// LDAP_SERVER_SD_FLAGS_OID — ask the server for only OWNER|GROUP|DACL of

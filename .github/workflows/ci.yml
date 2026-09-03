@@ -109,7 +109,8 @@ jobs:
         run: |
           for t in sddl_parse hive_parse pac_credential_info \
                    dpapi_blob dpapi_masterkey gpp_cpassword gptmpl_parse \
-                   ntlmssp_challenge ntlmssp_type3; do
+                   ntlmssp_challenge ntlmssp_type3 \
+                   sanitize_terminal scope_hostname dns_wire; do
             cargo +nightly fuzz run "$t" -- -max_total_time=60 -rss_limit_mb=4096 || echo "FUZZ-CRASH: $t"
           done
       - name: upload fuzz crash artifacts (repro inputs)
