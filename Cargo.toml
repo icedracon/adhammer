@@ -74,8 +74,10 @@ adhammer-secrets    = { path = "crates/secrets",    version = "1.4.10" }
 # WS-HASHGLASS (1.5.0, LOCAL-ONLY) — pentester-focused hash-type identifier
 # consumed by `attack roast` to annotate each emitted hash with its hashcat
 # mode + name + confidence. Not on crates.io yet, so path-only for now; a
-# published-registry line lands with WS-HASHGLASS-PUBLISH.
-hashglass = { path = "../hashglass" }
+# published-registry line lands with WS-HASHGLASS-PUBLISH. Version pinned
+# even without a registry entry so `cargo deny bans` does not flag this as
+# a wildcard dependency (WS-DEPS-BANS discipline).
+hashglass = { path = "../hashglass", version = "0.1" }
 
 # external
 serde       = { version = "1", features = ["derive"] }
