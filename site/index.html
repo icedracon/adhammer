@@ -1169,8 +1169,8 @@
     .release-lineage-map { position: absolute; inset: 70px 0 0; }
     .release-lineage-visual { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     .release-line, .release-line-pulse, .release-line-ambient { fill: none; vector-effect: non-scaling-stroke; }
-    .release-line-public { stroke: url(#release-line-gradient); stroke-width: 2; }
-    .release-line-candidate { stroke: rgba(121, 210, 255, .62); stroke-width: 1.5; stroke-dasharray: 7 12; }
+    .release-line-history { stroke: rgba(121, 210, 255, .38); stroke-width: 1.5; }
+    .release-line-current-path { stroke: url(#release-line-gradient); stroke-width: 2; }
     .release-line-pulse {
       stroke: #fff;
       stroke-width: 3.5;
@@ -1181,22 +1181,6 @@
     }
     .release-line-ambient { stroke: rgba(121, 210, 255, .1); stroke-width: 1; stroke-dasharray: 2 8; }
     .release-lineage-dot { fill: var(--ice); opacity: .24; }
-    .release-publish-boundary {
-      position: absolute;
-      left: 18px;
-      right: 18px;
-      top: 61%;
-      z-index: 1;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: #52606c;
-      font: 500 7px/1 var(--mono);
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      pointer-events: none;
-    }
-    .release-publish-boundary::before { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(121, 210, 255, .18)); }
     .release-lineage-node {
       position: absolute;
       z-index: 3;
@@ -1239,12 +1223,9 @@
       border-radius: 50%;
       animation: heart-live 2.2s ease-out infinite;
     }
-    .release-lineage-candidate .release-lineage-orb { border-style: dashed; border-color: var(--ice); background: rgba(8, 28, 41, .9); }
-    .release-lineage-candidate .release-lineage-orb i { width: 10px; height: 10px; border-radius: 1px; background: var(--ice); box-shadow: 0 0 16px rgba(121, 210, 255, .74); transform: rotate(45deg); }
     .release-lineage-copy small { display: block; color: var(--muted); font: 600 10px/1.35 var(--mono); letter-spacing: .07em; text-transform: uppercase; }
     .release-lineage-copy strong { display: block; margin-top: 6px; font-size: 25px; line-height: 1; letter-spacing: -.055em; }
     .release-lineage-current .release-lineage-copy strong { color: var(--proof-bright); font-size: clamp(34px, 4.2vw, 52px); }
-    .release-lineage-candidate .release-lineage-copy strong { color: var(--ice); }
     .release-lineage-copy em { display: block; margin-top: 7px; color: #74818d; font: 500 9px/1.35 var(--mono); font-style: normal; }
     .release-lineage-status {
       position: absolute;
@@ -1286,9 +1267,9 @@
     }
     .release-boundary b { color: var(--proof-bright); font: 600 9px/1.5 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
     .release-boundary p { margin: 0; color: #8c98a4; font: 500 10px/1.65 var(--mono); }
-    .release-next-note { margin-top: 18px; padding: 18px 20px; border: 1px solid rgba(121, 210, 255, .18); background: rgba(121, 210, 255, .035); }
-    .release-next-note span { color: var(--ice); font: 600 9px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
-    .release-next-note p { margin: 9px 0 0; color: #8996a2; font: 500 10px/1.6 var(--mono); }
+    .release-distribution-note { margin-top: 18px; padding: 18px 20px; border: 1px solid rgba(121, 210, 255, .18); background: rgba(121, 210, 255, .035); }
+    .release-distribution-note span { color: var(--ice); font: 600 9px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .release-distribution-note p { margin: 9px 0 0; color: #8996a2; font: 500 10px/1.6 var(--mono); }
     .release-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
     .release-link {
       display: inline-flex;
@@ -1858,7 +1839,7 @@
     "applicationSubCategory": "Active Directory penetration testing",
     "operatingSystem": "Linux, macOS, Windows",
     "programmingLanguage": "Rust",
-    "softwareVersion": "1.4.9",
+    "softwareVersion": "1.4.10",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
     "description": "ADhammer is an open-source Active Directory pentest tool in Rust. Map attack paths, assess AD CS, validate supported findings, and export evidence.",
@@ -1942,7 +1923,7 @@
           <div class="hero-fact"><b>50+ checks</b><span>four audit categories</span></div>
           <div class="hero-fact"><b>15 / 16 AD CS</b><span>coverage classes</span></div>
           <div class="hero-fact"><b>Evidence-led</b><span>validation ledger</span></div>
-          <div class="hero-fact"><b>v1.4.9</b><span>current release</span></div>
+          <div class="hero-fact"><b>v1.4.10</b><span>current release</span></div>
         </div>
       </div>
       <div class="hero-rail" aria-label="Assessment lifecycle">
@@ -2138,43 +2119,42 @@
               <path class="release-line-ambient" d="M20 52 L118 88 L164 34 M256 52 L320 92 L382 62 M26 482 L116 454 M270 478 L382 438"></path>
               <circle class="release-lineage-dot" cx="20" cy="52" r="2"></circle><circle class="release-lineage-dot" cx="118" cy="88" r="3"></circle><circle class="release-lineage-dot" cx="164" cy="34" r="2"></circle>
               <circle class="release-lineage-dot" cx="256" cy="52" r="2"></circle><circle class="release-lineage-dot" cx="320" cy="92" r="3"></circle><circle class="release-lineage-dot" cx="382" cy="62" r="2"></circle>
-              <path class="release-line release-line-public" d="M65 97 C72 156 128 188 145 254"></path>
-              <path class="release-line-pulse" pathLength="1" d="M65 97 C72 156 128 188 145 254"></path>
-              <path class="release-line release-line-candidate" d="M145 254 C150 329 82 357 65 427"></path>
+              <path class="release-line release-line-history" d="M65 97 C72 156 128 188 145 254"></path>
+              <path class="release-line release-line-current-path" d="M145 254 C150 329 82 357 65 427"></path>
+              <path class="release-line-pulse" pathLength="1" d="M145 254 C150 329 82 357 65 427"></path>
             </svg>
-            <span class="release-publish-boundary">Publish boundary</span>
             <a class="release-lineage-node release-lineage-148" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.8" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.8</strong><em>Capability expansion</em></span>
+              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.8</strong><em>Capability expansion</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-149 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
+              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
             </a>
-            <div class="release-lineage-node release-lineage-1410 release-lineage-candidate">
+            <a class="release-lineage-node release-lineage-1410 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Local candidate · not published</small><strong>v1.4.10</strong><em>LDAP · GPP · budgets · output</em></span>
-            </div>
-            <span class="release-lineage-status">03 nodes / 02 trust states</span>
+              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
+            </a>
+            <span class="release-lineage-status">03 published releases / current v1.4.10</span>
           </div>
-          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.8 is a previous published release, version 1.4.9 is the current published release, and version 1.4.10 is a local candidate that is not published.</figcaption>
+          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.8 is an earlier published release, version 1.4.9 is the previous published release, and version 1.4.10 is the current published release.</figcaption>
         </figure>
         <div class="release-story reveal">
           <span class="eyebrow proof">03 / Release signal</span>
           <h2 id="release-title">Harder boundaries.<span>Same evidence.</span></h2>
-          <p class="release-intro">Version 1.4.9 is a trust-and-hardening release: bounded protocol parsing, safer credential ingress, explicit write refusal on unsafe LDAP paths, and validation receipts bound to the tested build.</p>
-          <div class="release-facts" aria-label="Version 1.4.9 highlights">
-            <div class="release-fact"><strong>High + Medium</strong><span>Protocol/library review findings closed with regression paths</span></div>
+          <p class="release-intro">Version 1.4.10 is the current defence-in-depth release: authenticated plaintext LDAP simple binds are refused by default, GPP secrets stay out of report bodies, hostile-server budgets protect LDAP and SYSVOL work, and terminal control sequences are removed before reporting.</p>
+          <div class="release-facts" aria-label="Version 1.4.10 highlights">
+            <div class="release-fact"><strong>4 boundaries</strong><span>LDAP binds · GPP secrets · resource budgets · report output</span></div>
             <div class="release-fact"><strong>3 OS lines</strong><span>Server 2019 · 2022 · 2025 receipts published</span></div>
-            <div class="release-fact"><strong>Rust 1.88+</strong><span>Published minimum supported Rust version</span></div>
+            <div class="release-fact"><strong>SHA-256 + Sigstore</strong><span>Release binaries have checksums and attestations</span></div>
           </div>
           <div class="release-boundary">
             <b>Truth boundary</b>
-            <p>The validation ledger remains authoritative. The three-server receipts record working SMB / Kerberos paths and a graceful LDAP-dependent failure under hardened LDAPS channel binding; the site does not promote that limitation as validated support.</p>
+            <p>The validation ledger remains authoritative. The cross-version receipts record working SMB / Kerberos paths and a uniform LDAPS-bind limitation across the Server 2019, 2022, and 2025 line; the site does not promote that limitation as validated support.</p>
           </div>
-          <div class="release-next-note"><span>In the forge / v1.4.10</span><p>A local defence-in-depth candidate: authenticated LDAP simple-bind refusal over plaintext 389, GPP report-secret redaction, LDAP / SYSVOL resource budgets, and network-derived output sanitization. It is not published and adds no operator-observable capability.</p></div>
+          <div class="release-distribution-note"><span>Published / 2026-09-02</span><p>GitHub release binaries, <code>cargo binstall</code>, and <code>cargo install</code> now align on 1.4.10. This patch ships no new operator-observable capability.</p></div>
           <div class="release-links">
-            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">Read v1.4.9 notes ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">Read v1.4.10 notes ↗</a>
             <a class="release-link" href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">Open on crates.io ↗</a>
             <a class="release-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           </div>
