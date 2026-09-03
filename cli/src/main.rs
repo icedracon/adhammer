@@ -216,6 +216,11 @@ enum EnumCmd {
     /// surface — AD CS Web Enrollment (`/certsrv/`, the ESC8 relay tell),
     /// RD Web Access, ADFS sign-in + metadata, Exchange OWA/EWS, SCCM.
     Web(enums::web::WebArgs),
+    /// **1.5.0 WS-FOUNDATION-NULLBIND.** No-cred SMB null-session SAMR user
+    /// enumeration. Lists domain users/RIDs anonymously where the DC
+    /// permits it; reports the box hardened when the null session is
+    /// refused (2019+ default).
+    Nullbind(enums::nullbind::NullbindArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -725,6 +730,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Scom(_) => "enum scom",
             EnumCmd::KrbUsers(_) => "enum krb-users",
             EnumCmd::Web(_) => "enum web",
+            EnumCmd::Nullbind(_) => "enum nullbind",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -792,6 +798,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Scom(a)) => enums::sccm::scomenum(a).await,
         Command::Enum(EnumCmd::KrbUsers(a)) => enums::krb::krbenum(a).await,
         Command::Enum(EnumCmd::Web(a)) => enums::web::webenum(a).await,
+        Command::Enum(EnumCmd::Nullbind(a)) => enums::nullbind::nullbind(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

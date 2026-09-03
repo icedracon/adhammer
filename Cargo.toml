@@ -102,3 +102,10 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
+
+# WS-FOUNDATION-NULLBIND (1.5.0, LOCAL-ONLY) — use the local smb2-client
+# 0.2.2 that adds `login_null` (anonymous IPC$ session) until 0.2.2 is
+# published. MUST be stripped before any adhammer crates.io publish
+# (see feedback-adhammer-hard-rules § [patch.crates-io] strip discipline).
+[patch.crates-io]
+smb2-client = { path = "../smb2-client" }
