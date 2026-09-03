@@ -77,7 +77,11 @@ async fn asktgt_impl(a: AsktgtArgs, checklist: &mut ui::StageChecklist) -> Resul
         format!("{auth_mode} · {} bytes", ccache.len()),
     );
     let out = a.out.unwrap_or_else(|| format!("{}.ccache", a.user));
-    std::fs::write(&out, &ccache)?;
+    adhammer_core::write_secret_artifact(
+        std::path::Path::new(&out),
+        adhammer_core::SecretArtifact::Ccache,
+        &ccache,
+    )?;
     checklist.record_ok("write ccache", format!("→ {out}"));
     println!(
         "[+] TGT obtained for {} → {out} ({} bytes)",

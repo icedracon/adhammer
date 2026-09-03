@@ -45,9 +45,9 @@ const SYSVOL_MAX_HITS: usize = 10_000;
 /// Recursively scan a SYSVOL path for GPP XML files carrying a `cpassword`.
 /// `root` is typically `\\<domain-fqdn>\SYSVOL` on a domain-joined host.
 ///
-/// Walk stops early on any of: [`SYSVOL_MAX_WALK_DEPTH`] recursion
-/// depth reached, [`SYSVOL_MAX_HITS`] recovered credentials, or a file
-/// larger than [`SYSVOL_MAX_FILE_BYTES`] (that file is skipped, walk
+/// Walk stops early on any of: `SYSVOL_MAX_WALK_DEPTH` recursion
+/// depth reached, `SYSVOL_MAX_HITS` recovered credentials, or a file
+/// larger than `SYSVOL_MAX_FILE_BYTES` (that file is skipped, walk
 /// continues). All three refusals are logged at `warn` so an operator
 /// sees the truncation without a silent short-return.
 pub fn scan(root: &Path) -> Vec<GppHit> {

@@ -216,7 +216,11 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
         // principal that mismatches every credential entry inside it and
         // downstream `klist`/GSSAPI would either warn or refuse to use it.
         let cc = adhammer_kerberos::golden_ccache(&tgt, &a.template_user)?;
-        std::fs::write(out, &cc)?;
+        adhammer_core::write_secret_artifact(
+            std::path::Path::new(out),
+            adhammer_core::SecretArtifact::Ccache,
+            &cc,
+        )?;
         checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
         println!(
             "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",

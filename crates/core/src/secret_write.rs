@@ -16,14 +16,10 @@
 //!   the mode is set BEFORE the file exists at any wider mode; `create_new`
 //!   fails atomically if the path already exists (so we never overwrite a
 //!   file another user placed there).
-//! - **Windows**: `std::fs::File::create_new` (atomic O_EXCL semantics). The
-//!   default DACL inherits from the parent directory; this crate does NOT
-//!   yet enforce a user-only DACL directly. Callers on Windows must place
-//!   secrets under a user-scoped directory whose DACL restricts to that
-//!   user (e.g. `%LOCALAPPDATA%\adhammer\secrets\`). Full Windows-DACL
-//!   parity via `windows-sys` FFI is tracked as a 1.5.1 follow-up
-//!   (WS-SECRET-BOUNDARY-WINDOWS-DACL) so it can land alongside the
-//!   `win32-min` sibling extension for security-descriptor helpers.
+//! - **Windows**: `CreateFileW(CREATE_NEW)` receives a protected DACL at
+//!   creation time. The owner, LocalSystem, and local Administrators have
+//!   full control; inherited parent-directory ACEs are disabled. This closes
+//!   both the permissive-parent and post-create ACL race windows.
 //!
 //! ## Non-goals
 //! - This helper does NOT encrypt content. Encryption is a caller-choice
@@ -56,6 +52,8 @@ pub enum SecretArtifact {
     LapsPassword,
     /// Keytab file.
     Keytab,
+    /// Private key material (PEM, DER, or another unencrypted key encoding).
+    PrivateKey,
     /// Other; caller supplies a &'static label for the error path.
     Other(&'static str),
 }
@@ -69,6 +67,7 @@ impl SecretArtifact {
             SecretArtifact::DpapiMasterKey => "dpapi-master-key",
             SecretArtifact::LapsPassword => "laps-password",
             SecretArtifact::Keytab => "keytab",
+            SecretArtifact::PrivateKey => "private-key",
             SecretArtifact::Other(s) => s,
         }
     }
@@ -81,18 +80,11 @@ impl SecretArtifact {
 /// erases evidence of a prior successful attack step; the caller states
 /// intent explicitly.
 ///
-/// Errors from `remove_file` on the pre-cleanup line intentionally ignored:
-/// a NotFound error is the expected common case; other errors surface at
-/// the subsequent `create_new` call with clearer context.
 pub fn write_secret_artifact(
     path: &Path,
     kind: SecretArtifact,
     bytes: &[u8],
 ) -> std::io::Result<()> {
-    // Best-effort pre-cleanup so we never inherit a file created by another
-    // user with permissive bits. `create_new` below is the real guard.
-    let _ = std::fs::remove_file(path);
-
     #[cfg(unix)]
     let mut f = {
         use std::os::unix::fs::OpenOptionsExt;
@@ -104,12 +96,113 @@ pub fn write_secret_artifact(
             .map_err(|e| annotate(e, kind, path))?
     };
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let mut f = create_windows_secret_file(path).map_err(|e| annotate(e, kind, path))?;
+
+    #[cfg(not(any(unix, windows)))]
     let mut f = std::fs::File::create_new(path).map_err(|e| annotate(e, kind, path))?;
 
     f.write_all(bytes).map_err(|e| annotate(e, kind, path))?;
     f.sync_all().map_err(|e| annotate(e, kind, path))?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn create_windows_secret_file(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::io::FromRawHandle as _;
+    use windows_sys::Win32::Foundation::{LocalFree, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+    use windows_sys::Win32::Storage::FileSystem::{CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL};
+
+    // Protected DACL: owner rights + LocalSystem + local Administrators only.
+    // The descriptor is supplied to CreateFileW, so the file never exists
+    // with a permissive inherited DACL.
+    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)(A;;FA;;;BA)\0"
+        .encode_utf16()
+        .collect();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    let converted = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            std::ptr::null_mut(),
+        )
+    };
+    if converted == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor,
+        bInheritHandle: 0,
+    };
+    let wide_path = windows_api_path(path)?;
+    let handle = unsafe {
+        CreateFileW(
+            wide_path.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )
+    };
+    unsafe {
+        LocalFree(descriptor);
+    }
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+}
+
+#[cfg(windows)]
+fn windows_api_path(path: &Path) -> std::io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    let absolute = std::path::absolute(path)?;
+    let wide: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+    const VERBATIM: &[u16] = &[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    const DEVICE: &[u16] = &[b'\\' as u16, b'\\' as u16, b'.' as u16, b'\\' as u16];
+    const UNC: &[u16] = &[b'\\' as u16, b'\\' as u16];
+
+    if wide.starts_with(DEVICE) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "device-namespace paths are not valid secret artifact files",
+        ));
+    }
+
+    let mut api_path = Vec::with_capacity(wide.len() + 8);
+    if wide.starts_with(VERBATIM) {
+        // Accept only verbatim drive and UNC filesystem paths. Reject namespaces
+        // such as GLOBALROOT that can escape ordinary filesystem expectations.
+        let tail = &wide[VERBATIM.len()..];
+        let is_drive = tail.len() >= 3 && tail[1] == b':' as u16 && tail[2] == b'\\' as u16;
+        let is_unc = tail.starts_with(&[b'U' as u16, b'N' as u16, b'C' as u16, b'\\' as u16]);
+        if !is_drive && !is_unc {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "non-filesystem verbatim paths are not valid secret artifact files",
+            ));
+        }
+        api_path.extend_from_slice(&wide);
+    } else if wide.starts_with(UNC) {
+        api_path.extend("\\\\?\\UNC\\".encode_utf16());
+        api_path.extend_from_slice(&wide[UNC.len()..]);
+    } else {
+        api_path.extend("\\\\?\\".encode_utf16());
+        api_path.extend_from_slice(&wide);
+    }
+    api_path.push(0);
+    Ok(api_path)
 }
 
 fn annotate(e: std::io::Error, kind: SecretArtifact, path: &Path) -> std::io::Error {
@@ -162,18 +255,10 @@ mod tests {
         let p = tmp_path("no_overwrite.bin");
         let _ = std::fs::remove_file(&p);
         std::fs::write(&p, b"pre-existing").unwrap();
-        // Our helper begins with a best-effort remove; that succeeds here,
-        // so the create_new should still land. Simulate a hostile racer
-        // by placing the file back between the remove and the create; we
-        // can't do that portably, so instead just verify that a second
-        // call to the helper against a live file fails.
-        write_secret_artifact(&p, SecretArtifact::GppDump, b"first").unwrap();
-        // Second call would first remove (that succeeds) so it'd still
-        // create fresh. To assert overwrite-refusal semantics with the
-        // pre-cleanup step, we test the raw contract by calling `create_new`
-        // ourselves after the file exists.
-        let res = std::fs::File::create_new(&p);
-        assert!(res.is_err(), "create_new on an existing path must fail");
+        let err = write_secret_artifact(&p, SecretArtifact::GppDump, b"replacement")
+            .expect_err("existing secret artifact must never be replaced");
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&p).unwrap(), b"pre-existing");
     }
 
     #[test]
@@ -184,5 +269,63 @@ mod tests {
             SecretArtifact::Other("custom-label").label(),
             "custom-label"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_file_has_protected_dacl() {
+        use std::os::windows::ffi::OsStrExt as _;
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+        use windows_sys::Win32::Security::{
+            GetSecurityDescriptorControl, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            SE_DACL_PROTECTED,
+        };
+
+        let p = tmp_path("protected-dacl.bin");
+        let _ = std::fs::remove_file(&p);
+        write_secret_artifact(&p, SecretArtifact::PrivateKey, b"private").unwrap();
+        let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                wide.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        assert_eq!(status, 0, "GetNamedSecurityInfoW failed: {status}");
+        let mut control = 0u16;
+        let mut revision = 0u32;
+        let ok = unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) };
+        unsafe {
+            LocalFree(descriptor);
+        }
+        assert_ne!(ok, 0, "GetSecurityDescriptorControl failed");
+        assert_ne!(
+            control & SE_DACL_PROTECTED,
+            0,
+            "DACL must reject inheritance"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_long_path_is_supported() {
+        let mut dir = std::env::temp_dir().join("adhammer_secret_write_long_path");
+        for n in 0..8 {
+            dir.push(format!("segment-{n:02}-abcdefghijklmnopqrstuvwxyz"));
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("secret.bin");
+        assert!(p.as_os_str().len() > 260);
+        let _ = std::fs::remove_file(&p);
+        write_secret_artifact(&p, SecretArtifact::PrivateKey, b"private").unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), b"private");
     }
 }

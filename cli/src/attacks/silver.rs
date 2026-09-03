@@ -110,7 +110,11 @@ async fn silver_impl(a: SilverArgs, checklist: &mut ui::StageChecklist) -> Resul
     );
     if let Some(out) = &a.out {
         let cc = adhammer_kerberos::silver_ccache(&tgt, &a.user, &a.spn)?;
-        std::fs::write(out, &cc)?;
+        adhammer_core::write_secret_artifact(
+            std::path::Path::new(out),
+            adhammer_core::SecretArtifact::Ccache,
+            &cc,
+        )?;
         checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
         println!("[+] wrote ccache → {out} ({} bytes)", cc.len());
     } else {

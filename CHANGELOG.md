@@ -10,6 +10,26 @@ new operator-observable capability. The 1.5.0 branch (`docs/PLAN_1.5.0.md`)
 carries the black-box no-cred assessment capability push on top of this
 tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
 
+### Post-release polish on `main` — 2026-09-03
+
+- Migrated all six production ccache sinks and all six production private-key
+  sinks to `write_secret_artifact`; certificates, CSRs, reports, and replay
+  stubs remain ordinary non-secret outputs.
+- Repaired the helper's no-clobber contract: an existing path is preserved and
+  returns `AlreadyExists` instead of being deleted before `create_new`.
+- Windows secret creation now supplies a protected owner/SYSTEM/Administrators
+  DACL directly to `CreateFileW(CREATE_NEW)`, including long-path handling and
+  regression tests for the ACL and paths beyond 260 characters.
+- Secret keys are persisted before irreversible Shadow Credential writes and
+  certificate-enrollment requests, preventing an existing output path from
+  leaving an unusable remote credential or mismatched on-disk cert/key pair.
+- CI now distinguishes registry-independent package inventory from the manual
+  post-cascade crates.io resolution check, so a GitHub-only tag is not marked
+  red merely because same-version crates are intentionally unpublished.
+- The release matrix now includes `x86_64-apple-darwin` on GitHub's Intel macOS
+  runner; public install documentation explicitly distinguishes GitHub 1.4.10
+  from crates.io 1.4.9.
+
 ### Security
 
 - **BF-1 — refuse authed plaintext LDAP-389 simple_bind.** New
@@ -64,12 +84,11 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
 - **BF-5 — PostCred capability gate.** `may_run(check, PostCred)`
   returns `RunnerRefusal::PostCredRequiresCapability` unless at least
   one capability has landed via `record_capability`.
-- **`adhammer_core::secret_write::write_secret_artifact`** — atomic
+- **`adhammer_core::secret_write::write_secret_artifact`** — no-clobber
   create-file helper for secret artifacts. Unix: `OpenOptions::
-  create_new + mode(0o600)`. Windows: `File::create_new` (parent-dir
-  DACL responsibility documented; full Windows-DACL parity is a 1.5.1
-  follow-up). `SecretArtifact` enum names the artifact class for
-  error messages.
+  create_new + mode(0o600)`. Windows: `CreateFileW(CREATE_NEW)` with
+  a protected owner/SYSTEM/Administrators DACL. `SecretArtifact` enum
+  names the artifact class for error messages.
 - **`compile_error!` boundary guard at `crates/collector/src/lib.rs`**
   for the `tls-native ⊕ tls-rustls` mutex. `--all-features` was never
   supportable on this workspace (ldap3 upstream guards the same
@@ -110,10 +129,6 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
 
 ### Deferred to 1.5.1 (tracked in `docs/PLAN_1.4.10.md`)
 
-- WS-SECRET-BOUNDARY-CALLSITES: migrate 10+ `cli/src/attacks/`
-  ccache / hashcat-input / keytab writers to `write_secret_artifact`.
-- WS-SECRET-BOUNDARY-WINDOWS-DACL: owner-only DACL at
-  `CreateFileW` on Windows via `win32-min` sibling extension.
 - WS-CLI-GPP-DUMP-FLAG: expose `--gpp-dump-out <path>` in
   `attack scan` to reach `write_dump`.
 - WS-LDAP-INTEGRITY-RESPONSE-BYTES: byte-level cap on paged responses.
@@ -127,9 +142,10 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
   mitigated via `catch_unwind` around `decrypt_ticket_pac`; fuzz
   build (`-C panic=abort`) cannot catch the panic, so fuzz stays red
   until picky-krb 0.12+ lands (1.5.0 `WS-DEPS-MAJORS`).
-- **CI-1** — `cargo package` under all-local. Mitigated via
-  gate-on-tag + `manifest-sanity` job; closes when 1.5.0
-  `WS-CASCADE-REHEARSAL` lands.
+- **CI-1 closed on `main`** — every CI run performs registry-independent
+  `cargo package --list` inventory for all 12 crates. Full registry resolution
+  is an explicit manual post-cascade check because unpublished same-version
+  workspace dependencies cannot resolve from crates.io before that cascade.
 
 ## [1.4.9] — 2026-09-01
 

@@ -11,8 +11,8 @@
 #      fresh Windows quarantines the built exe with `os error 225 — file
 #      contains a virus or potentially unwanted software`.
 #   3. Runs `cargo binstall adhammer` (prebuilt binary path, fast — needs the
-#      `cargo-binstall` extension). Falls back to `cargo install adhammer`
-#      (source build, ~90 sec) when `cargo-binstall` is not present.
+#      `cargo-binstall` extension). Falls back to building the same immutable
+#      GitHub release tag when `cargo-binstall` is not present.
 #   4. Removes the temporary exclusion.
 #   5. Prints the installed binary path + `--version`.
 #
@@ -28,6 +28,7 @@
 #Requires -Version 5.1
 
 $ErrorActionPreference = 'Stop'
+$ReleaseVersion = '1.4.10'
 
 function Write-Step { param([string]$Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
 function Write-OK   { param([string]$Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
@@ -48,7 +49,7 @@ $useBinstall = $null -ne $binstall
 if ($useBinstall) {
     Write-OK 'cargo-binstall found — will use prebuilt binary path'
 } else {
-    Write-Warn 'cargo-binstall not found — will build from source via cargo install'
+    Write-Warn "cargo-binstall not found — will build v$ReleaseVersion from its Git tag"
     Write-Warn '(install cargo-binstall for a faster path: cargo install cargo-binstall)'
 }
 
@@ -92,7 +93,7 @@ try {
     if ($useBinstall) {
         & cargo binstall --no-confirm adhammer
     } else {
-        & cargo install adhammer
+        & cargo install --locked --git https://github.com/icedracon/adhammer --tag "v$ReleaseVersion" adhammer
     }
     if ($LASTEXITCODE -eq 0) { $installOk = $true }
 } catch {

@@ -7,9 +7,23 @@ shipped in 1.4.9 — not new capability. Version discipline:
 observable behaviour change beyond stricter refusal messages + fewer
 leaked bytes.
 
-## Ship policy — LOCAL
+## Post-release state — 2026-09-03
 
-Same rule as 1.4.9: LOCAL only. No `cargo publish`, no
+The historical plan below records the local development policy used while
+1.4.10 was being prepared. Current distribution truth supersedes that policy:
+
+- GitHub `v1.4.10` binaries/source were published from commit `b98a73b`.
+- Receipt approval was committed immediately afterward at `7dee1dd`; the tag's
+  JSON copies still say `pending`, while `main` carries the approved review.
+- The executable source is unchanged by that approval-only commit.
+- crates.io intentionally remains at 1.4.9 until the maintainer explicitly
+  authorizes the bottom-up 12-crate cascade.
+- Consequently, GitHub release/install paths are the authoritative 1.4.10
+  distribution; `cargo install adhammer` from crates.io installs 1.4.9.
+
+### Historical preparation policy
+
+The rule while this batch was being prepared was: LOCAL only. No `cargo publish`, no
 `git push origin main`. When this batch is ready to publish, the
 operator triggers the cascade explicitly. Every commit landed under
 these workstreams stays local until then.

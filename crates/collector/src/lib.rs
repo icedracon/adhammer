@@ -827,7 +827,7 @@ impl Collector {
     }
 
     /// Replace a text (single-value string) attribute — the counterpart of
-    /// [`write_binary`] used for scalar attrs like `primaryGroupID` or `gPLink`.
+    /// `write_binary` used for scalar attrs like `primaryGroupID` or `gPLink`.
     pub async fn modify_replace(&mut self, dn: &str, attr: &str, value: &str) -> Result<()> {
         use ldap3::Mod;
         let m: Mod<Vec<u8>> = Mod::Replace(

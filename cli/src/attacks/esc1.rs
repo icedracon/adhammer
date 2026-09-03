@@ -84,6 +84,12 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
 
     let subject = a.upn.split('@').next().unwrap_or("adhammer");
     let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
+    let key_path = format!("{}.key.pem", a.out);
+    adhammer_core::write_secret_artifact(
+        std::path::Path::new(&key_path),
+        adhammer_core::SecretArtifact::PrivateKey,
+        csr.key_pem.as_bytes(),
+    )?;
     checklist.record_ok(
         "build CSR (UPN SAN)",
         format!("subject={subject}, SAN upn={}", a.upn),
@@ -123,8 +129,6 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
             format!("ISSUED ({} bytes cert DER)", r.cert_der.len()),
         );
         std::fs::write(&a.out, &r.cert_der)?;
-        let key_path = format!("{}.key.pem", a.out);
-        std::fs::write(&key_path, &csr.key_pem)?;
         checklist.record_ok("write cert + key", format!("{} + {}", a.out, key_path));
         println!(
             "[+] ESC1: certificate ISSUED for UPN {} → {} ({} bytes), key → {}",
@@ -153,7 +157,11 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
             {
                 Ok(tgt) => {
                     let ccache = format!("{subject}.ccache");
-                    std::fs::write(&ccache, tgt.ccache.expose())?;
+                    adhammer_core::write_secret_artifact(
+                        std::path::Path::new(&ccache),
+                        adhammer_core::SecretArtifact::Ccache,
+                        tgt.ccache.expose(),
+                    )?;
                     checklist.record_ok(
                         "PKINIT to TGT (--pkinit)",
                         format!("TGT for {subject}@{realm} → {ccache}"),

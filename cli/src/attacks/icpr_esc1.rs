@@ -192,7 +192,11 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
             .context("encode key PKCS#8 PEM")?;
         let pem_bytes = pem.as_bytes().to_vec();
         let key_path = format!("{}.key.pem", a.csr_out);
-        std::fs::write(&key_path, &pem_bytes)?;
+        adhammer_core::write_secret_artifact(
+            std::path::Path::new(&key_path),
+            adhammer_core::SecretArtifact::PrivateKey,
+            &pem_bytes,
+        )?;
         eprintln!("[+] generated 2048-bit RSA key → {key_path}");
         (pem_bytes, format!("generated 2048-bit → {key_path}"))
     };
