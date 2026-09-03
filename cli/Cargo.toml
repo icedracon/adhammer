@@ -103,6 +103,10 @@ rustls = { version = "0.23", default-features = false, features = ["std", "aws-l
 rustls-native-certs = "0.8"
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
+
+# WS-HASHGLASS: annotate every hash emitted by `attack roast` with the
+# hashcat mode + name + confidence hashglass identifies.
+hashglass = { workspace = true }
 ntlmssp = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }

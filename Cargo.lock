@@ -32,6 +32,7 @@ dependencies = [
  "dialoguer",
  "dpapi-ng",
  "dpapi-offline",
+ "hashglass",
  "hex",
  "ipnet",
  "ms-crtd",
@@ -1068,6 +1069,15 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hashglass"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "regex",
+ "serde_json",
+]
 
 [[package]]
 name = "heck"
@@ -2242,7 +2252,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "smb2-client"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "aes",
  "cmac",

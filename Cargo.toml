@@ -71,6 +71,12 @@ adhammer-ldap      = { path = "crates/ldap",      version = "1.4.10" }
 adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.10" }
 adhammer-secrets    = { path = "crates/secrets",    version = "1.4.10" }
 
+# WS-HASHGLASS (1.5.0, LOCAL-ONLY) — pentester-focused hash-type identifier
+# consumed by `attack roast` to annotate each emitted hash with its hashcat
+# mode + name + confidence. Not on crates.io yet, so path-only for now; a
+# published-registry line lands with WS-HASHGLASS-PUBLISH.
+hashglass = { path = "../hashglass" }
+
 # external
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"

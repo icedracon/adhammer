@@ -8,6 +8,20 @@ use anyhow::Result;
 use crate::attacks::scan::{config, ScanArgs};
 use crate::ui;
 
+/// **1.5.0 WS-HASHGLASS.** Annotate a roast-emitted hash on stderr with the
+/// hashcat mode + name that `hashglass::identify` picks. Stdout stays clean
+/// hashcat input (single hash per line); stderr carries the operator hint —
+/// matching the file's existing `eprintln!` pattern for AS-REP notices.
+fn hashglass_annotate(hash: &str) {
+    let cs = hashglass::identify(hash, false);
+    if let Some(c) = cs.first() {
+        eprintln!(
+            "  [hashglass] -m {}  \"{}\"  conf={:.2}",
+            c.mode, c.name, c.confidence
+        );
+    }
+}
+
 pub(crate) async fn roast(a: ScanArgs) -> Result<()> {
     let mut checklist = ui::StageChecklist::new([
         "LDAP collect",
@@ -77,6 +91,7 @@ async fn roast_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<(
                         match adhammer_kerberos::roast_spn(&tgt, &c.sam, spn, kdc).await {
                             Ok(hash) => {
                                 println!("{hash}");
+                                hashglass_annotate(&hash);
                                 kerberoast_ok += 1;
                             }
                             Err(e) => {
@@ -116,6 +131,7 @@ async fn roast_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<(
                 match adhammer_kerberos::asrep_roast(c, kdc).await {
                     Ok(hash) => {
                         println!("{hash}");
+                        hashglass_annotate(&hash);
                         asrep_ok += 1;
                     }
                     Err(e) => {
