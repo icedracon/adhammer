@@ -11,12 +11,11 @@
 //!     (BF-4 for `max_duration_secs`),
 //!   - record landed capabilities so a later PostCred check can proceed.
 //!
-//! DNS discovery is intentionally NOT wired here. Per D2 locked in
-//! docs/PLAN_1.5.0.md we hand-roll SRV lookup (WS-FOUNDATION-DNS-HANDROLL,
-//! 1.5.1) rather than pulling `hickory-resolver`. The previous draft's
-//! `discover_dns` method + `adhammer_collector::DnsDiscovery` import are
-//! removed here. When the hand-rolled backend lands, a `discover_dns`
-//! method will re-appear as a wrapper that respects `may_run` + budgets.
+//! DNS discovery uses the hand-rolled resolver (WS-FOUNDATION-DNS-HANDROLL,
+//! 1.5.0) — `dns_wire` codec + tokio UDP/TCP in `adhammer_collector::
+//! discovery`, no `hickory-resolver` dependency (D2 lock, docs/PLAN_1.5.0.md).
+//! `BlackBoxRunner::discover_dns` wraps it as a `Discovery`-class check
+//! that respects the selection + duration budget.
 
 use std::collections::HashSet;
 use std::net::IpAddr;
@@ -253,6 +252,24 @@ impl BlackBoxRunner {
     pub fn should_run(&self, check: &CheckId, class: CheckClass) -> bool {
         self.may_run(check, class).is_ok()
     }
+
+    /// WS-FOUNDATION-DNS-HANDROLL (1.5.0). Phase-0 discovery: resolve AD
+    /// SRV families for the scope's domain hints over the hand-rolled DNS
+    /// client. Gated as a `Discovery`-class `dns-enum` check — respects
+    /// the selection + duration budget. `nameservers` are the DNS servers
+    /// to query (port 53); pass `adhammer_collector::system_nameservers()`
+    /// or an operator-supplied list. Returns an empty vec when the check
+    /// is not selected or no nameservers are available.
+    pub async fn discover_dns(
+        &self,
+        nameservers: &[std::net::IpAddr],
+    ) -> anyhow::Result<Vec<adhammer_collector::DnsDiscovery>> {
+        let check = CheckId::new("dns-enum").expect("hard-coded dns-enum check id is valid");
+        if self.may_run(&check, CheckClass::Discovery).is_err() {
+            return Ok(Vec::new());
+        }
+        adhammer_collector::discover_dns(&self.policy.scope, nameservers).await
+    }
 }
 
 #[cfg(test)]
@@ -427,5 +444,25 @@ mod tests {
         // The snapshot returned above is not affected by later records.
         assert_eq!(snap.len(), 1);
         assert_eq!(r.capabilities().len(), 2);
+    }
+
+    /// WS-FOUNDATION-DNS-HANDROLL (1.5.0). A skipped `dns-enum` check
+    /// short-circuits `discover_dns` without any socket work — returns
+    /// empty rather than attempting a lookup.
+    #[tokio::test]
+    async fn skipped_dns_check_short_circuits_without_lookup() {
+        let runner = runner_with(
+            default_policy(None, None),
+            CheckSelection {
+                only: Vec::new(),
+                skip: vec![CheckId::new("dns-enum").unwrap()],
+            },
+        );
+        // Even with a nameserver supplied, the skip selection returns [].
+        let result = runner
+            .discover_dns(&["127.0.0.1".parse().unwrap()])
+            .await
+            .unwrap();
+        assert!(result.is_empty());
     }
 }

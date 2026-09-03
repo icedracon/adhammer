@@ -31,3 +31,10 @@ adhammer-sysvol = { workspace = true }
 adhammer-ldap = { workspace = true }
 adhammer-bloodhound = { workspace = true }
 adhammer-secrets = { workspace = true }
+# WS-FOUNDATION-DNS-HANDROLL (1.5.0) — BlackBoxRunner::discover_dns
+# surfaces adhammer_collector's async DNS discovery with anyhow errors.
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# `#[tokio::test]` for the async discover_dns short-circuit test.
+tokio = { workspace = true, features = ["rt", "macros"] }

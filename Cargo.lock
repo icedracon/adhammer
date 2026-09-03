@@ -173,6 +173,8 @@ dependencies = [
  "adhammer-report",
  "adhammer-secrets",
  "adhammer-sysvol",
+ "anyhow",
+ "tokio",
 ]
 
 [[package]]
