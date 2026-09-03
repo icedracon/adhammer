@@ -234,6 +234,11 @@ enum EnumCmd {
     /// shape): SAMR users + srvsvc sessions/shares + wkssvc + lsarpc over
     /// ONE null session. Requires `--anon`. The single-shot anon sweep.
     Host(enums::host::HostArgs),
+    /// **1.5.0 WS-SYSVOL-ANON.** No-cred SYSVOL walk for GPP cpassword
+    /// (MS14-025): QUERY_DIRECTORY over a null session, decrypt any
+    /// cpassword with the public MS key. Requires `--anon`; `--dump` to
+    /// write recovered plaintext to a 0600 artifact.
+    Sysvol(enums::sysvol::SysvolArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -747,6 +752,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::RpcNull(_) => "enum rpc-null",
             EnumCmd::Shares(_) => "enum shares",
             EnumCmd::Host(_) => "enum host",
+            EnumCmd::Sysvol(_) => "enum sysvol",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -818,6 +824,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::RpcNull(a)) => enums::rpcnull::rpcnull(a).await,
         Command::Enum(EnumCmd::Shares(a)) => enums::shares::shares(a).await,
         Command::Enum(EnumCmd::Host(a)) => enums::host::host(a).await,
+        Command::Enum(EnumCmd::Sysvol(a)) => enums::sysvol::sysvol(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

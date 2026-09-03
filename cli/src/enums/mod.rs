@@ -20,4 +20,5 @@ pub(crate) mod rpcnull;
 pub(crate) mod sccm;
 pub(crate) mod sessions;
 pub(crate) mod shares;
+pub(crate) mod sysvol;
 pub(crate) mod web;

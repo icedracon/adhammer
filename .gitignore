@@ -84,3 +84,9 @@ video-work/
 patches/
 lab/validation-*/
 meta.json
+
+# WS-SYSVOL-ANON secret artifact dumps — never commit (real recovered
+# plaintext credentials from `enum sysvol --dump`; written 0600/protected
+# DACL, but a stray in-repo write must never land in git).
+gpp_dump*.txt
+*.gppdump
