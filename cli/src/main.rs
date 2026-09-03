@@ -221,6 +221,11 @@ enum EnumCmd {
     /// permits it; reports the box hardened when the null session is
     /// refused (2019+ default).
     Nullbind(enums::nullbind::NullbindArgs),
+    /// **1.5.0 WS-BB-RPCNULL.** No-cred anonymous RPC probe (rpcclient shape):
+    /// srvsvc NetSessionEnum + wkssvc user-enum + sarpc policy over a
+    /// null session. Reports which interfaces a DC exposes anonymously.
+    #[command(name = "rpc-null")]
+    RpcNull(enums::rpcnull::RpcNullArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -731,6 +736,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::KrbUsers(_) => "enum krb-users",
             EnumCmd::Web(_) => "enum web",
             EnumCmd::Nullbind(_) => "enum nullbind",
+            EnumCmd::RpcNull(_) => "enum rpc-null",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -799,6 +805,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::KrbUsers(a)) => enums::krb::krbenum(a).await,
         Command::Enum(EnumCmd::Web(a)) => enums::web::webenum(a).await,
         Command::Enum(EnumCmd::Nullbind(a)) => enums::nullbind::nullbind(a).await,
+        Command::Enum(EnumCmd::RpcNull(a)) => enums::rpcnull::rpcnull(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,

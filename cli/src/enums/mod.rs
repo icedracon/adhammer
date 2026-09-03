@@ -15,6 +15,7 @@ pub(crate) mod krb;
 pub(crate) mod net;
 pub(crate) mod nullbind;
 pub(crate) mod posture;
+pub(crate) mod rpcnull;
 pub(crate) mod sccm;
 pub(crate) mod sessions;
 pub(crate) mod web;
