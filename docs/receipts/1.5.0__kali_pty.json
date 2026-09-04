@@ -1,0 +1,12 @@
+{
+  "version": "1.5.0",
+  "windows_label": "kali_pty",
+  "binary_sha256": "a0f2485163348522a12e4b5552e2e6e0dc591d6e11e41dde7f2f6ddecd2bd58e",
+  "review_status": "approved (reviewed by zevs, 2026-09-04, path A per docs/PLAN_1.5.0_READINESS.md §7; verified before promotion: typescript scrubbed of lab identifiers, environment probe + Kali release gate results consistent with the WS commits' claims, PTY HARD RULE cleared for the 1.5.0 interactive entry per feedback-kali-vbox-always-test, provenance + limitation disclosed honestly in the header block; promotion recorded local-only — no push authorized)",
+  "companion_markdown": "1.5.0__kali_pty.md",
+  "provenance": "session-derived",
+  "provenance_note": "Typescript captured via script(1) on kali-linux-2026.1-virtualbox-amd64 over SSH from Windows host. Kali VM was down at receipt-write time; fresh re-capture under the release-binary sha256 above was not possible. Evidence is the actual captured output, sanitized.",
+  "verbs": [
+    { "verb": "adhammer (interactive)", "status": "pass", "elapsed_s": 10 }
+  ]
+}

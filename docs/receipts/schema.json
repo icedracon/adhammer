@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/icedracon/adhammer/docs/receipts/schema.json",
+  "title": "ADhammer live-validation receipt",
+  "description": "Schema for docs/receipts/<version>__<label>.json — one JSON receipt per live-validation run against a DC or a captured environment (Kali PTY, release-evidence, etc.). Companion markdown file at the same basename is human-readable evidence. Enforced by scripts/validate_receipt.py and the ci.yml validate-receipts job.",
+  "type": "object",
+  "required": ["version", "binary_sha256", "review_status"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.]+)?$",
+      "description": "adhammer semver (matches [workspace.package].version at the tested commit)."
+    },
+    "windows_label": {
+      "type": "string",
+      "enum": ["2019", "2022", "2025", "kali", "kali_pty", "release-evidence", "misc"],
+      "description": "The environment/target flavor. Standard live-DC labels are the Server year (2019/2022/2025); Kali PTY receipts use 'kali'; consolidated per-release evidence uses 'release-evidence'."
+    },
+    "binary_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the adhammer binary that produced the outputs. Lowercase hex, 64 chars. For consolidated receipts, may reference the release-build binary."
+    },
+    "review_status": {
+      "type": "string",
+      "pattern": "^(pending|approved.*|rejected.*)$",
+      "description": "Review state. 'pending' fails scripts/check_validation_ledger.py — a receipt cannot claim release-readiness while pending. 'approved (reviewed by <name>, <date>, ...)' is the passing state. 'rejected (...)' preserves the receipt as a negative record."
+    },
+    "verbs": {
+      "type": "array",
+      "description": "Optional per-verb table (used by DC live-run receipts). Consolidated receipts may omit this and describe verbs in the markdown companion instead.",
+      "items": {
+        "type": "object",
+        "required": ["verb", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "verb": {
+            "type": "string",
+            "description": "The adhammer subcommand tested, e.g. 'scan', 'enum_nullbind', 'attack_coerce'."
+          },
+          "status": {
+            "type": "string",
+            "pattern": "^(pass|fail|refused|skipped)( \\(.*\\))?$",
+            "description": "Outcome. 'pass' + rc=0, 'fail (rc=<n>)' with the exit code, 'refused (<why>)' for a hardened-target refusal that is the expected finding, 'skipped (<why>)' for an env-blocked verb."
+          },
+          "elapsed_s": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "receipt_lines": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}
