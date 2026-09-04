@@ -1,18 +1,21 @@
 # ADhammer 1.5.0 hard readiness plan
 
-**Baseline:** HEAD `ff00d31` on `main`, workspace version still `1.4.10` (not
-yet bumped). Distribution mode: **GitHub-only-ready today, full-ecosystem
-blocked** on `[patch.crates-io]` overrides. This document is a post-hoc
-reconciliation of every 1.5.0 capability commit against the acceptance grid
-from `docs/AI_RELEASE_GOVERNANCE.md` §5 and `docs/ECOSYSTEM_READINESS_100.md`
-§E.
+**Baseline (updated 2026-09-04):** HEAD `4625c11` on `main`, workspace
+version bumped to **`1.5.0`** (via `ac441d6`). Distribution mode:
+**GitHub-only-ready after tag + push authorization; full-ecosystem
+blocked** on `[patch.crates-io]` overrides (smb2-client + dcerpc path-only,
+hashglass unpublished). This document is a post-hoc reconciliation of
+every 1.5.0 capability commit against the acceptance grid from
+`docs/AI_RELEASE_GOVERNANCE.md` §5 and `docs/ECOSYSTEM_READINESS_100.md` §E.
 
 **Verified-at seal (Windows host + Kali VM):** every commit SHA in §1,
 every sibling SHA, every claimed test count, every version, and every
-`[patch.crates-io]` entry was re-derived from repo state at HEAD `ff00d31`
-before writing this document (17/17 adhammer SHAs found, 4/4 sibling SHAs
-found, all versions and paths matched). Gate status in §3 is from the same
-HEAD; no code has changed since the run.
+`[patch.crates-io]` entry was re-derived from repo state at HEAD
+`ff00d31` before writing this document (17/17 adhammer SHAs found, 4/4
+sibling SHAs found, all versions and paths matched). Post-baseline
+commits `0f69391` (this doc), `7af8363` (Azure removal), `9f493e1`
+(dep-risk grid), `ac441d6` (workspace bump to 1.5.0), `4625c11` (README
+updates) all clean at the same full local gate.
 
 Legend for the per-item status column:
 
@@ -112,7 +115,7 @@ each is published.
 
 ---
 
-## 3. Static + live release gate status at HEAD `ff00d31`
+## 3. Static + live release gate status at HEAD `4625c11` (was `ff00d31` at baseline; re-green after every subsequent commit)
 
 Per `AI_RELEASE_GOVERNANCE.md` §5.2 minimum local gate:
 
@@ -155,7 +158,7 @@ Ordered by dependency:
 | B1 | `[patch.crates-io]` overrides for `smb2-client` + `dcerpc` in `Cargo.toml` | maintainer decision | full ecosystem publish (GitHub-only release is not blocked by this) |
 | B2 | `hashglass` is path-only in root `[workspace.dependencies]` (unpublished on crates.io) | WS-HASHGLASS-PUBLISH (deferred), needs an `[email protected]` publish first | full ecosystem publish |
 | B3 | ~~Workspace version still `1.4.10`, no `1.5.0` bump commit~~ **CLOSED** — workspace bumped to `1.5.0` in a single reviewed diff updating all 11 `version = "1.4.10"` occurrences (workspace `[package].version` + 10 internal `[workspace.dependencies]` pins). Every crate inherits via `version.workspace = true`. Post-bump full local gate re-green (fmt/clippy `-D warnings` /test 18 suites/deny). No `v1.5.0` tag yet — still needs maintainer tag authorization per governance §5. | maintainer authorization for `git tag v1.5.0` on the final candidate commit | tag/push/publish flow |
-| B4 | 23 unpushed commits at HEAD `ff00d31` (18 adhammer + 1 dcerpc + 4 smb2-client + 0 hashglass); grows by one per further commit including this document itself | maintainer explicit push authorization per governance §7 and your standing rule | any public visibility |
+| B4 | Local commits ahead of origin (at time of writing): adhammer = 23 (up from 18 baseline; grows by one per further commit including this document itself), smb2-client = 4, dcerpc = 1, hashglass = 0. Total = 28. | maintainer explicit push authorization per governance §7 and your standing rule | any public visibility |
 | B5 | Interactive-mode Windows PTY not exercised this session | pick a real Windows Terminal / cmd.exe / PowerShell session; the code path is proven on Kali PTY so risk is low but the platform claim is not functionally validated on Windows | ECOSYSTEM_READINESS §E.5 platform-claim discipline |
 | B6 | Anonymous SYSVOL happy path (RestrictAnonymous=0 legacy DC) not observed | either point at a legacy 2003/2008 DC or accept the mixed evidence (both refused-anon and successful-auth walks captured; wire code proven by the latter) | full "anonymous SYSVOL walk" claim if we make one |
 | B7 | `attack roast + hashglass` end-to-end blocked env-side (lab DC no LDAPS + BF-1 refuses plaintext bind) | either enable LDAPS on the lab DC + install its CA, or add `--gssapi` flow to the smoke, or accept the standalone hashglass::identify probe as sufficient | full "attack roast + annotation" claim |
