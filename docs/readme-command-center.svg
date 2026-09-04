@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="540" viewBox="0 0 1440 540" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">ADhammer command center</title>
+  <desc id="desc">A black command center graphic for ADhammer with electric blue, violet, amber, teal, and proof-red signals. It shows the assessment flow: discover, map, validate, report.</desc>
+  <defs>
+    <linearGradient id="background" x1="44" y1="24" x2="1396" y2="516" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#040811"/>
+      <stop offset=".52" stop-color="#07182D"/>
+      <stop offset="1" stop-color="#040811"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="180" y1="0" x2="1260" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2EA8FF" stop-opacity="0"/>
+      <stop offset=".22" stop-color="#2EA8FF" stop-opacity=".85"/>
+      <stop offset=".5" stop-color="#A78BFA" stop-opacity=".72"/>
+      <stop offset=".76" stop-color="#55D6BE" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#2EA8FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="215" y1="0" x2="1210" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2EA8FF"/>
+      <stop offset=".34" stop-color="#A78BFA"/>
+      <stop offset=".68" stop-color="#F7C948"/>
+      <stop offset="1" stop-color="#55D6BE"/>
+    </linearGradient>
+    <radialGradient id="blueGlow" cx="0" cy="0" r="1" gradientTransform="translate(720 214) rotate(90) scale(258 540)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1479D0" stop-opacity=".23"/>
+      <stop offset="1" stop-color="#1479D0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <filter id="hardGlow" x="-80%" y="-80%" width="260%" height="260%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" stroke="#2EA8FF" stroke-opacity=".07"/>
+    </pattern>
+  </defs>
+
+  <rect width="1440" height="540" fill="#03060C"/>
+  <rect x="1" y="1" width="1438" height="538" rx="18" fill="url(#background)" stroke="#2EA8FF" stroke-opacity=".26"/>
+  <rect x="1" y="1" width="1438" height="538" rx="18" fill="url(#grid)"/>
+  <ellipse cx="720" cy="214" rx="540" ry="258" fill="url(#blueGlow)"/>
+
+  <path d="M0 88H1440M0 451H1440" stroke="url(#beam)" stroke-opacity=".45"/>
+  <path d="M142 0L360 540M525 0L743 540M908 0L1126 540M1291 0L1439 366" stroke="#A78BFA" stroke-opacity=".07"/>
+
+  <g opacity=".84">
+    <path d="M138 154C193 93 291 97 344 151C378 187 379 244 344 281C308 318 245 325 200 299C164 278 147 243 151 206" stroke="#2EA8FF" stroke-width="2"/>
+    <path d="M164 155C213 124 271 126 319 164" stroke="#A78BFA" stroke-opacity=".72"/>
+    <path d="M168 268C211 309 280 305 326 265" stroke="#55D6BE" stroke-opacity=".72"/>
+    <circle cx="151" cy="205" r="6" fill="#F7C948"/>
+    <circle cx="344" cy="151" r="5" fill="#A78BFA"/>
+    <circle cx="344" cy="281" r="5" fill="#55D6BE"/>
+    <path d="M173 208L226 179L278 208L226 238Z" fill="#2EA8FF" fill-opacity=".1" stroke="#2EA8FF" stroke-opacity=".58"/>
+    <path d="M226 179V238M173 208H278" stroke="#F7C948" stroke-opacity=".35"/>
+    <text x="225" y="217" text-anchor="middle" fill="#EAF6FF" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" letter-spacing="3">AD</text>
+  </g>
+
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="420" y="123" fill="#A78BFA" font-size="12" font-weight="700" letter-spacing="4">ICEDRACON // RUST SECURITY SYSTEMS</text>
+    <text x="418" y="207" fill="#F5FBFF" font-size="64" font-weight="800" letter-spacing="-3">AD//HAMMER</text>
+    <rect x="421" y="225" width="190" height="2" fill="#2EA8FF"/>
+    <text x="420" y="264" fill="#A7BDD0" font-size="18" font-weight="500" letter-spacing="1.6">ACTIVE DIRECTORY / EVIDENCE-FIRST ASSESSMENT</text>
+    <text x="420" y="307" fill="#708AA1" font-size="14">A single static Rust binary for the path from scoped discovery</text>
+    <text x="420" y="330" fill="#708AA1" font-size="14">to proof-bearing security assessment reports.</text>
+  </g>
+
+  <g transform="translate(1035 128)" font-family="Arial, Helvetica, sans-serif">
+    <rect width="248" height="173" rx="12" fill="#05101E" fill-opacity=".78" stroke="#A78BFA" stroke-opacity=".5"/>
+    <text x="22" y="31" fill="#A78BFA" font-size="10" font-weight="700" letter-spacing="2.5">CURRENT SIGNAL</text>
+    <text x="22" y="74" fill="#F5FBFF" font-size="31" font-weight="800">v1.5.0</text>
+    <path d="M22 97H226" stroke="#2EA8FF" stroke-opacity=".25"/>
+    <circle cx="27" cy="122" r="4" fill="#55D6BE" filter="url(#hardGlow)"/>
+    <text x="40" y="127" fill="#9EB3C4" font-size="12" letter-spacing=".6">FIRST-TOUCH DISCOVERY</text>
+    <circle cx="27" cy="148" r="4" fill="#FF435E" filter="url(#hardGlow)"/>
+    <text x="40" y="153" fill="#9EB3C4" font-size="12" letter-spacing=".6">EVIDENCE, NOT ASSUMPTION</text>
+  </g>
+
+  <g transform="translate(140 397)" font-family="Arial, Helvetica, sans-serif">
+    <path d="M72 0H1080" stroke="#79D2FF" stroke-opacity=".22" stroke-width="2"/>
+    <path d="M72 0H1080" stroke="url(#flow)" stroke-width="3" stroke-dasharray="14 18"/>
+    <g transform="translate(0 -25)">
+      <circle cx="72" cy="25" r="14" fill="#07182D" stroke="#2EA8FF" stroke-width="2"/>
+      <circle cx="72" cy="25" r="4" fill="#2EA8FF"/>
+      <text x="72" y="63" text-anchor="middle" fill="#EAF6FF" font-size="13" font-weight="700" letter-spacing="1.4">DISCOVER</text>
+      <text x="72" y="83" text-anchor="middle" fill="#7992A8" font-size="10" letter-spacing="1">SCOPED SURFACE</text>
+    </g>
+    <g transform="translate(342 -25)">
+      <circle cx="72" cy="25" r="14" fill="#120E28" stroke="#A78BFA" stroke-width="2"/>
+      <circle cx="72" cy="25" r="4" fill="#A78BFA"/>
+      <text x="72" y="63" text-anchor="middle" fill="#EAF6FF" font-size="13" font-weight="700" letter-spacing="1.4">MAP</text>
+      <text x="72" y="83" text-anchor="middle" fill="#7992A8" font-size="10" letter-spacing="1">CONTROL PATHS</text>
+    </g>
+    <g transform="translate(684 -25)">
+      <circle cx="72" cy="25" r="14" fill="#211C0B" stroke="#F7C948" stroke-width="2"/>
+      <circle cx="72" cy="25" r="4" fill="#F7C948"/>
+      <text x="72" y="63" text-anchor="middle" fill="#EAF6FF" font-size="13" font-weight="700" letter-spacing="1.4">VALIDATE</text>
+      <text x="72" y="83" text-anchor="middle" fill="#7992A8" font-size="10" letter-spacing="1">CAPTURED PROOF</text>
+    </g>
+    <g transform="translate(1026 -25)">
+      <circle cx="72" cy="25" r="14" fill="#071E1A" stroke="#55D6BE" stroke-width="2"/>
+      <circle cx="72" cy="25" r="4" fill="#55D6BE"/>
+      <text x="72" y="63" text-anchor="middle" fill="#F5FBFF" font-size="13" font-weight="700" letter-spacing="1.4">REPORT</text>
+      <text x="72" y="83" text-anchor="middle" fill="#88B9AC" font-size="10" letter-spacing="1">EVIDENCE TRAIL</text>
+    </g>
+  </g>
+
+  <g opacity=".76">
+    <circle cx="1330" cy="422" r="3" fill="#A78BFA"/>
+    <circle cx="1352" cy="397" r="3" fill="#F7C948"/>
+    <circle cx="1373" cy="429" r="3" fill="#55D6BE"/>
+    <path d="M1330 422L1352 397L1373 429" stroke="#A78BFA" stroke-opacity=".48"/>
+  </g>
+</svg>
