@@ -71,13 +71,10 @@ adhammer-ldap      = { path = "crates/ldap",      version = "1.5.0" }
 adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.0" }
 adhammer-secrets    = { path = "crates/secrets",    version = "1.5.0" }
 
-# WS-HASHGLASS (1.5.0, LOCAL-ONLY) — pentester-focused hash-type identifier
+# WS-HASHGLASS (1.5.0) — pentester-focused hash-type identifier
 # consumed by `attack roast` to annotate each emitted hash with its hashcat
-# mode + name + confidence. Not on crates.io yet, so path-only for now; a
-# published-registry line lands with WS-HASHGLASS-PUBLISH. Version pinned
-# even without a registry entry so `cargo deny bans` does not flag this as
-# a wildcard dependency (WS-DEPS-BANS discipline).
-hashglass = { path = "../hashglass", version = "0.1" }
+# mode + name + confidence. Published on crates.io at 0.1.0 as of 2026-09-04.
+hashglass = "0.1"
 
 # external
 serde       = { version = "1", features = ["derive"] }
@@ -110,14 +107,8 @@ base64      = "0.22"
 lto = "thin"
 codegen-units = 1
 
-
-# WS-FOUNDATION-NULLBIND (1.5.0, LOCAL-ONLY) — use the local smb2-client
-# 0.2.2 that adds `login_null` (anonymous IPC$ session) until 0.2.2 is
-# published. MUST be stripped before any adhammer crates.io publish
-# (see feedback-adhammer-hard-rules § [patch.crates-io] strip discipline).
-[patch.crates-io]
-smb2-client = { path = "../smb2-client" }
-# WS-BB-SHARES (1.5.0, LOCAL-ONLY) — local dcerpc 0.2.9 adds srvsvc
-# `NetrShareEnum` (opnum 15, SHARE_INFO_1) consumed by `enum shares --anon`.
-# Strip before any adhammer crates.io publish, same as smb2-client above.
-dcerpc = { path = "../dcerpc" }
+# [patch.crates-io] stripped 2026-09-04 after sibling publish cycle:
+#   smb2-client 0.2.3 → crates.io (published, verified)
+#   dcerpc      0.2.9 → crates.io (published, verified, transitively resolves smb2-client 0.2.3)
+# hashglass 0.1.0 already on crates.io. adhammer now resolves the entire
+# sibling chain from the registry with no local-path overrides.
