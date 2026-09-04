@@ -97,12 +97,17 @@ Every finding in the report is either an audit observation, a supported validati
 
 ## Release Truth
 
-The current workspace version is **1.4.10** (2026-09-02).
+The current workspace version is **1.5.0** (2026-09-04).
 
-Distribution state: **fully aligned at 1.4.10** — GitHub source + tag +
-release binaries, and all 12 crates on crates.io. `cargo install adhammer`
-installs 1.4.10; the GitHub release, `cargo binstall`, and the installer
-below all deliver the same version.
+Distribution state: **local candidate prepared, not yet released**. Every
+crate in the workspace resolves to 1.5.0; every static + functional gate
+green on Windows + Kali (Kali interactive PTY per the HARD RULE);
+`docs/PLAN_1.5.0_READINESS.md` carries the per-workstream evidence map.
+The GitHub tag `v1.5.0`, release binaries, and any crates.io publish
+require separate maintainer authorization per
+`docs/AI_RELEASE_GOVERNANCE.md` §5–§8. `cargo install adhammer` from
+crates.io continues to deliver 1.4.10 until the ecosystem publish
+completes; the local source and the tag (once created) carry 1.5.0.
 
 Public claims for ADhammer should follow three rules:
 
@@ -111,6 +116,35 @@ Public claims for ADhammer should follow three rules:
 - **No public copy should claim more than the validation ledger supports.**
 
 That keeps the README useful across release lines without turning the first screen into a moving archive.
+
+### 1.5.0 highlights
+
+**No-credential black-box assessment capability.** Turns adhammer from
+an authenticated audit tool into a first-touch engagement tool that
+can characterise a domain from zero credentials. The new `adhammer run`
+verb chains: hand-rolled RFC 1035 DNS resolver → per-DC HTTP surface
+fingerprint (`--web`: ADCS ESC8 relay tell `/certsrv/`, RD Web, ADFS
+sign-in + FederationMetadata, OWA/EWS, Autodiscover, SCCM) → per-DC
+anonymous SMB posture in one null session (`--deep`: SAMR users +
+srvsvc sessions + srvsvc `NetrShareEnum` level 1 + wkssvc + lsarpc
+`LsarOpenPolicy`, all in a single-shot enum4linux-ng-shape matrix).
+Standalone verbs: `enum web`, `enum nullbind`, `enum rpc-null`,
+`enum shares --anon`, `enum host --anon`, `enum sysvol` (anon + auth
+GPP `cpassword` walk over SMB2 `QUERY_DIRECTORY`, decrypted with the
+public MS14-025 AES key; recovered plaintext lands only in a 0600
+`write_secret_artifact`). New `attack coerce --scan-all` runs every
+coercion vector (PrinterBug / PetitPotam ×2 pipes / DFSCoerce /
+ShadowyCoerce) over one authenticated login and prints a which-fired
+matrix. Every hash `attack roast` emits carries a companion
+`[hashglass] -m <mode> "<name>" conf=<c>` line on stderr (stdout stays
+hashcat-pipe-clean). Sibling protocol crates advance: smb2-client
+0.2.1→0.2.3 (`login_null` + `list_directory` + non-deleting
+`read_file` + share-root open fix, all bounds- and loop-bounded
+against hostile input), dcerpc 0.2.8→0.2.9 (srvsvc `NetrShareEnum`
+opnum 15 with the same allocation-bound discipline as the existing
+`NetSessionEnum`). Full detail in [CHANGELOG.md](CHANGELOG.md),
+[docs/PLAN_1.5.0.md](docs/PLAN_1.5.0.md), and
+[docs/PLAN_1.5.0_READINESS.md](docs/PLAN_1.5.0_READINESS.md).
 
 ### 1.4.10 highlights
 
@@ -318,13 +352,17 @@ Reproduce in one command — driver ([`bench/run_bench.sh`](bench/run_bench.sh))
 <tr>
 <td width="50%">
 
-**From crates.io** — 1.4.10:
+**From crates.io** — currently 1.4.10 (the 1.5.0 crates.io publish is a
+separate maintainer-authorized action; while 1.5.0 lives only as a
+local candidate this remains the installable version on the registry):
 
 ```sh
 cargo install --locked adhammer
 ```
 
-For the current 1.4.10 source directly from its immutable Git tag:
+For a specific release directly from its immutable Git tag (substitute
+`v1.4.10` with the tag you want; `v1.5.0` becomes valid once the
+maintainer creates and pushes that tag):
 
 ```sh
 cargo install --locked --git https://github.com/icedracon/adhammer --tag v1.4.10 adhammer
