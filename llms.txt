@@ -14,11 +14,11 @@
 - Report: JSON, HTML, Markdown, and BloodHound-CE; finding, path, proof, command, and MITRE technique stay linked across every export.
 
 ## Current release
-- Version 1.4.10 was published on 2026-09-02 through GitHub Releases and crates.io.
-- It is a defence-in-depth patch with no new operator-observable capability: authenticated plaintext LDAP simple binds are refused by default, GPP secrets are redacted from report bodies, LDAP / SYSVOL work has resource budgets, and network-derived report output is sanitized.
-- Release binaries include SHA-256 checksums and GitHub OIDC Sigstore attestations. GitHub release binaries, `cargo binstall`, and `cargo install` align on 1.4.10.
-- Cross-version receipts cover Windows Server 2019, 2022, and 2025. They record working SMB / Kerberos paths and a uniform LDAPS-bind limitation; `docs/VALIDATION.md` remains authoritative for current support.
-- Version 1.4.9 is the preceding trust-and-hardening release. Version 1.4.8 was the capability-expansion release; validation depth varies by capability.
+- Version 1.5.0 was published on 2026-09-04 through GitHub Releases and crates.io.
+- It adds a first-touch, no-credential Active Directory assessment path: scoped DNS discovery, per-DC HTTP(S) fingerprinting, and anonymous SMB / RPC posture probes, with standalone web, nullbind, RPC-null, share, host, and SYSVOL flows.
+- The release also adds a supported-coercion-family scan matrix and stderr-only hashcat-mode annotations for roast output. Feature availability is not a blanket claim of live validation; `docs/VALIDATION.md` remains authoritative for current support.
+- Static release binaries use rustls with bundled AWS-LC. SHA-256 sidecars and GitHub OIDC Sigstore attestation instructions are available for each platform build.
+- Version 1.4.10 is the preceding defence-in-depth release; version 1.4.9 is the prior trust-and-hardening release.
 
 ## Who it is for
 - Penetration testers, red teamers, and Active Directory security specialists.
@@ -28,7 +28,7 @@
 - Install: `cargo install adhammer` — https://crates.io/crates/adhammer
 - Library: `cargo add adhammer-sdk`
 - Source: https://github.com/icedracon/adhammer
-- Release notes: https://github.com/icedracon/adhammer/releases/tag/v1.4.10
+- Release notes: https://github.com/icedracon/adhammer/releases/tag/v1.5.0
 - Validation ledger: https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md
 - Crates by author: https://crates.io/users/zevs
 

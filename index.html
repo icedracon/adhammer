@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ADhammer — Active Directory Pentest Tool in Rust</title>
-  <meta name="description" content="ADhammer is an open-source Active Directory pentest tool in Rust. Map attack paths, assess AD CS, validate supported findings, and export evidence.">
+  <meta name="description" content="ADhammer is an open-source Active Directory pentest tool in Rust for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.">
   <meta name="keywords" content="Active Directory pentest tool, Active Directory penetration testing, Active Directory security assessment, AD CS, attack path analysis, BloodHound, Kerberos, Rust">
   <meta name="author" content="zevs · icedracon">
   <meta name="robots" content="index, follow">
@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="preload" href="assets/ice-dragon-graph.webp" as="image" type="image/webp">
   <meta property="og:title" content="ADhammer — Active Directory Pentest Tool in Rust">
-  <meta property="og:description" content="Open-source Active Directory pentest tool for attack-path analysis, AD CS assessment, supported validation, and evidence-first reporting.">
+  <meta property="og:description" content="Open-source Active Directory pentest tool for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://icedracon.github.io/adhammer/">
   <meta property="og:site_name" content="ADhammer">
@@ -24,7 +24,7 @@
   <meta property="og:image:alt" content="ADhammer open-source Active Directory pentest tool">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="ADhammer — Active Directory Pentest Tool in Rust">
-  <meta name="twitter:description" content="Open-source Active Directory pentest tool for attack-path analysis, AD CS assessment, supported validation, and evidence-first reporting.">
+  <meta name="twitter:description" content="Open-source Active Directory pentest tool for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.">
   <meta name="twitter:image" content="https://icedracon.github.io/adhammer/assets/adhammer-mark.webp">
   <meta name="twitter:image:alt" content="ADhammer open-source Active Directory pentest tool">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1198,9 +1198,9 @@
     }
     a.release-lineage-node { transition: background .2s ease, transform .25s ease; }
     a.release-lineage-node:hover { background: linear-gradient(90deg, rgba(121, 210, 255, .06), transparent); transform: translateY(-50%) translateX(4px); }
-    .release-lineage-148 { left: 8%; top: 18%; }
-    .release-lineage-149 { left: 28%; top: 47%; }
-    .release-lineage-1410 { left: 8%; top: 79%; }
+    .release-lineage-149 { left: 8%; top: 18%; }
+    .release-lineage-1410 { left: 28%; top: 47%; }
+    .release-lineage-150 { left: 8%; top: 79%; }
     .release-lineage-orb {
       position: relative;
       width: 50px;
@@ -1839,12 +1839,13 @@
     "applicationSubCategory": "Active Directory penetration testing",
     "operatingSystem": "Linux, macOS, Windows",
     "programmingLanguage": "Rust",
-    "softwareVersion": "1.4.10",
+    "softwareVersion": "1.5.0",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
-    "description": "ADhammer is an open-source Active Directory pentest tool in Rust. Map attack paths, assess AD CS, validate supported findings, and export evidence.",
-    "keywords": "Active Directory pentest tool, Active Directory security assessment, AD CS, attack path analysis, BloodHound, Rust",
+    "description": "ADhammer is an open-source Active Directory pentest tool in Rust for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.",
+    "keywords": "Active Directory pentest tool, no-credential AD assessment, Active Directory security assessment, AD CS, attack path analysis, BloodHound, Rust",
     "featureList": [
+      "No-credential Active Directory discovery and surface fingerprinting",
       "LDAP and Active Directory Certificate Services collection",
       "Tier-0 attack-path analysis",
       "Supported validation with captured evidence",
@@ -1923,7 +1924,7 @@
           <div class="hero-fact"><b>50+ checks</b><span>four audit categories</span></div>
           <div class="hero-fact"><b>15 / 16 AD CS</b><span>coverage classes</span></div>
           <div class="hero-fact"><b>Evidence-led</b><span>validation ledger</span></div>
-          <div class="hero-fact"><b>v1.4.10</b><span>current release</span></div>
+          <div class="hero-fact"><b>v1.5.0</b><span>current release</span></div>
         </div>
       </div>
       <div class="hero-rail" aria-label="Assessment lifecycle">
@@ -2123,38 +2124,38 @@
               <path class="release-line release-line-current-path" d="M145 254 C150 329 82 357 65 427"></path>
               <path class="release-line-pulse" pathLength="1" d="M145 254 C150 329 82 357 65 427"></path>
             </svg>
-            <a class="release-lineage-node release-lineage-148" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.8" target="_blank" rel="noopener">
-              <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.8</strong><em>Capability expansion</em></span>
-            </a>
             <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
+              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-1410 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
+              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
             </a>
-            <span class="release-lineage-status">03 published releases / current v1.4.10</span>
+            <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">
+              <span class="release-lineage-orb"><i></i></span>
+              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
+            </a>
+            <span class="release-lineage-status">Latest 3 published releases / current v1.5.0</span>
           </div>
-          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.8 is an earlier published release, version 1.4.9 is the previous published release, and version 1.4.10 is the current published release.</figcaption>
+          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.9 is an earlier published release, version 1.4.10 is the previous published release, and version 1.5.0 is the current published release.</figcaption>
         </figure>
         <div class="release-story reveal">
           <span class="eyebrow proof">03 / Release signal</span>
-          <h2 id="release-title">Harder boundaries.<span>Same evidence.</span></h2>
-          <p class="release-intro">Version 1.4.10 is the current defence-in-depth release: authenticated plaintext LDAP simple binds are refused by default, GPP secrets stay out of report bodies, hostile-server budgets protect LDAP and SYSVOL work, and terminal control sequences are removed before reporting.</p>
-          <div class="release-facts" aria-label="Version 1.4.10 highlights">
-            <div class="release-fact"><strong>4 boundaries</strong><span>LDAP binds · GPP secrets · resource budgets · report output</span></div>
-            <div class="release-fact"><strong>3 OS lines</strong><span>Server 2019 · 2022 · 2025 receipts published</span></div>
-            <div class="release-fact"><strong>SHA-256 + Sigstore</strong><span>Release binaries have checksums and attestations</span></div>
+          <h2 id="release-title">First touch.<span>Clearer surface.</span></h2>
+          <p class="release-intro">Version 1.5.0 opens a first-touch Active Directory assessment path: discover in-scope DCs, fingerprint web surfaces, and map anonymous SMB posture before credentials are available. It also adds a supported-coercion-family matrix and hashcat-mode guidance on roast output.</p>
+          <div class="release-facts" aria-label="Version 1.5.0 highlights">
+            <div class="release-fact"><strong>0 credentials</strong><span>Scoped DNS discovery · web fingerprint · SMB posture</span></div>
+            <div class="release-fact"><strong>One null session</strong><span>Per-host anonymous SMB / RPC posture in deep runs</span></div>
+            <div class="release-fact"><strong>SHA-256 + Sigstore</strong><span>Verification material and instructions are available</span></div>
           </div>
           <div class="release-boundary">
             <b>Truth boundary</b>
-            <p>The validation ledger remains authoritative. The cross-version receipts record working SMB / Kerberos paths and a uniform LDAPS-bind limitation across the Server 2019, 2022, and 2025 line; the site does not promote that limitation as validated support.</p>
+            <p>The validation ledger remains authoritative for support and readiness claims. Version 1.5.0 identifies scoped, observable AD surfaces; a reachable endpoint or response is evidence to inspect, not proof of exploitability.</p>
           </div>
-          <div class="release-distribution-note"><span>Published / 2026-09-02</span><p>GitHub release binaries, <code>cargo binstall</code>, and <code>cargo install</code> now align on 1.4.10. This patch ships no new operator-observable capability.</p></div>
+          <div class="release-distribution-note"><span>Published / 2026-09-04</span><p>GitHub Releases and crates.io now offer 1.5.0. Static release builds use rustls with bundled AWS-LC; each platform build has a SHA-256 sidecar and GitHub OIDC Sigstore attestation instructions.</p></div>
           <div class="release-links">
-            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">Read v1.4.10 notes ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">Read v1.5.0 notes ↗</a>
             <a class="release-link" href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">Open on crates.io ↗</a>
             <a class="release-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           </div>
