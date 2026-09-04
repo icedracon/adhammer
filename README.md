@@ -95,19 +95,100 @@ Every finding in the report is either an audit observation, a supported validati
 
 <br/>
 
+## 🧭 The security-signal boundary
+
+<p align="center">
+  <img src="https://img.shields.io/badge/AD%20PENTEST-NATIVE%20SCOPE-2ea8ff?style=flat-square&labelColor=05070d" alt="AD pentest: native scope"/>
+  <img src="https://img.shields.io/badge/SIEM-JSON%20OUTPUT-8b5cf6?style=flat-square&labelColor=05070d" alt="SIEM: JSON output"/>
+  <img src="https://img.shields.io/badge/EDR%20%2F%20DLP-EXTERNAL%20CONTROLS-f7c948?style=flat-square&labelColor=05070d" alt="EDR and DLP: external controls"/>
+  <img src="https://img.shields.io/badge/SIGMA%20%2F%20YARA-NOT%20SHIPPED-65758b?style=flat-square&labelColor=05070d" alt="Sigma and YARA: not shipped"/>
+  <img src="https://img.shields.io/badge/WEB%20%2F%20APK-SEPARATE%20SCOPE-65758b?style=flat-square&labelColor=05070d" alt="Web and APK: separate scope"/>
+</p>
+
+> **ADhammer is an evidence-first Active Directory assessment tool — not an all-in-one security suite.** It produces assessment evidence for approved defender workflows; it does not replace a SIEM, EDR, DLP platform, rule engine, web scanner, or mobile / APK tester.
+
+<table>
+<tr>
+<td width="26%" valign="top">
+
+**◈ Active Directory pentest**<br/>
+<sub>Native focus</sub>
+
+</td>
+<td valign="top">
+
+Directory collection, documented AD web-surface fingerprinting, attack-path analysis, evidence-first reporting, and only the validation status recorded in the [validation ledger](docs/VALIDATION.md).
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**◈ SIEM / case workflow**<br/>
+<sub>Downstream JSON</sub>
+
+</td>
+<td valign="top">
+
+Report JSON is machine-readable for downstream CI, SIEM, and scoring pipelines. ADhammer does not claim a built-in vendor connector or managed detection workflow.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**◈ EDR / DLP**<br/>
+<sub>External controls</sub>
+
+</td>
+<td valign="top">
+
+Authorized assessments can create observable protocol activity. ADhammer ships no EDR / DLP evasion, endpoint agent, or control-plane integration.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**◈ Sigma / YARA**<br/>
+<sub>Not shipped</sub>
+
+</td>
+<td valign="top">
+
+No Sigma / YARA rule pack or rule engine is bundled. Detection content belongs in the team’s own approved detection-engineering workflow.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**◈ Web / APK pentest**<br/>
+<sub>Separate discipline</sub>
+
+</td>
+<td valign="top">
+
+ADhammer is not a general web-application or Android / APK testing framework. Use purpose-built, separately authorized tools for those assessments.
+
+</td>
+</tr>
+</table>
+
+<p align="center">
+  <code>ADhammer assessment</code> &nbsp;→&nbsp; <code>evidence-rich JSON report</code> &nbsp;→&nbsp; <code>your approved detection / case workflow</code>
+</p>
+
+<br/>
+
 ## Release Truth
 
-The current workspace version is **1.5.0** (2026-09-04).
+The current public release is **1.5.0** (published 2026-09-04).
 
-Distribution state: **local candidate prepared, not yet released**. Every
-crate in the workspace resolves to 1.5.0; every static + functional gate
-green on Windows + Kali (Kali interactive PTY per the HARD RULE);
-`docs/PLAN_1.5.0_READINESS.md` carries the per-workstream evidence map.
-The GitHub tag `v1.5.0`, release binaries, and any crates.io publish
-require separate maintainer authorization per
-`docs/AI_RELEASE_GOVERNANCE.md` §5–§8. `cargo install adhammer` from
-crates.io continues to deliver 1.4.10 until the ecosystem publish
-completes; the local source and the tag (once created) carry 1.5.0.
+[GitHub Releases](https://github.com/icedracon/adhammer/releases/tag/v1.5.0) and
+[crates.io](https://crates.io/crates/adhammer) both offer 1.5.0. GitHub
+release builds include SHA-256 sidecars and GitHub OIDC Sigstore attestation
+verification instructions.
 
 Public claims for ADhammer should follow three rules:
 
