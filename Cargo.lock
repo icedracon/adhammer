@@ -127,7 +127,7 @@ dependencies = [
  "ms-pac-forge",
  "picky-asn1",
  "picky-asn1-der",
- "picky-asn1-x509",
+ "picky-asn1-x509 0.15.4",
  "picky-krb",
  "rand",
  "rsa",
@@ -1783,6 +1783,19 @@ dependencies = [
  "picky-asn1",
  "picky-asn1-der",
  "serde",
+]
+
+[[package]]
+name = "picky-asn1-x509"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "859d4117bd1b1dc5646359ee7243c50c5000c0920ea2d1fb120335a2f4c684b8"
+dependencies = [
+ "base64",
+ "oid",
+ "picky-asn1",
+ "picky-asn1-der",
+ "serde",
  "widestring",
 ]
 
@@ -1803,7 +1816,7 @@ dependencies = [
  "pbkdf2",
  "picky-asn1",
  "picky-asn1-der",
- "picky-asn1-x509",
+ "picky-asn1-x509 0.14.6",
  "rand",
  "serde",
  "sha1",
