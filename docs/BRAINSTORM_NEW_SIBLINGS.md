@@ -49,8 +49,8 @@ starts with a link-local poisoning tool. Nothing Rust-native exists.
 
 | Sibling name | What it does | Rust availability | Fit |
 |---|---|---|---|
-| **`llmnr-poison`** | LLMNR (UDP 5355 mDNS-like), NBT-NS (UDP 137), mDNS (UDP 5353) responder. Reply to any query with the attacker IP; capture the follow-up SMB/HTTP NTLM auth. Emit NetNTLMv2 lines annotated by `hashglass` (mode 5600) ready to pipe to hashcat, or to `adhammer attack relay` for onward relay. Dual-use: `--defensive-scan` mode listens *without* replying and lists what queries the segment leaks (privacy audit). | none maintained | 300–500 LOC (raw UDP + name-parser); dep tree = tokio + hand-rolled |
-| **`mitm6-core`** | DHCPv6 server + ICMPv6 Router Advertisement generator + WPAD `wpad.dat` responder. Wins the Windows-default "IPv6 preferred" race and steers proxy traffic through the attacker. Pairs with `attack relay` for auto-NTLM-to-LDAPS. Dual-use: `--defensive-scan` reports RA/DHCPv6 auth state + rogue-RA guard status. | none maintained | ~600 LOC (raw AF_PACKET or `socket2` + hand-rolled ICMPv6/DHCPv6 packers); dep = `socket2` — bigger but justified |
+| **`llmnr-poison`** | LLMNR (UDP 5355 mDNS-like), NBT-NS (UDP 137), mDNS (UDP 5353) responder. Reply to any query with the attacker IP; capture the follow-up SMB/HTTP NTLM auth. Emit NetNTLMv2 lines annotated by `hashglass` (mode 5600) ready to pipe to hashcat, or to `adhammer attack relay` for onward relay. Dual-use: `--defensive-scan` mode listens *without* replying and lists what queries the segment leaks (privacy audit). | none maintained (search 2026-09-03: `julinox/llmnr_responder` exists but is a legitimate host daemon, not a poisoner) | ~500 LOC; **ZERO new external deps** — reuse `crates/collector/src/dns_wire.rs` for LLMNR + mDNS name encoding, reuse `ntlmssp` for NTLM challenge/authenticate, hand-roll NetBIOS name codec (~30 LOC) + rogue HTTP 401 (~150 LOC) + rogue SMB2 SESSION_SETUP responder (~300 LOC) |
+| **`mitm6-core`** | DHCPv6 server + ICMPv6 Router Advertisement generator + WPAD `wpad.dat` responder. Wins the Windows-default "IPv6 preferred" race and steers proxy traffic through the attacker. Pairs with `attack relay` for auto-NTLM-to-LDAPS. Dual-use: `--defensive-scan` reports RA/DHCPv6 auth state + rogue-RA guard status. | none maintained; `dhcproto` (BlueCat) exists as a DHCPv6 parser building block but we hand-roll our 4-message subset per §6 dep-risk grid | ~400 LOC; **`socket2` as the single new external dep** (cross-platform raw sockets — genuinely non-trivial to re-derive) — 250 LOC DHCPv6 SOLICIT/ADVERTISE/REPLY + 5 options, 150 LOC ICMPv6 RA packer |
 | **`wpad-serve`** | Standalone HTTP WPAD responder if operator wants the WPAD half without full mitm6 (segment already IPv6-clean, just missing WPAD). Could be a feature-flag of `mitm6-core` instead. | none | ~150 LOC — probably feature-flag |
 
 **Priority: highest.** These would let adhammer's `run` verb be a genuine
@@ -64,7 +64,7 @@ class with almost no cross-platform tooling.
 
 | Sibling name | What it does | Rust availability | Fit |
 |---|---|---|---|
-| **`krb-relay-rs`** | Intercept a Kerberos AP-REQ authenticator arriving over one RPC binding, forward it to a different SPN (SPN-less RPC / SCMR / ICPR) to gain a foreign-service session. Composes with `attack coerce` (Kerberos-shaped variant) and `ms-icpr` for AD CS. | none | HARD, ~1000 LOC — needs SPN-diversion inside `dcerpc` transport layer; also needs ms-krb "unwrap AP-REQ, replay to peer" primitive |
+| **`krb-relay-rs`** | Intercept a Kerberos AP-REQ authenticator arriving over one RPC binding, forward it to a different SPN (SPN-less RPC / SCMR / ICPR) to gain a foreign-service session. Composes with `attack coerce` (Kerberos-shaped variant) and `ms-icpr` for AD CS. | none in Rust (KrbRelay is C#, krbrelayx is Python; Rust has parser crates `kerbeiros`/`kerberos-parser`/`rasn-kerberos` but no relay framework) | HARD, ~1000 LOC; **ZERO new external deps** — build on `picky-krb` + `ms-pkca` + `ms-kile-fast` + `dcerpc` (all icedracon-native, all already used by adhammer). The work is SPN-diversion logic, not Kerberos wire re-derivation. |
 | **`pkinit-relay`** | Extend Kerberos: capture PKINIT AS-REQ from a coerced host (or NTLM-relayed enrollment) → forward. Very rare. Pairs with existing shadow-credentials pipeline. | none | HARD, ~800 LOC |
 
 **Priority: high but expensive.** Would put icedracon on the map for
@@ -137,8 +137,8 @@ Higher = more sibling worth building next.
 
 | Rank | Candidate | Impact | Void | LOC | Score | Notes |
 |---:|---|---:|---:|---:|---:|---|
-| 1 | `llmnr-poison` | 5 | 3 | 400 | **18.8** | Every internal engagement uses this class of tool. First Rust impl. Small dep tree. |
-| 2 | `mitm6-core` | 5 | 3 | 600 | **12.5** | Already deferred from 1.5.0 → 1.5.1 explicitly. Needs `socket2`. |
+| 1 | `llmnr-poison` | 5 | 3 | 500 | **15.0** | Every internal engagement uses this class of tool. First Rust impl. **Zero new external deps** — reuses `dns_wire` + `ntlmssp` from icedracon. |
+| 2 | `mitm6-core` | 5 | 3 | 400 | **18.8** | Already deferred from 1.5.0 → 1.6.0 explicitly. Hand-rolled DHCPv6 subset per §6 grid; one new dep = `socket2` only. |
 | 3 | `attack nopac` (verb, not sibling) | 4 | 2 | 200 | **20.0** | Free: reuses existing siblings. Ship in 1.5.x. |
 | 4 | `browser-creds-offline` | 4 | 3 | 600 | **10.0** | Composes with existing dpapi-offline. Real post-exploit yield. |
 | 5 | `ad-cs-esc-registry` | 4 | 2 | 200 | **20.0** | Fast to ship. Community-updatable rule pack. |
@@ -147,7 +147,7 @@ Higher = more sibling worth building next.
 | 8 | `attack ntlm-mic-drop` (verb) | 3 | 2 | 50 | **60.0** | Tiny flag on existing relay. Highest bang-for-LOC. |
 | 9 | `attack esc13` (verb, uses new rule pack) | 3 | 2 | 150 | **20.0** | With `ad-cs-esc-registry` ships as one pattern. |
 | 10 | `attack-graph-tui` | 3 | 3 | 800 | **5.6** | UX. Real user delight. |
-| 11 | `krb-relay-rs` | 4 | 3 | 1000 | **6.0** | Novel tradecraft; expensive; do after network-poisoning siblings ship. |
+| 11 | `krb-relay-rs` | 4 | 3 | 1000 | **6.0** | Novel tradecraft; expensive; do after network-poisoning siblings ship. **Zero new external deps** — builds on picky-krb + ms-pkca + ms-kile-fast + dcerpc (all icedracon-native). |
 
 ---
 
@@ -168,12 +168,12 @@ Total: 1 new sibling, 3 adhammer verbs. ~700 LOC. Every dep already known.
 
 ### 1.6.0 candidate scope (network-poisoning family)
 
-- `llmnr-poison` sibling — LLMNR/NBT-NS/mDNS responder
-- `mitm6-core` sibling — DHCPv6 + WPAD + RA
+- `llmnr-poison` sibling — LLMNR/NBT-NS/mDNS responder (zero new external deps; reuses `dns_wire` + `ntlmssp`)
+- `mitm6-core` sibling — DHCPv6 + WPAD + RA (hand-rolled DHCPv6 subset; one new dep `socket2`)
 - adhammer `attack poison-net` verb that composes both + `attack relay`
 - adhammer `run --defensive-scan` mode that uses same siblings in listen-only
 
-Total: 2 new siblings, 2 adhammer verbs. ~1200 LOC. New dep: `socket2` (widely audited, fits the ripgrep-level bar).
+Total: 2 new siblings, 2 adhammer verbs. ~900 LOC (revised down from 1200 after §6 hand-roll-vs-adopt grid). **One new external dep: `socket2` only** — rust-nursery-adjacent, thousands of downstream crates, cross-platform raw sockets are genuinely non-trivial to re-derive. Everything else reuses icedracon-native crates (`dns_wire`, `ntlmssp`) so bus-factor stays inside our own ecosystem.
 
 ### 1.6.x deferred candidates (own workstream each)
 
@@ -204,7 +204,54 @@ Total: 2 new siblings, 2 adhammer verbs. ~1200 LOC. New dep: `socket2` (widely a
 
 ---
 
-## 6. Next-step gate
+## 6. Dependency-risk analysis (revised 2026-09-03)
+
+Before adopting *any* external crate into a new sibling, walk this test.
+Every "adopt" answer is a bus-factor + API-break risk we take on. Prefer
+hand-roll when the surface we actually use is small; adopt only when the
+external code covers something genuinely non-trivial that we would
+otherwise re-derive against a wire spec ([[feedback-stier-minimalism]],
+precedent: hashglass wrote own json.rs to drop serde_json).
+
+### Test grid — one row per external-crate candidate
+
+| Crate | For | Bus factor | API stability | Surface we use | Hand-roll cost | Blast radius if it breaks | Verdict |
+|---|---|---|---|---|---|---|---|
+| **`socket2`** | mitm6-core, llmnr-poison (raw UDP/AF_PACKET) | rust-lang-nursery-adjacent, thousands of downstream crates, mature | very stable (v0.5.x for years) | thin cross-platform raw-socket wrapper | HIGH — cross-platform raw sockets from scratch = 300+ LOC of Windows/Linux/BSD ifdef pain | LOW-MEDIUM — plumbing layer, not security path | **ADOPT.** Meets our "genuinely non-trivial to re-derive" bar. |
+| **`dhcproto`** (BlueCat) | mitm6-core (DHCPv6 messages) | corporate-backed, active, single vendor | maturing but API-fluid on their release notes | we need 4 message types (SOLICIT, ADVERTISE, REQUEST, REPLY) + 5 options (IA_NA, DNS-servers, domain-search, client-id, server-id). dhcproto has hundreds. | LOW — 250 LOC hand-rolled against RFC 8415 for our 4 messages + 5 options | LOW — only wire encoding | **HAND-ROLL.** We use 5% of the crate's surface; not worth the dep. |
+| **`kerbeiros` / `kerberos-parser` / `rasn-kerberos`** | krb-relay-rs | individual-maintainer or medium; kerbeiros stalled at times | mixed; none of the three is fully stable | KDC interaction + Kerberos types | ZERO — we already have `picky-krb` (Devolutions-backed, in-use) + `ms-pkca` + `ms-kile-fast` (our own) covering all of this and more | HIGH — Kerberos is the security path | **HAND-ROLL WITH EXISTING ICEDRACON STACK.** No new dep. |
+| **`dns`-family crates** (`hickory-*`, `simple-dns`, etc.) | llmnr-poison (DNS-shape name encoding for LLMNR + mDNS) | varies; hickory ex-trust-dns maintained; simple-dns individual | fluid on hickory (has churned once) | tiny: name codec + response builder | ZERO — we already own `crates/collector/src/dns_wire.rs` (10 tests, hostile-input tested), and LLMNR + mDNS use the exact same wire shape as DNS | LOW-MEDIUM | **REUSE `dns_wire`.** No new dep. |
+| Any NTLM/SMB2 server crate | llmnr-poison (rogue SMB2 to capture NTLM) | none maintained | — | SESSION_SETUP flow only | LOW — we own `smb2-client` (client) and `ntlmssp` (both directions); server-side is asymmetric response over the same NTLMSSP messages. ~300 LOC of new "answer these three messages" code, no wire re-derivation | HIGH — auth path | **HAND-ROLL, reuse `ntlmssp` + a new `smb2-server` sibling (or feature-flag in smb2-client).** No new external dep. |
+
+### Result — dep footprint per critical sibling
+
+| Sibling | External deps | LOC (revised) | Rationale |
+|---|---|---|---|
+| **`llmnr-poison`** | tokio (already have) — **ZERO new deps** | ~500 LOC (was 400 — bumped for rogue-SMB2 responder side; still fits) | reuse `dns_wire` for LLMNR + mDNS name encoding, reuse `ntlmssp` for NTLM challenge/authenticate, hand-roll NetBIOS name codec (~30 LOC) and rogue-HTTP 401 responder (~150 LOC) |
+| **`mitm6-core`** | `socket2` only (single new dep, mature, rust-nursery-adjacent) | ~400 LOC (was 600 — hand-rolled DHCPv6 subset + ICMPv6 RA reduces LOC and eliminates the `dhcproto` dep) | 250 LOC DHCPv6 SOLICIT/ADVERTISE/REPLY encode/decode + 5 options, 150 LOC ICMPv6 RA packer, socket2 for cross-platform AF_PACKET raw send |
+| **`krb-relay-rs`** | ZERO new deps | ~1000 LOC (unchanged; the work is in SPN-diversion logic, not wire re-derivation) | build on `picky-krb` + `ms-pkca` + `ms-kile-fast` + `dcerpc` (all icedracon-native) |
+
+### Why this matters — the failure mode
+
+If `dhcproto` changes API in a minor release, mitm6-core breaks — even
+though we only used 4 message types. If `kerbeiros` goes unmaintained (as
+several small Kerberos crates have), krb-relay-rs inherits an
+unmaintainable dep in the security path. The user-visible failure is:
+"adhammer 1.6.1 no longer builds, and to fix it we have to fork or rewrite
+someone else's crate." That's the exact failure mode
+[[feedback-stier-minimalism]] exists to prevent.
+
+By contrast, hand-rolling ~250 LOC of DHCPv6 for the messages we actually
+use costs one afternoon and lives forever inside the sibling, under our
+control, with our fuzzing corpus and hostile-input tests.
+
+`socket2` is the one exception: raw sockets are genuinely 300+ LOC of
+cross-platform system-call plumbing we would re-derive badly. Rust-nursery
+adjacent + years of stability makes it the right adopt.
+
+---
+
+## 7. Next-step gate
 
 Nothing in this document is authorization to build. Each candidate:
 
@@ -214,6 +261,9 @@ Nothing in this document is authorization to build. Each candidate:
 2. Needs your explicit go-ahead per §1.
 3. Follows the standing publish discipline (bottom-up cascade, receipts,
    scrubber).
+4. **Any external dep proposed in the plan must pass §6's grid**, with
+   explicit hand-roll-vs-adopt rationale. Silent adoption of a "helpful"
+   crate is a review gate failure.
 
 The purpose here was **only** to answer "what's actually missing that we
 should build next" with evidence, not to guess.
