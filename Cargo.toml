@@ -98,7 +98,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 picky-krb   = "0.9"
 picky-asn1  = "0.10"
 md-5        = "0.10"
-md4         = "0.10"
+md4         = "0.11"
 hmac        = "0.12"
 rc4         = "0.1"
 aes         = "0.8"
