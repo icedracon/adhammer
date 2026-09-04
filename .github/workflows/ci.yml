@@ -181,6 +181,33 @@ jobs:
             cargo package -p "$c" --allow-dirty --no-verify
           done
 
+  # 1.5.0 WS-CASCADE-REHEARSAL — bottom-up `cargo publish --dry-run` for
+  # every publishable crate in DAG order. Reveals whether a real crates.io
+  # cascade would succeed WITHOUT publishing anything. INFORMATIONAL by
+  # design (continue-on-error: true): on dev branches with
+  # [patch.crates-io] present, the first crate reaching a patched dep
+  # fails-closed with a clear "no matching package found for adhammer-*
+  # 1.x.x" — that IS the correct signal that the cascade cannot proceed
+  # until patches are stripped and predecessor siblings published.
+  #
+  # Contract:
+  # - exit 0 = green (would ship)
+  # - exit 2 = expected fail-closed (patches present, patch-strip needed)
+  # - exit 1 = unknown failure (real cascade blocker)
+  cascade-rehearsal:
+    name: crates.io cascade rehearsal (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2 pinned
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable pinned
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2 pinned
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5 pinned
+        with:
+          python-version: "3.12"
+      - name: bash scripts/cascade_rehearsal.sh
+        run: bash scripts/cascade_rehearsal.sh
+
   # 1.4.9 WS-CI-HARDEN — license + source + banned-crate policy from deny.toml.
   # Non-blocking on `warn` (duplicate-versions), blocking on `deny` (unknown
   # source, unlicensed crate). Ignore list for accepted advisories is in
