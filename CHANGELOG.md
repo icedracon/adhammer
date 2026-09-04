@@ -103,7 +103,7 @@ hashcat-mode annotator on every roast-emitted hash. See
   §C.4. `hashglass 0.1.0` is not yet on crates.io — publishing
   adhammer requires `WS-HASHGLASS-PUBLISH` to close first.
 
-### Governance
+### Governance + policy formalisation
 
 - Added `docs/AI_RELEASE_GOVERNANCE.md`, `docs/ECOSYSTEM_READINESS_100.md`,
   `AGENTS.md`, `scripts/check_release_governance.py` (CI-enforced
@@ -112,6 +112,49 @@ hashcat-mode annotator on every roast-emitted hash. See
 - New sibling brainstorm `docs/BRAINSTORM_NEW_SIBLINGS.md` with the
   §6 dep-risk grid establishing hand-roll-vs-adopt discipline for
   every future external dep.
+- **WS-MSRV-POLICY** — `docs/POLICY_MSRV.md` as single source of truth
+  for how MSRV moves, with a `<!-- MSRV-BASELINE:X.Y -->` anchor tied
+  to `[workspace.package].rust-version` in Cargo.toml.
+  `scripts/check_msrv_baseline.py` fails CI on drift, forcing any
+  future MSRV bump to touch the policy doc in the same reviewed diff.
+  Baseline unchanged at 1.88.
+- **WS-RECEIPT-SCHEMA** — `docs/receipts/schema.json` (JSON Schema
+  draft-07) formalises the receipt shape `check_validation_ledger`
+  already relies on; `scripts/validate_receipt.py` (hand-rolled
+  schema-subset validator, no `jsonschema` dep) cross-checks version +
+  windows_label vs the `<version>__<label>.json` filename so the two
+  can never disagree silently. JSON companions added for
+  `1.5.0__release-evidence.json` and `1.5.0__kali_pty.json`.
+- **WS-CASCADE-REHEARSAL** — `scripts/cascade_rehearsal.sh` runs
+  `cargo publish --dry-run --allow-dirty --no-verify` for every
+  publishable crate in DAG order and reports pass/fail per crate.
+  Exit-code contract distinguishes green (0), expected fail-closed
+  (2 — `[patch.crates-io]` present so a real cascade can't proceed
+  yet), and unknown failure (1). Wired into CI as an informational
+  `continue-on-error` job.
+
+### Deferred out of 1.5.0
+
+- **WS-ADVISORY-CLEANUP** (`RUSTSEC-2023-0071`, rsa 0.9 Marvin
+  sidechannel) — scope is deeper than the plan estimated. The `rsa`
+  crate is actively used across `crates/kerberos/src/csr.rs` (CSR
+  generation), `crates/kerberos/src/pkinit.rs` (PKINIT sign/decode),
+  and `cli/src/attacks/icpr_esc1.rs` (RSA key generation), AND reaches
+  the tree transitively via the external `ms-icpr 0.1.2` sibling.
+  Full removal is a crypto-migration workstream that needs its own
+  version contract per `AI_RELEASE_GOVERNANCE.md` §3 — 1.5.1
+  candidate. The advisory ignore in `.cargo/audit.toml` and
+  `deny.toml` remains with its dated rationale.
+- **WS-DEPS-MAJORS** (picky-krb 0.9 → 0.12) — prior 2026-09-01 attempt
+  was reverted; ~30+ mechanical edits owed with an underlying failure
+  mode to understand first. Own workstream. 1.5.1 candidate.
+- **WS-FUZZ-DEEP** — definition of done is 7 consecutive nights green.
+  Cannot compress into a session; runs continuously post-tag.
+- **WS-LDAPS-CB-INVESTIGATE** — needs live packet capture against
+  2019 / 2022 / 2025 DCs; lab unreachable at receipt-write; will spawn
+  a follow-up implementation ticket only if it finds evidence.
+- **WS-CLI-SHRINK** — 5 deferred callsite items; ~500 LOC refactor;
+  own reviewed batch, not tacked onto the release.
 
 ## [1.4.10] — 2026-09-02
 
