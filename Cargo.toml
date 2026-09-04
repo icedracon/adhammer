@@ -89,7 +89,7 @@ tokio       = { version = "1", features = ["rt-multi-thread", "macros"] }
 # TLS backend is selected by the adhammer-collector features (rustls with bundled AWS-LC by
 # default; tls-native opt-in for SHA-1 legacy-DC LDAPS).
 ldap3       = { version = "0.12", default-features = false }
-petgraph    = "0.6"
+petgraph    = "0.8"
 clap        = { version = "4", features = ["derive"] }
 tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
