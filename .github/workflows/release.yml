@@ -168,7 +168,7 @@ jobs:
             ${{ env.DEB }}
 
       - name: attach to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 pinned
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2 pinned
         with:
           files: |
             ${{ env.ASSET }}
