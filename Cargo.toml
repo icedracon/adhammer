@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.4.10"
+version = "1.5.0"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -60,16 +60,16 @@ ms-tds       = "0.1.1"
 # and leaves blob unwrap for a follow-up verb.
 dpapi-offline = "0.1.2"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.4.10" }
-adhammer-collector = { path = "crates/collector", version = "1.4.10", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.4.10" }
-adhammer-graph     = { path = "crates/graph",     version = "1.4.10" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.4.10" }
-adhammer-report    = { path = "crates/report",    version = "1.4.10" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.4.10" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.4.10" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.4.10" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.4.10" }
+adhammer-core      = { path = "crates/core",      version = "1.5.0" }
+adhammer-collector = { path = "crates/collector", version = "1.5.0", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.5.0" }
+adhammer-graph     = { path = "crates/graph",     version = "1.5.0" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.5.0" }
+adhammer-report    = { path = "crates/report",    version = "1.5.0" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.5.0" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.5.0" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.0" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.5.0" }
 
 # WS-HASHGLASS (1.5.0, LOCAL-ONLY) — pentester-focused hash-type identifier
 # consumed by `attack roast` to annotate each emitted hash with its hashcat

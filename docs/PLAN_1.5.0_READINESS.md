@@ -154,7 +154,7 @@ Ordered by dependency:
 |---|---|---|---|
 | B1 | `[patch.crates-io]` overrides for `smb2-client` + `dcerpc` in `Cargo.toml` | maintainer decision | full ecosystem publish (GitHub-only release is not blocked by this) |
 | B2 | `hashglass` is path-only in root `[workspace.dependencies]` (unpublished on crates.io) | WS-HASHGLASS-PUBLISH (deferred), needs an `[email protected]` publish first | full ecosystem publish |
-| B3 | Workspace version still `1.4.10`, no `1.5.0` bump commit, no `v1.5.0` tag | maintainer authorization + one commit updating every internal `version =` pin (per §4.1) | tag/push/publish flow |
+| B3 | ~~Workspace version still `1.4.10`, no `1.5.0` bump commit~~ **CLOSED** — workspace bumped to `1.5.0` in a single reviewed diff updating all 11 `version = "1.4.10"` occurrences (workspace `[package].version` + 10 internal `[workspace.dependencies]` pins). Every crate inherits via `version.workspace = true`. Post-bump full local gate re-green (fmt/clippy `-D warnings` /test 18 suites/deny). No `v1.5.0` tag yet — still needs maintainer tag authorization per governance §5. | maintainer authorization for `git tag v1.5.0` on the final candidate commit | tag/push/publish flow |
 | B4 | 23 unpushed commits at HEAD `ff00d31` (18 adhammer + 1 dcerpc + 4 smb2-client + 0 hashglass); grows by one per further commit including this document itself | maintainer explicit push authorization per governance §7 and your standing rule | any public visibility |
 | B5 | Interactive-mode Windows PTY not exercised this session | pick a real Windows Terminal / cmd.exe / PowerShell session; the code path is proven on Kali PTY so risk is low but the platform claim is not functionally validated on Windows | ECOSYSTEM_READINESS §E.5 platform-claim discipline |
 | B6 | Anonymous SYSVOL happy path (RestrictAnonymous=0 legacy DC) not observed | either point at a legacy 2003/2008 DC or accept the mixed evidence (both refused-anon and successful-auth walks captured; wire code proven by the latter) | full "anonymous SYSVOL walk" claim if we make one |
@@ -166,7 +166,7 @@ Ordered by dependency:
 
 ## 6. Ready-for verdict per policy language
 
-- **Ready for the authorized GitHub-only release** — after B3 (version bump) and B4 (push authorization). Every required Windows + Kali functional and static gate has current evidence at HEAD `ff00d31`.
+- **Ready for the authorized GitHub-only release** — after B4 (push authorization) and tag creation (`git tag v1.5.0` on the final candidate commit). Every required Windows + Kali functional and static gate has current evidence; B3 (version bump) is CLOSED at the post-bump HEAD.
 - **Not ready for the authorized full ecosystem release** — B1 + B2 fail-close the cascade; must be resolved and clean registry resolution proven before any `cargo publish` runs.
 - Never: "**100/100**". Per AGENTS.md rule §6 that phrasing is forbidden while any required gate is unmet.
 

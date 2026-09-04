@@ -3,6 +3,116 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [1.5.0] — 2026-09-04
+
+Capability push: no-credential black-box AD assessment surface. Turns
+adhammer from an authenticated audit tool into a first-touch engagement
+tool that can characterise a domain from zero credentials — DNS
+discovery → per-DC HTTP fingerprint (ADCS ESC8 relay surface, RD Web,
+ADFS, OWA/EWS, SCCM) → per-DC anonymous-SMB posture (SAMR / srvsvc
+sessions+shares / wkssvc / lsarpc) → per-DC anonymous SYSVOL walk for
+GPP `cpassword` (MS14-025) — and adds a coercion-vector matrix + a
+hashcat-mode annotator on every roast-emitted hash. See
+`docs/PLAN_1.5.0.md` for the full workstream ledger and
+`docs/PLAN_1.5.0_READINESS.md` for the per-workstream evidence map.
+
+### Added — no-credential enumeration verbs
+
+- **`adhammer run`** — hand-rolled RFC 1035 DNS resolver + scope-driven
+  SRV discovery (`_ldap._tcp.dc._msdcs`, `_kerberos._tcp`, `_gc._tcp`)
+  filtered to `EngagementScope` includes / excludes. No hickory / no
+  external DNS crate. `WS-FOUNDATION-DNS-HANDROLL`,
+  `WS-FOUNDATION-BLACKBOX-CLI`.
+- **`adhammer run --web`** — chains an HTTP(S) fingerprint on every
+  discovered DC IP: 13 endpoints incl. `/certsrv/` (ESC8 relay tell),
+  RD Web, ADFS sign-in + FederationMetadata, OWA/EWS, Autodiscover,
+  SCCM. `WS-WEB-FP`, `WS-BLACKBOX-COMPOSE`.
+- **`adhammer run --deep`** — per-DC anonymous SMB posture in one null
+  session per host, using the shared `probe_host` composition core.
+  `WS-BB-HOST`.
+- **`adhammer enum web`** — standalone version of the fingerprint.
+- **`adhammer enum nullbind`** — anonymous SAMR user enumeration
+  (enum4linux-style RID cycling over a `login_null` SMB session).
+  `WS-FOUNDATION-NULLBIND`.
+- **`adhammer enum rpc-null`** — anonymous RPC surface probe: srvsvc
+  `NetSessionEnum` + wkssvc `NetrWkstaUserEnum` + lsarpc
+  `LsarOpenPolicy` over one null session; reports which interfaces the
+  DC exposes anonymously. `WS-BB-RPCNULL`.
+- **`adhammer enum shares --anon`** — anonymous share enumeration via
+  srvsvc `NetrShareEnum` level 1 (`SHARE_INFO_1`). `WS-BB-SHARES`.
+- **`adhammer enum host --anon`** — single-shot enum4linux-ng-shape
+  posture: SAMR users + srvsvc sessions/shares + wkssvc + lsarpc over
+  ONE null session. `WS-BB-HOST`.
+- **`adhammer enum sysvol`** — SYSVOL walk over SMB2 `QUERY_DIRECTORY`
+  for Group Policy Preferences XML files; decrypts recovered
+  `cpassword` blobs with the public MS14-025 AES key. Supports `--anon`
+  (null session) and `--user` (authenticated). Recovered plaintext
+  never touches stdout — write with `--dump <path>` to a
+  0600 / protected-DACL secret artifact via `write_secret_artifact`.
+  `WS-SYSVOL-ANON`.
+
+### Added — active-attack surface
+
+- **`adhammer attack coerce --scan-all`** — runs every coercion vector
+  (PrinterBug / PetitPotam ×2 pipes / DFSCoerce / ShadowyCoerce) over
+  one authenticated login and prints a which-fired matrix. Handles
+  RPC timeout, BIND context reject, `STATUS_OBJECT_NAME_NOT_FOUND` on
+  absent pipes, and BIND_NAK without panicking. `WS-COERCER`.
+- **`adhammer attack roast` — hashcat-mode annotation.** Every
+  Kerberoast + AS-REP hash written to stdout carries an
+  `[hashglass] -m <mode> "<name>" conf=<c>` companion line on stderr;
+  stdout stays hashcat-pipe-clean. `WS-HASHGLASS`.
+
+### Changed — sibling protocol crates
+
+- **smb2-client 0.2.1 → 0.2.3.** New `login_null` (anonymous IPC$
+  session), new `list_directory` (SMB2 `QUERY_DIRECTORY`,
+  `FileDirectoryInformation` class 1) with bounds-checked +
+  loop-bounded parser (`NextEntryOffset` must strictly advance; a name
+  overrunning its record ends parsing without OOB read; response fixed
+  part guarded before direct-indexing helpers), and non-deleting
+  `read_file` (distinct from the existing delete-on-close
+  `read_file_delete`). Empty-name CREATE (share-root open) fix:
+  `NameOffset` still points at a real byte + mandatory 1-byte buffer,
+  otherwise Windows returns `STATUS_INVALID_PARAMETER`. Consumed by
+  `enum sysvol` and every anon-SMB verb.
+- **dcerpc 0.2.8 → 0.2.9.** New `srvsvc::NetrShareEnum` (opnum 15,
+  `SHARE_INFO_1`) with the same allocation-bound discipline as the
+  existing `NetSessionEnum`: attacker-controlled `EntriesRead` bounded
+  against the remaining stub before `Vec::with_capacity`; hostile
+  server sending `EntriesRead=0xFFFFFFFF` + truncated tail returns
+  `Err(Protocol)`, not an OOM abort. Consumed by `enum shares --anon`
+  and `enum host --anon`.
+
+### Added — dependencies
+
+- **hashglass** (workspace dep, path-only until published) —
+  pentester-focused hash-type identifier; consumed by `attack roast`
+  to annotate emitted hashes with their hashcat mode + confidence.
+  Version pinned as `{ path = "…", version = "0.1" }` so
+  `cargo deny check bans` treats it as a non-wildcard dep.
+- **ipnet 2.11** (workspace dep) — CIDR + IP-address types for
+  `EngagementScope` includes / excludes.
+
+### Local-only (blocks full crates.io publish — GitHub-only release)
+
+- Root `Cargo.toml` declares `[patch.crates-io]` overrides pointing
+  `smb2-client` and `dcerpc` at their sibling worktrees. Both must be
+  stripped and clean registry resolution proven before a full
+  ecosystem publish, per governance §4.2 and Ecosystem-Readiness
+  §C.4. `hashglass 0.1.0` is not yet on crates.io — publishing
+  adhammer requires `WS-HASHGLASS-PUBLISH` to close first.
+
+### Governance
+
+- Added `docs/AI_RELEASE_GOVERNANCE.md`, `docs/ECOSYSTEM_READINESS_100.md`,
+  `AGENTS.md`, `scripts/check_release_governance.py` (CI-enforced
+  guardrail against policy drift), and `docs/PLAN_1.5.0_READINESS.md`
+  (per-workstream evidence map for this release).
+- New sibling brainstorm `docs/BRAINSTORM_NEW_SIBLINGS.md` with the
+  §6 dep-risk grid establishing hand-roll-vs-adopt discipline for
+  every future external dep.
+
 ## [1.4.10] — 2026-09-02
 
 Hardening patch on top of 1.4.9 — bug-fix / defence-in-depth only, no
