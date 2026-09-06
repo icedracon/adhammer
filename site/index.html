@@ -1882,6 +1882,7 @@
     @media (max-width: 480px) { .nav { gap: 8px; } .brand { font-size: .8125rem; gap: 6px; } .brand img { width: 28px; height: 28px; } .motion-toggle { padding-inline: 8px; font-size: .75rem; } .nav-source { padding-inline: 8px; } .hero-grid { min-height: 1060px; } .hero-install .command { gap: 8px; } .hero-install code { font-size: .8125rem; } }
   </style>
   <link rel="stylesheet" href="assets/field-atlas.css">
+  <link rel="stylesheet" href="assets/entrance.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1940,7 +1941,8 @@
   </header>
 
   <main id="content">
-    <section class="hero" id="top">
+    <section class="hero cinema-hero" id="top" aria-label="ADhammer introduction">
+      <div class="entrance-viewport">
       <div class="living-stage" id="living-stage" aria-label="Decorative ice dragon and illustrative directory graph; not live assessment data">
         <div class="dragon-rig" aria-hidden="true">
           <div class="dragon-float">
@@ -1963,50 +1965,21 @@
         <span class="model-index">Illustrative scene · no live assessment data</span>
       </div>
 
-      <div class="shell atlas-masthead" aria-hidden="true"><span>AD</span><i>//</i><span>HAMMER</span></div>
-      <div class="shell hero-grid">
-        <div class="hero-copy reveal">
-          <span class="eyebrow">Active Directory / Field notes in control</span>
-          <h1>Control leaves<span>a trace.</span></h1>
-          <p class="hero-lede">An Active Directory pentest tool for mapping paths to Tier-0, validating supported findings, and keeping evidence attached to the report.</p>
-          <div class="hero-actions">
-            <a class="enter-link" href="#install"><span>Install ADhammer</span><i>↓</i></a>
-            <a class="quiet-link" href="#engine">Explore the workflow ↓</a>
-          </div>
-          <div class="hero-install" aria-label="Install and inspect the CLI">
-            <div class="terminal-label"><span>Install / inspect</span><span>Rust 1.88+</span></div>
-            <div class="command">
-              <code>cargo install --locked adhammer</code>
-              <button class="copy-button" type="button" data-copy="cargo install --locked adhammer" aria-label="Copy Cargo install command">Copy</button>
-            </div>
-            <code class="terminal-next"><span>Then:</span> adhammer --help<br><span>Inspect:</span> adhammer scan --help</code>
-          </div>
-        </div>
-
-        <div class="hero-facts" aria-label="ADhammer overview">
-          <div class="hero-fact"><b>50+ checks</b><span>four audit categories</span></div>
-          <div class="hero-fact"><b>15 / 16 AD CS</b><span>coverage classes</span></div>
-          <div class="hero-fact"><b>Evidence-led</b><span>validation ledger</span></div>
-          <div class="hero-fact"><b>v1.5.0</b><span>current release</span></div>
+      <div class="entrance-copy">
+        <p class="entrance-kicker">Open source · Rust · v1.5.0</p>
+        <h1>AD<span class="entrance-slash">//</span>HAMMER</h1>
+        <p class="entrance-description">Active Directory assessment.<br>Follow the relationship. Keep the evidence.</p>
+        <div class="entrance-actions">
+          <a class="entrance-explore" href="#engine">Explore the path <span aria-hidden="true">↓</span></a>
+          <a class="entrance-install" href="#install">Install ADhammer ↗</a>
         </div>
       </div>
-      <div class="hero-rail" aria-label="Assessment lifecycle">
-        <div class="rail-item" style="--i:0"><small>01 / Collect</small><b>Directory objects</b></div>
-        <div class="rail-item" style="--i:1"><small>02 / Graph</small><b>Directional control</b></div>
-        <div class="rail-item" style="--i:2"><small>03 / Validate</small><b>Captured evidence</b></div>
-        <div class="rail-item" style="--i:3"><small>04 / Report</small><b>Portable context</b></div>
+      <div class="entrance-route-note" aria-hidden="true"><span>Selected route / illustrative</span><b>Possible is not yet proven.</b></div>
+      <div class="entrance-footer">
+        <span>Illustrative graph · no live assessment</span>
+        <a href="#engine" id="skip-entrance">Skip intro ↘</a>
       </div>
-    </section>
-
-    <section class="thesis" aria-labelledby="thesis-title">
-      <div class="shell thesis-copy">
-        <span class="atlas-index">The principle / 00</span>
-        <p class="thesis-line reveal" id="thesis-title">A path is a hypothesis.</p>
-        <p class="thesis-line muted reveal">Until there is <span class="proof-word">proof.</span></p>
-        <div class="thesis-note reveal">
-          <span class="eyebrow">The distinction</span>
-          <p>Directory data can describe a theoretical route. ADhammer preserves the difference between that route and a supported path with a validation artifact attached.</p>
-        </div>
+      <p class="sr-only">Illustrative route: svc-build, workstation-07, delegation, Tier-0. Scroll to explore the graph, then follow Collect, Graph, Validate, and Report. This is a presentation, not a live assessment.</p>
       </div>
     </section>
 
@@ -2096,6 +2069,18 @@
             <figcaption class="sr-only" id="theatre-caption">Illustrative four-stage authorized workflow: collect Active Directory objects, resolve a possible Tier-0 control path, attach evidence to mark it proven, and preserve the result in portable reports.</figcaption>
             <span class="sr-only" id="theatre-announcer" aria-live="polite"></span>
           </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="thesis" aria-labelledby="thesis-title">
+      <div class="shell thesis-copy">
+        <span class="atlas-index">The principle / 00</span>
+        <p class="thesis-line reveal" id="thesis-title">A path is a hypothesis.</p>
+        <p class="thesis-line muted reveal">Until there is <span class="proof-word">proof.</span></p>
+        <div class="thesis-note reveal">
+          <span class="eyebrow">The distinction</span>
+          <p>Directory data can describe a theoretical route. ADhammer preserves the difference between that route and a supported path with a validation artifact attached.</p>
         </div>
       </div>
     </section>
@@ -2356,6 +2341,7 @@
     </div>
   </footer>
 
+  <script src="assets/entrance.js"></script>
   <script>
     (function () {
       "use strict";
@@ -2648,330 +2634,11 @@
         };
       }
 
-      function livingGraph() {
-        var stage = document.getElementById("living-stage");
-        var canvas = document.getElementById("living-graph");
-        if (!stage || !canvas) return;
-        var context = canvas.getContext("2d");
-        var dragon = stage.querySelector(".dragon-rig");
-        var currentCanvas = stage.querySelector("#dragon-current");
-        var currentContext = currentCanvas ? currentCanvas.getContext("2d") : null;
-        var interactionSurface = stage.closest(".hero") || stage;
-        var random = seededRandom(8241);
-        var nodes = [];
-        var edges = [];
-        var path = [2, 11, 18, 28, 37, 44];
-        var width = 0;
-        var height = 0;
-        var dpr = 1;
-        var currentWidth = 0;
-        var currentHeight = 0;
-        var currentDpr = 1;
-        var running = false;
-        var visible = true;
-        var frame = 0;
-        var lastFrame = 0;
-        var raf = 0;
-        var targetX = 0;
-        var targetY = 0;
-        var rotX = 0;
-        var rotY = 0;
-        var currentPaths = [
-          { tier: 0, delay: 0, start: [800, 358], curves: [[783, 378, 751, 401, 731, 413], [674, 463, 616, 490, 535, 536], [421, 602, 294, 602, 187, 548]] },
-          { tier: 1, delay: 470, start: [187, 548], curves: [[153, 522, 122, 518, 110, 543], [96, 578, 141, 613, 196, 614], [253, 615, 301, 582, 329, 538], [347, 512, 354, 478, 349, 447]] },
-          { tier: 0, delay: 0, start: [800, 358], curves: [[814, 319, 824, 258, 850, 221], [890, 171, 942, 182, 990, 236], [1004, 253, 1017, 273, 1026, 291]] },
-
-          { tier: 1, delay: 0, start: [800, 358], curves: [[760, 382, 710, 417, 665, 433]] },
-          { tier: 1, delay: 145, start: [665, 433], curves: [[618, 393, 579, 352, 545, 310], [523, 281, 500, 254, 481, 232], [431, 175, 376, 116, 329, 82], [286, 70, 252, 75, 225, 80], [164, 79, 96, 116, 44, 174]] },
-          { tier: 2, delay: 145, start: [665, 433], curves: [[610, 421, 550, 391, 493, 354], [458, 337, 428, 326, 397, 320], [326, 269, 231, 233, 119, 249]] },
-          { tier: 2, delay: 270, start: [545, 310], curves: [[485, 298, 424, 278, 365, 253], [305, 227, 237, 212, 168, 219], [113, 225, 73, 244, 44, 270]] },
-          { tier: 2, delay: 345, start: [481, 232], curves: [[425, 205, 361, 187, 297, 180], [229, 173, 164, 180, 104, 211]] },
-          { tier: 2, delay: 250, start: [493, 354], curves: [[439, 383, 392, 424, 357, 471], [327, 511, 278, 539, 225, 548]] },
-          { tier: 3, delay: 390, start: [365, 253], curves: [[342, 282, 326, 313, 319, 348]] },
-          { tier: 3, delay: 430, start: [297, 180], curves: [[275, 211, 259, 246, 254, 280]] },
-          { tier: 3, delay: 500, start: [168, 219], curves: [[155, 248, 146, 283, 145, 320]] },
-
-          { tier: 1, delay: 0, start: [800, 358], curves: [[810, 350, 820, 342, 829, 336]] },
-          { tier: 1, delay: 55, start: [829, 336], curves: [[858, 311, 890, 282, 918, 256], [959, 217, 1004, 179, 1044, 151], [1097, 111, 1145, 89, 1180, 101]] },
-          { tier: 2, delay: 55, start: [829, 336], curves: [[870, 327, 910, 326, 950, 329], [1004, 334, 1057, 360, 1093, 397], [1142, 440, 1164, 490, 1150, 536]] },
-          { tier: 2, delay: 195, start: [918, 256], curves: [[970, 260, 1020, 278, 1064, 307], [1105, 336, 1135, 374, 1151, 420]] },
-          { tier: 2, delay: 300, start: [1044, 151], curves: [[1085, 177, 1114, 208, 1135, 244]] },
-          { tier: 3, delay: 355, start: [1064, 307], curves: [[1085, 337, 1099, 370, 1103, 405]] },
-
-          { tier: 2, delay: 205, start: [850, 221], curves: [[826, 184, 809, 144, 812, 108], [813, 83, 824, 62, 840, 47]] },
-          { tier: 2, delay: 285, start: [905, 190], curves: [[889, 150, 890, 115, 908, 81], [920, 59, 936, 43, 952, 31]] },
-          { tier: 3, delay: 380, start: [990, 236], curves: [[986, 236, 982, 239, 979, 240]] },
-          { tier: 2, delay: 380, start: [990, 236], curves: [[976, 254, 960, 270, 938, 284]] },
-
-          { tier: 1, delay: 115, start: [731, 413], curves: [[686, 449, 652, 490, 626, 531], [603, 566, 586, 603, 579, 642]] },
-          { tier: 1, delay: 115, start: [731, 413], curves: [[720, 449, 728, 486, 748, 519], [771, 554, 788, 594, 791, 635]] },
-          { tier: 1, delay: 40, start: [800, 358], curves: [[807, 383, 812, 410, 817, 432], [870, 479, 913, 534, 929, 631]] },
-          { tier: 3, delay: 490, start: [579, 615], curves: [[566, 626, 556, 638, 550, 646]] },
-          { tier: 3, delay: 500, start: [791, 608], curves: [[780, 621, 770, 634, 764, 642]] },
-          { tier: 3, delay: 500, start: [929, 606], curves: [[918, 621, 908, 634, 900, 642]] }
-        ];
-
-        for (var i = 0; i < 48; i += 1) {
-          var zone = i % 4;
-          var x;
-          var y;
-          if (zone === 0) {
-            x = -.72 + random() * .74;
-            y = -.58 + random() * .72;
-          } else if (zone === 1) {
-            x = -.15 + random() * .92;
-            y = -.62 + random() * .78;
-          } else if (zone === 2) {
-            x = -.54 + random() * 1.18;
-            y = -.06 + random() * .66;
-          } else {
-            var angle = random() * Math.PI * 1.5;
-            x = -.12 + Math.cos(angle) * (.25 + random() * .4);
-            y = .32 + Math.sin(angle) * (.14 + random() * .28);
-          }
-          nodes.push({ x: x, y: y, z: -.55 + random() * 1.1, pulse: random() * Math.PI * 2 });
-        }
-        for (i = 0; i < nodes.length; i += 1) {
-          var distances = [];
-          for (var j = 0; j < nodes.length; j += 1) {
-            if (i === j) continue;
-            var dx = nodes[i].x - nodes[j].x;
-            var dy = nodes[i].y - nodes[j].y;
-            var dz = nodes[i].z - nodes[j].z;
-            distances.push({ j: j, d: dx * dx + dy * dy + dz * dz * .35 });
-          }
-          distances.sort(function (a, b) { return a.d - b.d; });
-          for (j = 0; j < 2; j += 1) {
-            var a = Math.min(i, distances[j].j);
-            var b = Math.max(i, distances[j].j);
-            if (!edges.some(function (edge) { return edge[0] === a && edge[1] === b; })) edges.push([a, b]);
-          }
-        }
-        for (i = 0; i < path.length - 1; i += 1) edges.push([path[i], path[i + 1], true]);
-
-        function resize() {
-          var rect = canvas.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          width = rect.width;
-          height = rect.height;
-          dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.25 : 1.5);
-          var pixelWidth = Math.round(width * dpr);
-          var pixelHeight = Math.round(height * dpr);
-          if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-            canvas.width = pixelWidth;
-            canvas.height = pixelHeight;
-            context.setTransform(dpr, 0, 0, dpr, 0, 0);
-          }
-          if (currentCanvas && currentContext) {
-            currentWidth = currentCanvas.clientWidth;
-            currentHeight = currentCanvas.clientHeight;
-            currentDpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1.25 : 1.5);
-            var currentPixelWidth = Math.round(currentWidth * currentDpr);
-            var currentPixelHeight = Math.round(currentHeight * currentDpr);
-            if (currentCanvas.width !== currentPixelWidth || currentCanvas.height !== currentPixelHeight) {
-              currentCanvas.width = currentPixelWidth;
-              currentCanvas.height = currentPixelHeight;
-              currentContext.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
-            }
-          }
-          draw(performance.now());
-        }
-        function traceCurrent(currentPath) {
-          currentContext.beginPath();
-          currentContext.moveTo(currentPath.start[0], currentPath.start[1]);
-          currentPath.curves.forEach(function (curve) {
-            currentContext.bezierCurveTo(curve[0], curve[1], curve[2], curve[3], curve[4], curve[5]);
-          });
-        }
-        function currentPathLength(currentPath) {
-          if (currentPath.length) return currentPath.length;
-          var total = 0;
-          var fromX = currentPath.start[0];
-          var fromY = currentPath.start[1];
-          currentPath.curves.forEach(function (curve) {
-            var previousX = fromX;
-            var previousY = fromY;
-            for (var sample = 1; sample <= 14; sample += 1) {
-              var amount = sample / 14;
-              var inverse = 1 - amount;
-              var sampleX = inverse * inverse * inverse * fromX + 3 * inverse * inverse * amount * curve[0] + 3 * inverse * amount * amount * curve[2] + amount * amount * amount * curve[4];
-              var sampleY = inverse * inverse * inverse * fromY + 3 * inverse * inverse * amount * curve[1] + 3 * inverse * amount * amount * curve[3] + amount * amount * amount * curve[5];
-              total += Math.hypot(sampleX - previousX, sampleY - previousY);
-              previousX = sampleX;
-              previousY = sampleY;
-            }
-            fromX = curve[4];
-            fromY = curve[5];
-          });
-          currentPath.length = Math.max(1, total);
-          return currentPath.length;
-        }
-        function drawDragonCurrent(time) {
-          if (!currentContext || !currentWidth || !currentHeight) return;
-          currentContext.clearRect(0, 0, currentWidth, currentHeight);
-          currentContext.save();
-          currentContext.scale(currentWidth / 1200, currentHeight / 675);
-          currentContext.lineCap = "round";
-          currentContext.lineJoin = "round";
-          currentPaths.forEach(function (currentPath) {
-            var vesselWidths = [7, 4.6, 2.6, 1.25];
-            var vesselWidth = vesselWidths[currentPath.tier];
-            var vesselPulse = reduced ? .84 : .82 + Math.sin(time * .0022 - currentPath.delay * .003) * .08;
-
-            currentContext.globalCompositeOperation = "source-over";
-            traceCurrent(currentPath);
-            currentContext.setLineDash([]);
-            currentContext.lineWidth = vesselWidth + 2.2;
-            currentContext.shadowBlur = currentPath.tier < 2 ? 5 : 2;
-            currentContext.shadowColor = "rgba(8,70,94,.18)";
-            currentContext.strokeStyle = "rgba(5,52,72,.12)";
-            currentContext.stroke();
-
-            traceCurrent(currentPath);
-            currentContext.setLineDash([]);
-            currentContext.lineWidth = vesselWidth * vesselPulse;
-            currentContext.shadowBlur = currentPath.tier === 0 ? 8 : currentPath.tier === 1 ? 6 : 4;
-            currentContext.shadowColor = "rgba(52,190,224,.25)";
-            currentContext.strokeStyle = "rgba(47,159,190," + (currentPath.tier === 3 ? .1 : .16).toFixed(2) + ")";
-            currentContext.stroke();
-
-            traceCurrent(currentPath);
-            var routeLength = currentPathLength(currentPath);
-            var chargeLengths = [42, 34, 24, 14];
-            var chargeLength = chargeLengths[currentPath.tier];
-            currentContext.setLineDash(reduced ? [] : [chargeLength, Math.max(1, routeLength - chargeLength + 1)]);
-            var pulseDistance = reduced ? 0 : Math.max(0, time - currentPath.delay) * .22 % routeLength;
-            currentContext.lineDashOffset = reduced ? 0 : -pulseDistance;
-            currentContext.lineWidth = vesselWidth * .82;
-            currentContext.shadowBlur = currentPath.tier === 0 ? 8 : currentPath.tier === 1 ? 6 : 4;
-            currentContext.shadowColor = "rgba(201,242,255,1)";
-            currentContext.globalCompositeOperation = "lighter";
-            currentContext.strokeStyle = "rgba(225,250,255," + (reduced ? .28 : .64).toFixed(2) + ")";
-            currentContext.stroke();
-          });
-          currentContext.restore();
-        }
-        function project(node, time) {
-          var yaw = rotY * .52;
-          var pitch = rotX * .36;
-          var drift = reduced ? 0 : Math.sin(time * .00022 + node.pulse) * .018;
-          var x = node.x;
-          var y = node.y + drift;
-          var z = node.z;
-          var cy = Math.cos(yaw);
-          var sy = Math.sin(yaw);
-          var cx = Math.cos(pitch);
-          var sx = Math.sin(pitch);
-          var x1 = x * cy - z * sy;
-          var z1 = x * sy + z * cy;
-          var y1 = y * cx - z1 * sx;
-          var z2 = y * sx + z1 * cx;
-          var scale = 1 / (1.62 - z2 * .22);
-          return { x: width * .5 + x1 * width * .39 * scale, y: height * .49 + y1 * height * .47 * scale, z: z2, scale: scale };
-        }
-        function draw(time) {
-          if (!width || !height) return;
-          context.clearRect(0, 0, width, height);
-          rotX += (targetX - rotX) * .055;
-          rotY += (targetY - rotY) * .055;
-          var projected = nodes.map(function (node) { return project(node, time); });
-          edges.forEach(function (edge) {
-            var a = projected[edge[0]];
-            var b = projected[edge[1]];
-            var special = edge[2];
-            var alpha = Math.max(.06, .18 + (a.z + b.z) * .06);
-            context.beginPath();
-            context.moveTo(a.x, a.y);
-            context.lineTo(b.x, b.y);
-            context.strokeStyle = special ? "rgba(255,67,94,.72)" : "rgba(121,210,255," + alpha + ")";
-            context.lineWidth = special ? 1.35 : .65;
-            if (special) {
-              context.shadowBlur = 12;
-              context.shadowColor = "rgba(255,67,94,.72)";
-            }
-            context.stroke();
-            context.shadowBlur = 0;
-          });
-          projected.forEach(function (point, index) {
-            var special = path.indexOf(index) !== -1;
-            var radius = (special ? 2.6 : 1.35) * Math.max(.7, point.scale);
-            context.beginPath();
-            context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-            context.fillStyle = special ? "#ff7187" : "rgba(201,242,255,.84)";
-            if (special) {
-              context.shadowBlur = 13;
-              context.shadowColor = "rgba(255,67,94,.9)";
-            }
-            context.fill();
-            context.shadowBlur = 0;
-          });
-          if (!reduced) {
-            var segment = (time * .0007) % (path.length - 1);
-            var pathIndex = Math.floor(segment);
-            var amount = segment - pathIndex;
-            var start = projected[path[pathIndex]];
-            var end = projected[path[pathIndex + 1]];
-            var px = start.x + (end.x - start.x) * amount;
-            var py = start.y + (end.y - start.y) * amount;
-            var glow = context.createRadialGradient(px, py, 0, px, py, 18);
-            glow.addColorStop(0, "rgba(255,255,255,.95)");
-            glow.addColorStop(.2, "rgba(255,67,94,.82)");
-            glow.addColorStop(1, "rgba(255,67,94,0)");
-            context.fillStyle = glow;
-            context.beginPath();
-            context.arc(px, py, 18, 0, Math.PI * 2);
-            context.fill();
-          }
-          drawDragonCurrent(time);
-          if (dragon) {
-            dragon.style.setProperty("--rx", (rotX * 20).toFixed(2) + "deg");
-            dragon.style.setProperty("--ry", (rotY * 28).toFixed(2) + "deg");
-            dragon.style.setProperty("--tx", (rotY * 46).toFixed(2) + "px");
-            dragon.style.setProperty("--ty", (rotX * 36).toFixed(2) + "px");
-          }
-        }
-        function loop(time) {
-          if (!running) return;
-          if (time - lastFrame >= 32) {
-            lastFrame = time;
-            frame += 1;
-            draw(time);
-          }
-          raf = window.requestAnimationFrame(loop);
-        }
-        function start() {
-          if (running || reduced || !visible) return;
-          running = true;
-          raf = window.requestAnimationFrame(loop);
-        }
-        function stop() {
-          running = false;
-          if (raf) window.cancelAnimationFrame(raf);
-        }
-        interactionSurface.addEventListener("pointermove", function (event) {
-          if (reduced || event.pointerType === "touch") return;
-          var rect = interactionSurface.getBoundingClientRect();
-          targetY = ((event.clientX - rect.left) / rect.width - .5) * .42;
-          targetX = -((event.clientY - rect.top) / rect.height - .5) * .32;
-        }, { passive: true });
-        interactionSurface.addEventListener("pointerleave", function () { targetX = 0; targetY = 0; }, { passive: true });
-        if ("ResizeObserver" in window) new ResizeObserver(resize).observe(stage);
-        else window.addEventListener("resize", resize, { passive: true });
-        if ("IntersectionObserver" in window) {
-          var observer = new IntersectionObserver(function (entries) {
-            visible = entries[0].isIntersecting;
-            if (visible) start(); else stop();
-          }, { threshold: 0 });
-          observer.observe(stage);
-        }
-        resize();
-        if (reduced) draw(0); else start();
-        motionListeners.push(function (isReduced) {
-          if (isReduced) { stop(); draw(0); }
-          else start();
-        });
-      }
-      livingGraph();
+      if (window.ADhammerEntrance) window.ADhammerEntrance.mount({
+        isReduced: function () { return reduced; },
+        onMotionChange: function (listener) { motionListeners.push(listener); }
+      });
+      else document.getElementById("top").classList.add("entrance-static");
 
       function schemaGraph() {
         var canvas = document.getElementById("schema-canvas");
