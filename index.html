@@ -1881,6 +1881,7 @@
     @media (max-width: 820px) { .hero-grid { min-height: 960px; } .hero-install { max-width: 100%; } .motion-toggle { margin-left: auto; } .nav-source { margin-left: 0; } }
     @media (max-width: 480px) { .nav { gap: 8px; } .brand { font-size: .8125rem; gap: 6px; } .brand img { width: 28px; height: 28px; } .motion-toggle { padding-inline: 8px; font-size: .75rem; } .nav-source { padding-inline: 8px; } .hero-grid { min-height: 1060px; } .hero-install .command { gap: 8px; } .hero-install code { font-size: .8125rem; } }
   </style>
+  <link rel="stylesheet" href="assets/field-atlas.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1962,10 +1963,11 @@
         <span class="model-index">Illustrative scene · no live assessment data</span>
       </div>
 
+      <div class="shell atlas-masthead" aria-hidden="true"><span>AD</span><i>//</i><span>HAMMER</span></div>
       <div class="shell hero-grid">
         <div class="hero-copy reveal">
-          <span class="eyebrow">ADhammer / v1.5.0 · Rust · MIT</span>
-          <h1>See the domain.<span>Prove the path.</span></h1>
+          <span class="eyebrow">Active Directory / Field notes in control</span>
+          <h1>Control leaves<span>a trace.</span></h1>
           <p class="hero-lede">An Active Directory pentest tool for mapping paths to Tier-0, validating supported findings, and keeping evidence attached to the report.</p>
           <div class="hero-actions">
             <a class="enter-link" href="#install"><span>Install ADhammer</span><i>↓</i></a>
@@ -1998,8 +2000,9 @@
 
     <section class="thesis" aria-labelledby="thesis-title">
       <div class="shell thesis-copy">
-        <p class="thesis-line reveal" id="thesis-title">Possible is</p>
-        <p class="thesis-line muted reveal">not <span class="proof-word">proven.</span></p>
+        <span class="atlas-index">The principle / 00</span>
+        <p class="thesis-line reveal" id="thesis-title">A path is a hypothesis.</p>
+        <p class="thesis-line muted reveal">Until there is <span class="proof-word">proof.</span></p>
         <div class="thesis-note reveal">
           <span class="eyebrow">The distinction</span>
           <p>Directory data can describe a theoretical route. ADhammer preserves the difference between that route and a supported path with a validation artifact attached.</p>
@@ -2010,8 +2013,8 @@
     <section class="engine" id="engine">
       <div class="shell">
         <div class="section-head reveal">
-          <span class="section-no">01 / Attack Path Theatre</span>
-          <div><h2>Watch one route<br>become proof.</h2><p>Follow an illustrative authorized assessment through Collect, Graph, Validate, and Report. The same route remains visible as directory data becomes a possible path, a supported finding, and a portable evidence record.</p></div>
+          <span class="section-no">01 / Trace the relationship</span>
+          <div><h2>One route.<br>Four states.</h2><p>Follow the same illustrative route from directory objects to an evidence record. Scroll through the four stages, or select a stage to inspect it.</p></div>
         </div>
         <div class="engine-story">
           <div class="phase-list">
@@ -2101,7 +2104,7 @@
       <div class="shell proof-grid">
         <div class="proof-copy reveal">
           <span class="eyebrow dark">02 / Evidence artifact</span>
-          <h2>The route,<br><span>with receipts.</span></h2>
+          <h2>Evidence.<br><span>Not inference.</span></h2>
           <p>The interface keeps the graph and its evidence together. The record below is an illustrative operator view of the data shape—not a fabricated assessment result.</p>
           <a class="ledger-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Open the public validation ledger <i>↗</i></a>
         </div>
@@ -2168,7 +2171,7 @@
     <section class="release-pulse" id="release" aria-labelledby="release-title">
       <div class="shell release-grid">
         <figure class="release-lineage reveal" aria-labelledby="release-lineage-title" aria-describedby="release-lineage-caption">
-          <div class="release-lineage-head"><span id="release-lineage-title">Release lineage</span><b>Version graph / trust state</b></div>
+          <div class="release-lineage-head"><span id="release-lineage-title">The release register</span><b>Published versions / source linked</b></div>
           <div class="release-lineage-map">
             <svg class="release-lineage-visual" viewBox="0 0 400 540" preserveAspectRatio="none" aria-hidden="true" focusable="false">
               <defs>
@@ -2203,7 +2206,7 @@
         </figure>
         <div class="release-story reveal">
           <span class="eyebrow proof">03 / Release signal</span>
-          <h2 id="release-title">First touch.<span>Clearer surface.</span></h2>
+          <h2 id="release-title">First touch.<span>Before credentials.</span></h2>
           <p class="release-intro">Version 1.5.0 opens a first-touch Active Directory assessment path: discover in-scope DCs, fingerprint web surfaces, and map anonymous SMB posture before credentials are available. It also adds a supported-coercion-family matrix and hashcat-mode guidance on roast output.</p>
           <div class="release-facts" aria-label="Version 1.5.0 highlights">
             <div class="release-fact"><strong>0 credentials</strong><span>Scoped DNS discovery · web fingerprint · SMB posture</span></div>
@@ -2284,7 +2287,7 @@
               <span><i style="background:#4296c6"></i>Passive detection</span>
               <span><i style="background:#9ca6ae"></i>Out of scope</span>
             </div>
-            <p class="esc-note">Classes may have overlapping passive, registry, and active support. The orbit shows the highest supported validation depth. ESC12 hardware-token / YubiHSM validation is out of scope.</p>
+            <p class="esc-note">Select a class to inspect its support. Classes may combine passive, registry, and active capabilities; the matrix shows the highest supported depth. ESC12 hardware-token / YubiHSM validation is out of scope.</p>
           </div>
         </div>
       </div>
@@ -2293,7 +2296,7 @@
     <section class="protocols" id="protocols">
       <div class="shell">
         <div class="protocol-head reveal">
-          <div><span class="eyebrow">06 / Rust ecosystem</span><h2>Protocol architecture.</h2></div>
+          <div><span class="eyebrow">06 / Rust ecosystem</span><h2>Under the surface.</h2></div>
           <p>ADhammer composes published standalone icedracon crates into one Rust engine. Each layer remains independently inspectable and reusable outside the binary.</p>
         </div>
         <div class="stack-map reveal" aria-label="Protocol layers composed by ADhammer">
@@ -2301,7 +2304,7 @@
           <article class="stack-node n2"><small>Layer / RPC</small><b>DCE/RPC</b><p>Microsoft RPC interfaces and transport primitives.</p><a href="https://docs.rs/dcerpc" target="_blank" rel="noopener">dcerpc docs ↗</a></article>
           <article class="stack-node n3"><small>Layer / Identity</small><b>Kerberos</b><p>Ticket and authentication workflows, with support tracked in the ledger.</p><a href="https://docs.rs/adhammer-kerberos" target="_blank" rel="noopener">Kerberos crate docs ↗</a></article>
           <article class="stack-node n4"><small>Layer / Auth</small><b>NTLM</b><p>NTLMSSP authentication, message integrity, and session security.</p><a href="https://docs.rs/ntlmssp" target="_blank" rel="noopener">ntlmssp docs ↗</a></article>
-          <article class="stack-node n5"><small>Layer / Transport</small><b>SMB2 + NDR</b><p>Authenticated transport and protocol serialization.</p><a href="https://docs.rs/smb2-client" target="_blank" rel="noopener">SMB2 docs ↗</a> · <a href="https://docs.rs/ms-ndr" target="_blank" rel="noopener">NDR docs ↗</a></article>
+          <article class="stack-node n5"><small>Layer / Transport</small><b>SMB2 + NDR</b><p>Authenticated transport and protocol serialization.</p><div class="stack-docs"><a href="https://docs.rs/smb2-client" target="_blank" rel="noopener">SMB2 docs ↗</a><a href="https://docs.rs/ms-ndr" target="_blank" rel="noopener">NDR docs ↗</a></div></article>
           <article class="stack-node n6"><small>Layer / Output</small><b>BloodHound export</b><p>Export directory objects and relationships for further analysis.</p><a href="https://docs.rs/adhammer-bloodhound" target="_blank" rel="noopener">Export crate docs ↗</a></article>
           <div class="stack-core"><div><img src="assets/favicon.png" alt="" width="72" height="72"><b>AD//HAMMER</b><span>one composed engine</span></div></div>
         </div>
@@ -2317,8 +2320,8 @@
     <section class="final" id="install">
       <div class="shell final-inner reveal">
         <img class="final-mark" src="assets/favicon.png" alt="" width="132" height="132">
-        <span class="eyebrow">The domain, made legible</span>
-        <h2>This is<span>ADhammer.</span></h2>
+        <span class="eyebrow">Open source / MIT / v1.5.0</span>
+        <h2>Take it<span>into the field.</span></h2>
         <p>Install the Rust CLI or download a prebuilt binary for Windows, Linux, or macOS. Review command help and the validation ledger before an assessment.</p>
         <div class="final-links">
           <a class="final-link primary" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">Download v1.5.0 <i>↗</i></a>
