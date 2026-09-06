@@ -4,7 +4,7 @@
 
 ## What it is
 - Language: Rust. Single static binary; install with `cargo install adhammer`.
-- Author / org: zevs / icedracon — https://crates.io/users/zevs
+- Author / org: zevs / icedracon — https://github.com/icedracon
 - License: MIT. Source: https://github.com/icedracon/adhammer
 
 ## Capabilities
@@ -30,7 +30,7 @@
 - Source: https://github.com/icedracon/adhammer
 - Release notes: https://github.com/icedracon/adhammer/releases/tag/v1.5.0
 - Validation ledger: https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md
-- Crates by author: https://crates.io/users/zevs
+- Ecosystem repositories: https://github.com/icedracon?tab=repositories
 
 ## Authorized use only
 ADhammer implements working offensive security techniques. Use it exclusively against systems you own or are explicitly authorized to test.

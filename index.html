@@ -51,6 +51,8 @@
       --proof-bright: #ff94a5;
       --green: #82e4b2;
       --amber: #f4c573;
+      --violet: #b7a0ff;
+      --teal: #80e5cf;
       --max: 1280px;
       --display: "Manrope", system-ui, sans-serif;
       --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -1828,6 +1830,56 @@
       .release-line-pulse, .release-lineage-current .release-lineage-orb::after { animation: none !important; }
       .release-line-pulse { display: none; }
     }
+    /* Presentation refinement: readable controls and a quieter protocol section. */
+    .eyebrow { font-size: .75rem; line-height: 1.5; letter-spacing: .1em; }
+    .nav-links { gap: 18px; font-size: .75rem; letter-spacing: .03em; }
+    .nav-links a, .footer-links a { display: inline-flex; align-items: center; min-height: 44px; }
+    .hero-lede { max-width: 540px; }
+    .hero-actions { flex-wrap: wrap; }
+    .hero-install { max-width: 530px; margin-top: 28px; border: 1px solid var(--line); border-radius: 12px; background: rgba(5,7,13,.94); overflow: hidden; }
+    .terminal-label { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--soft); font: 500 .75rem/1.5 var(--mono); }
+    .terminal-label span:last-child { color: var(--teal); }
+    .hero-install .command { width: auto; margin: 0; padding: 14px 16px; border: 0; background: none; flex-wrap: wrap; }
+    .command code { font-size: .875rem; }
+    .hero-install .terminal-next { display: block; margin: 0; padding: 0 16px 16px; color: var(--soft); font: 400 .875rem/1.7 var(--mono); white-space: normal; }
+    .terminal-next span { color: var(--violet); }
+    .copy-button, .motion-toggle { min-height: 44px; padding: 10px 14px; font: 500 .8125rem/1.4 var(--mono); color: var(--white); cursor: pointer; }
+    .motion-toggle { display: none; border: 1px solid var(--line); border-radius: 6px; background: var(--ink); white-space: nowrap; }
+    .js .motion-toggle { display: inline-flex; align-items: center; }
+    .rail-item:nth-child(1) small { color: var(--ice); }
+    .rail-item:nth-child(2) small { color: var(--violet); }
+    .rail-item:nth-child(3) small { color: var(--amber); }
+    .rail-item:nth-child(4) small { color: var(--teal); }
+    .rail-item small, .phase-top { font-size: .8125rem; line-height: 1.5; }
+    .rail-item b, .hero-fact b { font-size: .875rem; }
+    .hero-fact span { font-size: .8125rem; }
+    .phase { opacity: .72; }
+    .phase:focus-within { opacity: 1; }
+    .phase-tags span { font-size: .75rem; line-height: 1.4; }
+    .phase[data-scene="1"].active .phase-top { color: var(--violet); }
+    .phase[data-scene="1"].active::before { background: var(--violet); }
+    .phase[data-scene="2"].active .phase-top { color: var(--amber); }
+    .phase[data-scene="2"].active::before { background: var(--amber); }
+    .protocols { background: #090d14; }
+    .protocol-head h2, .bench-head h2 { font-size: clamp(36px, 5vw, 64px); line-height: 1.08; }
+    .stack-map::before, .stack-map::after { opacity: .25; }
+    .stack-node small, .stack-core span, .stack-principle small { font-size: .75rem; line-height: 1.5; }
+    .stack-node p, .stack-principle p { font-size: 1rem; color: var(--soft); }
+    .stack-node a { display: inline-block; margin-top: 12px; padding: 6px 0; color: var(--teal); font-size: .875rem; text-decoration: underline; text-underline-offset: 4px; }
+    .stack-node:focus-within { border-color: var(--teal); }
+    .race-number { margin-top: 26px; font-size: clamp(30px, 5vw, 56px); line-height: 1.2; letter-spacing: -.04em; }
+    .race-number small { color: var(--soft); font-size: .875rem; letter-spacing: 0; }
+    .race-number span { color: var(--white); }
+    .race-title { margin-top: 20px; }
+    .race-disclaimer, .matrix-method { font-size: .875rem; line-height: 1.7; }
+    .footer-links, .authorization { font-size: .8125rem; }
+    .footer-legal { font-size: .75rem; color: var(--soft); }
+    html[data-motion="paused"] { scroll-behavior: auto; }
+    html[data-motion="paused"] *, html[data-motion="paused"] *::before, html[data-motion="paused"] *::after { animation-play-state: paused !important; transition: none !important; }
+    html[data-motion="paused"] .reveal { opacity: 1; transform: none; }
+    @media (max-width: 1080px) { .nav-links { gap: 12px; font-size: .75rem; } .nav { gap: 14px; } }
+    @media (max-width: 820px) { .hero-grid { min-height: 960px; } .hero-install { max-width: 100%; } .motion-toggle { margin-left: auto; } .nav-source { margin-left: 0; } }
+    @media (max-width: 480px) { .nav { gap: 8px; } .brand { font-size: .8125rem; gap: 6px; } .brand img { width: 28px; height: 28px; } .motion-toggle { padding-inline: 8px; font-size: .75rem; } .nav-source { padding-inline: 8px; } .hero-grid { min-height: 1060px; } .hero-install .command { gap: 8px; } .hero-install code { font-size: .8125rem; } }
   </style>
   <script type="application/ld+json">
   {
@@ -1872,13 +1924,14 @@
         <span>AD<span class="brand-slash">//</span>HAMMER</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
-        <a href="#engine">Theatre</a>
+        <a href="#engine">How it works</a>
         <a href="#proof">Proof</a>
         <a href="#release">Release</a>
         <a href="#benchmarks">Benchmarks</a>
         <a href="#coverage">Coverage</a>
         <a href="#protocols">Stack</a>
       </nav>
+      <button class="motion-toggle" id="motion-toggle" type="button" aria-pressed="false" aria-label="Pause decorative motion">Pause motion</button>
       <a class="nav-source" href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener" aria-label="Open ADhammer source on GitHub">
         <span>Source</span><i>↗</i>
       </a>
@@ -1887,7 +1940,7 @@
 
   <main id="content">
     <section class="hero" id="top">
-      <div class="living-stage" id="living-stage" aria-label="Animated ice dragon behind a live three-dimensional directory graph">
+      <div class="living-stage" id="living-stage" aria-label="Decorative ice dragon and illustrative directory graph; not live assessment data">
         <div class="dragon-rig" aria-hidden="true">
           <div class="dragon-float">
             <div class="dragon-aura"></div>
@@ -1905,18 +1958,26 @@
           </div>
         </div>
         <canvas id="living-graph" aria-hidden="true"></canvas>
-        <div class="dragon-live-tag"><i></i><span><b>Alive</b> · cryogenic circulation online</span></div>
-        <span class="model-index">3D ice system · pointer reactive</span>
+        <div class="dragon-live-tag"><i></i><span><b>ADhammer</b> · directory graph illustration</span></div>
+        <span class="model-index">Illustrative scene · no live assessment data</span>
       </div>
 
       <div class="shell hero-grid">
         <div class="hero-copy reveal">
-          <span class="eyebrow">Open-source Active Directory pentest tool · built in Rust</span>
+          <span class="eyebrow">ADhammer / v1.5.0 · Rust · MIT</span>
           <h1>See the domain.<span>Prove the path.</span></h1>
-          <p class="hero-lede">ADhammer is an open-source Active Directory pentest tool in Rust. It maps attack paths to Tier-0, validates supported findings, and keeps the evidence attached.</p>
+          <p class="hero-lede">An Active Directory pentest tool for mapping paths to Tier-0, validating supported findings, and keeping evidence attached to the report.</p>
           <div class="hero-actions">
-            <a class="enter-link" href="#engine"><span>Enter the living graph</span><i>↓</i></a>
-            <a class="quiet-link" href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener">Inspect the implementation ↗</a>
+            <a class="enter-link" href="#install"><span>Install ADhammer</span><i>↓</i></a>
+            <a class="quiet-link" href="#engine">Explore the workflow ↓</a>
+          </div>
+          <div class="hero-install" aria-label="Install and inspect the CLI">
+            <div class="terminal-label"><span>Install / inspect</span><span>Rust 1.88+</span></div>
+            <div class="command">
+              <code>cargo install --locked adhammer</code>
+              <button class="copy-button" type="button" data-copy="cargo install --locked adhammer" aria-label="Copy Cargo install command">Copy</button>
+            </div>
+            <code class="terminal-next"><span>Then:</span> adhammer --help<br><span>Inspect:</span> adhammer scan --help</code>
           </div>
         </div>
 
@@ -2167,13 +2228,13 @@
       <div class="shell">
         <div class="bench-head reveal">
           <span class="eyebrow proof">04 / Measured in the open</span>
-          <h2>One measurement.<br>All the context.</h2>
-          <p>The cinematic number is only the entrance. Exact timings, tool versions, network caveats, raw logs, and the one documented loss remain visible in the full matrix.</p>
+          <h2>Recorded benchmarks.</h2>
+          <p>Historical ADhammer 1.3.3 measurements, with tool versions, transport differences, and raw logs. These results do not establish current-release performance.</p>
         </div>
         <div class="bench-layout">
           <div class="race-panel reveal" aria-live="polite">
             <div class="race-top"><span>Recorded wall-clock</span><span id="race-version">ADhammer 1.3.3 matrix</span></div>
-            <div class="race-number"><span id="race-ratio">144</span>×</div>
+            <div class="race-number"><span id="race-ratio">54</span> <small>ms · recorded ADhammer time</small></div>
             <div class="race-title" id="race-title">Zerologon safe-detect</div>
             <div class="race-sub" id="race-sub">CVE-2020-1472 · compared with NetExec</div>
             <div class="race-bars">
@@ -2232,16 +2293,16 @@
     <section class="protocols" id="protocols">
       <div class="shell">
         <div class="protocol-head reveal">
-          <div><span class="eyebrow">06 / Protocol universe</span><h2>Built from the wire up.</h2></div>
+          <div><span class="eyebrow">06 / Rust ecosystem</span><h2>Protocol architecture.</h2></div>
           <p>ADhammer composes published standalone icedracon crates into one Rust engine. Each layer remains independently inspectable and reusable outside the binary.</p>
         </div>
         <div class="stack-map reveal" aria-label="Protocol layers composed by ADhammer">
-          <article class="stack-node n1"><small>Layer / Directory</small><b>LDAP + security descriptors</b><p>Collection, controls, ACL interpretation, and typed directory objects.</p></article>
-          <article class="stack-node n2"><small>Layer / RPC</small><b>DCE/RPC</b><p>MS-DRSR, MS-NRPC, MS-SAMR, MS-RRP, and other Microsoft interfaces.</p></article>
-          <article class="stack-node n3"><small>Layer / Identity</small><b>Kerberos</b><p>PAC, FAST, PKINIT, ticket material, and ccache / kirbi codecs.</p></article>
-          <article class="stack-node n4"><small>Layer / Auth</small><b>NTLM + CredSSP</b><p>Authentication and crypto primitives composed without shell-wrapper glue.</p></article>
-          <article class="stack-node n5"><small>Layer / Transport</small><b>SMB2 + NDR</b><p>Transport, marshalling, reassembly, and Windows protocol structure.</p></article>
-          <article class="stack-node n6"><small>Layer / Output</small><b>BloodHound export</b><p>Graph-compatible data while finding and evidence context remains intact.</p></article>
+          <article class="stack-node n1"><small>Layer / Directory</small><b>LDAP + security descriptors</b><p>Directory objects, ACLs, ACEs, and security descriptor parsing.</p><a href="https://docs.rs/windows-sddl" target="_blank" rel="noopener">windows-sddl docs ↗</a></article>
+          <article class="stack-node n2"><small>Layer / RPC</small><b>DCE/RPC</b><p>Microsoft RPC interfaces and transport primitives.</p><a href="https://docs.rs/dcerpc" target="_blank" rel="noopener">dcerpc docs ↗</a></article>
+          <article class="stack-node n3"><small>Layer / Identity</small><b>Kerberos</b><p>Ticket and authentication workflows, with support tracked in the ledger.</p><a href="https://docs.rs/adhammer-kerberos" target="_blank" rel="noopener">Kerberos crate docs ↗</a></article>
+          <article class="stack-node n4"><small>Layer / Auth</small><b>NTLM</b><p>NTLMSSP authentication, message integrity, and session security.</p><a href="https://docs.rs/ntlmssp" target="_blank" rel="noopener">ntlmssp docs ↗</a></article>
+          <article class="stack-node n5"><small>Layer / Transport</small><b>SMB2 + NDR</b><p>Authenticated transport and protocol serialization.</p><a href="https://docs.rs/smb2-client" target="_blank" rel="noopener">SMB2 docs ↗</a> · <a href="https://docs.rs/ms-ndr" target="_blank" rel="noopener">NDR docs ↗</a></article>
+          <article class="stack-node n6"><small>Layer / Output</small><b>BloodHound export</b><p>Export directory objects and relationships for further analysis.</p><a href="https://docs.rs/adhammer-bloodhound" target="_blank" rel="noopener">Export crate docs ↗</a></article>
           <div class="stack-core"><div><img src="assets/favicon.png" alt="" width="72" height="72"><b>AD//HAMMER</b><span>one composed engine</span></div></div>
         </div>
         <div class="stack-foot reveal">
@@ -2253,14 +2314,14 @@
       </div>
     </section>
 
-    <section class="final">
+    <section class="final" id="install">
       <div class="shell final-inner reveal">
         <img class="final-mark" src="assets/favicon.png" alt="" width="132" height="132">
         <span class="eyebrow">The domain, made legible</span>
         <h2>This is<span>ADhammer.</span></h2>
-        <p>Not a storefront. Not a promise without evidence. An open-source Active Directory penetration testing and audit tool you can inspect from the Microsoft protocol crates to the final evidence report.</p>
+        <p>Install the Rust CLI or download a prebuilt binary for Windows, Linux, or macOS. Review command help and the validation ledger before an assessment.</p>
         <div class="final-links">
-          <a class="final-link primary" href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener">Open the source <i>↗</i></a>
+          <a class="final-link primary" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">Download v1.5.0 <i>↗</i></a>
           <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">Benchmark record ↗</a>
         </div>
@@ -2277,7 +2338,9 @@
       <div class="footer-main">
         <a class="brand" href="#top"><img src="assets/favicon.png" alt="" width="36" height="36"><span>AD<span class="brand-slash">//</span>HAMMER</span></a>
         <nav class="footer-links" aria-label="Footer navigation">
-          <a href="#engine">Theatre</a>
+          <a href="#engine">How it works</a>
+          <a href="#install">Install</a>
+          <a href="https://github.com/icedracon" target="_blank" rel="noopener">About icedracon</a>
           <a href="#release">Release</a>
           <a href="#benchmarks">Benchmarks</a>
           <a href="#coverage">Coverage</a>
@@ -2295,13 +2358,34 @@
       "use strict";
 
       var motionQuery = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+      var userPaused = false;
       var reduced = motionQuery ? motionQuery.matches : false;
       var motionListeners = [];
+      var motionToggle = document.getElementById("motion-toggle");
+
+      function updateMotionControl() {
+        document.documentElement.setAttribute("data-motion", reduced ? "paused" : "playing");
+        var systemReduced = Boolean(motionQuery && motionQuery.matches);
+        motionToggle.textContent = systemReduced ? "Reduced motion" : (reduced ? "Enable motion" : "Pause motion");
+        motionToggle.setAttribute("aria-disabled", String(systemReduced));
+        motionToggle.setAttribute("aria-pressed", String(reduced));
+        motionToggle.setAttribute("aria-label", systemReduced ? "Motion reduced by system preference" : (reduced ? "Enable decorative motion" : "Pause decorative motion"));
+      }
+      motionToggle.addEventListener("click", function () {
+        if (motionQuery && motionQuery.matches && reduced) {
+          liveStatus.textContent = "Reduced motion is enabled in your system preferences.";
+          return;
+        }
+        userPaused = !userPaused;
+        onMotionChange();
+      });
 
       function onMotionChange(event) {
-        reduced = event.matches;
+        reduced = userPaused || Boolean(motionQuery && motionQuery.matches);
+        updateMotionControl();
         motionListeners.forEach(function (listener) { listener(reduced); });
       }
+      updateMotionControl();
       if (motionQuery) {
         if (motionQuery.addEventListener) motionQuery.addEventListener("change", onMotionChange);
         else if (motionQuery.addListener) motionQuery.addListener(onMotionChange);
@@ -2439,7 +2523,7 @@
       function selectBenchmark(dataIndex) {
         var row = benchmarkData[dataIndex];
         var max = Math.max(row.ours, row.theirs || row.ours);
-        number.textContent = row.ratio === "only" ? "01" : row.ratio;
+        number.textContent = String(row.ours);
         numberWrap.classList.toggle("loss", !row.winner);
         title.textContent = row.title;
         sub.textContent = row.detail + " · compared with " + row.tool + (row.winner ? "" : " · documented loss");
@@ -2471,7 +2555,7 @@
         var result = document.createElement("strong");
         heading.textContent = row.title;
         detail.textContent = formatMs(row.ours) + " vs " + formatMs(row.theirs) + " · " + row.tool;
-        result.textContent = row.ratio === "only" ? "only impl" : (row.winner ? row.ratio + "×" : "loss");
+        result.textContent = row.ours + " ms";
         copy.appendChild(heading);
         copy.appendChild(detail);
         button.appendChild(copy);
@@ -2490,8 +2574,8 @@
         scenario.textContent = row.title;
         ours.textContent = formatMs(row.ours);
         ours.className = "ours";
-        comparison.textContent = row.theirs === null ? "— · no toolkit implementation" : formatMs(row.theirs) + " · " + row.tool;
-        result.textContent = row.result;
+        comparison.textContent = row.theirs === null ? "No comparison recorded" : formatMs(row.theirs) + " · " + row.tool;
+        result.textContent = row.theirs === null ? "No comparison" : (row.ours < row.theirs ? "Lower recorded time" : "Higher recorded time");
         result.className = row.winner ? "win" : "";
         tr.appendChild(scenario);
         tr.appendChild(ours);
