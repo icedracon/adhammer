@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme-command-center.svg" alt="ADhammer command center — discover, map, validate, report" width="100%" />
+  <img src="docs/readme-banner.svg" alt="ADhammer — discover, map, validate, report" width="100%" />
 </p>
 
 <h1 align="center">ADhammer</h1>
@@ -28,6 +28,13 @@
 
 <br />
 
+## Start here
+
+- **Use the tool:** [Install and inspect the CLI](#quick-start).
+- **Understand the output:** [Explore the assessment walkthrough](https://icedracon.github.io/adhammer/#engine).
+- **Evaluate support:** [Read the validation ledger](docs/VALIDATION.md).
+- **Build with Rust:** [Use the SDK](https://docs.rs/adhammer-sdk) or [choose a protocol crate](#the-icedracon-stack).
+
 ## From signal to evidence
 
 ADhammer is an open-source CLI for authorized Active Directory security
@@ -35,38 +42,10 @@ assessments. It collects directory state, resolves control paths that end at
 Tier-0, and keeps the status of every result explicit: **observed**,
 **validated with proof**, or **validation owed**.
 
-<table>
-<tr>
-<td width="25%" valign="top">
-
-<sub>01 / SCOPED</sub><br />
-<strong>Discover</strong><br />
-<sub>Directory services and the exposure they reveal.</sub>
-
-</td>
-<td width="25%" valign="top">
-
-<sub>02 / GRAPH</sub><br />
-<strong>Map</strong><br />
-<sub>Relationships and viable paths to Tier-0.</sub>
-
-</td>
-<td width="25%" valign="top">
-
-<sub>03 / PROOF</sub><br />
-<strong>Validate</strong><br />
-<sub>Supported paths, with operator consent and captured evidence.</sub>
-
-</td>
-<td width="25%" valign="top">
-
-<sub>04 / HANDOFF</sub><br />
-<strong>Report</strong><br />
-<sub>JSON, HTML, Markdown, and BloodHound CE export.</sub>
-
-</td>
-</tr>
-</table>
+1. **Discover** — collect directory services and exposure within scope.
+2. **Map** — follow relationships and possible paths to Tier-0.
+3. **Validate** — exercise supported paths with operator consent and recorded evidence.
+4. **Report** — carry results into JSON, HTML, Markdown, or BloodHound CE export.
 
 <br />
 
@@ -184,28 +163,9 @@ web-application scanner, or Android / APK testing suite.
 
 ## Built for people who need proof
 
-<table>
-<tr>
-<td width="33%" valign="top">
-
-<strong>Assessors</strong><br />
-<sub>One static binary for scoped AD reconnaissance, analysis, and authorized validation.</sub>
-
-</td>
-<td width="33%" valign="top">
-
-<strong>Defenders</strong><br />
-<sub>Evidence-rich findings that show what was observed, proven, or still needs validation.</sub>
-
-</td>
-<td width="33%" valign="top">
-
-<strong>Rust builders</strong><br />
-<sub>Reusable icedracon protocol crates without adopting the full application.</sub>
-
-</td>
-</tr>
-</table>
+- **Assessors:** scoped AD reconnaissance, analysis, and supported validation.
+- **Defenders:** findings that distinguish observed conditions, recorded proof, and validation still owed.
+- **Rust developers:** reusable protocol crates and an SDK for integration.
 
 <br />
 
@@ -219,10 +179,13 @@ single crate when you need a lower-level building block.
 |:--|:--|
 | **Transport** | [`dcerpc`](https://crates.io/crates/dcerpc) · [`smb2-client`](https://crates.io/crates/smb2-client) · [`ms-ndr`](https://crates.io/crates/ms-ndr) |
 | **Directory / graph** | [`adhammer-collector`](https://crates.io/crates/adhammer-collector) · [`adhammer-graph`](https://crates.io/crates/adhammer-graph) · [`bloodhound-export`](https://crates.io/crates/bloodhound-export) |
-| **Auth / crypto** | [`ntlmssp`](https://crates.io/crates/ntlmssp) · [`ms-pac`](https://crates.io/crates/ms-pac) · [`dpapi-ng`](https://crates.io/crates/dpapi-ng) |
+| **Auth / crypto** | [`ntlmssp`](https://crates.io/crates/ntlmssp) · [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) · [`dpapi-ng`](https://crates.io/crates/dpapi-ng) |
 | **AD CS / RPC** | [`ms-icpr`](https://crates.io/crates/ms-icpr) · [`ms-crtd`](https://crates.io/crates/ms-crtd) · [`ms-drsr`](https://crates.io/crates/ms-drsr) |
 
-Explore the wider ecosystem on [crates.io/users/zevs](https://crates.io/users/zevs).
+Each crate has its own maturity and validation status; publication alone does
+not establish production readiness.
+
+Explore the wider ecosystem through [icedracon's repositories](https://github.com/icedracon?tab=repositories) and the [SDK documentation](https://docs.rs/adhammer-sdk).
 
 <br />
 

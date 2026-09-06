@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="280" viewBox="0 0 960 280" role="img" aria-labelledby="title desc">
+  <title id="title">ADhammer assessment workflow</title>
+  <desc id="desc">ADhammer: discover, map, validate, report. A multicolor schematic on a dark background.</desc>
+  <defs>
+    <linearGradient id="surface" x2="1" y2="1">
+      <stop stop-color="#151027"/><stop offset=".55" stop-color="#080C16"/><stop offset="1" stop-color="#08221F"/>
+    </linearGradient>
+    <linearGradient id="spectrum">
+      <stop stop-color="#2EA8FF"/><stop offset=".34" stop-color="#A78BFA"/><stop offset=".67" stop-color="#F7C948"/><stop offset="1" stop-color="#55D6BE"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="280" rx="20" fill="url(#surface)"/>
+  <rect x="1" y="1" width="958" height="278" rx="19" fill="none" stroke="#FFFFFF" stroke-opacity=".16"/>
+  <path d="M48 42H912" stroke="url(#spectrum)" stroke-width="4"/>
+  <text x="48" y="143" fill="#F6F5FA" font-family="Arial,Helvetica,sans-serif" font-size="76" font-weight="800" letter-spacing="-3">AD//HAMMER</text>
+  <path d="M700 104H742L777 69H832L867 104H911M742 104L777 139H832L867 104" fill="none" stroke="#A78BFA" stroke-width="2" stroke-opacity=".6"/>
+  <circle cx="742" cy="104" r="6" fill="#A78BFA"/><circle cx="832" cy="69" r="6" fill="#F7C948"/><circle cx="867" cy="104" r="6" fill="#55D6BE"/>
+  <g font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">
+    <rect x="48" y="192" width="198" height="48" rx="8" fill="#2EA8FF" fill-opacity=".1"/>
+    <text x="64" y="223" fill="#7ACBFF">Discover</text>
+    <rect x="270" y="192" width="198" height="48" rx="8" fill="#A78BFA" fill-opacity=".1"/>
+    <text x="286" y="223" fill="#C6B1FF">Map</text>
+    <rect x="492" y="192" width="198" height="48" rx="8" fill="#F7C948" fill-opacity=".1"/>
+    <text x="508" y="223" fill="#F7D775">Validate</text>
+    <rect x="714" y="192" width="198" height="48" rx="8" fill="#55D6BE" fill-opacity=".1"/>
+    <text x="730" y="223" fill="#80E5CF">Report</text>
+  </g>
+</svg>
+
