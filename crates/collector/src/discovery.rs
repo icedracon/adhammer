@@ -4,7 +4,7 @@
 //! from `EngagementScope::domain_hints`, resolves their hostnames to IPs,
 //! filters through scope, and collects best-effort PTR names — all over a
 //! hand-rolled DNS client (`dns_wire` codec + tokio UDP/TCP transport),
-//! with NO third-party resolver dependency (D2 lock, docs/PLAN_1.5.0.md).
+//! with no third-party resolver dependency.
 //!
 //! The orchestration (`discover_dns_with`, SRV family walk, scope filter,
 //! PTR collection, ordering) is transport-agnostic behind the `DnsLookup`

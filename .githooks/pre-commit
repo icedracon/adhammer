@@ -34,7 +34,7 @@ if grep -inE -f "$LEAK_TERMS_FILE" "$ADDED_LINES" > "$CHECK_OUTPUT" 2>&1; then
     echo "======================================================================"
     head -20 "$CHECK_OUTPUT"
     echo "----------------------------------------------------------------------"
-    echo " Redact BEFORE staging. Rule: docs/PLAN_1.4.9.md § WS-LEAK-HOOK."
+    echo " Redact BEFORE staging. See SECURITY.md and .githooks/leak-terms.txt."
     echo " Placeholder examples:"
     echo "   password  ->  <lab-password>"
     echo "   SID       ->  S-1-5-21-XXXX-YYYY-ZZZZ-500"

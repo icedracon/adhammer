@@ -1,42 +1,38 @@
-#Requires -RunAsAdministrator
-# Run on the DC after AD CS is installed. Creates a vulnerable ESC1 certificate template
-# (enrollee-supplies-subject + client-auth EKU, enrollable by Authenticated Users, no
-# manager approval) and publishes it, so `adhammer scan` reports A-Esc1.
+# Clone the complete built-in User template into an ESC1-vulnerable template (AdhESC1):
+# enrollee-supplies-subject + client-auth, enrollable by Authenticated Users. Lab provisioning.
 $ErrorActionPreference = 'Stop'
 $cfg  = ([ADSI]"LDAP://RootDSE").configurationNamingContext
 $base = "CN=Certificate Templates,CN=Public Key Services,CN=Services,$cfg"
 $src  = [ADSI]"LDAP://CN=User,$base"
 $cont = [ADSI]"LDAP://$base"
 
-try { $cont.Delete("pKICertificateTemplate", "CN=VulnUser") } catch {}
+try { $cont.Delete("pKICertificateTemplate", "CN=AdhESC1") } catch {}
+$t = $cont.Create("pKICertificateTemplate", "CN=AdhESC1")
 
-$t = $cont.Create("pKICertificateTemplate", "CN=VulnUser")
-$copy = 'flags','revision','pKIDefaultKeySpec','pKIKeyUsage','pKIMaxIssuingDepth',
-        'pKICriticalExtensions','pKIExpirationPeriod','pKIOverlapPeriod','pKIExtendedKeyUsage',
-        'pKIDefaultCSPs','msPKI-RA-Signature','msPKI-Minimal-Key-Size',
-        'msPKI-Template-Schema-Version','msPKI-Cert-Template-OID',
-        'msPKI-Certificate-Application-Policy','msPKI-Private-Key-Flag'
-foreach ($a in $copy) { $v = $src.Properties[$a].Value; if ($null -ne $v) { $t.Properties[$a].Value = $v } }
-$t.Properties['displayName'].Value = 'VulnUser'
-$t.Properties['msPKI-Certificate-Name-Flag'].Value = 1  # ENROLLEE_SUPPLIES_SUBJECT
-$t.Properties['msPKI-Enrollment-Flag'].Value = 0        # no manager approval
-$t.Properties['msPKI-RA-Signature'].Value = 0
-$t.CommitChanges()
-
-# Grant Authenticated Users the Certificate-Enrollment extended right (0e10c968-...79dc55).
-$de = [ADSI]"LDAP://CN=VulnUser,$base"
-$enroll = [guid]'0e10c968-78fb-11d2-90d4-00c04f79dc55'
-$au = New-Object Security.Principal.SecurityIdentifier('S-1-5-11')
-$ace = New-Object DirectoryServices.ActiveDirectoryAccessRule(
-    $au, [DirectoryServices.ActiveDirectoryRights]::ExtendedRight,
-    [Security.AccessControl.AccessControlType]::Allow, $enroll)
-$de.ObjectSecurity.AddAccessRule($ace)
-$de.CommitChanges()
-
-# Publish on the CA.
-$ca = [ADSI]"LDAP://CN=corp-CA,CN=Enrollment Services,CN=Public Key Services,CN=Services,$cfg"
-if ($ca.Properties['certificateTemplates'].Value -notcontains 'VulnUser') {
-    $ca.Properties['certificateTemplates'].Add('VulnUser') | Out-Null
-    $ca.CommitChanges()
+# Copy every schema/PKI attribute from User so the template is complete (the raw-ADSI seed
+# omitted required ones → CERTSRV_E_UNSUPPORTED_CERT_TYPE).
+$skip = @('cn','distinguishedName','name','objectguid','objectclass','usncreated','usnchanged',
+          'whencreated','whenchanged','dscorepropagationdata','instancetype','adspath','showinadvancedviewonly')
+foreach ($p in $src.Properties.PropertyNames) {
+    if ($skip -contains $p.ToLower()) { continue }
+    try { $t.Properties[$p].Value = $src.Properties[$p].Value } catch {}
 }
-"ESC1 template VulnUser created + published"
+$t.Properties['displayName'].Value = 'AdhESC1'
+# ENROLLEE_SUPPLIES_SUBJECT (0x1) — the ESC1 condition.
+$t.Properties['msPKI-Certificate-Name-Flag'].Value = 1
+$t.CommitChanges()
+Start-Sleep 2
+
+# Copy User's security descriptor (grants Authenticated Users Enroll) onto the clone.
+$t2 = [ADSI]"LDAP://CN=AdhESC1,$base"
+$sd = $src.psbase.ObjectSecurity.GetSecurityDescriptorBinaryForm()
+$t2.psbase.ObjectSecurity.SetSecurityDescriptorBinaryForm($sd)
+$t2.psbase.CommitChanges()
+Start-Sleep 2
+
+# Publish on the CA + refresh.
+certutil -SetCATemplates +AdhESC1
+Restart-Service certsvc
+Start-Sleep 3
+certutil -CATemplates | Select-String AdhESC1
+"done"

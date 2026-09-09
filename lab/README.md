@@ -15,7 +15,9 @@ recreates it.
 | — | Install Windows Server (Desktop Experience) via Hyper-V console; set Administrator password | guest console | — |
 | 2 | `02-promote-dc.ps1` — static IP, rename, promote to `corp.local` (run twice: prep→reboot→promote) | **guest** | admin |
 | 3 | `03-seed-vulns.ps1` — create vulnerable users/groups/gMSA/GPP/policy | **guest DC** | admin |
-| 4 | Run ADhammer from the host (see below) | host | — |
+| 4 | Optional: install AD CS, then run `04-seed-adcs-esc1.ps1` | **guest DC** | admin |
+| 5 | Optional: run `05-seed-adcs-esc-2-3-9-13.ps1` for the wider AD CS matrix | **guest DC** | admin |
+| 6 | Run ADhammer from the host (see below) | host | — |
 
 ## Credentials created
 
@@ -38,8 +40,16 @@ recreates it.
 | SYSVOL `Groups.xml` cpassword | A-GppPassword (`--sysvol`) |
 | default MachineAccountQuota = 10 | A-MachineAccountQuota |
 
-Optional heavier adds (own scripts, not included): AD CS + ESC1 template, a second forest
-for trust checks, `dMSA` on Server 2025 for badSuccessor.
+The included AD CS seeders cover ESC1 and the ESC2/3/9/13 template matrix.
+A second forest for trust checks and `dMSA` on Server 2025 for badSuccessor
+remain optional manual extensions.
+
+## Parser validation helper
+
+`lab_validate.ps1` performs read-only collection from an authorized lab and
+replays real directory/SYSVOL data through selected parsers. It writes output
+only to its explicitly selected `-OutDir`; validation output is ignored by Git
+and must be scrubbed before it is retained as release evidence.
 
 ## Running ADhammer against the lab (from the host)
 

@@ -30,8 +30,8 @@ repository = "https://github.com/icedracon/adhammer"
 # WS-FOUNDATION-INTEGRATE (1.4.10 foundation, capability in 1.5.0) —
 # CIDR + IP-address types for EngagementScope. Small (2 deps, no
 # transitive network stack), widely audited. No DNS resolver dep:
-# WS-FOUNDATION-DNS-HANDROLL (1.5.1) hand-rolls the SRV lookup per D2
-# locked in docs/PLAN_1.5.0.md.
+# DNS SRV lookup is intentionally hand-rolled to keep resolver behavior bounded
+# and avoid adding a second network stack.
 ipnet        = "2.11"
 # the from-scratch protocol stack, now consumed as standalone published crates
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
