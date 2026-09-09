@@ -12,9 +12,9 @@ discovery → per-DC HTTP fingerprint (ADCS ESC8 relay surface, RD Web,
 ADFS, OWA/EWS, SCCM) → per-DC anonymous-SMB posture (SAMR / srvsvc
 sessions+shares / wkssvc / lsarpc) → per-DC anonymous SYSVOL walk for
 GPP `cpassword` (MS14-025) — and adds a coercion-vector matrix + a
-hashcat-mode annotator on every roast-emitted hash. See
-`docs/PLAN_1.5.0.md` for the full workstream ledger and
-`docs/PLAN_1.5.0_READINESS.md` for the per-workstream evidence map.
+hashcat-mode annotator on every roast-emitted hash. See `VECTORS.md` for the
+capability inventory and `docs/VALIDATION.md` for the evidence-backed support
+matrix.
 
 ### Added — no-credential enumeration verbs
 
@@ -105,13 +105,9 @@ hashcat-mode annotator on every roast-emitted hash. See
 
 ### Governance + policy formalisation
 
-- Added `docs/AI_RELEASE_GOVERNANCE.md`, `docs/ECOSYSTEM_READINESS_100.md`,
-  `AGENTS.md`, `scripts/check_release_governance.py` (CI-enforced
-  guardrail against policy drift), and `docs/PLAN_1.5.0_READINESS.md`
-  (per-workstream evidence map for this release).
-- New sibling brainstorm `docs/BRAINSTORM_NEW_SIBLINGS.md` with the
-  §6 dep-risk grid establishing hand-roll-vs-adopt discipline for
-  every future external dep.
+- Formalised local maintainer release controls and kept them outside the
+  public documentation surface. Public release truth remains in the
+  validation ledger, changelog, security policy, and release evidence.
 - **WS-MSRV-POLICY** — `docs/POLICY_MSRV.md` as single source of truth
   for how MSRV moves, with a `<!-- MSRV-BASELINE:X.Y -->` anchor tied
   to `[workspace.package].rust-version` in Cargo.toml.
@@ -141,9 +137,8 @@ hashcat-mode annotator on every roast-emitted hash. See
   generation), `crates/kerberos/src/pkinit.rs` (PKINIT sign/decode),
   and `cli/src/attacks/icpr_esc1.rs` (RSA key generation), AND reaches
   the tree transitively via the external `ms-icpr 0.1.2` sibling.
-  Full removal is a crypto-migration workstream that needs its own
-  version contract per `AI_RELEASE_GOVERNANCE.md` §3 — 1.5.1
-  candidate. The advisory ignore in `.cargo/audit.toml` and
+  Full removal is a crypto-migration workstream that needs its own reviewed
+  version contract — a 1.5.1 candidate. The advisory ignore in `.cargo/audit.toml` and
   `deny.toml` remains with its dated rationale.
 - **WS-DEPS-MAJORS** (picky-krb 0.9 → 0.12) — prior 2026-09-01 attempt
   was reverted; ~30+ mechanical edits owed with an underlying failure
@@ -159,9 +154,8 @@ hashcat-mode annotator on every roast-emitted hash. See
 ## [1.4.10] — 2026-09-02
 
 Hardening patch on top of 1.4.9 — bug-fix / defence-in-depth only, no
-new operator-observable capability. The 1.5.0 branch (`docs/PLAN_1.5.0.md`)
-carries the black-box no-cred assessment capability push on top of this
-tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
+new operator-observable capability. The 1.5.0 branch carries the black-box
+no-credential assessment capability push on top of this tree.
 
 ### Post-release polish on `main` — 2026-09-03
 
@@ -282,7 +276,7 @@ tree; see `docs/PLAN_1.4.10.md` for the full 1.4.10 workstream plan.
   documented WS-LDAPS-CB-INVESTIGATE hypothesis (channel-binding
   hardening across the 2019+ line).
 
-### Deferred to 1.5.1 (tracked in `docs/PLAN_1.4.10.md`)
+### Deferred to 1.5.1
 
 - WS-CLI-GPP-DUMP-FLAG: expose `--gpp-dump-out <path>` in
   `attack scan` to reach `write_dump`.
@@ -409,7 +403,7 @@ every receipt).
 offensive tool" gap. Original 20-vector plan lands **18 of 19 vectors LIVE**
 (WS-SKELETON-KEY permanently dropped from plan; WS-DPAPI-MASTER-KEY moved deferred
 → LIVE after upstream dpapi-offline 0.1.1 landed the MS-DPAPI PBKDF2 fix), 1 deferred
-to 1.4.9 with explicit rationale ([`docs/PLAN_1.4.8.md`](docs/PLAN_1.4.8.md)).
+to 1.4.9 with the rationale recorded below.
 One sibling crate published as the WS-DPAPI-MASTER-KEY enabler (`dpapi-offline
 0.1.1`, byte-oracle-validated on Server 2025); ADhammer itself and every other
 sibling crate stay local this cycle.
@@ -537,8 +531,7 @@ sibling crate stay local this cycle.
   the same DC state — unchanged from 1.4.7.
 - **Coverage counting.** 73 unique attack surfaces total (58 pre-recon
   checks + 15 pre-existing attack verbs + 19-item capability plan − 4
-  overlap between plan and pre-existing + 1 dropped SKELETON-KEY). Plan-
-  vs-shipped table in `docs/PLAN_1.4.8.md`.
+  overlap between plan and pre-existing + 1 dropped SKELETON-KEY).
 
 ## [1.4.7] — 2026-08-29
 

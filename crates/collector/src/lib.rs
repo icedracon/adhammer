@@ -15,7 +15,7 @@
 compile_error!(
     "features `tls-native` and `tls-rustls` are mutually exclusive — \
      pick one. This crate wraps ldap3 whose TLS backends collide when both \
-     are active. See docs/PLAN_1.4.10.md §WS-FEATURE-MATRIX."
+     are active."
 );
 
 use adhammer_core::object::AdObject;
@@ -124,7 +124,7 @@ pub struct LdapConfig {
     /// operator has to set this explicitly (e.g. in a lab where the DC has
     /// no LDAPS certificate). Anonymous binds are always allowed regardless
     /// of this flag — no identity is transmitted so there is no credential
-    /// to expose. See BF-1 in docs/PLAN_1.4.10.md.
+    /// to expose.
     pub allow_plaintext_bind: bool,
 }
 
@@ -326,7 +326,7 @@ pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
         "refusing to send an authenticated LDAP simple_bind over plaintext {url:?}: \
          switch to `ldaps://` (default port 636), pass `--gssapi` for SASL-sealed LDAP \
          over 389, or set `allow_plaintext_bind = true` on the LdapConfig if this is a \
-         lab DC without an LDAPS certificate. See docs/PLAN_1.4.10.md §WS-LDAP-INTEGRITY.",
+         lab DC without an LDAPS certificate.",
         url = cfg.url
     );
 }
@@ -334,8 +334,7 @@ pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
 impl Collector {
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
         ensure_tls_configuration(&cfg.url, cfg.insecure)?;
-        // WS-LDAP-INTEGRITY (1.4.10): refuse authed plaintext-389 before we
-        // ever open a socket. BF-1 in docs/PLAN_1.4.10.md.
+        // Refuse authenticated plaintext LDAP before opening a socket.
         require_bind_integrity(cfg)?;
         // Route ldap3's connect through the SOCKS pivot when one is configured.
         let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
@@ -538,7 +537,7 @@ impl Collector {
                 anyhow::bail!(
                     "LDAP search returned more than {LDAP_MAX_ENTRIES_PER_SEARCH} entries \
                      (base={base:?}, filter={filter:?}); refusing to continue — possible \
-                     hostile / broken server. See docs/PLAN_1.4.10.md §WS-LDAP-INTEGRITY."
+                     hostile / broken server."
                 );
             }
         }

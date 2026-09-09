@@ -23,8 +23,9 @@ This directory contains the public engineering and validation documentation for 
 - [`CONTROL_AREAS.md`](CONTROL_AREAS.md) — assessment/control-area mapping.
 - [`../VECTORS.md`](../VECTORS.md) — operator-facing capability inventory.
 
-## Historical planning documents
+## Project history and future work
 
-Files named `PLAN_<version>.md` are retained as historical release-planning records. They are not the source of truth for current capability claims. Current support status always comes from [`VALIDATION.md`](VALIDATION.md), while released changes are recorded in [`../CHANGELOG.md`](../CHANGELOG.md).
-
-When a planning document conflicts with current implementation or validation state, the validation ledger and release notes take precedence.
+Released changes are recorded in [`../CHANGELOG.md`](../CHANGELOG.md), and
+current support status comes from [`VALIDATION.md`](VALIDATION.md). Future work
+is tracked in GitHub issues and milestones so it stays current, searchable, and
+separate from the user-facing documentation.

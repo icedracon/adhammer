@@ -19,11 +19,10 @@ Last updated: 2026-08-30 · 1.4.8 (capability-expansion release)
 |------|--------|---------|------|
 | Audit checks (41 rules) | 39 | 2 | 0 |
 | AD CS ESC (15/16) | ESC1/2/3/4/5/9/13/14/15 passive + ESC8 active + ESC6/7/10/11/16 via MS-RRP (`enum esc`) | — | ESC12 (hardware token, out of scope) |
-| Offensive CLI | 33+ modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·wmiexec·atexec·winrm·secretsdump·gmsa·laps·esc1·icpr-esc1·esc4·adcs-relay·golden·**diamond**·**unpac**·silver·ptt·asktgt·capture·poison·relay·unconstrained·badsuccessor·mssql·zerologon·dcshadow·shadowcred·rbcd·**enum krb-users**) | 1 chain (WS-DELEGATION-CAPTURE, listener owed) | see [ROADMAP.md](ROADMAP.md) |
+| Offensive CLI | 33+ modes (roast·spray·abuse·coerce·rbcd·constrained·dcsync·exec·wmiexec·atexec·winrm·secretsdump·gmsa·laps·esc1·icpr-esc1·esc4·adcs-relay·golden·**diamond**·**unpac**·silver·ptt·asktgt·capture·poison·relay·unconstrained·badsuccessor·mssql·zerologon·dcshadow·shadowcred·rbcd·**enum krb-users**) | 1 chain (WS-DELEGATION-CAPTURE, listener owed) | see [open vectors](#open-vectors-not-yet-closed) |
 | Protocol stack | NDR·RPC·NTLM·SMB2·Kerberos (AS/TGS/S4U/PKINIT + from-scratch PAC + RC4-HMAC) | DRSUAPI single-object | SVCCTL✅·TSCH·RRPM·NETLOGON… |
 
-This file tracks current per-vector status against the local `1.4.3` tree. [ROADMAP.md](ROADMAP.md)
-tracks future workstreams; [docs/VALIDATION.md](docs/VALIDATION.md) is the release truth source for
+This file tracks current per-vector status and future workstreams. [docs/VALIDATION.md](docs/VALIDATION.md) is the release truth source for
 what is unit-tested, offline-tested, live-validated, or still owed.
 
 See [Open vectors](#open-vectors-not-yet-closed) for the full backlog.
@@ -156,7 +155,7 @@ is out of scope).
 
 **Partial in 1.4.8:** WS-DELEGATION-CAPTURE (`attack unconstrained`) — LDAP recon of `TRUSTED_FOR_DELEGATION` hosts shipped; AP-REQ-parse capture listener is documented as follow-up.
 
-**Deferred to 1.4.9** (see `docs/PLAN_1.4.8.md`): WS-NTDS-OFFLINE (blocked on sibling ese-parser shipping v0.2 — B-tree walk + catalog + row decode).
+**Deferred to 1.4.9:** WS-NTDS-OFFLINE was blocked on sibling ese-parser shipping v0.2 — B-tree walk + catalog + row decode.
 
 **Dropped from plan permanently:** WS-SKELETON-KEY (persistence duplicated by WS-GOLDEN-TICKET, worse AV surface, per-Windows-version binary shim). Plan denominator 20 → 19.
 

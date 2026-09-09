@@ -13,7 +13,7 @@
 //!
 //! DNS discovery uses the hand-rolled resolver (WS-FOUNDATION-DNS-HANDROLL,
 //! 1.5.0) — `dns_wire` codec + tokio UDP/TCP in `adhammer_collector::
-//! discovery`, no `hickory-resolver` dependency (D2 lock, docs/PLAN_1.5.0.md).
+//! discovery`, with no `hickory-resolver` dependency.
 //! `BlackBoxRunner::discover_dns` wraps it as a `Discovery`-class check
 //! that respects the selection + duration budget.
 

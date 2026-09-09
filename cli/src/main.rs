@@ -65,8 +65,8 @@ struct Cli {
     /// token assembly — plus sysvol/probe debug lines). `-vvv` = trace (adds per-PDU
     /// wire byte-count + sequence number for every Kerberos exchange + WRAP token).
     /// Wire-layer per-PDU tracing inside the SMB/DCE-RPC/NTLM transports themselves
-    /// (WS-WIRE-TRACE, dcerpc/smb2-client/ntlmssp) is planned but halted for the
-    /// upstream sibling-crate publish cascade (see `docs/PLAN_1.4.8.md` §3). Field
+    /// (dcerpc/smb2-client/ntlmssp) is planned but blocked on the upstream
+    /// sibling-crate publish cascade. Field
     /// values shown are identifier strings + byte counts + etypes — never key bytes,
     /// ticket contents, or hashes. Overrides `RUST_LOG`. Long-form alias:
     /// `--verbose` == `-v`, `--debug` == `-vv`. Note: on Git Bash / MSYS2 pipes on
@@ -555,8 +555,8 @@ fn build_tracing_filter(verbosity: u8, debug_alias: bool) -> tracing_subscriber:
 /// trace verbosity so the log filter is ready for the wire mechanism (BIND, AUTH3,
 /// sealed WRAP, NDR decode, TGS-REQ/REP, LDAP search/response) — most of that wire
 /// trace ISN'T emitted yet (dcerpc/smb2-client/ntlmssp carry ~zero trace/debug calls
-/// today; WS-WIRE-TRACE is planned but halted for the upstream sibling-crate
-/// publish cascade — see `docs/PLAN_1.4.8.md` §3), but adhammer's own INFO
+/// today; transport-level wire tracing is blocked on the upstream sibling-crate
+/// publish cascade), but adhammer's own INFO
 /// narrations DO fire under the
 /// StageChecklist. `-v` counts the user typed still layer on but can't drop below
 /// trace. `--quiet-interactive` opts out (demos / screenshots). Scripted subcommand

@@ -1,9 +1,7 @@
 # ADhammer MSRV policy
 
-**Status:** mandatory local policy.
-**Authority:** `AGENTS.md` §5, `AI_RELEASE_GOVERNANCE.md` §4.1 (user-visible
-compatibility decision requires rationale + test), `docs/POLICY_MSRV.md`
-(this file).
+**Status:** public compatibility policy.
+**Authority:** the workspace `rust-version` and this policy.
 **Enforced by:** `scripts/check_msrv_baseline.py` (fails CI on undeclared
 MSRV drift) + the existing `msrv` job in `.github/workflows/ci.yml`.
 
@@ -21,9 +19,8 @@ must edit BOTH the manifest and this file in the same reviewed diff.
 ## Bump discipline — a user-visible compatibility decision
 
 MSRV is not a maintenance detail. Every bump changes what Rust toolchains
-compile ADhammer and its sibling ecosystem. Per `AI_RELEASE_GOVERNANCE.md`
-§4.1 an MSRV increase is treated as a user-visible compatibility decision
-with its own rationale and test.
+compile ADhammer and its sibling ecosystem. An MSRV increase is treated as a
+user-visible compatibility decision with its own rationale and test.
 
 ### Required inputs before an MSRV move
 
@@ -66,8 +63,7 @@ with its own rationale and test.
 - The MSRV of the **sibling crates** (`smb2-client`, `dcerpc`, `hashglass`,
   etc.) is set in each sibling's own `Cargo.toml` and reviewed there. This
   policy governs only the adhammer workspace baseline.
-- Nightly-only features are refused entirely — see `AI_RELEASE_GOVERNANCE.md`
-  §4.1 "no undocumented feature". If a feature needs nightly, either wait
+- Nightly-only features are refused entirely. If a feature needs nightly, either wait
   for stabilisation or discard the feature.
 
 ## Non-goals

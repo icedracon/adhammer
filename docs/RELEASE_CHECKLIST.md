@@ -62,9 +62,10 @@ handles the wait automatically, no `Ctrl+C`).
 
 **Why:** every fresh Windows `cargo install adhammer` currently trips
 Windows Defender with `os error 225 — file contains a virus or
-potentially unwanted software`. The `docs/install.ps1` one-liner
-works around this per-user; Microsoft reputation build-up is the only
-scaling fix short of buying a code-signing certificate.
+potentially unwanted software`. Do not ask users to weaken Defender or add
+installation-directory exclusions. Submit the signed release artifact to
+Microsoft for analysis; reputation build-up is the scalable fix short of a
+trusted code-signing certificate.
 
 **Steps** (once per release, ~5 minutes):
 
@@ -112,10 +113,9 @@ manual is fine at current release cadence.
 ## 7. Post-ship
 
 - Push a short release notice (English + RU) to the announcement channels
-  you use. See `docs/PLAN_1.4.8.md` "celebration text" pattern from 1.4.7
-  for tone (technical, terse, no oversell, no competitor mentions).
+  you use. Keep it technical and terse, with no overselling or competitor
+  mentions.
 - Update `docs/VALIDATION.md` with the release version + date + the
   live-verify results from step 1.
-- Open the next `docs/PLAN_X.Y.Z.md` file for the following release with
-  known-open items from the shipped one. Loud "non-goals" section per
-  1.4.8 pattern.
+- Open or update the next GitHub milestone with known-open items from the
+  shipped release, including an explicit non-goals section.

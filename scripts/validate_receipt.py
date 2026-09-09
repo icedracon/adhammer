@@ -6,8 +6,8 @@ the CI Python env just for a handful of receipts. Enforces the fields
 scripts/check_validation_ledger.py already relies on, plus the file-
 naming convention documented in docs/receipts/README.md.
 
-Ship-gate discipline: this script is the "receipts have a machine-
-verified shape" answer to WS-RECEIPT-SCHEMA (see docs/PLAN_1.5.0.md).
+Ship-gate discipline: this script verifies the machine-readable shape of
+release receipts before they are accepted as evidence.
 """
 
 from __future__ import annotations
