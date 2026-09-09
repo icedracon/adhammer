@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/icedracon/adhammer/security/advisories/new
+    about: Privately report a vulnerability in ADhammer itself.
+  - name: Discussions
+    url: https://github.com/icedracon/adhammer/discussions
+    about: Ask usage, design, interoperability, and general project questions.

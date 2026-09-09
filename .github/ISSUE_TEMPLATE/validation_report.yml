@@ -1,0 +1,61 @@
+name: Validation report
+description: Submit independently reproduced validation evidence for a documented ADhammer capability.
+title: "[validation] "
+labels:
+  - validation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for authorized, independently reproduced validation. Never post credentials, customer data, private IP inventories, or unsanitized engagement evidence.
+  - type: input
+    id: capability
+    attributes:
+      label: Capability
+      description: Use the operator-facing name from docs/VALIDATION.md where possible.
+      placeholder: adhammer scan
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ADhammer version or commit
+      placeholder: v1.5.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Sanitized Windows Server / DC / CA version and relevant role information only.
+      placeholder: Windows Server 2022 domain controller
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: Reproduction method
+      description: Describe the authorized lab setup and the steps needed to reproduce the result without exposing sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: What was observed, including whether the capability succeeded, failed closed, or differed from the validation ledger.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Attach or describe scrubbed logs, packet observations, hashes, or receipts that another maintainer can review.
+  - type: checkboxes
+    id: attest
+    attributes:
+      label: Attestation
+      options:
+        - label: I was authorized to test the environment described above.
+          required: true
+        - label: I removed credentials, real identities, customer data, and sensitive infrastructure details.
+          required: true
