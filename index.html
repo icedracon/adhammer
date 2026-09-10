@@ -1883,6 +1883,7 @@
   </style>
   <link rel="stylesheet" href="assets/field-atlas.css">
   <link rel="stylesheet" href="assets/entrance.css">
+  <link rel="stylesheet" href="assets/journey.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1976,7 +1977,7 @@
       </div>
       <div class="entrance-route-note" aria-hidden="true"><span>Selected route / illustrative</span><b>Possible is not yet proven.</b></div>
       <div class="entrance-footer">
-        <span>Illustrative graph · no live assessment</span>
+        <span>Route 01 · illustrative graph</span>
         <a href="#engine" id="skip-entrance">Skip intro ↘</a>
       </div>
       <p class="sr-only">Illustrative route: svc-build, workstation-07, delegation, Tier-0. Scroll to explore the graph, then follow Collect, Graph, Validate, and Report. This is a presentation, not a live assessment.</p>
@@ -2052,7 +2053,7 @@
               </div>
               <div class="theatre-overlay theatre-proof" aria-hidden="true">
                 <span>Evidence docked to selected route</span>
-                <dl><dt>primitive</dt><dd>supported validation</dd><dt>artifact</dt><dd>sha256:a81f…7c2e</dd><dt>path state</dt><dd>PROVEN</dd></dl>
+                <dl><dt>primitive</dt><dd>supported validation</dd><dt>artifact</dt><dd>illustrative · no captured result</dd><dt>path state</dt><dd>PROVEN</dd></dl>
               </div>
               <div class="theatre-overlay theatre-report" aria-hidden="true">
                 <span>Report ready / context preserved</span>
@@ -2069,6 +2070,17 @@
             <figcaption class="sr-only" id="theatre-caption">Illustrative four-stage authorized workflow: collect Active Directory objects, resolve a possible Tier-0 control path, attach evidence to mark it proven, and preserve the result in portable reports.</figcaption>
             <span class="sr-only" id="theatre-announcer" aria-live="polite"></span>
           </figure>
+        </div>
+        <div class="journey-inspector" aria-labelledby="journey-title">
+          <div class="journey-heading"><div><span class="eyebrow">Route 01 / same path, closer look</span><h3 id="journey-title">What makes the connection?</h3></div><span class="journey-state" id="journey-state">Observed objects</span></div>
+          <div class="journey-nodes" role="group" aria-label="Inspect the four objects in illustrative route 01">
+            <button type="button" data-route-node="0" aria-pressed="true" aria-controls="journey-detail"><small>01 / Identity</small><b>svc-build</b><span>Where the path starts</span></button>
+            <button type="button" data-route-node="1" aria-pressed="false" aria-controls="journey-detail"><small>02 / Host</small><b>workstation-07</b><span>Where context matters</span></button>
+            <button type="button" data-route-node="2" aria-pressed="false" aria-controls="journey-detail"><small>03 / Relationship</small><b>delegation</b><span>What connects the objects</span></button>
+            <button type="button" data-route-node="3" aria-pressed="false" aria-controls="journey-detail"><small>04 / Boundary</small><b>tier-0</b><span>Why the destination matters</span></button>
+          </div>
+          <div class="journey-detail" id="journey-detail" aria-live="polite" aria-atomic="true"><div><span id="journey-kind">Starting identity</span><h4 id="journey-node-title">svc-build</h4><p id="journey-description">A fictional service identity starts this route. Its permissions and relationships supply context; its presence alone does not establish compromise.</p></div><div><span>Evidence needed</span><p id="journey-evidence">Confirm the identity and relevant permissions from collected directory objects. Do not infer usable credentials or a live session.</p></div></div>
+          <div class="journey-handoff"><span>Conceptual route, not a reproducible exploit chain.</span><a href="#proof">Follow Route 01 into the record <span aria-hidden="true">↘</span></a></div>
         </div>
       </div>
     </section>
@@ -2090,12 +2102,13 @@
         <div class="proof-copy reveal">
           <span class="eyebrow dark">02 / Evidence artifact</span>
           <h2>Evidence.<br><span>Not inference.</span></h2>
-          <p>The interface keeps the graph and its evidence together. The record below is an illustrative operator view of the data shape—not a fabricated assessment result.</p>
+          <p>Route 01 continues here. The identity, host, relationship, and target stay attached to the record. This is an illustrative data shape, not captured assessment output.</p>
           <a class="ledger-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Open the public validation ledger <i>↗</i></a>
+          <aside class="journey-source"><span>Documented capability / separate from the demo</span><h3>The scan pipeline</h3><p>The public ledger marks <code>adhammer scan</code> as supported and records live validation on Windows Server 2025 dated 30 August 2026.</p><p>Windows Server 2019 and 2022 receipts are still listed as owed. That entry does not validate the fictional route shown here.</p><a href="https://github.com/icedracon/adhammer/blob/8898940d7ab57a606a43f617fe2d73a4d4a64f02/docs/VALIDATION.md" target="_blank" rel="noopener">Read the exact ledger revision ↗</a></aside>
         </div>
         <div class="reveal">
           <div class="artifact-shell">
-            <div class="artifact-top"><span class="window-dots"><i></i><i></i><i></i></span><span>Illustrative record / supported path</span></div>
+            <div class="artifact-top"><span class="window-dots"><i></i><i></i><i></i></span><span>Route 01 / illustrative record</span></div>
             <div class="artifact-tabs" role="tablist" aria-label="Evidence artifact views">
               <button class="artifact-tab" id="tab-graph" type="button" role="tab" aria-selected="true" aria-controls="panel-graph" data-artifact="graph">Graph state</button>
               <button class="artifact-tab" id="tab-evidence" type="button" role="tab" aria-selected="false" aria-controls="panel-evidence" data-artifact="evidence">Evidence</button>
@@ -2109,11 +2122,12 @@
                 <div class="state-card proven"><small>Evidence attached</small><b>PROVEN</b></div>
               </div>
               <div class="route" aria-label="Illustrative four-node path">
-                <div class="route-node"><i></i><b>svc-build</b><span>identity</span></div>
-                <div class="route-node"><i></i><b>workstation-07</b><span>session</span></div>
-                <div class="route-node"><i></i><b>delegation</b><span>control edge</span></div>
-                <div class="route-node"><i></i><b>tier-0</b><span>target</span></div>
+                <div class="route-node" data-record-node="0"><i></i><b>svc-build</b><span>identity</span></div>
+                <div class="route-node" data-record-node="1"><i></i><b>workstation-07</b><span>host context</span></div>
+                <div class="route-node" data-record-node="2"><i></i><b>delegation</b><span>relationship</span></div>
+                <div class="route-node" data-record-node="3"><i></i><b>tier-0</b><span>target boundary</span></div>
               </div>
+              <p class="journey-selection" id="journey-record-selection">Inspecting svc-build · same selection as Route 01.</p>
               <dl class="artifact-record">
                 <dt>relationship</dt><dd>directional control path</dd>
                 <dt>validation</dt><dd class="proof-value">supported primitive · artifact captured</dd>
@@ -2247,7 +2261,7 @@
               <tbody id="matrix-body"></tbody>
             </table>
           </div>
-          <div class="matrix-method">Recorded against ADhammer 1.3.3; a refresh against the current release is pending. Testbed, parity caveat, versions, scripts, raw log, and result TSV are published in <a href="https://github.com/icedracon/adhammer/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md ↗</a>.</div>
+          <div class="matrix-method">Recorded against ADhammer 1.3.3; a refresh against the current release is pending. Testbed, parity caveat, versions, harness, and result TSV are published in <a href="https://github.com/icedracon/adhammer/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">BENCHMARKS.md ↗</a>.</div>
         </details>
       </div>
     </section>
@@ -2341,6 +2355,7 @@
     </div>
   </footer>
 
+  <script src="assets/journey.js"></script>
   <script src="assets/entrance.js"></script>
   <script>
     (function () {
@@ -2706,9 +2721,10 @@
         function setVerdict(isProven) {
           var proven = Boolean(isProven);
           wrap.setAttribute("data-verdict", proven ? "proven" : "possible");
+          if (window.ADhammerJourney) window.ADhammerJourney.setStage(scene, proven);
           if (scene !== 2) return;
           status.textContent = proven ? "PATH / PROVEN" : "VALIDATING";
-          status.style.color = "var(--proof-bright)";
+          status.style.color = proven ? "var(--green)" : "var(--amber)";
           schemaTitle.textContent = proven ? "Evidence attached" : "Evidence in flight";
           schemaMeta.innerHTML = proven ? "possible → proven<br>artifact attached" : "supported primitive<br>artifact pending";
           wrap.setAttribute("aria-label", proven ? "Illustrative Attack Path Theatre: evidence is attached and the selected Tier-0 route is now proven." : labels[2].aria);
@@ -2718,6 +2734,7 @@
         function setScene(nextScene, shouldAnnounce) {
           scene = nextScene;
           wrap.setAttribute("data-scene", String(scene));
+          if (window.ADhammerJourney) window.ADhammerJourney.setStage(scene, false);
           if (scene !== 2) wrap.setAttribute("data-verdict", "possible");
           phases.forEach(function (phase, index) {
             var active = index === scene;
@@ -2730,7 +2747,7 @@
             }
           });
           status.textContent = labels[scene].status;
-          status.style.color = scene === 2 ? "var(--proof-bright)" : scene === 3 ? "var(--green)" : "var(--ice)";
+          status.style.color = scene === 2 ? "var(--amber)" : scene === 3 ? "var(--green)" : scene === 1 ? "var(--proof-bright)" : "var(--ice)";
           schemaTitle.textContent = labels[scene].title;
           schemaMeta.innerHTML = labels[scene].meta;
           wrap.setAttribute("aria-label", labels[scene].aria);
@@ -2810,11 +2827,11 @@
             context.beginPath();
             context.moveTo(a.x, a.y);
             context.lineTo(b.x, b.y);
-            context.strokeStyle = edgeKind === "proven" ? "rgba(255,67,94,.82)" : edgeKind === "possible" ? "rgba(121,210,255,.74)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.2)";
+            context.strokeStyle = edgeKind === "proven" ? "rgba(130,228,178,.82)" : edgeKind === "possible" ? "rgba(121,210,255,.74)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.2)";
             context.lineWidth = emphasized ? 1.5 : .7;
             if (emphasized) {
               context.shadowBlur = edgeKind === "proven" ? 14 : 9;
-              context.shadowColor = edgeKind === "proven" ? "rgba(255,67,94,.8)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.7)";
+              context.shadowColor = edgeKind === "proven" ? "rgba(130,228,178,.8)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.7)";
             }
             context.stroke();
             context.shadowBlur = 0;
@@ -2827,10 +2844,10 @@
             var radius = (proofNode ? 3.2 : possibleNode ? 2.8 : outputNode ? 2.6 : 1.7) * Math.max(.75, point.scale);
             context.beginPath();
             context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-            context.fillStyle = proofNode ? "#ff7187" : possibleNode ? "#c9f2ff" : outputNode ? "#82e4b2" : "rgba(201,242,255,.88)";
+            context.fillStyle = proofNode ? "#82e4b2" : possibleNode ? "#c9f2ff" : outputNode ? "#82e4b2" : "rgba(201,242,255,.88)";
             if (proofNode || possibleNode || outputNode) {
               context.shadowBlur = proofNode ? 14 : 9;
-              context.shadowColor = proofNode ? "rgba(255,67,94,.9)" : outputNode ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)";
+              context.shadowColor = proofNode ? "rgba(130,228,178,.9)" : outputNode ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)";
             }
             context.fill();
             context.shadowBlur = 0;
@@ -2845,8 +2862,8 @@
             var py = start.y + (end.y - start.y) * amount;
             var glow = context.createRadialGradient(px, py, 0, px, py, 24);
             glow.addColorStop(0, "rgba(255,255,255,.95)");
-            glow.addColorStop(.18, verdictProven ? "rgba(255,67,94,.8)" : "rgba(121,210,255,.82)");
-            glow.addColorStop(1, verdictProven ? "rgba(255,67,94,0)" : "rgba(121,210,255,0)");
+            glow.addColorStop(.18, verdictProven ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)");
+            glow.addColorStop(1, verdictProven ? "rgba(130,228,178,0)" : "rgba(121,210,255,0)");
             context.fillStyle = glow;
             context.beginPath();
             context.arc(px, py, 24, 0, Math.PI * 2);
