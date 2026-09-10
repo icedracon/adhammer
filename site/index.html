@@ -1884,6 +1884,7 @@
   <link rel="stylesheet" href="assets/field-atlas.css">
   <link rel="stylesheet" href="assets/entrance.css">
   <link rel="stylesheet" href="assets/journey.css">
+  <link rel="stylesheet" href="assets/frozen-evidence.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -2085,15 +2086,42 @@
       </div>
     </section>
 
-    <section class="thesis" aria-labelledby="thesis-title">
-      <div class="shell thesis-copy">
-        <span class="atlas-index">The principle / 00</span>
-        <p class="thesis-line reveal" id="thesis-title">A path is a hypothesis.</p>
-        <p class="thesis-line muted reveal">Until there is <span class="proof-word">proof.</span></p>
-        <div class="thesis-note reveal">
-          <span class="eyebrow">The distinction</span>
-          <p>Directory data can describe a theoretical route. ADhammer preserves the difference between that route and a supported path with a validation artifact attached.</p>
+    <section class="frozen-lab" id="path-lab" aria-labelledby="thesis-title" data-evidence="pending" data-cut="none">
+      <div class="shell">
+        <div class="frozen-heading"><div><span class="eyebrow">Route 01 / the counterfactual</span><h2 id="thesis-title">A path is a hypothesis.<br><em>Put it to the test.</em></h2></div><p>Reveal a relationship. Attach a fictional evidence fixture. Then ask what changes when one connection disappears.</p></div>
+        <div class="frozen-workbench">
+          <div class="frozen-specimen">
+            <div class="frozen-caption"><span>01 — Relationship specimen</span><span>Fictional model</span></div>
+            <div class="frozen-field" aria-hidden="true">
+              <svg class="frozen-graph" viewBox="0 0 700 420" focusable="false">
+                <g class="frozen-uncertain"><path d="M80 250 L160 105 L345 65 L495 140 L610 95 M160 105 L280 210 M345 65 L425 290 M495 140 L580 245 M80 250 L170 350 L425 290 L620 350"/><circle cx="160" cy="105" r="5"/><circle cx="345" cy="65" r="5"/><circle cx="495" cy="140" r="5"/><circle cx="610" cy="95" r="5"/><circle cx="170" cy="350" r="5"/><circle cx="620" cy="350" r="5"/></g>
+                <g class="frozen-base"><path d="M80 250 L280 210 L425 290 L580 245"/></g>
+                <g class="frozen-focus"><path data-frozen-edge="identity" d="M80 250 L280 210"/><path data-frozen-edge="delegation" d="M280 210 L425 290"/><path data-frozen-edge="boundary" d="M425 290 L580 245"/></g>
+                <g class="frozen-points"><circle cx="80" cy="250" r="10"/><circle cx="280" cy="210" r="10"/><circle cx="425" cy="290" r="10"/><circle class="frozen-target" cx="580" cy="245" r="14"/></g>
+                <g class="frozen-labels"><text x="80" y="285">svc-build</text><text x="280" y="185">workstation-07</text><text x="425" y="325">delegation</text><text x="580" y="285">tier-0</text></g>
+              </svg>
+              <div class="frozen-scan"></div>
+            </div>
+            <div class="frozen-reveal-control"><label for="frozen-reveal">Reveal relationships</label><input id="frozen-reveal" type="range" min="0" max="100" value="40" aria-describedby="frozen-reveal-note"><span id="frozen-reveal-note">Light reveals structure, not proof.</span></div>
+            <p class="frozen-text-route">svc-build → workstation-07 → delegation → tier-0</p>
+          </div>
+          <div class="frozen-console">
+            <span class="frozen-console-index">02 — Evidence &amp; intervention</span>
+            <h3>What holds this<br>route together?</h3>
+            <p>These conceptual edges explain the model, not exploit prerequisites. Nothing here connects to a real domain.</p>
+            <div class="frozen-actions" hidden>
+              <button type="button" id="frozen-attach" aria-pressed="false">Attach demo evidence <span aria-hidden="true">＋</span></button>
+              <label for="frozen-relationship">Relationship to remove</label>
+              <select id="frozen-relationship"><option value="delegation">Delegation relationship</option><option value="identity">Identity → host relationship</option></select>
+              <button type="button" id="frozen-break" aria-pressed="false">Break the path <span aria-hidden="true">↗</span></button>
+            </div>
+            <div class="frozen-outcome" role="status" aria-live="polite" aria-atomic="true"><span id="frozen-state">Possible / untested</span><p id="frozen-result">The fictional route is connected. No evidence has been attached.</p></div>
+            <p class="frozen-boundary" id="frozen-remaining">Other faint relationships remain untested. This model cannot establish whether an environment is secure.</p>
+            <button type="button" id="frozen-reset" hidden>Reset experiment</button>
+            <noscript><p>This is a static fictional graph. Enable JavaScript to explore evidence and relationship removal.</p></noscript>
+          </div>
         </div>
+        <p class="frozen-footnote">Browser-only simulation. Removing an edge illustrates a defensive hypothesis; ADhammer is not performing remediation. The record below is a separate illustrative snapshot.</p>
       </div>
     </section>
 
@@ -2356,6 +2384,7 @@
   </footer>
 
   <script src="assets/journey.js"></script>
+  <script src="assets/frozen-evidence.js"></script>
   <script src="assets/entrance.js"></script>
   <script>
     (function () {
