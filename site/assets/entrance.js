@@ -48,7 +48,7 @@
     try { ctx=canvas.getContext('2d'); } catch (_) { /* Keep the ordinary document available. */ }
     if (!ctx) { hero.classList.add('entrance-static'); return; }
     var scene=createScene(), width=0,height=0,dpr=1,raf=0,lastTime=0;
-    var targetProgress=0,progress=0,visible=true;
+    var targetProgress=0,progress=0,visible=true,selectedNode=0;
     var pointer={x:0,y:0}, targetPointer={x:0,y:0};
     var skip=doc.getElementById('skip-entrance');
     function reduced() { return options.isReduced(); }
@@ -102,7 +102,7 @@
         var p=item.p, route=item.index<4;
         ctx.beginPath();ctx.arc(p.x,p.y,(route?3.2:1.6)*p.scale,0,Math.PI*2);
         ctx.fillStyle=route?'#ffb49d':'rgba(183,224,225,'+clamp(.45+p.z*.18,.2,.75)+')';ctx.fill();
-        if (route) {ctx.beginPath();ctx.arc(p.x,p.y,8*p.scale,0,Math.PI*2);ctx.strokeStyle='rgba(248,121,91,.35)';ctx.lineWidth=1;ctx.stroke();}
+        if (route) {ctx.beginPath();ctx.arc(p.x,p.y,(item.index===selectedNode?12:8)*p.scale,0,Math.PI*2);ctx.strokeStyle=item.index===selectedNode?'#ffc2a9':'rgba(248,121,91,.35)';ctx.lineWidth=1;ctx.stroke();}
         if (route && (progress>.30 || quiet) && p.y<height*.55) {
           ctx.font='12px ui-monospace, monospace';ctx.textAlign='center';ctx.fillStyle='#c8d8d6';
           var labelX=clamp(p.x,64,width-64);
@@ -134,6 +134,9 @@
     stage.addEventListener('pointerleave',function(){targetPointer.x=0;targetPointer.y=0;},{passive:true});
     root.addEventListener('scroll',updateScroll,{passive:true});
     root.addEventListener('resize',resize,{passive:true});
+    doc.addEventListener('adhammer:route-selection',function(event){
+      if(event.detail && event.detail.index>=0 && event.detail.index<4){selectedNode=event.detail.index;requestDraw();}
+    });
     doc.addEventListener('visibilitychange',function(){
       if(doc.hidden && raf){root.cancelAnimationFrame(raf);raf=0;}else requestDraw();
     });
