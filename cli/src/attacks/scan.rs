@@ -60,7 +60,7 @@ pub(crate) struct ScanArgs {
     pub gssapi: bool,
     /// **Deprecated in favour of `--out <path.zip>`.** Also export the collected
     /// domain as a BloodHound .zip at this path (BloodHound CE v5 ingest JSON).
-    /// Will be removed in 1.5.0.
+    /// Slated for removal in 1.6.
     #[arg(long)]
     pub bloodhound: Option<String>,
     /// WS-19: compare this scan against a prior scan's JSON report at `<path>` and tag findings
@@ -80,6 +80,12 @@ pub(crate) struct ScanArgs {
     /// check ids. Applied after `--only`. Unknown ids ignored with a warning.
     #[arg(long, value_name = "CHECK_IDS", value_delimiter = ',')]
     pub skip: Vec<String>,
+    /// **1.5.1 G-20**: write recovered SYSVOL GPP cpassword plaintext to a 0600
+    /// secure-artifact file at `<PATH>`. Off by default — the report only attests
+    /// that the MS14-025 decrypt succeeded; pass this to land the actual secret
+    /// for the engagement. Requires `--sysvol`.
+    #[arg(long, value_name = "PATH")]
+    pub gpp_dump_out: Option<String>,
 }
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
@@ -90,7 +96,7 @@ pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
         base_dn: a.base_dn.clone(),
         insecure: a.auth.insecure,
         gssapi: a.gssapi,
-        allow_plaintext_bind: false,
+        allow_plaintext_bind: a.auth.allow_plaintext_ldap,
     }
 }
 
@@ -221,7 +227,7 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     // both are set so scripts that already know their zip path don't silently overwrite.
     if let Some(path) = &a.bloodhound {
         eprintln!(
-            "[!] `--bloodhound <path>` is DEPRECATED and will be removed in 1.5.0. Use \
+            "[!] `--bloodhound <path>` is DEPRECATED (slated for removal in 1.6). Use \
              `--out <path.zip>` instead — the .zip extension routes to the BloodHound-CE bundle \
              writer automatically."
         );
@@ -379,6 +385,18 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
         let root = std::path::Path::new(sysvol);
         let hits = adhammer_sysvol::scan(root);
         tracing::info!(gpp = hits.len(), "sysvol GPP swept");
+        // G-20: land recovered plaintext in a 0600 artifact only when the operator
+        // explicitly asks. The finding itself never carries the secret.
+        if let Some(out) = &a.gpp_dump_out {
+            if hits.is_empty() {
+                ui::warn("--gpp-dump-out: no GPP cpasswords recovered; nothing written");
+            } else {
+                let path = std::path::Path::new(out);
+                adhammer_sysvol::write_dump(&hits, path)
+                    .with_context(|| format!("writing GPP dump to {out}"))?;
+                ui::artifact(&format!("GPP dump ({} secret(s), 0600)", hits.len()), out);
+            }
+        }
         if let Some(f) = adhammer_sysvol::finding(&hits) {
             findings.insert(0, f);
         }

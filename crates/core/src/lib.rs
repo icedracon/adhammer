@@ -11,8 +11,8 @@ pub mod sid;
 pub mod snapshot;
 
 pub use finding::{
-    AttackResult, Category, Evidence, Finding, Mitre, Severity, WireDirection, WireExchange,
-    WireLayer,
+    AttackResult, Category, Evidence, Finding, Mitre, NextCommand, Severity, WireDirection,
+    WireExchange, WireLayer,
 };
 pub use object::AdObject;
 pub use redact::{Redacted, SecretBytes, SecretString};

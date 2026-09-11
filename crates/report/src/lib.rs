@@ -601,6 +601,21 @@ impl Report {
         if !self.is_clean_bill() {
             return String::new();
         }
+        // Zero findings with ZERO executed checks is an INCOMPLETE scan (auth failed,
+        // DC unreachable, run bailed early) — NOT a clean bill of health. Rendering the
+        // affirmative "no vulnerabilities" banner here would make a broken scan read
+        // identical to a hardened DC. Emit an explicit inconclusive notice instead.
+        if self.coverage.is_empty() {
+            return "<section class=panel style=\"border:1px solid #c9962f;\
+                    background:linear-gradient(180deg,rgba(201,150,47,0.10),transparent 60%)\">\
+                    <h2 style=\"color:#c9962f\">&#9888; Inconclusive &mdash; no checks recorded</h2>\
+                    <p>This run surfaced no findings, but it also recorded <b>0</b> executed \
+                    checks. That usually means the scan could not reach or authenticate to the \
+                    target &mdash; not that the target is hardened. Treat this as an \
+                    <b>incomplete</b> assessment: re-run against a reachable DC with valid scope \
+                    before relying on the result.</p></section>"
+                .to_string();
+        }
         let areas = self.coverage_by_area().len();
         let phases = self.coverage_by_phase().len();
         let checks = self.coverage.len();
@@ -1027,6 +1042,17 @@ impl Report {
                         )
                     })
                     .unwrap_or_default();
+                // WS-UX-NEXTACTION (1.5.1): the copy-pasteable next command, routed through
+                // the same Finding::next_command() mapper the CLI/guided card uses.
+                let next = f
+                    .next_command()
+                    .map(|nc| {
+                        format!(
+                            "<div class=meta><div class=k>Next</div><div><code>{}</code></div></div>",
+                            html_escape(&nc.command)
+                        )
+                    })
+                    .unwrap_or_default();
                 out.push_str(&format!(
                     "<article class=finding>\
                        <div class=finding-head>\
@@ -1044,6 +1070,7 @@ impl Report {
                        <div class=meta><div class=k>Affected</div><div>{affected}</div></div>\
                        {impact}\
                        <div class=meta><div class=k>Remediation</div><div>{remediation}</div></div>\
+                       {next}\
                      </article>",
                     sev_class = sev_class(f.severity),
                     sev = html_escape(sev_name(f.severity)),
@@ -1086,6 +1113,7 @@ impl Report {
                     affected = affected_html(&f.affected),
                     impact = impact,
                     remediation = html_escape(&f.remediation),
+                    next = next,
                 ));
             }
         }
@@ -2057,6 +2085,23 @@ mod tests {
     }
 
     #[test]
+    fn zero_coverage_is_inconclusive_not_clean_bill() {
+        // 0 findings AND 0 executed checks = a blocked/incomplete scan (auth failed, DC
+        // unreachable), NOT a hardened DC. The affirmative green banner must be suppressed
+        // and an explicit inconclusive notice rendered so a broken scan can't read as clean.
+        let r = empty_report(vec![]); // no findings, no coverage rows
+        let html = r.to_html();
+        assert!(
+            !html.contains("No vulnerabilities identified"),
+            "zero-coverage scan must NOT render the affirmative assurance banner"
+        );
+        assert!(
+            html.contains("Inconclusive") && html.contains("0</b> executed"),
+            "zero-coverage scan must render the inconclusive notice"
+        );
+    }
+
+    #[test]
     fn dirty_report_hides_assurance_banner() {
         let r = empty_report(vec![mk_finding("A-Esc15", Severity::Critical, "ESC15")])
             .with_coverage(vec![("A-Esc15", 1)]);
@@ -2188,5 +2233,61 @@ mod tests {
         assert!(!r.findings[0].evidence[0].value.contains('\x1b'));
         assert!(!r.findings[0].impact.as_deref().unwrap().contains('\x1b'));
         assert!(!r.findings[0].remediation.contains('\x1b'));
+    }
+}
+
+#[cfg(test)]
+mod next_command_render_tests {
+    use super::*;
+
+    fn esc1_finding() -> Finding {
+        Finding {
+            id: "A-Esc1".into(),
+            title: "ESC1 vulnerable template".into(),
+            category: Category::Anomalies,
+            severity: Severity::Critical,
+            mitre: vec![],
+            affected: vec!["CN=WeakTpl,CN=Certificate Templates".into()],
+            detail: "d".into(),
+            evidence: vec![],
+            exchange: vec![],
+            impact: None,
+            remediation: "fix it".into(),
+            weight_bonus: 0,
+        }
+    }
+
+    #[test]
+    fn html_report_renders_next_command() {
+        let r = Report::build(
+            "corp.local",
+            vec![esc1_finding()],
+            vec![],
+            (0, 0),
+            &RiskConfig::default(),
+        );
+        let html = r.to_html();
+        assert!(
+            html.contains("attack icpr-esc1"),
+            "next command missing from HTML report"
+        );
+        assert!(
+            html.contains(">Next<"),
+            "Next label missing from HTML report"
+        );
+    }
+
+    #[test]
+    fn canonical_json_stays_free_of_derived_next_command() {
+        // next_command is derived from `id` and intentionally NOT in the hashed JSON,
+        // so content_hash and baseline diffs stay stable across releases.
+        let r = Report::build(
+            "corp.local",
+            vec![esc1_finding()],
+            vec![],
+            (0, 0),
+            &RiskConfig::default(),
+        );
+        assert!(!r.to_json().contains("next_command"));
     }
 }

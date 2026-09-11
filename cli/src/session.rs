@@ -63,6 +63,7 @@ impl Session {
                 user: self.username.clone(),
                 password: self.password.expose().clone(),
                 insecure: self.insecure,
+                allow_plaintext_ldap: false,
             },
             base_dn: None,
             format: "json".to_string(),
@@ -79,6 +80,7 @@ impl Session {
             // registry — filtering is a CLI-flag-driven opt-in for narrow diagnostic loops.
             only: Vec::new(),
             skip: Vec::new(),
+            gpp_dump_out: None,
         }
     }
 }

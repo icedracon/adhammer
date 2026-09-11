@@ -1126,6 +1126,16 @@ fn print_card(f: &Finding) {
         Severity::High => ui::Pace::Important,
         Severity::Medium | Severity::Low | Severity::Info => ui::Pace::Normal,
     });
+    // WS-UX-NEXTACTION (1.5.1): the guided kill-chain footer — the exact command to
+    // act on this finding. Offensive/state-changing next steps render in a Warn tone.
+    if let Some(nc) = f.next_command() {
+        let tone = if nc.requires_consent {
+            ui::Tone::Warn
+        } else {
+            ui::Tone::Accent
+        };
+        ui::field_story_err(&ui::sticker("NEXT", tone), &nc.command, ui::Pace::Important);
+    }
     // Impact is intentionally NOT printed here — it's shown per-finding via a
     // "want impact? (y/n)" prompt in the guided loop, so operators can pick which
     // findings to annotate before the terminal fills with narrative.
@@ -1181,7 +1191,12 @@ fn build_report(
                 s.push_str(&format!("- **Impact:** {imp}\n"));
             }
         }
-        s.push_str(&format!("- **Remediation:** {}\n\n", f.remediation));
+        s.push_str(&format!("- **Remediation:** {}\n", f.remediation));
+        // WS-UX-NEXTACTION (1.5.1): the copy-pasteable next command, same mapper as the card.
+        if let Some(nc) = f.next_command() {
+            s.push_str(&format!("- **Next:** `{}`\n", nc.command));
+        }
+        s.push('\n');
         match o {
             Outcome::Validated { cmd, evidence } | Outcome::Attempted { cmd, evidence } => {
                 s.push_str("**PoC**\n\n");

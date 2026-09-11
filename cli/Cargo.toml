@@ -96,6 +96,14 @@ ms-tds = { workspace = true, optional = true }
 rsa = { version = "0.9", features = ["sha2", "pem"] }
 rand = "0.8"
 
+# F1a `--pfx` (1.5.1) — decode a `.pfx` PKCS#12 bundle inline so operators
+# don't have to shell openssl. Pure-Rust, minimal tree, MIT. Only used by
+# `kerb pkinit --pfx` and (transitively) the interactive PTC wizard. The
+# key DER → PKCS#8 PEM re-wrap is base64 + string-framing done inline
+# (no `pkcs8` crate dep needed — it's ~15 LOC either way and avoids a
+# transitive-crate surface for one convenience decode).
+p12 = "0.6"
+
 # ESC8 (adcs-http relay) — minimal NTLM-over-HTTP client. Same rustls/tokio-rustls versions
 # ldap3 already pulls in, so no duplicate-crate risk.
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
@@ -112,6 +120,8 @@ hex = { workspace = true }
 base64 = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
+clap_complete = "4"
+clap_mangen = "0.2"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

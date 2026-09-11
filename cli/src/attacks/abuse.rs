@@ -113,15 +113,26 @@ pub(crate) struct AbuseArgs {
     /// Legacy host argument retained for CLI compatibility with the rejected --ldap389 mode.
     #[arg(long)]
     pub host: Option<String>,
-    /// Show what the write would send (SD hex, LDAP modify record) without executing it.
-    /// Every write action gates on this: with `--dry-run` we print the payload and return
-    /// before calling any `Collector::modify_*` / `write_binary`. Safe against a live DC.
+    /// **Arm the write.** `abuse` PREVIEWS by default (safe against a live DC): it prints the
+    /// exact LDAP modify / SD hex it would send and returns before any `Collector::modify_*`
+    /// / `write_binary`. Pass `--commit` to actually send it. Matches the arm-flag discipline
+    /// of the other mutating verbs (zerologon `--exploit`, dcshadow `--push`).
     #[arg(long)]
+    pub commit: bool,
+    /// Deprecated no-op — preview is the default now, so this is redundant. Kept hidden so
+    /// existing `--dry-run` invocations don't error; it still forces preview even with `--commit`.
+    #[arg(long, hide = true)]
     pub dry_run: bool,
 }
 
 /// Active LDAP abuse — the exploitation counterpart to the ACL findings the graph reports.
 pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
+    // F-C2 safety: PREVIEW by default. A write only fires when the operator explicitly
+    // arms it with `--commit` (and `--dry-run`, if still passed, forces preview either way).
+    let dry_run = a.dry_run || !a.commit;
+    if dry_run {
+        crate::ui::note("preview only — no write sent. Re-run with --commit to apply to the DC.");
+    }
     // AbuseArgs.auth.password is Option<String>; resolve through the same @file: / env /
     // TTY-prompt cascade as every other subcommand. `resolve_secret` returns "" when
     // nothing is available; downstream code turns that into a "needs --password" error
@@ -182,7 +193,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         base_dn: None,
         insecure: a.auth.insecure,
         gssapi: false,
-        allow_plaintext_bind: false,
+        allow_plaintext_bind: a.auth.allow_plaintext_ldap,
     };
     let mut c = Collector::connect(&cfg).await?;
     // ux-2: accept SID / sAMAccountName / DN — classify() dispatches to the right resolver.
@@ -190,7 +201,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
 
     match a.action {
         AbuseAction::AddSpn => {
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("servicePrincipalName", &target_dn, &a.value);
                 return Ok(());
             }
@@ -203,7 +214,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         }
         AbuseAction::AddMember => {
             let member_dn = crate::target::to_dn(&mut c, &a.value).await?;
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("member", &target_dn, &member_dn);
                 return Ok(());
             }
@@ -221,7 +232,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                      Plain ldap:// will always fail with WILL_NOT_PERFORM (0x5003)."
                 );
             }
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("unicodePwd", &target_dn, "<UTF-16LE-encoded, redacted>");
                 return Ok(());
             }
@@ -231,7 +242,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
         AbuseAction::AddKeycred => {
             // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&target_dn)?;
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("msDS-KeyCredentialLink", &target_dn, &kc.dn_binary);
                 return Ok(());
             }
@@ -256,7 +267,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
             let trustee = crate::target::to_sid(&mut c, &a.value).await?;
             let sd = windows_sddl::build_rbcd_sd(&trustee);
-            if a.dry_run {
+            if dry_run {
                 dry_run_line(
                     "msDS-AllowedToActOnBehalfOfOtherIdentity",
                     &target_dn,
@@ -281,7 +292,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 .context("target has no readable nTSecurityDescriptor")?;
             let new_sd =
                 swap_owner_in_sd(&cur, &trustee.to_bytes()).context("splice new owner into SD")?;
-            if a.dry_run {
+            if dry_run {
                 dry_run_line(
                     "nTSecurityDescriptor",
                     &target_dn,
@@ -308,7 +319,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 .context("target has no readable nTSecurityDescriptor")?;
             let new_sd = prepend_generic_all_ace(&cur, &trustee.to_bytes())
                 .context("splice GENERIC_ALL ACE into DACL")?;
-            if a.dry_run {
+            if dry_run {
                 dry_run_line(
                     "nTSecurityDescriptor",
                     &target_dn,
@@ -342,7 +353,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                     .last()
                     .context("group SID has no sub-authorities → no RID to extract")?
             };
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("primaryGroupID", &target_dn, &rid.to_string());
                 return Ok(());
             }
@@ -364,7 +375,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 .parse()
                 .with_context(|| format!("userAccountControl {cur_text:?} not a u32"))?;
             let new = cur | add_bits;
-            if a.dry_run {
+            if dry_run {
                 println!(
                     "[dry-run] would write userAccountControl={:#010x} (was {:#010x}) on {}",
                     new, cur, target_dn
@@ -391,7 +402,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             } else {
                 format!("{cur}{entry}")
             };
-            if a.dry_run {
+            if dry_run {
                 dry_run_line("gPLink", &target_dn, &combined);
                 return Ok(());
             }

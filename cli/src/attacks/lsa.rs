@@ -1,4 +1,4 @@
-//! LSAT name→SID resolution over \lsarpc: SMB2 → NTLM → DCE/RPC →
+﻿//! LSAT name→SID resolution over \lsarpc: SMB2 → NTLM → DCE/RPC →
 //! LsarOpenPolicy2 → LsarLookupNames.
 
 use anyhow::Result;

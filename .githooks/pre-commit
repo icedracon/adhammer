@@ -7,6 +7,10 @@ set -e
 
 ROOT=$(git rev-parse --show-toplevel)
 LEAK_TERMS_FILE="$ROOT/.githooks/leak-terms.txt"
+# Optional per-clone file of LITERAL live secrets (passwords, current lab IPs,
+# krbtgt keys). Kept UNTRACKED + gitignored so the public repo never carries the
+# literal values — the tracked leak-terms.txt holds only shape patterns.
+LOCAL_TERMS_FILE="$ROOT/.githooks/leak-terms.local.txt"
 if [ ! -s "$LEAK_TERMS_FILE" ]; then
     echo "pre-commit BLOCKED: $LEAK_TERMS_FILE is missing or empty." >&2
     exit 1
@@ -17,18 +21,23 @@ fi
 # security memory note). The receipt scrubber loads the same canonical list,
 # so its source no longer needs a blanket exclusion.
 # Extend when a new legit reference lands in-tree.
-SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude).githooks/leak-terms.txt :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md :(exclude)docs/adr/*.md'
+SKIP_PATHS=':(exclude).githooks/pre-commit :(exclude).githooks/leak-terms.txt :(exclude).githooks/leak-terms.local.txt :(exclude)docs/AUDIT_*.md :(exclude)SECURITY.md :(exclude)docs/adr/*.md'
 
 CHECK_OUTPUT=$(mktemp)
 ADDED_LINES=$(mktemp)
-trap 'rm -f "$CHECK_OUTPUT" "$ADDED_LINES"' EXIT
+TERMS=$(mktemp)
+trap 'rm -f "$CHECK_OUTPUT" "$ADDED_LINES" "$TERMS"' EXIT
+
+# Combined term set: tracked shape patterns + optional untracked literal secrets.
+cat "$LEAK_TERMS_FILE" > "$TERMS"
+[ -s "$LOCAL_TERMS_FILE" ] && cat "$LOCAL_TERMS_FILE" >> "$TERMS"
 
 # Scan only added content. Removing a historical secret must not make the
 # cleanup commit impossible, and diff metadata (`+++ b/path`) is not content.
 git diff --cached --unified=0 -- . $SKIP_PATHS |
     awk '/^\+\+\+ / { next } /^\+/ { print substr($0, 2) }' > "$ADDED_LINES"
 
-if grep -inE -f "$LEAK_TERMS_FILE" "$ADDED_LINES" > "$CHECK_OUTPUT" 2>&1; then
+if grep -inE -f "$TERMS" "$ADDED_LINES" > "$CHECK_OUTPUT" 2>&1; then
     echo "======================================================================"
     echo " pre-commit BLOCKED: staged diff contains known lab identifier."
     echo "======================================================================"

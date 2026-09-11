@@ -71,6 +71,7 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
             user: Some(a.user.clone()),
             password: Some(a.password.clone()),
             insecure: a.insecure,
+            allow_plaintext_ldap: false,
         },
         action: AbuseAction::AddKeycred,
         target: a.target.clone(),
@@ -79,6 +80,7 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
         realm: a.realm.clone(),
         ldap389: false,
         host: None,
+        commit: true,
         dry_run: false,
     })
     .await?;
@@ -99,6 +101,7 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
                 user: Some(a.user),
                 password: Some(a.password),
                 insecure: a.insecure,
+                allow_plaintext_ldap: false,
             },
             action: AbuseAction::Pkinit,
             target: a.target,
@@ -107,6 +110,7 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
             realm: Some(realm),
             ldap389: false,
             host: None,
+            commit: true,
             dry_run: false,
         })
         .await?;

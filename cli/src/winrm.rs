@@ -15,7 +15,49 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-const SHELL_URI: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd";
+/// WSMan shell-type ResourceURI. `Cmd` is the default (cmd.exe-backed WinRS shell);
+/// `Powershell` uses the WSMan PowerShell shell URI as a first-cut attempt.
+///
+/// **1.5.1 partial fix** (see docs/HTB_PIRATE_LIVE_LOG_1.5.1.md §2.6): the hard-coded
+/// cmd URI made `attack winrm` unusable against principals restricted to PowerShell.
+/// The `Powershell` variant here surfaces the flag but is **not sufficient** on modern
+/// (Server 2019+) hosts — those require the full PSRP handshake against the runspace
+/// URI `.../powershell/Microsoft.PowerShell`. Verified live against a Server 2019 DC
+/// authenticated as a gMSA principal: shell Create still returns HTTP 500 with the
+/// Windows-Shell PS URI. The complete PSRP-runspace path (~500 LOC of PSRP framing +
+/// Create+Fragment+Message) is filed as 1.6 backlog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellType {
+    Cmd,
+    Powershell,
+}
+
+impl ShellType {
+    fn uri(self) -> &'static str {
+        match self {
+            ShellType::Cmd => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
+            ShellType::Powershell => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/powershell"
+            }
+        }
+    }
+    /// Wrap a user-supplied command line in the shell's launcher. For cmd, this is
+    /// `cmd.exe /c <cmd>` (the pre-1.5.1 behavior). For powershell, invoke
+    /// `powershell.exe -NoProfile -NonInteractive -Command <cmd>` — one call, honors pipes.
+    fn wrap_command(self, xml_escaped_cmd: &str) -> String {
+        match self {
+            ShellType::Cmd => format!(
+                r#"<rsp:CommandLine><rsp:Command>cmd.exe</rsp:Command><rsp:Arguments>/c {}</rsp:Arguments></rsp:CommandLine>"#,
+                xml_escaped_cmd
+            ),
+            ShellType::Powershell => format!(
+                r#"<rsp:CommandLine><rsp:Command>powershell.exe</rsp:Command><rsp:Arguments>-NoProfile</rsp:Arguments><rsp:Arguments>-NonInteractive</rsp:Arguments><rsp:Arguments>-Command</rsp:Arguments><rsp:Arguments>{}</rsp:Arguments></rsp:CommandLine>"#,
+                xml_escaped_cmd
+            ),
+        }
+    }
+}
+
 const ENC_CT: &str = "multipart/encrypted;protocol=\"application/HTTP-SPNEGO-session-encrypted\";boundary=\"Encrypted Boundary\"";
 const MAX_WINRM_HEADER_BYTES: usize = 64 * 1024;
 const MAX_WINRM_BODY_BYTES: usize = 16 * 1024 * 1024;
@@ -68,6 +110,7 @@ pub struct WinRm {
     seal: SealState,
     endpoint: String, // http://host:port/wsman
     host_hdr: String, // host:port
+    shell: ShellType,
 }
 
 impl WinRm {
@@ -79,6 +122,7 @@ impl WinRm {
         domain: &str,
         user: &str,
         secret: &Secret,
+        shell: ShellType,
     ) -> Result<(Self, String)> {
         let mut stream = smb2_client::socks::dial(host, port)
             .await
@@ -108,7 +152,7 @@ impl WinRm {
         let auth3 = format!("Negotiate {}", STANDARD.encode(&type3));
 
         // First authenticated request (encrypted): create the shell.
-        let create = Self::create_shell_soap(&endpoint);
+        let create = Self::create_shell_soap(&endpoint, shell);
         let (ct, body) = wrap_encrypted(&mut seal, &create);
         let (code, _h, resp) =
             http_request(&mut stream, &host_hdr, Some(&auth3), Some((&ct, &body))).await?;
@@ -131,6 +175,7 @@ impl WinRm {
                 seal,
                 endpoint,
                 host_hdr,
+                shell,
             },
             shell_id,
         ))
@@ -196,7 +241,7 @@ impl WinRm {
         format!(
             r#"<wsa:To>{to}</wsa:To><wsman:ResourceURI s:mustUnderstand="true">{uri}</wsman:ResourceURI><wsa:ReplyTo><wsa:Address s:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsa:Address></wsa:ReplyTo><wsa:Action s:mustUnderstand="true">{action}</wsa:Action><wsman:MaxEnvelopeSize s:mustUnderstand="true">153600</wsman:MaxEnvelopeSize><wsa:MessageID>{mid}</wsa:MessageID><wsman:Locale xml:lang="en-US" s:mustUnderstand="false"/><wsman:OperationTimeout>PT60S</wsman:OperationTimeout>{extra}"#,
             to = self.endpoint,
-            uri = SHELL_URI,
+            uri = self.shell.uri(),
             action = action,
             mid = msg_id(),
             extra = extra,
@@ -209,12 +254,12 @@ impl WinRm {
         )
     }
 
-    fn create_shell_soap(endpoint: &str) -> String {
+    fn create_shell_soap(endpoint: &str, shell: ShellType) -> String {
         // Standalone (no &self yet): build the Create directly.
         let header = format!(
             r#"<wsa:To>{to}</wsa:To><wsman:ResourceURI s:mustUnderstand="true">{uri}</wsman:ResourceURI><wsa:ReplyTo><wsa:Address s:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsa:Address></wsa:ReplyTo><wsa:Action s:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/09/transfer/Create</wsa:Action><wsman:MaxEnvelopeSize s:mustUnderstand="true">153600</wsman:MaxEnvelopeSize><wsa:MessageID>{mid}</wsa:MessageID><wsman:Locale xml:lang="en-US" s:mustUnderstand="false"/><wsman:OptionSet><wsman:Option Name="WINRS_NOPROFILE">FALSE</wsman:Option><wsman:Option Name="WINRS_CODEPAGE">437</wsman:Option></wsman:OptionSet><wsman:OperationTimeout>PT60S</wsman:OperationTimeout>"#,
             to = endpoint,
-            uri = SHELL_URI,
+            uri = shell.uri(),
             mid = msg_id(),
         );
         format!(
@@ -231,11 +276,10 @@ impl WinRm {
             "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
             &extra,
         );
-        // Run through cmd.exe so arbitrary command lines (pipes, builtins) work.
-        let body = format!(
-            r#"<rsp:CommandLine><rsp:Command>cmd.exe</rsp:Command><rsp:Arguments>/c {}</rsp:Arguments></rsp:CommandLine>"#,
-            xml_escape(command)
-        );
+        // 1.5.1 bugfix — honor the chosen ShellType (cmd default; powershell for
+        // hosts where WSMan\Cmd\Enable=0 blocks the cmd shell type but PS is allowed,
+        // e.g. gMSA accounts on hardened DCs).
+        let body = self.shell.wrap_command(&xml_escape(command));
         self.envelope(&header, &body)
     }
 

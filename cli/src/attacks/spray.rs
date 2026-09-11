@@ -102,6 +102,13 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
         anyhow::bail!("no users to spray (empty --users)");
     }
     checklist.record_ok("load user list", format!("{} user(s)", users.len()));
+    if a.lockout_threshold == 0 {
+        crate::ui::warn(
+            "lockout guard is OFF (--lockout-threshold 0). A single-password spray is one \
+             attempt per user, but iterated runs can lock out accounts. Check the domain \
+             lockout policy and set --lockout-threshold (e.g. 3) for repeated sprays.",
+        );
+    }
     eprintln!(
         "[*] spraying {} user(s) against {} @ {} …",
         users.len(),

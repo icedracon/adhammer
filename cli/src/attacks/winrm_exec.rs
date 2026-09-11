@@ -5,9 +5,33 @@
 //! pass-the-hash via `--nt-hash` (32 hex NT hash instead of `--password`).
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 use crate::winrm;
+
+/// **1.5.1 bug fix** (see docs/HTB_PIRATE_LIVE_LOG_1.5.1.md §2.6): shell type is
+/// now selectable. gMSA-shape service accounts on hardened DCs commonly have
+/// `WSMan\Cmd\Enable=0` but `WSMan\PowerShell\Enable=1` — the cmd default fails
+/// with HTTP 500 on shell Create, while `--shell powershell` uses the PS-flavor
+/// Windows-Shell URI that the target accepts.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ShellKind {
+    /// cmd.exe-backed WinRS shell (pre-1.5.1 default). Some hardened DCs disable this
+    /// for gMSA / service accounts — the shell Create is refused with HTTP 500.
+    Cmd,
+    /// PowerShell-flavor Windows-Shell (NOT the PSRP runspace URI). Command is
+    /// wrapped as `powershell.exe -NoProfile -NonInteractive -Command <cmd>`.
+    Powershell,
+}
+
+impl From<ShellKind> for winrm::ShellType {
+    fn from(k: ShellKind) -> Self {
+        match k {
+            ShellKind::Cmd => winrm::ShellType::Cmd,
+            ShellKind::Powershell => winrm::ShellType::Powershell,
+        }
+    }
+}
 
 #[derive(Parser)]
 pub(crate) struct WinrmArgs {
@@ -19,9 +43,15 @@ pub(crate) struct WinrmArgs {
     /// Pass-the-hash: NT hash (32 hex) instead of --password
     #[arg(long)]
     pub nt_hash: Option<adhammer_core::SecretString>,
-    /// Command to run (via cmd.exe /c)
+    /// Command to run. Executes via `cmd.exe /c` (default) or
+    /// `powershell.exe -NoProfile -NonInteractive -Command` when `--shell powershell`.
     #[arg(long)]
     pub command: String,
+    /// **1.5.1** — WSMan shell type. `cmd` is the pre-1.5.1 default; `powershell` uses the
+    /// PS-flavor Windows-Shell URI, required for hosts where `WSMan\Cmd\Enable=0` blocks
+    /// the cmd shell for the caller (gMSA / service-account principals on hardened DCs).
+    #[arg(long, value_enum, ignore_case = true, default_value = "cmd")]
+    pub shell: ShellKind,
 }
 
 /// Execute a command over WinRM (WS-Man). NTLM auth + MS-NLMP message encryption over 5985 —
@@ -39,8 +69,15 @@ pub(crate) async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
         }
         None => winrm::Secret::Password(a.auth.password.clone()),
     };
-    let (mut client, shell_id) =
-        winrm::WinRm::connect(&a.auth.host, a.port, &a.auth.domain, &a.auth.user, &secret).await?;
+    let (mut client, shell_id) = winrm::WinRm::connect(
+        &a.auth.host,
+        a.port,
+        &a.auth.domain,
+        &a.auth.user,
+        &secret,
+        a.shell.into(),
+    )
+    .await?;
     eprintln!(
         "[+] WinRM shell opened on {} (ShellId {})",
         a.auth.host, shell_id

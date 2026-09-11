@@ -144,11 +144,14 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
         total_dc
     ));
 
-    if a.json {
-        print_json(&discoveries);
-    } else {
+    if !a.json {
         print_human(&discoveries);
     }
+    // JSON is emitted ONCE at the end so `--deep`/`--web` results ride in the same
+    // document (they were previously computed then dropped under `--json`). Collect
+    // their per-host results here when in JSON mode.
+    let mut deep_results: Vec<(String, crate::enums::host::HostPosture)> = Vec::new();
+    let mut web_results: Vec<(String, Vec<crate::enums::web::WebHit>)> = Vec::new();
 
     // Composition: chain per-DC probes on every unique discovered DC IP
     // (the "one binary ties the flow together" step). Both --web and --deep
@@ -173,7 +176,13 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
         if dc_ips.is_empty() {
             crate::ui::warn("--deep: no discovered DC IPs to probe");
         } else {
-            println!("\n=== anonymous SMB posture on discovered DCs ===");
+            // WS-UX-PROGRESS (1.5.1): section header + per-host posture detail are HUMAN
+            // output → stdout only in human mode. In --json mode stdout stays pure JSON
+            // (the discoveries printed above); per-host progress + result still narrate on
+            // stderr via the spinner, so json consumers keep the live feedback.
+            if !a.json {
+                println!("\n=== anonymous SMB posture on discovered DCs ===");
+            }
             for ip in &dc_ips {
                 let host = ip.to_string();
                 let sp = crate::ui::Spinner::start(format!("anonymous host posture {host}"));
@@ -188,8 +197,12 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
                     "null OK, all RPC refused".to_string()
                 };
                 sp.done(&format!("{host}: {headline}"));
-                println!("\n  -- {host} --");
-                crate::enums::host::print_posture(&p, "    ");
+                if a.json {
+                    deep_results.push((host, p));
+                } else {
+                    println!("\n  -- {host} --");
+                    crate::enums::host::print_posture(&p, "    ");
+                }
             }
         }
     }
@@ -199,12 +212,20 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
         if dc_ips.is_empty() {
             crate::ui::warn("--web: no discovered DC IPs to fingerprint");
         } else {
-            println!("\n=== web surface on discovered DCs ===");
+            // WS-UX-PROGRESS (1.5.1): human section only in human mode; stdout stays pure
+            // JSON under --json (progress + per-host hit count still narrate on stderr).
+            if !a.json {
+                println!("\n=== web surface on discovered DCs ===");
+            }
             for ip in &dc_ips {
                 let host = ip.to_string();
                 let sp = crate::ui::Spinner::start(format!("web fingerprint {host}"));
                 let hits = crate::enums::web::fingerprint_host(&host, a.web_timeout).await;
                 sp.done(&format!("{host}: {} endpoint hit(s)", hits.len()));
+                if a.json {
+                    web_results.push((host, hits));
+                    continue;
+                }
                 for h in &hits {
                     // Only surface interesting (non-404) hits in the compact view.
                     if h.status.contains("404") {
@@ -228,6 +249,17 @@ pub(crate) async fn run(a: RunArgs) -> Result<()> {
                 }
             }
         }
+    }
+
+    if a.json {
+        println!(
+            "{}",
+            run_json_string(
+                &discoveries,
+                a.deep.then_some(deep_results.as_slice()),
+                a.web.then_some(web_results.as_slice()),
+            )
+        );
     }
     Ok(())
 }
@@ -293,10 +325,16 @@ fn print_family(label: &str, targets: &[adhammer_collector::DnsServiceTarget]) {
     }
 }
 
-fn print_json(discoveries: &[adhammer_collector::DnsDiscovery]) {
-    // Hand-built JSON to avoid a serde derive on the collector types +
-    // keep the wire shape stable + operator-obvious. Values are DNS-
-    // derived, so run each through the terminal sanitizer before quoting.
+fn run_json_string(
+    discoveries: &[adhammer_collector::DnsDiscovery],
+    deep: Option<&[(String, crate::enums::host::HostPosture)]>,
+    web: Option<&[(String, Vec<crate::enums::web::WebHit>)]>,
+) -> String {
+    // Hand-built JSON to avoid a serde derive on the collector types + keep the
+    // wire shape stable + operator-obvious. Values are DNS-derived, so run each
+    // through the terminal sanitizer before quoting. `deep`/`web` sections appear
+    // only when the corresponding flag ran (Some), and reuse the same emitters as
+    // `enum host --json` / `enum web --json` so structure is identical everywhere.
     let mut out = String::from("{\"domains\":[");
     for (i, d) in discoveries.iter().enumerate() {
         if i > 0 {
@@ -311,8 +349,23 @@ fn print_json(discoveries: &[adhammer_collector::DnsDiscovery]) {
             json_reverse(&d.reverse),
         ));
     }
-    out.push_str("]}");
-    println!("{out}");
+    out.push(']');
+    if let Some(dr) = deep {
+        out.push_str(",\"deep\":[");
+        for (i, (host, p)) in dr.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&crate::enums::host::posture_json(host, p));
+        }
+        out.push(']');
+    }
+    if let Some(wr) = web {
+        out.push_str(",\"web\":");
+        out.push_str(&crate::enums::web::hosts_json_array(wr));
+    }
+    out.push('}');
+    out
 }
 
 fn json_str(s: &str) -> String {
@@ -376,4 +429,66 @@ fn json_reverse(reverse: &[adhammer_collector::ReverseDnsRecord]) -> String {
     }
     s.push(']');
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adhammer_collector::{DnsDiscovery, DnsServiceTarget};
+
+    fn disc() -> Vec<DnsDiscovery> {
+        vec![DnsDiscovery {
+            domain: "corp.local".into(),
+            ldap_dc: vec![DnsServiceTarget {
+                hostname: "dc1.corp.local".into(),
+                port: 389,
+                priority: 0,
+                weight: 100,
+                addrs: vec!["10.0.0.10".parse().unwrap()],
+            }],
+            kerberos_kdc: vec![],
+            global_catalog: vec![],
+            reverse: vec![],
+        }]
+    }
+
+    #[test]
+    fn run_json_domains_only_when_no_deep_web() {
+        let out = run_json_string(&disc(), None, None);
+        assert!(out.starts_with("{\"domains\":["), "must lead with domains");
+        assert!(!out.contains("\"deep\""), "no deep key when --deep absent");
+        assert!(!out.contains("\"web\""), "no web key when --web absent");
+        assert!(out.contains("dc1.corp.local"));
+    }
+
+    #[test]
+    fn run_json_includes_deep_and_web_sections() {
+        // The 8c17a60-review defect: --deep/--web results were dropped from --json.
+        let deep = vec![(
+            "10.0.0.10".to_string(),
+            crate::enums::host::HostPosture {
+                reachable: true,
+                null_session: true,
+                lsarpc_ok: true,
+                ..Default::default()
+            },
+        )];
+        let web = vec![(
+            "10.0.0.10".to_string(),
+            vec![crate::enums::web::WebHit {
+                scheme: "https",
+                port: 443,
+                path: "/certsrv/".into(),
+                tech: "ADCS-Web-Enrollment",
+                status: "401".into(),
+                server: Some("Microsoft-IIS".into()),
+                www_authenticate: Some("NTLM".into()),
+            }],
+        )];
+        let out = run_json_string(&disc(), Some(&deep), Some(&web));
+        assert!(out.contains("\"deep\":["), "deep section present");
+        assert!(out.contains("\"web\":"), "web section present");
+        assert!(out.contains("/certsrv/"), "web endpoint payload present");
+        assert!(out.contains("10.0.0.10"), "deep host payload present");
+    }
 }

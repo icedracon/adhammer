@@ -304,7 +304,10 @@ fn print_human(all: &[(String, Vec<WebHit>)]) {
     }
 }
 
-fn print_json(all: &[(String, Vec<WebHit>)]) {
+/// The `[{host, endpoints:[...]}]` array of web-fingerprint results. Shared by
+/// `enum web --json` and `run --web --json` so both surface identical structure
+/// (the latter previously dropped web hits from its JSON entirely).
+pub(crate) fn hosts_json_array(all: &[(String, Vec<WebHit>)]) -> String {
     let esc = |s: &str| {
         let clean = san(s);
         let mut q = String::from("\"");
@@ -319,7 +322,7 @@ fn print_json(all: &[(String, Vec<WebHit>)]) {
         q.push('"');
         q
     };
-    let mut out = String::from("{\"hosts\":[");
+    let mut out = String::from("[");
     for (i, (host, hits)) in all.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -346,8 +349,12 @@ fn print_json(all: &[(String, Vec<WebHit>)]) {
         }
         out.push_str("]}");
     }
-    out.push_str("]}");
-    println!("{out}");
+    out.push(']');
+    out
+}
+
+fn print_json(all: &[(String, Vec<WebHit>)]) {
+    println!("{{\"hosts\":{}}}", hosts_json_array(all));
 }
 
 #[cfg(test)]

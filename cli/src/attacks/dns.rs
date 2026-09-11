@@ -4,7 +4,7 @@
 //! (MS-DNSP §2.2.2.2.1, landed 1.4.2 as WS-13 prep). This module is the CLI + LDAP-write
 //! side: it resolves the ADIDNS record DN under the `DomainDnsZones` (or `ForestDnsZones`)
 //! application partition and applies the change through the existing `Collector` surface.
-//! Every write gates on `--dry-run` (default-safe).
+//! Every write PREVIEWS by default; `--commit` applies it to the DC (default-safe).
 
 use adhammer_collector::dns_record;
 use adhammer_collector::{Collector, LdapConfig};
@@ -48,12 +48,22 @@ pub(crate) struct DnsArgs {
     /// Record TTL in seconds (`add-a` / `modify-a`).
     #[arg(long, default_value_t = 3600)]
     pub ttl: u32,
-    /// Print the intended write and return without touching the DC. Every action honours it.
+    /// **Arm the write.** `attack dns` PREVIEWS by default (add/modify/tombstone/delete an ADIDNS
+    /// record); pass `--commit` to actually apply it to the DC.
     #[arg(long)]
+    pub commit: bool,
+    /// Deprecated no-op — preview is the default now. Kept hidden so existing `--dry-run`
+    /// invocations don't error; still forces preview even with `--commit`.
+    #[arg(long, hide = true)]
     pub dry_run: bool,
 }
 
 pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
+    // Preview by default; a write only fires with an explicit `--commit`.
+    let dry_run = a.dry_run || !a.commit;
+    if dry_run {
+        crate::ui::note("preview only — no write sent. Re-run with --commit to apply to the DC.");
+    }
     {
         let cur = a.auth.password.as_deref().unwrap_or("");
         let resolved = crate::resolve_secret(cur, "ADHAMMER_PASSWORD")?;
@@ -74,7 +84,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
             .clone()
             .context("attack dns needs --password")?,
         base_dn: None,
-        allow_plaintext_bind: false,
+        allow_plaintext_bind: a.auth.allow_plaintext_ldap,
         insecure: a.auth.insecure,
         gssapi: false,
     };
@@ -100,7 +110,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
                 .await
                 .unwrap_or(1);
             let blob = dns_record::build_a_record(&ip, a.ttl, serial);
-            if a.dry_run {
+            if dry_run {
                 println!(
                     "[dry-run] would write attribute=dnsRecord target={dn} \
                      value=<A {ip}, ttl={}, {}-byte DNS_RPC_RECORD>",
@@ -131,7 +141,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
             }
         }
         DnsAction::Tombstone => {
-            if a.dry_run {
+            if dry_run {
                 println!("[dry-run] would write attribute=dnsTombstoned target={dn} value=TRUE");
                 println!("[dry-run] no change made");
                 return Ok(());
@@ -140,7 +150,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
             println!("[+] tombstoned {record}.{zone} (dnsTombstoned=TRUE)");
         }
         DnsAction::Delete => {
-            if a.dry_run {
+            if dry_run {
                 println!("[dry-run] would delete object target={dn}");
                 println!("[dry-run] no change made");
                 return Ok(());

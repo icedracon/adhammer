@@ -24,7 +24,7 @@ pub(crate) struct SmbAuth {
     pub password: adhammer_core::SecretString,
 }
 
-/// LDAPS-based auth — for `scan`, `check adcs`, `dump laps/gmsa`.
+/// LDAPS-based auth — for `scan`, `check adcs`, `attack laps/gmsa`.
 ///
 /// `user` defaults to `""` so `scan --anonymous` (WS-11, 1.4.1) parses without
 /// requiring the bind identity. Authenticated subcommands still fail loudly at
@@ -43,6 +43,12 @@ pub(crate) struct LdapAuth {
     /// Skip TLS verification for lab LDAPS.
     #[arg(long)]
     pub insecure: bool,
+    /// **1.5.1 G-19**: allow an unencrypted LDAP bind (cleartext credentials on
+    /// the wire). Off by default — LDAPS or a signed/GSSAPI bind is required
+    /// unless this is set. For lab DCs without a certificate; the collector still
+    /// prompts for consent before it downgrades to plaintext.
+    #[arg(long)]
+    pub allow_plaintext_ldap: bool,
 }
 
 /// Optional-variant auth — for handlers where the fields may be resolved
@@ -58,4 +64,9 @@ pub(crate) struct OptAuth {
     pub password: Option<adhammer_core::SecretString>,
     #[arg(long)]
     pub insecure: bool,
+    /// **1.5.1 G-19**: allow an unencrypted LDAP bind (cleartext credentials on
+    /// the wire). Off by default; the collector still prompts for consent before
+    /// downgrading to plaintext.
+    #[arg(long)]
+    pub allow_plaintext_ldap: bool,
 }

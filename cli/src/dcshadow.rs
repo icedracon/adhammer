@@ -8,8 +8,8 @@
 //!   1.3.8 LDAP-path prep, kept as fallback for ≤ Server 2016 forests. Dead on
 //!   Server 2019/2022/2025: `New-ADObject -Type nTDSDSA` (and every LDAP add
 //!   that lands there) is blocked by the "It is not permitted to add an
-//!   attribute which is owned by the system" hardening. Verified vs DC01 2025
-//!   and WIN-TT9KC7VE4JL 2022; see the adhammer memory note
+//!   attribute which is owned by the system" hardening. Verified vs a Server
+//!   2025 DC and a Server 2022 DC; see the adhammer memory note
 //!   `[[dcshadow-ldap-dead-on-2019plus]]`.
 //! * **`drsuapi_prep` / `drsuapi_push`** (WS-2 1.4.1) — the modern-Windows path.
 //!   Bypasses the LDAP hardening because DRSUAPI's `IDL_DRSAddEntry` does not

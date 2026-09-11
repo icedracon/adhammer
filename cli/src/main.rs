@@ -14,9 +14,11 @@ mod attacks;
 mod blackbox;
 mod checks;
 mod dcshadow;
-mod dumps;
+mod diag;
+mod doctor;
 mod enums;
 mod esc_registry;
+mod gap_hint;
 mod guided;
 mod host_posture;
 mod interactive;
@@ -25,16 +27,38 @@ mod session;
 mod setup;
 mod shared_args;
 mod target;
+mod typed_json;
 mod ui;
 mod winrm;
+
+/// WS-UX-QUICKSTART (1.5.1): zero-to-first-win recipes, shown under `adhammer --help`
+/// (clap `after_help`) and printed by `adhammer --examples`. Every command uses real,
+/// verified flags (LdapAuth `--url/--user`, SmbAuth `--host/--domain/--user`) so the
+/// lines copy-paste and run.
+const QUICKSTART: &str = "\
+QUICKSTART — copy-paste recipes (swap corp.local / dc.corp.local / alice for yours)\n\
+\n  Black-box (no creds) — discover + posture in one command:\n\
+\n    adhammer run --domain corp.local --range 10.0.0.0/24\
+\n    adhammer run --domain corp.local --range 10.0.0.0/24 --web --deep\n\
+\n  Authenticated — preflight, then a full scan to an HTML report:\n\
+\n    adhammer doctor --url ldaps://dc.corp.local --user alice\
+\n    adhammer scan --url ldaps://dc.corp.local --user alice --out report.html\n\
+\n  One attack — every finding prints its own copy-paste next command:\n\
+\n    adhammer attack roast --url ldaps://dc.corp.local --user alice --kdc dc.corp.local\n\
+\n  Any verb: `adhammer <verb> --help`.\n";
 
 #[derive(Parser)]
 #[command(
     name = "adhammer",
     version,
-    about = "Passive AD security assessment in Rust"
+    about = "Active Directory security assessment in Rust — audit, enumerate, exploit, validate",
+    after_help = QUICKSTART
 )]
 struct Cli {
+    /// Print the copy-paste quickstart recipes (black-box, authenticated, one attack) and exit.
+    #[arg(long)]
+    examples: bool,
+
     /// Reuse the last saved session (skip setup prompts, go straight to the menu).
     #[arg(long)]
     old: bool,
@@ -48,8 +72,10 @@ struct Cli {
     #[arg(long, global = true, value_name = "[user:pass@]host:port")]
     socks: Option<String>,
 
-    /// Force the JSON AttackResult envelope (now the DEFAULT for attack/enum/dump). Scan, auto,
-    /// check and setup always render the human report. Kept for back-compat / explicitness.
+    /// Force the JSON `AttackResult` envelope (the DEFAULT for attack/enum/dump). NOTE: the
+    /// envelope is `{command, success, evidence}` where `evidence` is the human text output —
+    /// use it for pass/fail automation, not field extraction. For fully-structured JSON use
+    /// `scan --format json` or `run --json`. No effect on scan/auto/check/setup (always a report).
     #[arg(long, global = true)]
     json: bool,
 
@@ -58,20 +84,10 @@ struct Cli {
     #[arg(long, global = true)]
     text: bool,
 
-    /// Stackable verbosity like nmap's `-v/-vv/-vvv`. `-v` = info (adhammer's own
-    /// major-step narrations — "collected 317 objects", "SMB session established",
-    /// "\\samr pipe open"). `-vv` = debug (adds Kerberos hot-path narration —
-    /// AS-REQ/AS-REP + TGS-REQ/TGS-REP + service-ticket acquisition + sealed WRAP
-    /// token assembly — plus sysvol/probe debug lines). `-vvv` = trace (adds per-PDU
-    /// wire byte-count + sequence number for every Kerberos exchange + WRAP token).
-    /// Wire-layer per-PDU tracing inside the SMB/DCE-RPC/NTLM transports themselves
-    /// (dcerpc/smb2-client/ntlmssp) is planned but blocked on the upstream
-    /// sibling-crate publish cascade. Field
-    /// values shown are identifier strings + byte counts + etypes — never key bytes,
-    /// ticket contents, or hashes. Overrides `RUST_LOG`. Long-form alias:
-    /// `--verbose` == `-v`, `--debug` == `-vv`. Note: on Git Bash / MSYS2 pipes on
-    /// Windows the tracing_subscriber stderr writes can be swallowed by the pty
-    /// bridge — see the output under cmd.exe / PowerShell / a Linux terminal.
+    /// Verbosity, stackable like nmap's `-v/-vv/-vvv`: info (major steps) → debug
+    /// (Kerberos hot path + sysvol/probe) → trace (per-PDU byte counts + sequence
+    /// numbers). Logs carry identifiers, byte counts and etypes only — never key
+    /// bytes, ticket contents or hashes. Overrides `RUST_LOG`. Full detail: `man adhammer`.
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     verbosity: u8,
 
@@ -90,9 +106,18 @@ struct Cli {
     cmd: Option<Command>,
 }
 
+/// WS-UX-COMPLETIONS (1.5.1): `adhammer completions <shell>` prints a completion script.
+#[derive(clap::Args)]
+struct CompletionsArgs {
+    /// Target shell: bash, zsh, fish, powershell, or elvish.
+    #[arg(value_enum)]
+    shell: clap_complete::Shell,
+}
+
 #[derive(Subcommand)]
 enum Command {
-    /// Passive audit: LDAP collection → control-path graph → scored checks → report.
+    /// Audit: LDAP collection → control-path graph → scored checks → report. Read-only
+    /// by default; `--kdc` adds an active AS-REP roasting step against roastable accounts.
     Scan(attacks::scan::ScanArgs),
     /// Read-only enumeration: SAMR/LSAT/network sweep/DNS zones/AD CS/DC posture/logon sessions/krb-users (Kerberos user enum, no LDAP creds needed).
     #[command(subcommand)]
@@ -100,12 +125,32 @@ enum Command {
     /// Active attacks: roast/spray/abuse/coerce/poison/relay/RBCD/DCSync/exec/wmiexec/atexec/winrm/secretsdump/gmsa/LAPS/ESC1/icpr-esc1/ESC4/adcs-relay/golden/diamond/unpac/silver/PtT/asktgt/unconstrained/BadSuccessor/DCShadow/MSSQL/DNS/zerologon/shadowcred.
     #[command(subcommand)]
     Attack(AttackCmd),
+    /// Direct Kerberos primitives (no LDAP collect): `kerb pkinit` (F1a) —
+    /// pass-the-cert PKINIT with a `.key.pem` (+ optional `.crt`) → TGT ccache.
+    /// Additional Kerberos verbs (`u2u-nt`, `trust-mint`, `trust-dump`) land
+    /// under this group in follow-up commits.
+    #[command(subcommand)]
+    Kerb(attacks::kerb::KerbCmd),
+    /// Offline credential recovery / decode: `creds gpp-decrypt` (F6) —
+    /// MS14-025 GPP `cpassword` → plaintext. `creds kdbx-crack` / `kdbx-extract`
+    /// (F4a/b — KDBX4 Argon2d + ChaCha20) land in follow-up commits.
+    #[command(subcommand)]
+    Creds(attacks::creds::CredsCmd),
+    /// F1b — direct LDAP primitives that bypass the collector: `ldap auth`
+    /// (SASL EXTERNAL bind over LDAPS-with-client-cert). Hand-rolled rustls
+    /// + minimal LDAP encoder because ldap3 does not expose a client-cert
+    ///   TLS setter.
+    #[command(subcommand)]
+    Ldap(attacks::ldap::LdapCmd),
+    /// F5 — offline LSA / LSASS credential extraction: `lsa lsass-parse
+    /// <dump.dmp>`. Ships the outer minidump reader (header + stream
+    /// directory + triage summary) + external-tool `[hint]` block. The
+    /// per-Windows-build LSASS symbol walk lands in a follow-up.
+    #[command(subcommand)]
+    Lsa(attacks::lsa_offline::LsaCmd),
     /// Offline / single-purpose check runners — subset of `scan` for one taxonomy at a time.
     #[command(subcommand)]
     Check(CheckCmd),
-    /// Dump credentials / secrets from AD (LAPS, gMSA).
-    #[command(subcommand)]
-    Dump(DumpCmd),
     /// Guided: scan → validate + PoC → multi-format report bundle.
     Auto(AutoArgs),
     /// One-shot onboarding helpers: `setup krb5` writes a working krb5.conf.
@@ -114,6 +159,22 @@ enum Command {
     /// No-cred black-box discovery: resolve a realm's DC/KDC/GC SRV records
     /// over the hand-rolled DNS client, filtered to your authorized scope.
     Run(blackbox::RunArgs),
+    /// Preflight diagnostics (zero attack surface): DNS SRV DC discovery, TCP
+    /// reachability of the AD ports, and — with creds — a classified bind. Prints
+    /// a ✓/✗ checklist with a named fix per failure.
+    Doctor(doctor::DoctorArgs),
+    /// Generate a shell completion script to stdout (bash/zsh/fish/powershell/elvish).
+    /// e.g. `adhammer completions bash | sudo tee /etc/bash_completion.d/adhammer`, then
+    /// TAB reveals the whole scan/enum/attack/check/dump/auto/run/doctor verb tree.
+    Completions(CompletionsArgs),
+    /// Render the man page (roff) to stdout: `adhammer man | sudo tee /usr/share/man/man1/adhammer.1`.
+    Man,
+    /// List every documented adhammer gap and the external tool to swap in
+    /// (`impacket-*`, `certipy`, `pypykatz`, `rusthound-ce`, …). Each row has
+    /// a `docs/GAPS.md#anchor` for the full "why not built-in + typical
+    /// invocation with placeholder params" story. Emitted at gap sites at
+    /// runtime as `[hint]` blocks on stderr.
+    Gaps,
 }
 
 #[derive(Subcommand)]
@@ -126,22 +187,8 @@ enum CheckCmd {
 
 // CheckAdcsArgs moved to `checks::adcs` in arch-0.
 
-#[derive(Subcommand)]
-enum DumpCmd {
-    /// Dump LAPS local-admin passwords. Wire path over the `ms-gkdi` seed-key
-    /// derivation is TODO — this subcommand today reuses the existing
-    /// `attack laps` code path over dpapi-ng and prints a hint for the
-    /// ms-gkdi-only route.
-    Laps(dumps::laps::DumpLapsArgs),
-    /// Dump gMSA `msDS-ManagedPassword` blobs. TODO wire onto ms-gkdi for the
-    /// LAPS-v2 style seed-key derivation; for now falls back to `attack gmsa`
-    /// (which speaks the SEALED LDAP path directly).
-    Gmsa(dumps::gmsa::DumpGmsaArgs),
-}
-
-// DumpLapsArgs moved to `dumps::laps` in arch-0.
-
-// DumpGmsaArgs moved to `dumps::gmsa` in arch-0.
+// The `dump laps` / `dump gmsa` group was removed in 1.5.1 — it was a thin delegator over
+// `attack laps` / `attack gmsa` (the ms-gkdi seed-key path was never wired). Use those verbs.
 
 #[derive(Parser)]
 struct AutoArgs {
@@ -259,7 +306,7 @@ enum AttackCmd {
     Spray(attacks::spray::SprayArgs),
     /// LDAP abuse: add-spn / add-member / set-password / add-keycred / write-rbcd /
     /// write-owner / write-dacl / set-primary-group / gpo-link-modify / allowed-to-act.
-    /// Every write gates on `--dry-run` (prints payload, no LDAP modify).
+    /// PREVIEWS by default (prints the payload, no LDAP modify); pass `--commit` to write.
     Abuse(attacks::abuse::AbuseArgs),
     /// Coerce the DC to authenticate to a listener (PetitPotam / MS-EFSR).
     Coerce(attacks::coerce::CoerceArgs),
@@ -590,6 +637,10 @@ async fn main() -> Result<()> {
     enable_windows_console();
     validate_secret_argv(&std::env::args().skip(1).collect::<Vec<_>>())?;
     let cli = Cli::parse();
+    if cli.examples {
+        print!("{QUICKSTART}");
+        return Ok(());
+    }
     let effective_verbosity =
         effective_interactive_verbosity(cli.cmd.is_none(), cli.quiet_interactive, cli.verbosity);
     tracing_subscriber::fmt()
@@ -619,15 +670,41 @@ async fn main() -> Result<()> {
                 cli.cmd.is_none() && !cli.quiet_interactive && cli.verbosity < 3;
             interactive::run(cli.old, cli.no_save, verbose_auto_forced).await
         }
+        Some(Command::Completions(a)) => {
+            // WS-UX-COMPLETIONS (1.5.1): print the completion script and exit — no session.
+            use clap::CommandFactory;
+            let mut c = Cli::command();
+            clap_complete::generate(a.shell, &mut c, "adhammer", &mut std::io::stdout());
+            Ok(())
+        }
+        Some(Command::Man) => {
+            // WS-UX-MANPAGE (1.5.1): render the roff man page and exit — no session.
+            use clap::CommandFactory;
+            use std::io::Write;
+            let mut buf: Vec<u8> = Vec::new();
+            clap_mangen::Man::new(Cli::command())
+                .render(&mut buf)
+                .and_then(|()| std::io::stdout().write_all(&buf))?;
+            Ok(())
+        }
         Some(cmd) => {
             // JSON AttackResult envelope is the DEFAULT for attack/enum/dump (machine-first);
             // --text forces human. Scan/auto/check/setup always render the human report (handled
             // inside dispatch_json, which routes them straight to `dispatch`).
-            if cli.text {
+            // Say so instead of silently ignoring --json/--text on those verbs.
+            warn_inert_output_flags(&cmd, cli.json, cli.text);
+            let res = if cli.text {
                 dispatch(cmd).await
             } else {
                 dispatch_json(cmd).await
-            }
+            };
+            // WS-UX-ERRORS (1.5.1): when we recognize the failure class, make a named fix the
+            // headline (anyhow context) with the raw error as the cause — so no verb dead-ends
+            // on an opaque dump. Unrecognized errors pass through untouched.
+            res.map_err(|e| match diag::fix_hint(&format!("{e:#}")) {
+                Some(fix) => e.context(format!("fix: {fix}")),
+                None => e,
+            })
         }
     }
 }
@@ -682,6 +759,8 @@ async fn dispatch_json(cmd: Command) -> Result<()> {
             | Command::Check(_)
             | Command::Setup(_)
             | Command::Run(_)
+            | Command::Doctor(_)
+            | Command::Gaps
     ) {
         return dispatch(cmd).await;
     }
@@ -700,18 +779,67 @@ async fn dispatch_json(cmd: Command) -> Result<()> {
         .output()
         .context("run child command for JSON wrapper")?;
 
-    let ar = adhammer_core::AttackResult {
-        command: cmd_str,
-        success: output.status.success(),
-        evidence: merge_output(&output.stdout, &output.stderr),
-        finding_id: None,
-    };
-    println!("{}", serde_json::to_string_pretty(&ar)?);
+    // F-B4 (1.5.1) — first-wave typed JSON: for verbs whose text output is
+    // deterministic (roast/laps/gmsa) emit a structured doc instead of the
+    // text-in-evidence blob. Falls back to the original envelope for every
+    // other verb — nothing regresses.
+    let stdout_s = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr_s = String::from_utf8_lossy(&output.stderr).to_string();
+    if let Some(typed) = typed_json::try_structured(&cmd_str[9..], &stdout_s, &stderr_s) {
+        #[derive(serde::Serialize)]
+        struct TypedResult<'a> {
+            command: &'a str,
+            success: bool,
+            typed: typed_json::Structured,
+            /// Retained for cross-consumer compatibility: the raw text is kept
+            /// in `evidence` alongside the structured `typed` payload. Scripts
+            /// that already grep the text keep working.
+            evidence: String,
+        }
+        let tr = TypedResult {
+            command: &cmd_str,
+            success: output.status.success(),
+            typed,
+            evidence: merge_output(&output.stdout, &output.stderr),
+        };
+        println!("{}", serde_json::to_string_pretty(&tr)?);
+    } else {
+        let ar = adhammer_core::AttackResult {
+            command: cmd_str,
+            success: output.status.success(),
+            evidence: merge_output(&output.stdout, &output.stderr),
+            finding_id: None,
+        };
+        println!("{}", serde_json::to_string_pretty(&ar)?);
+    }
 
     if output.status.success() {
         Ok(())
     } else {
         anyhow::bail!("wrapped command exited with {}", output.status);
+    }
+}
+
+/// `--json` / `--text` are inert on the always-human verbs (`scan`/`auto`/`check`/`setup`),
+/// which own their rendering. Tell the operator instead of silently ignoring the flag — a
+/// scripted `scan --json` should not appear to work while emitting a human report.
+fn warn_inert_output_flags(cmd: &Command, json: bool, text: bool) {
+    let human_only = matches!(
+        cmd,
+        Command::Scan(_) | Command::Auto(_) | Command::Check(_) | Command::Setup(_)
+    );
+    if !human_only {
+        return;
+    }
+    let label = cmd_label(cmd);
+    if json {
+        eprintln!(
+            "note: --json has no effect on `{label}` — it renders a report. \
+             Use `--format json` (or `--out <file>.json`) for machine output."
+        );
+    }
+    if text {
+        eprintln!("note: --text has no effect on `{label}` — it always renders a human report.");
     }
 }
 
@@ -791,15 +919,30 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Dns(_) => "attack dns",
         },
         Command::Check(_) => "check adcs",
-        Command::Dump(d) => match d {
-            DumpCmd::Laps(_) => "dump laps",
-            DumpCmd::Gmsa(_) => "dump gmsa",
-        },
         Command::Auto(_) => "auto",
         Command::Setup(s) => match s {
             setup::SetupCmd::Krb5(_) => "setup krb5",
         },
         Command::Run(_) => "run",
+        Command::Doctor(_) => "doctor",
+        Command::Completions(_) => "completions",
+        Command::Man => "man",
+        Command::Gaps => "gaps",
+        Command::Kerb(k) => match k {
+            attacks::kerb::KerbCmd::Pkinit(_) => "kerb pkinit",
+            attacks::kerb::KerbCmd::U2uNt(_) => "kerb u2u-nt",
+            attacks::kerb::KerbCmd::TrustMint(_) => "kerb trust-mint",
+            attacks::kerb::KerbCmd::TrustDump(_) => "kerb trust-dump",
+        },
+        Command::Creds(c) => match c {
+            attacks::creds::CredsCmd::GppDecrypt(_) => "creds gpp-decrypt",
+        },
+        Command::Ldap(l) => match l {
+            attacks::ldap::LdapCmd::Auth(_) => "ldap auth",
+        },
+        Command::Lsa(l) => match l {
+            attacks::lsa_offline::LsaCmd::LsassParse(_) => "lsa lsass-parse",
+        },
     }
 }
 
@@ -875,10 +1018,27 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Mssql(a)) => attacks::mssql::mssql(a).await,
         Command::Attack(AttackCmd::Dns(a)) => attacks::dns::dns(a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
-        Command::Dump(DumpCmd::Laps(a)) => dumps::laps::dump_laps(a).await,
-        Command::Dump(DumpCmd::Gmsa(a)) => dumps::gmsa::dump_gmsa(a).await,
         Command::Setup(setup::SetupCmd::Krb5(a)) => setup::krb5::run(a).await,
         Command::Run(a) => blackbox::run(a).await,
+        Command::Doctor(a) => doctor::doctor(a).await,
+        Command::Kerb(attacks::kerb::KerbCmd::Pkinit(a)) => attacks::kerb::pkinit(a).await,
+        Command::Kerb(attacks::kerb::KerbCmd::U2uNt(a)) => attacks::unpac::unpac(a).await,
+        Command::Kerb(attacks::kerb::KerbCmd::TrustMint(a)) => attacks::kerb::trust_mint(a).await,
+        Command::Kerb(attacks::kerb::KerbCmd::TrustDump(a)) => attacks::kerb::trust_dump(a).await,
+        Command::Creds(attacks::creds::CredsCmd::GppDecrypt(a)) => {
+            attacks::creds::gpp_decrypt(a).await
+        }
+        Command::Ldap(attacks::ldap::LdapCmd::Auth(a)) => attacks::ldap::auth(a).await,
+        Command::Lsa(attacks::lsa_offline::LsaCmd::LsassParse(a)) => {
+            attacks::lsa_offline::lsass_parse(a).await
+        }
+        // Handled in main() before dispatch (prints the script + exits); never reached here.
+        Command::Completions(_) => unreachable!("completions is handled before dispatch"),
+        Command::Man => unreachable!("man is handled before dispatch"),
+        Command::Gaps => {
+            gap_hint::print_gaps_table();
+            Ok(())
+        }
         Command::Auto(a) => {
             guided::guided(guided::GuidedArgs {
                 url: a.url,
@@ -1402,9 +1562,6 @@ fn parse_push_value(a: &DcshadowArgs) -> Result<Vec<u8>> {
 
 // fn check_adcs moved to `checks::adcs` in arch-0.
 
-// fn dump_laps moved to `dumps::laps` in arch-0.
-
-// fn dump_gmsa moved to `dumps::gmsa` in arch-0.
 // EscVariant + IcprEsc1Args + fn icpr_esc1 moved to attacks::icpr_esc1 in arch-0.
 
 // fn unconstrained moved to `attacks::unconstrained` in arch-0.
@@ -1476,5 +1633,66 @@ mod ws_int_vvv_tests {
             repr.contains("ldap3=warn"),
             "expected `ldap3=warn` (credential-payload pin), got: {repr}"
         );
+    }
+}
+
+#[cfg(test)]
+mod quickstart_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn root_help_carries_quickstart() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(
+            help.contains("QUICKSTART"),
+            "after_help quickstart missing from root --help"
+        );
+        assert!(
+            help.contains("adhammer run --domain"),
+            "black-box recipe missing"
+        );
+        assert!(help.contains("attack roast"), "attack recipe missing");
+    }
+
+    #[test]
+    fn examples_flag_parses() {
+        let cli = Cli::try_parse_from(["adhammer", "--examples"]).unwrap();
+        assert!(cli.examples);
+    }
+
+    #[test]
+    fn completions_generate_for_every_shell() {
+        use clap_complete::Shell;
+        for sh in [
+            Shell::Bash,
+            Shell::Zsh,
+            Shell::Fish,
+            Shell::PowerShell,
+            Shell::Elvish,
+        ] {
+            let mut buf: Vec<u8> = Vec::new();
+            clap_complete::generate(sh, &mut Cli::command(), "adhammer", &mut buf);
+            let s = String::from_utf8(buf).expect("utf8 completion script");
+            assert!(!s.is_empty(), "{sh:?} completion is empty");
+            assert!(s.contains("adhammer"), "{sh:?} completion missing bin name");
+        }
+    }
+
+    #[test]
+    fn completions_subcommand_parses() {
+        let cli = Cli::try_parse_from(["adhammer", "completions", "bash"]).unwrap();
+        assert!(matches!(cli.cmd, Some(Command::Completions(_))));
+    }
+
+    #[test]
+    fn man_page_renders() {
+        let mut buf: Vec<u8> = Vec::new();
+        clap_mangen::Man::new(Cli::command())
+            .render(&mut buf)
+            .unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains(".TH"), "missing roff title header");
+        assert!(s.contains("adhammer"), "missing bin name");
     }
 }

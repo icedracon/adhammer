@@ -278,6 +278,180 @@ impl Finding {
         self.exchange.extend(ex);
         self
     }
+
+    /// WS-UX-NEXTACTION (1.5.1): the operator's copy-pasteable next command for this
+    /// finding, if there is a natural follow-up verb. This is the single mapper every
+    /// renderer (CLI footer, report block, `--json`) routes through, so guidance stays
+    /// uniform. `<placeholder>` slots (`<dc>`, `<user>`, `<domain>`, `<your-ip>`) are
+    /// filled by the operator; finding-specific args (template/victim name) are pulled
+    /// from the first affected object when it is a short, safe value. Returns `None` for
+    /// findings with no direct actioning verb (the renderer then prints nothing).
+    pub fn next_command(&self) -> Option<NextCommand> {
+        let id = self.id.to_ascii_lowercase();
+        // SECURITY: the suggested command is copy-pasted into a shell. Only substitute an
+        // affected name (attacker-controlled via LDAP `cn`/`name`) if it is shell-safe —
+        // otherwise a CN like `x;rm -rf /` or `$(…)` would ride into the command. Unsafe or
+        // absent → a clearly-a-placeholder token the operator fills in. (HTML escaping does
+        // not help here; this is a shell context.)
+        let named = self
+            .affected
+            .first()
+            .map(|a| leaf_name(a))
+            .filter(|s| is_shell_safe(s) && s.len() <= 64);
+        let tmpl = named.clone().unwrap_or_else(|| "<template>".into());
+        let victim = named.unwrap_or_else(|| "<victim>".into());
+        let mk = |label: &str, command: String, requires_consent: bool| {
+            Some(NextCommand {
+                label: label.to_string(),
+                command,
+                requires_consent,
+            })
+        };
+
+        // AD CS ESC ids: match the EXACT ESC number, not a substring — otherwise `esc1`
+        // also catches `esc10`/`esc11`/`esc15`/`esc16` and mis-suggests the ESC1 attack.
+        if let Some(n) = esc_number(&id) {
+            return match n {
+                1 => mk(
+                    "escalate via ESC1 (spoofed-UPN enrollment)",
+                    format!("adhammer attack icpr-esc1 --url ldaps://<dc> --user <user> --template {tmpl}"),
+                    true,
+                ),
+                4 => mk(
+                    "weaponize the template (ESC4 -> ESC1)",
+                    format!("adhammer attack esc4 --url ldaps://<dc> --user <user> --template {tmpl}"),
+                    true,
+                ),
+                8 => mk(
+                    "relay to AD CS Web Enrollment (ESC8)",
+                    "adhammer attack relay --target adcs --listener <your-ip>".into(),
+                    true,
+                ),
+                11 => mk(
+                    "relay to ICPR (ESC11)",
+                    "adhammer attack relay --target icpr --listener <your-ip>".into(),
+                    true,
+                ),
+                _ => mk(
+                    "enumerate the AD CS attack surface",
+                    "adhammer enum adcs --url ldaps://<dc> --user <user>".into(),
+                    false,
+                ),
+            };
+        }
+        if id.contains("adcsesc") {
+            return mk(
+                "enumerate the AD CS attack surface",
+                "adhammer enum adcs --url ldaps://<dc> --user <user>".into(),
+                false,
+            );
+        }
+        if id.contains("kerberoast") || id.contains("roast") || id.contains("asrep") {
+            return mk(
+                "roast the exposed accounts",
+                "adhammer attack roast --url ldaps://<dc> --user <user> --kdc <dc>".into(),
+                false,
+            );
+        }
+        if id.contains("krbtgt") {
+            return mk(
+                "dump krbtgt for a golden ticket",
+                "adhammer attack dcsync --host <dc> --domain <domain> --user <user> --target krbtgt"
+                    .into(),
+                true,
+            );
+        }
+        if id.contains("unconstrained") || id.contains("delegation") {
+            return mk(
+                "hunt unconstrained-delegation hosts",
+                "adhammer attack unconstrained --url ldaps://<dc> --user <user>".into(),
+                false,
+            );
+        }
+        if id.contains("badsuccessor") {
+            return mk(
+                "abuse dMSA (BadSuccessor)",
+                format!("adhammer attack badsuccessor --url ldaps://<dc> --user <user> --victim {victim}"),
+                true,
+            );
+        }
+        if id.contains("laps") || id.contains("admpwd") {
+            return mk(
+                "read LAPS local-admin passwords",
+                "adhammer attack laps --url ldaps://<dc> --user <user>".into(),
+                false,
+            );
+        }
+        if id.contains("gmsa") {
+            return mk(
+                "read the gMSA managed password",
+                "adhammer attack gmsa --url ldaps://<dc> --user <user>".into(),
+                false,
+            );
+        }
+        if id.contains("signing") || id.contains("channelbinding") || id.contains("coerce") {
+            return mk(
+                "coerce the DC to your listener",
+                "adhammer attack coerce --host <dc> --domain <domain> --user <user> --listener <your-ip>"
+                    .into(),
+                true,
+            );
+        }
+        None
+    }
+}
+
+/// Extract the leaf value of a DN (`CN=Foo,OU=..` -> `Foo`); otherwise the trimmed input.
+fn leaf_name(s: &str) -> String {
+    if let Some(first) = s.split(',').next() {
+        if let Some((_, v)) = first.split_once('=') {
+            return v.trim().to_string();
+        }
+    }
+    s.trim().to_string()
+}
+
+/// Whether a token is safe to drop verbatim into a copy-paste shell command: ASCII
+/// letters/digits and `.`/`-`/`_` only. Rejects spaces, quotes, and every shell
+/// metacharacter, so an attacker-controlled LDAP name cannot inject into the suggestion.
+fn is_shell_safe(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
+/// The exact ESC number in an AD CS finding id (`a-esc15` -> 15), or `None`. Matches the
+/// digits immediately after `esc`, so `esc1` and `esc11`/`esc15` are distinct.
+fn esc_number(id: &str) -> Option<u32> {
+    let pos = id.find("esc")?;
+    let digits: String = id[pos + 3..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
+/// WS-UX-NEXTACTION (1.5.1): a copy-pasteable next command suggested for a [`Finding`].
+///
+/// Distinct from [`crate::NextAction`] (which models *engine check-chaining* via
+/// `check`/`class`): this is operator ergonomics — "you found X, here is the exact
+/// command to act on it" — the single biggest lever turning ADhammer's 90-verb surface
+/// from a maze into a guided kill-chain.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NextCommand {
+    /// One-line human label, e.g. "escalate via ESC1".
+    pub label: String,
+    /// The runnable command, with `<placeholder>` slots the operator fills in.
+    pub command: String,
+    /// True when the command performs a state-changing / offensive action needing consent.
+    pub requires_consent: bool,
+}
+
+impl NextCommand {
+    /// The CLI footer line rendered beneath a finding (`  -> next: <command>`).
+    pub fn cli_line(&self) -> String {
+        format!("  \u{2192} next: {}", self.command)
+    }
 }
 
 impl Finding {
@@ -351,5 +525,138 @@ mod wire_tests {
         ]);
         assert_eq!(f.exchange.len(), 3);
         assert_eq!(f.exchange[2].opnum, Some(15));
+    }
+}
+
+#[cfg(test)]
+mod next_command_tests {
+    use super::*;
+
+    fn f(id: &str, affected: Vec<String>) -> Finding {
+        Finding {
+            id: id.into(),
+            title: "t".into(),
+            category: Category::Anomalies,
+            severity: Severity::High,
+            mitre: vec![],
+            affected,
+            detail: "d".into(),
+            evidence: vec![],
+            exchange: vec![],
+            impact: None,
+            remediation: "r".into(),
+            weight_bonus: 0,
+        }
+    }
+
+    #[test]
+    fn esc1_maps_to_icpr_esc1_with_template_from_affected() {
+        let nc = f("A-Esc1", vec!["CN=WeakTpl,CN=Certificate Templates".into()])
+            .next_command()
+            .expect("esc1 has a next command");
+        assert!(nc.command.contains("attack icpr-esc1"), "{}", nc.command);
+        assert!(nc.command.contains("--template WeakTpl"), "{}", nc.command);
+        assert!(nc.requires_consent);
+    }
+
+    #[test]
+    fn esc1_without_affected_uses_placeholder() {
+        let nc = f("A-Esc1", vec![]).next_command().unwrap();
+        assert!(
+            nc.command.contains("--template <template>"),
+            "{}",
+            nc.command
+        );
+    }
+
+    #[test]
+    fn headline_classes_map_to_real_verbs() {
+        assert!(f("P-KerberoastAdmin", vec![])
+            .next_command()
+            .unwrap()
+            .command
+            .contains("attack roast"));
+        assert!({
+            let c = f("A-KrbtgtAge", vec![]).next_command().unwrap().command;
+            c.contains("attack dcsync") && c.contains("--target krbtgt")
+        });
+        assert!(f("P-UnconstrainedDelegation", vec![])
+            .next_command()
+            .unwrap()
+            .command
+            .contains("attack unconstrained"));
+        assert!(f("A-BadSuccessor", vec!["CN=targetuser,CN=Users".into()])
+            .next_command()
+            .unwrap()
+            .command
+            .contains("--victim targetuser"));
+        // Generic ESC falls back to enumeration, not a specific weaponization.
+        assert_eq!(
+            f("A-Esc9", vec![]).next_command().unwrap().command,
+            "adhammer enum adcs --url ldaps://<dc> --user <user>"
+        );
+    }
+
+    #[test]
+    fn findings_without_a_verb_return_none() {
+        assert!(f("A-FunctionalLevel", vec![]).next_command().is_none());
+        assert!(f("A-PasswordPolicy", vec![]).next_command().is_none());
+    }
+
+    #[test]
+    fn cli_line_is_the_uniform_footer() {
+        let nc = f("A-Esc4", vec![]).next_command().unwrap();
+        assert!(nc
+            .cli_line()
+            .starts_with("  \u{2192} next: adhammer attack esc4"));
+    }
+
+    #[test]
+    fn esc_number_is_exact_not_substring() {
+        // esc1 -> icpr-esc1; esc11 -> relay icpr; esc15/esc16 -> enum adcs (NOT icpr-esc1).
+        assert!(f("A-Esc1", vec![])
+            .next_command()
+            .unwrap()
+            .command
+            .contains("attack icpr-esc1"));
+        assert!(f("A-Esc11", vec![])
+            .next_command()
+            .unwrap()
+            .command
+            .contains("relay --target icpr"));
+        for id in ["A-Esc15", "A-Esc16", "A-Esc10"] {
+            let c = f(id, vec![]).next_command().unwrap().command;
+            assert_eq!(
+                c, "adhammer enum adcs --url ldaps://<dc> --user <user>",
+                "{id} mis-mapped: {c}"
+            );
+            assert!(
+                !c.contains("icpr-esc1"),
+                "{id} wrongly got the ESC1 command"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_metacharacters_in_affected_name_do_not_reach_the_command() {
+        // Attacker-controlled template CN with a shell separator must NOT be substituted.
+        let nc = f("A-Esc1", vec!["CN=x;rm -rf /,CN=Templates".into()])
+            .next_command()
+            .unwrap();
+        assert!(
+            nc.command.contains("--template <template>"),
+            "unsafe name substituted: {}",
+            nc.command
+        );
+        assert!(
+            !nc.command.contains("rm -rf"),
+            "shell injection into suggestion: {}",
+            nc.command
+        );
+        // A clean name is still substituted.
+        let ok = f("A-Esc1", vec!["CN=WeakTpl,CN=Templates".into()])
+            .next_command()
+            .unwrap();
+        assert!(ok.command.contains("--template WeakTpl"));
     }
 }
