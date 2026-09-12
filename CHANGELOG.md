@@ -3,6 +3,194 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [1.5.1] — 2026-09-11
+
+Operator-UX + reliability maintenance release. No breaking changes to commands,
+JSON consumers, the public Rust API, or the Rust 1.88 MSRV.
+
+### Fixed — P0 shipping blocker (CVE-adjacent auth silent-fail)
+
+- **`SecretString::From<String>` / `From<&str>` now expand `@file:PATH` and
+  `env:VAR` credential references** (`crates/core/src/redact.rs`). Clap-derive
+  routes CLI args through `<T as From<String>>::from` (its default
+  `TypedValueParser` picks it over `FromStr` when both exist). The pre-1.5.1
+  impls were identity constructors — every authenticated verb since 1.5.0
+  silently sent the LITERAL reference string (`@file:/tmp/pw.txt`,
+  `env:ADHAMMER_PW`) to the DC as the password bytes. The DC rightfully
+  returned `AcceptSecurityContext error, data 52e (InvalidCredentials)` and
+  the classifier reported "bad credentials", leaving operators hunting a
+  phantom auth error with known-good secrets.
+  - Wire-diffed on 2026-09-11 against an external live DC: `adhammer scan` bind
+    sent `simple: @file:/tmp/pw.txt`, ldapsearch bind sent
+    `simple: <pw>` — identical creds, identical wire path,
+    different bytes.
+  - Fix: shared `expand_credential_reference()` helper. Both `From<String>`
+    and `From<&str>` route through it. Malformed reference → stderr WARN +
+    empty secret — never leaks the raw literal as bytes (that would ship
+    `@file:/tmp/pw` as the password and mislead the operator into wondering
+    why the DC rejected obviously-correct creds).
+  - Guard: five regression tests in `crates/core/src/redact.rs` cover
+    `From<String>` + `From<&str>` for `@file:` and `env:` (present + missing),
+    plus the identity-path for plain values.
+  - Blast radius: doctor / scan / enum / attack — every verb that takes a
+    `--password @file:...` or `env:...` was silently sending the wrong bytes.
+
+### Added — WinRM PowerShell shell type + doctor UX alias
+
+- **`attack winrm --shell {cmd,powershell}`** flag (`cli/src/winrm.rs`,
+  `cli/src/attacks/winrm_exec.rs`). Adds a `ShellType` enum + a
+  `ShellKind` clap wrapper; wraps the command as `cmd.exe /c <cmd>`
+  (default, pre-1.5.1 behavior) or
+  `powershell.exe -NoProfile -NonInteractive -Command <cmd>`. Threads the
+  chosen `ShellType` through `WinRm::connect` / `create_shell_soap` /
+  `header` / `command_soap` so the ResourceURI matches. **Partial fix**:
+  the WSMan PS-flavor Windows-Shell URI is NOT accepted on Server 2019+ —
+  those hosts require the full PSRP runspace URI + PSRP framing (filed
+  for 1.6). The flag is in place today so hosts that accept the plain PS
+  shell URI can be driven from adhammer.
+- **`doctor --realm` visible alias** for `--domain` (`cli/src/doctor.rs`).
+  Doctor's `///` doc reads "AD / Kerberos realm" but the flag was
+  `--domain` only. Kerberos-world muscle memory types `--realm` and hit
+  `error: unexpected argument '--realm'`. Both names now work; behavior
+  identical.
+
+### Added — scaffolding-honesty markers
+
+- `lsa lsass-parse` marked `**[SCAFFOLDING]**` + `#[command(hide = true)]`
+  + runtime stderr banner. The verb parses the outer MDMP header + stream
+  directory only — it does NOT walk lsasrv.dll symbols and does NOT
+  extract WDigest / MSV1_0 / TSPKG / Kerberos / SSP secrets. Hidden from
+  `--help` per the 1.4.7 `check krb-seal` precedent; invocable by name.
+- `kerb trust-dump` marked `**[PARTIAL]**`. The LDAP-side half works
+  (inventory of `trustedDomain` objects); the LSA-side secret extract
+  (`G$$<partner>` via `LsarRetrievePrivateData`) is blocked on
+  `ms-lsad v0.3` and prints an inline `[hint]` at the gap site.
+
+### Added — CONTRIBUTING § "Referring to external tools"
+
+- Documents the distinction between competitor-mentions (banned) and
+  `gap_hint.rs`-shape operational-humility markers (allowed). Reviewer
+  rubric for PRs adding new gap-hint entries.
+
+### Added — Kerberos + AD CS chains + universal gap-hint pattern
+
+- **`kerb pkinit`** (F1a) — raw pass-the-cert as a first-class verb: `--key
+  <pem> [--cert <path>]` (DER or PEM) `--user --realm --kdc [--out
+  <path>]` → PA-PK-AS-REQ → AS-REP → reusable ccache. Reuses the mature
+  CMS/DH/AS-REQ path from `adhammer-kerberos::pkinit`. Rejects `.pfx`
+  inputs with the `openssl pkcs12` one-liner hint. Chains cleanly from
+  `attack shadowcred --add` (key-trust) or `attack esc1` (cert-based).
+- **`kerb u2u-nt`** (F1c) — Kerberos-group alias for `attack unpac`:
+  PKINIT then extract the NT hash from the AS-REP's
+  `PAC_CREDENTIAL_INFO` padata at key usage 16. Same code path as the
+  existing `attack unpac`, exposed under the Kerberos group so operators
+  find it where they expect.
+- **`attack esc4 --chain-esc1 --alt-name <UPN> --ca <NAME>`** (F2) — ESC4
+  → ESC1 in one call: weaponizes the writable template, chains straight
+  into `attack esc1` with the same auth (SMB creds derived from the LDAP
+  bind identity, NetBIOS from the base DN, SMB host from the LDAP URL),
+  and — with `--restore` — writes the template's original flags back on
+  finish (win or fail), leaving no persistent ESC1 vuln on the DC.
+  `--chain-esc1` implies `--commit` (the write must happen for esc1 to
+  see the vulnerable state).
+- **`creds gpp-decrypt`** (F6) — MS14-025 GPP `cpassword` → plaintext as a
+  standalone verb (takes the base64 string on the CLI or via `--file`;
+  optional `--account <name>` prefix for scripted pipelines). Wraps
+  `adhammer_sysvol::gpp::decrypt_cpassword` — the same primitive that
+  runs during SYSVOL scans, now callable on a `cpassword` pulled from a
+  third-party dump or an SMB share triage.
+- **`adhammer gaps`** — list every documented adhammer gap with the
+  external tool to swap in (`impacket-*`, `certipy`, `pypykatz`,
+  `rusthound-ce`, `keepass2john`) and a `docs/GAPS.md#anchor` for the
+  full story. Backed by a shared runtime `[hint]` block emitted at gap
+  sites on stderr (3-line contract, `--json` stdout stays pure). See
+  `docs/GAPS.md`.
+- **`attack esc4 --enrollee <principal>`** and **`kerb pkinit --key <file.pfx>`**
+  now surface the corresponding external-tool hint instead of an opaque
+  error / warning.
+- **Interactive front-door: Pass-the-Cert wizard.** The cold-start goal
+  picker now offers a third option alongside Recon-no-creds and
+  Authenticated: PTC walks the operator from a PEM key OR a PFX bundle to
+  a TGT ccache, then optionally chains PKINIT → NT-hash extract for PtH.
+- **`kerb pkinit --pfx <bundle> [--pfx-password]`** (F1a v2) — inline
+  PKCS#12 decode via the pure-Rust `p12` crate; extracts the private key
+  (PKCS#8 PEM re-serialized) + first client cert (DER) and hands both to
+  the existing PKINIT primitive. `--key`/`--cert` still work.
+- **`ldap auth`** (F1b) — LDAPS bind via a TLS client certificate (SASL
+  EXTERNAL). Hand-rolled rustls + minimal LDAP encoder because the
+  workspace's ldap3 does not expose a client-cert TLS setter. Accepts
+  `--pfx` or `--key`+`--cert`; on success prints the DC's `BindResponse`
+  resultCode + matchedDN + diagnosticMessage. Bind test only — persisting
+  the session in the collector is a follow-up workstream.
+- **`kerb trust-mint`** (F3) — mint a cross-realm TGT from a trust key.
+  Thin wrapper over `attack asktgt --nt-hash` targeting the foreign KDC
+  with a `$`-suffix trust account (`kerb trust-mint --user PARENT$
+  --realm PARENT.LOCAL --kdc parent-dc --nt-hash <rc4>`).
+- **`kerb trust-dump`** (F3, LDAP side) — enumerate `trustedDomain`
+  objects (partner FQDN, direction, type, trust-attributes bit summary)
+  under `CN=System`. Emits the `[hint]` external-tool block for the
+  LSA-side secret extract (`G$$<partner>` via `LsarRetrievePrivateData`),
+  which lands when `ms-lsad v0.3` publishes.
+- **`lsa lsass-parse <dump.dmp>`** (F5, scaffold) — parses a Windows
+  minidump's outer header + stream directory, prints a triage summary
+  (arch / OS build / stream inventory / "full LSASS walk viable?"), and
+  emits the specialist-tool `[hint]` block for the credential extract.
+  Per-Windows-build symbol walk is follow-up work; the CLI surface is in
+  place so scripts can preserve muscle memory.
+- **`Single attack` menu** now surfaces `Kerb PKINIT`, `Kerb U2U-NT`, and
+  `GPP decrypt` under the "Creds" category — the wizard collects only the
+  minimum-required inputs (session defaults for realm/kdc/user).
+- **Typed JSON** for the highest-value data verbs. `attack roast`,
+  `attack laps`, and `attack gmsa` now emit `{command, success, typed:
+  {kind, ...rows}, evidence: <text>}` from `--json`, structured for SIEM
+  ingest. Deeper verbs (dcsync/samr/secretsdump) keep the text-envelope
+  fallback and follow in a later commit.
+
+### Added — first-touch operator UX
+
+- `adhammer doctor` — pure-diagnostic preflight: DNS SRV DC discovery, a TCP
+  port matrix (88/389/445/636/3268), and an optional credentialed bind whose
+  failure is classified into a named fix. Honest as an automation gate — each
+  probe is `ok`/`warn`/`fail`/`skipped`, the process exits non-zero on a failed
+  or inconclusive run, `--timeout` bounds every probe and the bind, `--socks`
+  reachability goes through the real pivot, and `--json` emits the machine result.
+- Copy-pasteable **next command** per finding in the HTML + Markdown reports —
+  flags match the real argument structs, with shell-safe substitution and exact
+  ESC-class matching (no `esc1`↔`esc11` collisions). JSON stays clean.
+- `adhammer completions <shell>` (bash/zsh/fish/powershell) and `adhammer man`.
+- `--examples` and root `--help` quickstart recipes.
+- A shared error→fix classifier: recognized failure classes surface a named fix
+  as the headline instead of an opaque error dump.
+- No-credential recon path in the interactive front door — a cold start opens a
+  goal picker (Recon, no creds / Authenticated); Recon routes to the black-box
+  `run` flow.
+- `--allow-plaintext-ldap` (lab DCs without an LDAPS certificate) and
+  `--gpp-dump-out` (write recovered GPP material to a file).
+
+### Fixed
+
+- `run --deep`/`--web` now include the anonymous SMB posture and web-fingerprint
+  results in `--json` output — previously they were computed then dropped, so a
+  JSON consumer only saw the DNS discoveries.
+- HTML reports: a scan with **zero findings and zero executed checks** (auth
+  failed, DC unreachable, early bail) no longer renders the green "no
+  vulnerabilities identified" assurance banner — it now shows an explicit
+  "Inconclusive — no checks recorded" notice, so a blocked scan can't read as a
+  hardened DC.
+- Progress/section narration goes to stderr under `--json`, keeping stdout pure.
+
+### Security
+
+- Leak-prevention hook hardened (NTLM-hash and `WIN-` hostname shape patterns; a
+  local untracked secrets file); scrubbed a lab DC hostname from an in-tree
+  comment.
+
+### Changed
+
+- Removed internal-only planning/governance document references from the public
+  code, docs, and manifests; readers are pointed at `VECTORS.md`,
+  `docs/VALIDATION.md`, and `SECURITY.md`.
+
 ## [1.5.0] — 2026-09-04
 
 Capability push: no-credential black-box AD assessment surface. Turns
@@ -266,7 +454,7 @@ no-credential assessment capability push on top of this tree.
 ### Live-DC receipts
 
 - `docs/receipts/1.4.10__{2019,2022,2025}.md` — cross-version live-
-  validation against `testlab.local` DCs (Windows Server 2019, 2022,
+  validation against `<lab-domain>` DCs (Windows Server 2019, 2022,
   2025). Every receipt scrubber-approved (0 leak-terms matches).
   Behavioral fingerprint confirms OS mapping: Server 2025's krbtgt no
   longer emits DES keys (deprecated in default config), 2019/2022 do.
@@ -355,7 +543,7 @@ security review (`docs/AH-review 2026-09-01`, canonical revision
 
 Full release matrix landed. Every receipt approved.
 
-- `docs/receipts/1.4.9__2025.md` — DC01, Server 2025.
+- `docs/receipts/1.4.9__2025.md` — <dc>, Server 2025.
 - `docs/receipts/1.4.9__2022.md` — Server 2022.
 - `docs/receipts/1.4.9__2019.md` — Server 2019.
 
@@ -443,7 +631,7 @@ sibling crate stay local this cycle.
   which tries standalone SHA1 → domain MD4 → Protected-Users
   PBKDF2-SHA256 automatically. Live-validated end-to-end on 2026-08-30
   against a Server 2025 domain Administrator masterkey (<dc-ip> /
-  DC01 testlab): output matches impacket 0.14 `dpapi.py masterkey` byte-
+  <dc> testlab): output matches impacket 0.14 `dpapi.py masterkey` byte-
   for-byte across all three pre-key paths.
 
 ### Added — Phase B/C/D/F: already-implemented primitives doc-named to plan
@@ -537,7 +725,7 @@ sibling crate stay local this cycle.
 
 The **"security-audit remediation + assurance-lane polish"** release. Every one of
 the eight findings from the pre-ship tag-vs-main audit (2 P1, 5 P2, one stale
-version) is closed and PTY-verified on Kali VBox against DC01 Server 2025 before
+version) is closed and PTY-verified on Kali VBox against <dc> Server 2025 before
 tag. Report gains two new coverage panels + a deterministic content hash for
 audit-trail; interactive UX gains guardrails against silent password exposure.
 
@@ -712,7 +900,7 @@ gets rich per-stage checklists that name the exact failing pipeline step.
 - **WS-4-P2 sealed Kerberos RPC bind — primitives + BIND verified** — RFC 3961/3962
   crypto primitives, HMAC + subkey derivation, `AesCts96Sealer` implementation of
   `dcerpc::KrbSealer`. The BIND path is byte-correct against Windows Server 2025
-  (BIND_ACK live-verified against DC01). The sealed REQUEST WRAP-token layout is
+  (BIND_ACK live-verified against <dc>). The sealed REQUEST WRAP-token layout is
   not yet finalized — the `check krb-seal` diagnostic subcommand is **hidden from
   `--help`** and marked `[SCAFFOLDING]`. Closure lands in 1.4.7 once a Windows-client
   → DC Wireshark capture is available. Downstream `ms-dcom` / `ms-wmi` fills are
@@ -807,8 +995,8 @@ The **"prove it, cover it"** release. Extends the `1.4.2` trust-surface cleanup
 with ground-truth evidence on every finding, a wider passive-detection registry,
 and baseline diffing — on top of the interactive UX overhaul.
 
-> **Live-validated 2026-08-25** against both `testlab.local` forests (Server 2025
-> DC01 + Server 2022). `scan` produced evidence-backed findings (16/16 carry
+> **Live-validated 2026-08-25** against both `<lab-domain>` forests (Server 2025
+> <dc> + Server 2022). `scan` produced evidence-backed findings (16/16 carry
 > ground-truth evidence on each DC), the WS-19 baseline diff detected real deltas,
 > the ESC-registry probe folded into scan, and `dcsync krbtgt` matched the
 > known-good hash on both DCs. Offline gate green (`cargo test --workspace`,
@@ -885,7 +1073,7 @@ truth surface before publish.
 
 The **"grandiozno"** feature release. 12 workstreams + 5 refactor passes.
 Skips permanently-yanked 1.4.0 slot on crates.io. Live-validated against
-Windows Server 2022 + 2025 DCs (both `testlab.local` forests).
+Windows Server 2022 + 2025 DCs (both `<lab-domain>` forests).
 
 ### Added — feature workstreams
 
@@ -935,7 +1123,7 @@ on run end.
 Comma-separated `--value` OR's bits into `userAccountControl`
 (DONT_REQUIRE_PREAUTH / TRUSTED_FOR_DELEGATION /
 TRUSTED_TO_AUTH_FOR_DELEGATION / DONT_EXPIRE_PASSWORD /
-ACCOUNTDISABLE / PASSWD_NOTREQD). Live-verified on DC01:
+ACCOUNTDISABLE / PASSWD_NOTREQD). Live-verified on <dc>:
 `0x00010200 → 0x00410200` with DONT_REQUIRE_PREAUTH. PFX export
 deferred to 1.4.2.
 
@@ -958,7 +1146,7 @@ for the other 6 chains).
 **WS-11 Anonymous fingerprint mode** — `scan --anonymous` skips the
 authenticated collection and runs port scan (12 ports) + null-session
 SMB negotiate + raw UDP SRV query for `_ldap._tcp.dc._msdcs.<domain>`
-+ RootDSE anonymous fingerprint. Live-verified against DC01
++ RootDSE anonymous fingerprint. Live-verified against <dc>
 (4 findings across 4 sources; all 4 report files written).
 
 **WS-12 `adhammer setup krb5` — interactive krb5.conf generator.**
@@ -1201,7 +1389,7 @@ Full stack against Windows Server 2022 and Server 2025 DCs.
 
 ### Pulled
 - `enum ca-config` command — `ICertAdminD2` UUID + opnum 44 rejected by live
-  DC01; needs Wireshark trace of a real `certutil -config` before re-adding.
+  <dc>; needs Wireshark trace of a real `certutil -config` before re-adding.
 
 ## [1.3.6] — 2026-08-15
 

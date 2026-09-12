@@ -40,3 +40,35 @@ reference).
 New attack primitives should sit on the existing crates (`dcerpc`/`ntlm`/`smb`/`kerberos`)
 rather than adding parallel implementations. Open an issue to discuss larger additions
 (new MS-RPC interfaces, new ADCS ESC classes) before investing in a big PR.
+
+## Referring to external tools
+
+ADhammer does not pitch itself against any other tool. README, help text, blog posts, and
+release notes describe **what adhammer does**, not what other tools fail to do — no
+comparison tables, no "unlike X we do Y" copy, no ranking claims. Screenshots, docs, and
+package metadata stay competitor-free.
+
+There is exactly one place where external tool names DO belong in shipped output:
+**`cli/src/gap_hint.rs`** and its docs sink `docs/GAPS.md`. That module emits a
+copy-pasteable external command at each point where adhammer honestly does not cover a
+capability — e.g. an LSASS symbol walk hands off to a specialist minidump tool, a live
+BloodHound-CE collect hands off to `rusthound-ce`, an offline NTDS.dit extract hands off
+to `impacket-secretsdump`. These references are **operational humility markers**, not
+competitive pitches: they name the specialist so an operator can finish the job, with the
+captured parameters pre-substituted so the copy-paste works from the same shell.
+
+The distinction, so a reviewer can grade a PR against it:
+
+- **Not allowed:** any text that positions adhammer *against* another tool, including
+  README badges, feature-parity claims, "vs" tables, and "we're better because" prose.
+- **Allowed:** `gap_hint.rs` entries that name a specialist tool as the recommended
+  next-step for a specific capability adhammer does not implement, alongside a real
+  runnable command line.
+- **Also allowed:** attribution of an upstream library adhammer consumes (e.g. an
+  eventual RustHound-CE library integration would get an attribution line in
+  `README.md` + a licence-notice row — see `docs/PLAN_1.5.2.md`).
+
+If you're adding a new `gap_hint.rs` entry, prefer one specialist per capability (not a
+list); keep the command line runnable end-to-end with the captured parameters; and never
+add a "here's how it compares" sentence — the point is "here's how to finish the job",
+nothing more.

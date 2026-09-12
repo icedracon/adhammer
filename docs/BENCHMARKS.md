@@ -6,7 +6,7 @@ Head-to-head timings vs the standard AD offensive toolkit: **impacket**, **certi
 
 Numbers like "144×" invite fair scrutiny. Here is exactly what was measured and how, so you can either reproduce or discount the result:
 
-**Testbed.** Windows Server 2025 Standard DC (`testlab.local`, LDAPS via enterprise CA, `RemoteRegistry` enabled). Fully patched.
+**Testbed.** Windows Server 2025 Standard DC (`<lab-domain>`, LDAPS via enterprise CA, `RemoteRegistry` enabled). Fully patched.
 
 **Path parity.** ADhammer runs directly from a Windows host to the DC (LAN, ~1 ms RTT). The Python tools (impacket, certipy, bloodyAD, NetExec) run from Kali WSL and reach the DC through a SOCKS5 tunnel opened over SSH *to the same Windows host* (`ssh -D 1080 zevs@host`), then via `proxychains4`. Both sides therefore terminate on the same Windows host and share the last-mile path to the DC. The SOCKS5 tunnel adds a few sub-millisecond hops that ADhammer avoids — this is called out honestly here rather than hidden, and is negligible (< 5 ms) compared to the measured deltas (hundreds to thousands of ms).
 

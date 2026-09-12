@@ -1,292 +1,219 @@
 <p align="center">
-  <img src="docs/readme-hero.png" alt="ADhammer maps an Active Directory environment into evidence-backed paths to Tier-0" width="100%" />
+  <img src="docs/readme-banner.svg" alt="ADhammer — discover, map, validate, report" width="100%" />
 </p>
 
 <h1 align="center">ADhammer</h1>
 
 <p align="center">
-  <strong>Evidence-first Active Directory security assessment in one Rust binary.</strong><br />
-  Discover the estate. Map paths to Tier-0. Validate supported findings. Ship defensible evidence.
+  <strong>Evidence-first Active Directory assessment in Rust.</strong><br />
+  Discover the domain. Map Tier-0 paths. Validate only what can be backed by proof.
 </p>
 
 <p align="center">
-  <a href="https://icedracon.github.io/adhammer/"><strong>Website</strong></a>
+  <a href="https://icedracon.github.io/adhammer/"><strong>WEBSITE</strong></a>
   &nbsp;·&nbsp;
-  <a href="#install"><strong>Install</strong></a>
+  <a href="#quick-start"><strong>QUICK START</strong></a>
   &nbsp;·&nbsp;
-  <a href="#capability-map"><strong>Capabilities</strong></a>
+  <a href="docs/VALIDATION.md"><strong>VALIDATION LEDGER</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/VALIDATION.md"><strong>Validation ledger</strong></a>
-  &nbsp;·&nbsp;
-  <a href="https://docs.rs/adhammer-sdk"><strong>Rust SDK</strong></a>
+  <a href="CHANGELOG.md"><strong>RELEASE NOTES</strong></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/icedracon/adhammer/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/icedracon/adhammer/ci.yml?branch=main&style=for-the-badge&label=build&labelColor=070B14&color=2EA8FF" alt="Build status" /></a>
-  <a href="https://github.com/icedracon/adhammer/releases"><img src="https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver&style=for-the-badge&label=release&labelColor=070B14&color=A78BFA" alt="Latest release" /></a>
-  <a href="https://crates.io/crates/adhammer"><img src="https://img.shields.io/crates/v/adhammer.svg?style=for-the-badge&label=crates.io&labelColor=070B14&color=55D6BE" alt="crates.io version" /></a>
-  <a href="docs/POLICY_MSRV.md"><img src="https://img.shields.io/badge/rust-1.88%2B-F7C948?style=for-the-badge&labelColor=070B14" alt="Rust 1.88 or newer" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F7C948?style=for-the-badge&labelColor=070B14" alt="MIT License" /></a>
+  <a href="https://github.com/icedracon/adhammer/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/icedracon/adhammer/ci.yml?branch=main&style=flat-square&label=CI&color=2EA8FF&labelColor=03060C" alt="CI" /></a>
+  <a href="https://github.com/icedracon/adhammer/releases"><img src="https://img.shields.io/github/v/release/icedracon/adhammer?sort=semver&style=flat-square&color=A78BFA&labelColor=03060C" alt="Latest release" /></a>
+  <a href="https://crates.io/crates/adhammer"><img src="https://img.shields.io/crates/v/adhammer.svg?style=flat-square&color=55D6BE&labelColor=03060C" alt="crates.io" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F7C948?style=flat-square&labelColor=03060C" alt="MIT License" /></a>
 </p>
 
----
+<br />
 
-ADhammer is an open-source CLI for **authorized Active Directory assessments**.
-It brings collection, graph analysis, supported validation, and multi-format
-reporting into a single workflow while keeping a strict line between a signal
-and something actually proven.
+## Start here
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>Scope-aware discovery</h3>
-      <p>Start without credentials using bounded DNS SRV discovery, AD-facing web fingerprints, and anonymous SMB posture checks. Explicit includes and excludes keep first-touch work inside the declared scope.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>Tier-0 path analysis</h3>
-      <p>Turn collected directory state into directional control edges, ranked findings, and the lowest-cost paths to Tier-0—with a mitigation attached to every reported hop.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>Proof, not implied impact</h3>
-      <p>Every capability is tracked as supported, experimental, offline-only, or validation owed. Reports preserve that state instead of presenting possible paths as completed compromise.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>Native Rust protocol stack</h3>
-      <p>LDAP, Kerberos, SMB2, NTLM, DCE/RPC, AD CS, SYSVOL, and BloodHound CE integration sit behind one portable CLI—without a Python runtime or sidecar service.</p>
-    </td>
-  </tr>
-</table>
+- **Use the tool:** [Install and inspect the CLI](#quick-start).
+- **Understand the output:** [Explore the assessment walkthrough](https://icedracon.github.io/adhammer/#engine).
+- **Evaluate support:** [Read the validation ledger](docs/VALIDATION.md).
+- **Build with Rust:** [Use the SDK](https://docs.rs/adhammer-sdk) or [choose a protocol crate](#the-icedracon-stack).
 
-## One workflow, evidence at every stage
+## From signal to evidence
+
+ADhammer is an open-source CLI for authorized Active Directory security
+assessments. It collects directory state, resolves control paths that end at
+Tier-0, and keeps the status of every result explicit: **observed**,
+**validated with proof**, or **validation owed**.
+
+1. **Discover** — collect directory services and exposure within scope.
+2. **Map** — follow relationships and possible paths to Tier-0.
+3. **Validate** — exercise supported paths with operator consent and recorded evidence.
+4. **Report** — carry results into JSON, HTML, Markdown, or BloodHound CE export.
+
+<br />
+
+## Truth before theatre
+
+ADhammer does not treat a possible path as proof. That distinction is the
+product: a report a defender can act on without guessing what was actually
+demonstrated.
+
+| Signal | Meaning |
+|:--|:--|
+| **Observed** | A condition was collected from the assessment scope. |
+| **Validated** | A supported path produced recorded proof. |
+| **Validation owed** | Code or a possible path exists, but proof is not on file. |
+
+The [validation ledger](docs/VALIDATION.md) is authoritative for support and
+readiness claims.
+
+<br />
+
+## v1.5.0 / first-touch signal
+
+**Published 2026-09-04.** Version 1.5.0 adds a documented first-touch workflow
+for authorized, in-scope environments: DNS SRV discovery, optional
+fingerprinting of AD-facing HTTP(S) services, and anonymous SMB posture
+collection where the target permits it. It also adds focused enumeration
+surfaces, a coercion-family matrix, and hashcat-mode guidance on roast output.
+
+The release is available through [GitHub Releases](https://github.com/icedracon/adhammer/releases/tag/v1.5.0)
+and [crates.io](https://crates.io/crates/adhammer). Static release builds have
+SHA-256 sidecars and GitHub OIDC Sigstore verification instructions. Exact
+feature scope and validation status remain linked to the
+[changelog](CHANGELOG.md) and [ledger](docs/VALIDATION.md).
 
 <p align="center">
-  <img src="docs/readme-banner.svg" alt="ADhammer workflow: Discover, Map, Validate, Report" width="92%" />
+  <a href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0"><strong>READ v1.5.0 NOTES →</strong></a>
 </p>
 
-```text
-authorized scope
-      │
-      ▼
-discover ──► collect ──► control graph ──► scored checks
-                                              │
-                                              ▼
-                                    supported validation
-                                              │
-                                              ▼
-                              JSON · HTML · Markdown · BHCE
-```
-
-- **Discover** domain controllers and exposed AD services without silently expanding scope.
-- **Collect** directory, trust, delegation, AD CS, host-posture, and optional SYSVOL state.
-- **Map** control relationships and rank viable routes to Tier-0.
-- **Validate** only supported paths, with operator consent and recorded proof.
-- **Report** findings, paths, mitigations, and evidence in reviewable formats.
+<br />
 
 ## Quick start
-
-Install the binary, inspect the command surface, then start with a declared
-authorized scope.
 
 ```sh
 cargo install --locked adhammer
 adhammer --help
 ```
 
-### No-credential first touch
+One binary. No Python runtime. No sidecar service. Prebuilt release binaries
+are available for Linux, macOS, and Windows.
+
+<details>
+<summary><strong>Start an authorized assessment</strong></summary>
+<br />
 
 ```sh
-adhammer run \
-  --domain corp.example \
-  --range 10.20.0.0/24 \
-  --dns-server 10.20.0.10 \
-  --web
+# Inspect the available assessment surface before using any live command.
+adhammer --help
+
+# Review documented syntax for the passive audit workflow.
+adhammer scan --help
 ```
 
-### Authenticated assessment and report bundle
+Use only systems you own or are explicitly authorized to test. Read the
+[security policy](SECURITY.md), [validation ledger](docs/VALIDATION.md), and
+[release notes](CHANGELOG.md) before an engagement.
 
-```sh
-adhammer scan \
-  --url ldaps://dc01.corp.example:636 \
-  --user assessor \
-  --password @file:/secure/path/password.txt \
-  --out-all assessment
-```
+</details>
 
-That single scan writes JSON, HTML, Markdown, and a plaintext executive
-summary. Use `--out domain.zip` when you need a BloodHound CE v5 ingest bundle.
+<br />
 
-> [!TIP]
-> Run `adhammer <command> --help` before a live operation. Password arguments
-> accept `@file:/path/to/secret` and `$ADHAMMER_PASSWORD`, so credentials do
-> not need to be placed directly on the command line.
+## What ships
 
-## Capability map
-
-The table below is a readable overview—not a substitute for the
-[authoritative validation ledger](docs/VALIDATION.md).
-
-| Area | Operator surface | What ADhammer provides |
-|:--|:--|:--|
-| **Assessment** | `scan`, `auto` | LDAP collection, scored checks, Tier-0 control paths, baseline diffs, and guided supported validation. |
-| **First touch** | `run`, `scan --anonymous` | Scope-filtered DNS discovery, AD web-surface fingerprints, and anonymous host posture. |
-| **Enumeration** | `enum` | SAMR, LSAT, ADIDNS, AD CS, DC posture, sessions, logged-on users, SCCM/SCOM, Kerberos users, shares, and SYSVOL. |
-| **Kerberos** | `attack roast`, `asktgt`, `ptt`, `rbcd`, `constrained`, `golden`, `silver`, `diamond`, `unpac` | Roast workflows, ticket acquisition and use, delegation paths, ticket forging, and PKINIT credential recovery. |
-| **AD CS** | `check adcs`, `enum adcs`, `enum esc`, `attack esc1`, `attack esc4`, `attack shadowcred` | Certificate-template analysis, registry-backed ESC posture, and supported certificate abuse paths. |
-| **Coercion and relay** | `attack coerce`, `capture`, `poison`, `relay` | Supported coercion families, NetNTLMv2 capture, LLMNR/NBT-NS lure, and validated LDAP relay targets. |
-| **Replication and execution** | `attack dcsync`, `dcshadow`, `exec`, `atexec`, `wmiexec`, `winrm` | Single-object replication, supported DCShadow stages, and multiple post-auth execution transports. |
-| **Secrets** | `attack secretsdump`, `gmsa`, `laps`, `lsa`, `dpapi-master-key`; `dump laps`, `dump gmsa` | Authorized retrieval and offline handling with redaction-aware output boundaries. |
-| **Evidence and integrations** | `--out`, `--out-all`, `--json`, `--text` | JSON envelopes, HTML/Markdown reports, plaintext summaries, report fingerprints, and BloodHound CE export. |
-| **Pivots** | global `--socks` | SOCKS5 routing for supported outbound TCP workflows with proxy-side DNS. |
-
-Some implemented paths remain **offline-only** or **validation owed**, including
-the ICPR ESC1 live submission path and specific relay/DCShadow stages. They are
-not represented above as fully supported. Check the ledger before an
-engagement.
-
-## CLI at a glance
-
-```text
-adhammer
-├── run       no-credential, scope-bound discovery
-├── scan      collect → graph → checks → report
-├── enum      read-only protocol and directory enumeration
-├── check     focused offline or single-taxonomy checks
-├── attack    consent-gated validation and operator workflows
-├── dump      focused LAPS and gMSA retrieval
-├── auto      scan → supported validation → report bundle
-└── setup     one-shot environment helpers
-```
-
-`attack`, `enum`, and `dump` emit a structured JSON envelope by default. Use
-`--text` for human-readable terminal output, or stack `-v`, `-vv`, and `-vvv`
-for progressively deeper diagnostics without logging key bytes, ticket
-contents, or hashes.
-
-## The evidence contract
-
-ADhammer treats validation state as a product boundary:
-
-| State | Meaning |
+| Surface | What it gives you |
 |:--|:--|
-| **Supported** | Default-build capability with automated coverage and current authorized live evidence. |
-| **Experimental** | Opt-in feature with CI coverage; not part of the default release surface. |
-| **Offline-only** | Tested locally or against known-answer data, but no current live-target proof is recorded. |
-| **Validation owed** | Code exists, but sufficient proof is not yet on file. |
+| **Directory assessment** | LDAP collection, AD CS context, delegation, trust, hygiene, and posture analysis. |
+| **Attack-path graph** | Directional control edges and the cheapest viable routes to Tier-0. |
+| **Evidence outputs** | JSON, HTML, Markdown, and BloodHound CE export with findings, paths, and proof kept connected. |
+| **First-touch discovery** | Documented scoped DNS, AD web-surface, and anonymous posture workflows in v1.5.0. |
+| **Rust ecosystem** | Published icedracon protocol crates that can be consumed independently. |
 
-The [validation ledger](docs/VALIDATION.md) is checked by CI against public
-claims. Implementation alone never upgrades a capability to “supported.”
+For exact CLI syntax, capability boundaries, and the complete vector inventory,
+use [the command reference](VECTORS.md), `adhammer --help`, and the
+[validation ledger](docs/VALIDATION.md).
 
-## Reports built for handoff
+<br />
 
-A useful finding needs more than a severity label. ADhammer connects:
-
-- the observed condition and affected object;
-- its control-path position and route to Tier-0;
-- the validation state and available proof;
-- a concrete mitigation for each path hop;
-- stable JSON for downstream case, scoring, or detection workflows;
-- a SHA-256 report fingerprint for evidence integrity.
-
-Use the HTML report for review, JSON for automation, Markdown for engagement
-notes, plaintext for the executive summary, and BloodHound CE export for graph
-exploration.
-
-## Install
-
-### Prebuilt binaries
-
-Signed release assets are available for Linux, macOS, and Windows on
-[GitHub Releases](https://github.com/icedracon/adhammer/releases). Releases
-include SHA-256 sidecars and GitHub OIDC Sigstore verification instructions.
-
-### cargo-binstall
-
-```sh
-cargo binstall adhammer
-```
-
-### Cargo
-
-```sh
-cargo install --locked adhammer
-```
-
-### From source
-
-```sh
-git clone https://github.com/icedracon/adhammer.git
-cd adhammer
-cargo build --release --locked
-```
-
-The minimum supported Rust version is documented in
-[docs/POLICY_MSRV.md](docs/POLICY_MSRV.md). The default TLS backend bundles
-Rustls/AWS-LC; optional native TLS and GSSAPI builds are documented in the
-workspace manifests.
-
-## Built as an ecosystem
-
-ADhammer is the application layer over standalone Rust crates for Microsoft
-security protocols. Use the CLI for an assessment or adopt the narrowest crate
-for your own tooling.
-
-| Layer | Crates |
-|:--|:--|
-| **Application** | [`adhammer-sdk`](https://docs.rs/adhammer-sdk) · `adhammer-collector` · `adhammer-checks` · `adhammer-graph` · `adhammer-report` |
-| **Directory and export** | `adhammer-ldap` · `adhammer-sysvol` · `bloodhound-export` · `windows-sddl` · `ad-acl` |
-| **Authentication** | `adhammer-kerberos` · `ntlmssp` · `ms-pac-forge` · `dpapi-ng` · `dpapi-offline` |
-| **Wire protocols** | `smb2-client` · `dcerpc` · `ms-ndr` · `ms-crtd` · `ms-icpr` · `ms-drsr` |
-
-Each crate has its own maturity and validation status. Publication on
-crates.io does not by itself imply production readiness.
-
-## Engineering confidence
-
-- Cross-platform build and test jobs for Linux, macOS, and Windows.
-- Formatting and Clippy warnings enforced in CI.
-- Minimum-Rust-version and package-inventory gates.
-- Dependency license, source, and duplicate-version policy via `cargo-deny`.
-- Short fuzz campaigns on parser-facing targets plus scheduled longer runs.
-- Reproducible-build, release-signing, and rotation documentation.
-- A public path for [third-party validation](docs/THIRD_PARTY_VALIDATION.md).
-
-Benchmark claims include their harness, raw rendered data, environment, and
-caveats in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-
-## Documentation
-
-| If you need… | Read… |
-|:--|:--|
-| Exact support and proof status | [Validation ledger](docs/VALIDATION.md) |
-| Complete vector inventory | [Vector coverage](VECTORS.md) |
-| Architecture and trust boundaries | [Architecture](docs/ARCHITECTURE.md) |
-| Benchmark methodology and results | [Benchmarks](docs/BENCHMARKS.md) |
-| Public API and MSRV expectations | [Stability](docs/STABILITY.md) · [MSRV policy](docs/POLICY_MSRV.md) |
-| Reproducing or submitting evidence | [Third-party validation](docs/THIRD_PARTY_VALIDATION.md) |
-| Reporting a vulnerability | [Security policy](SECURITY.md) |
-| Building or contributing | [Contributing guide](CONTRIBUTING.md) |
-| Release history | [Changelog](CHANGELOG.md) |
-
-## Responsible use
-
-> [!CAUTION]
-> ADhammer contains active security-assessment capabilities that can affect
-> production systems. Use it only on systems you own or have explicit written
-> authorization to test. Review the exact command, scope, and validation state
-> before execution.
-
-ADhammer creates structured evidence for approved downstream workflows. It is
-not a SIEM, EDR, DLP platform, Sigma/YARA rule engine, general web scanner, or
-mobile application scanner.
+## Security-signal boundary
 
 <p align="center">
-  <a href="https://github.com/icedracon/adhammer/releases"><strong>Download</strong></a>
+  <img src="https://img.shields.io/badge/AD%20PENTEST-NATIVE%20SCOPE-2EA8FF?style=flat-square&labelColor=03060C" alt="AD pentest: native scope" />
+  <img src="https://img.shields.io/badge/SIEM-JSON%20HANDOFF-A78BFA?style=flat-square&labelColor=03060C" alt="SIEM: JSON handoff" />
+  <img src="https://img.shields.io/badge/EDR%20%2F%20DLP-EXTERNAL%20CONTROLS-F7C948?style=flat-square&labelColor=03060C" alt="EDR and DLP: external controls" />
+  <img src="https://img.shields.io/badge/SIGMA%20%2F%20YARA-NOT%20SHIPPED-FB7185?style=flat-square&labelColor=03060C" alt="Sigma and YARA: not shipped" />
+  <img src="https://img.shields.io/badge/WEB%20%2F%20APK-SEPARATE%20SCOPE-55D6BE?style=flat-square&labelColor=03060C" alt="Web and APK: separate scope" />
+</p>
+
+ADhammer is native to Active Directory assessment: discovery, directory
+analysis, Tier-0 path mapping, supported validation, and report generation.
+It creates structured evidence for approved downstream workflows; it is not
+marketed as a SIEM, EDR, DLP platform, Sigma/YARA rule engine, general
+web-application scanner, or Android / APK testing suite.
+
+| Domain | ADhammer’s role |
+|:--|:--|
+| **SIEM / case workflow** | Machine-readable JSON evidence for downstream CI, SIEM, and scoring pipelines — not a built-in vendor connector. |
+| **EDR / DLP** | External controls. Authorized assessments may create observable protocol activity; ADhammer ships no evasion or endpoint-agent capability. |
+| **Sigma / YARA** | Not shipped. Detection content belongs in the team’s approved detection-engineering workflow. |
+| **Web / APK pentest** | Separate disciplines. ADhammer’s documented web capability targets AD-facing surfaces, not general application or mobile testing. |
+
+<p align="center">
+  <code>ADhammer assessment</code> &nbsp;→&nbsp; <code>evidence-rich JSON report</code> &nbsp;→&nbsp; <code>your approved detection / case workflow</code>
+</p>
+
+<br />
+
+## Built for people who need proof
+
+- **Assessors:** scoped AD reconnaissance, analysis, and supported validation.
+- **Defenders:** findings that distinguish observed conditions, recorded proof, and validation still owed.
+- **Rust developers:** reusable protocol crates and an SDK for integration.
+
+<br />
+
+## The icedracon stack
+
+ADhammer is the application layer on top of published, standalone Rust crates
+for Microsoft security protocols. Use the binary for an assessment, or adopt a
+single crate when you need a lower-level building block.
+
+| Layer | Examples |
+|:--|:--|
+| **Transport** | [`dcerpc`](https://crates.io/crates/dcerpc) · [`smb2-client`](https://crates.io/crates/smb2-client) · [`ms-ndr`](https://crates.io/crates/ms-ndr) |
+| **Directory / graph** | [`adhammer-collector`](https://crates.io/crates/adhammer-collector) · [`adhammer-graph`](https://crates.io/crates/adhammer-graph) · [`bloodhound-export`](https://crates.io/crates/bloodhound-export) |
+| **Auth / crypto** | [`ntlmssp`](https://crates.io/crates/ntlmssp) · [`ms-pac-forge`](https://crates.io/crates/ms-pac-forge) · [`dpapi-ng`](https://crates.io/crates/dpapi-ng) |
+| **AD CS / RPC** | [`ms-icpr`](https://crates.io/crates/ms-icpr) · [`ms-crtd`](https://crates.io/crates/ms-crtd) · [`ms-drsr`](https://crates.io/crates/ms-drsr) |
+
+Each crate has its own maturity and validation status; publication alone does
+not establish production readiness.
+
+Explore the wider ecosystem through [icedracon's repositories](https://github.com/icedracon?tab=repositories) and the [SDK documentation](https://docs.rs/adhammer-sdk).
+
+<br />
+
+## Reference shelf
+
+| Need | Go here |
+|:--|:--|
+| Release-specific change log | [CHANGELOG.md](CHANGELOG.md) |
+| Support and validation state | [docs/VALIDATION.md](docs/VALIDATION.md) |
+| Benchmark methodology and raw data | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) |
+| Security policy and reporting | [SECURITY.md](SECURITY.md) |
+| Contributing guidance | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+<br />
+
+## Authorized use
+
+> [!CAUTION]
+> ADhammer implements security-assessment and validation capabilities that can
+> affect production systems. Use it only against systems you own or are
+> explicitly authorized to test.
+
+<p align="center">
+  <a href="https://github.com/icedracon/adhammer/stargazers">STAR THE REPO</a>
   &nbsp;·&nbsp;
-  <a href="https://icedracon.github.io/adhammer/"><strong>Explore the site</strong></a>
+  <a href="https://crates.io/crates/adhammer">INSTALL FROM CRATES.IO</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/icedracon/adhammer/stargazers"><strong>Star ADhammer</strong></a>
+  <a href="https://icedracon.github.io/adhammer/">OPEN THE SITE</a>
 </p>
 
 <p align="center">
