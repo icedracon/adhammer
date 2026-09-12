@@ -90,12 +90,19 @@ meta.json
 # DACL, but a stray in-repo write must never land in git).
 gpp_dump*.txt
 *.gppdump
+.githooks/leak-terms.local.txt
 
 # Local maintainer and AI working material. Public planning belongs in GitHub
 # issues/milestones; detailed execution notes stay outside the source tree.
+# Lab-test receipts, live-fire run logs, and UX exercise plans are internal
+# work-product — they live in the ecosystem Obsidian vault, never in the repo.
 /AGENTS.md
 /.private/
 /docs/PLAN_*.md
+/docs/LIVE_FIRE_*.md
+/docs/HTB_*.md
+/docs/*_RECEIPT_*.md
+/docs/UX_TEST_PLAN_*.md
 /docs/AI_RELEASE_GOVERNANCE.md
 /docs/ECOSYSTEM_READINESS_100.md
 /scripts/check_release_governance.py

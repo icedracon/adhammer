@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -28,6 +28,8 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "clap_complete",
+ "clap_mangen",
  "dcerpc",
  "dialoguer",
  "dpapi-ng",
@@ -40,6 +42,7 @@ dependencies = [
  "ms-icpr",
  "ms-tds",
  "ntlmssp",
+ "p12",
  "rand",
  "rsa",
  "rustls",
@@ -56,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-core",
  "serde",
@@ -66,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -77,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -92,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "ipnet",
  "serde",
@@ -105,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -116,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -141,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "anyhow",
  "smb2-client",
@@ -151,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-checks",
  "adhammer-core",
@@ -163,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -181,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "aes",
  "cbc",
@@ -195,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "adhammer-core",
  "aes",
@@ -541,6 +544,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3be2ad0423bdbbb0e25bc89add796f3559706d4a95e1bc98e4d9662a957b6a19"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -557,6 +569,16 @@ name = "clap_lex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+
+[[package]]
+name = "clap_mangen"
+version = "0.2.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e30ffc187e2e3aeafcd1c6e2aa416e29739454c0ccaa419226d5ecd181f2d78"
+dependencies = [
+ "clap",
+ "roff",
+]
 
 [[package]]
 name = "cmac"
@@ -1717,6 +1739,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "p12"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4873306de53fe82e7e484df31e1e947d61514b6ea2ed6cd7b45d63006fd9224"
+dependencies = [
+ "cbc",
+ "cipher",
+ "des",
+ "getrandom 0.2.17",
+ "hmac",
+ "lazy_static",
+ "rc2",
+ "sha1",
+ "yasna",
+]
+
+[[package]]
 name = "pbkdf2"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1947,6 +1986,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc2"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62c64daa8e9438b84aaae55010a93f396f8e60e3911590fcba770d04643fc1dd"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "rc4"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1997,6 +2045,12 @@ dependencies = [
  "untrusted",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "roff"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323c417e1d9665a65b263ec744ba09030cfb277e9daa0b018a4ab62e57bc8189"
 
 [[package]]
 name = "rsa"
@@ -2950,6 +3004,12 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
 ]
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
 
 [[package]]
 name = "yoke"
