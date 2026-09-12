@@ -161,6 +161,14 @@ def main() -> int:
         "icpr_esc1": ["attack icpr-esc1"],
         "dpapi_mk": ["attack dpapi-master-key"],
         "unpac": ["attack unpac"],
+        # F-series verbs live in cli/src/attacks/ for code organization but are
+        # surfaced as their own top-level command groups (kerb / creds / ldap /
+        # lsa), not `attack <verb>`. Map each stem to the real CLI phrasing the
+        # ledger row uses.
+        "kerb": ["kerb pkinit", "kerb u2u-nt"],
+        "creds": ["creds gpp-decrypt"],
+        "ldap": ["ldap auth"],
+        "lsa_offline": ["lsa lsass-parse"],
     }
     for stem in verb_files:
         candidates = verb_aliases.get(stem, [f"attack {stem}"])

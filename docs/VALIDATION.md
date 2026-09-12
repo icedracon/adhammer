@@ -81,6 +81,8 @@ Every row below records:
 | `attack silver` | supported | live | 2025 | 2019 + 2022 |
 | `attack diamond` (WS-DIAMOND-TICKET) | supported | 27 tests inc. cname-inheritance + live | 2025 | 2019 + 2022 |
 | `attack unpac` (WS-UNPAC-PKINIT) | supported | live 2026-08-30 vs 2025 | 2025 | 2019 + 2022 |
+| `kerb pkinit` (F1a) — pass-the-cert PKINIT → TGT ccache | supported | same `adhammer_kerberos::pkinit` primitive as `attack shadowcred`/`attack esc1 --pkinit` (live-validated); re-surfaced as a direct verb | 2025 | dedicated `kerb pkinit` receipt |
+| `kerb u2u-nt` (F1c) — PKINIT → PAC_CREDENTIAL_INFO → NT hash | supported | alias for `attack unpac` (live 2026-08-30 vs 2025); same code path | 2025 | 2019 + 2022 |
 
 ### DCSync + replication
 
@@ -116,6 +118,7 @@ Every row below records:
 | `attack esc4` — template DACL abuse | supported | live | 2025 | 2019 + 2022 |
 | `attack icpr-esc1` — MS-ICPR CSR marshaled | offline-only | ms-icpr unit tests + offline preflight; wire complete | — | live submission receipt (WS-ESC3-CHAIN partial) |
 | `attack shadowcred` — msDS-KeyCredentialLink write + PKINIT | supported | live | 2025 | 2019 + 2022 |
+| `ldap auth` (F1b) — LDAPS SASL EXTERNAL client-cert bind | validation owed | hand-rolled rustls client-cert + minimal LDAP encoder; unit-tested; bypasses ldap3 (no client-cert TLS setter) | — | live client-cert bind receipt |
 
 ### Lateral movement (post-auth RCE)
 
@@ -156,12 +159,14 @@ Every row below records:
 | `attack samr` — SAMR user enum via RPC | supported | live | 2025 | 2019 + 2022 |
 | `attack dpapi-master-key` (WS-DPAPI-MASTER-KEY) | supported | byte-oracle vs impacket 0.14 + live 2025 | 2025 | 2019 + 2022 |
 | DPAPI blob decrypt chain | offline-only | round-trip KAT in dpapi-offline 0.1.3-dev | n/a | byte-oracle vs impacket for blob; live receipt |
+| `lsa lsass-parse` (F5) — minidump header/stream triage | validation owed | reads outer MDMP header + stream directory only — NOT credential extraction (scaffolding, hidden from `--help`); emits an external-tool `[hint]` | n/a | per-OS LSASS symbol walk (`LogonSessionList` + credential-package secrets) |
 
 ### Sysvol / GPO
 
 | Capability | Tier | Evidence | Windows | Owed |
 |---|---|---|---|---|
 | `scan --sysvol` — GPP cpassword (MS14-025) | supported | crates/sysvol unit + fuzz + live | 2025 | 2019 + 2022 |
+| `creds gpp-decrypt` (F6) — standalone MS14-025 cpassword → plaintext | supported | deterministic MS-GPPREF AES-256 static key; crates/sysvol GPP unit tests | n/a | — |
 | GptTmpl.inf policy analysis | supported | crates/sysvol unit + fuzz | n/a | — |
 
 ### Server-2025-specific
