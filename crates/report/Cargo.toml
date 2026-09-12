@@ -18,7 +18,7 @@ serde_json = { workspace = true }
 # 1.4.7 WS-CLEAN-REPORT: content-hash footer + audit fingerprint on every report,
 # so `sha256(report.json)` stamps the report identity for baseline diffing / archive
 # search. Matches the version already pinned in `crates/kerberos` and `crates/secrets`.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # 1.4.7 WS-CTRLMAP: dev-only reach into the checks registry so the CI gate test in
 # `check_meta::ws_ctrlmap_tests` can assert every registered check id has a `CheckMeta`
