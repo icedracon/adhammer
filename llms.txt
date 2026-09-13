@@ -14,11 +14,11 @@
 - Report: JSON, HTML, Markdown, and BloodHound-CE; finding, path, proof, command, and MITRE technique stay linked across every export.
 
 ## Current release
-- Version 1.5.0 was published on 2026-09-04 through GitHub Releases and crates.io.
-- It adds a first-touch, no-credential Active Directory assessment path: scoped DNS discovery, per-DC HTTP(S) fingerprinting, and anonymous SMB / RPC posture probes, with standalone web, nullbind, RPC-null, share, host, and SYSVOL flows.
-- The release also adds a supported-coercion-family scan matrix and stderr-only hashcat-mode annotations for roast output. Feature availability is not a blanket claim of live validation; `docs/VALIDATION.md` remains authoritative for current support.
-- Static release binaries use rustls with bundled AWS-LC. SHA-256 sidecars and GitHub OIDC Sigstore attestation instructions are available for each platform build.
-- Version 1.4.10 is the preceding defence-in-depth release; version 1.4.9 is the prior trust-and-hardening release.
+- Version 1.5.1 was published on GitHub Releases on 2026-09-12 and crates.io on 2026-09-13.
+- The changelog describes an operator-UX and reliability maintenance release: diagnostic preflight, credential-reference handling fixes, cleaner JSON output, and explicit inconclusive reports when no checks were recorded.
+- These are documented release changes, not a new live-validation claim. Partial and unvalidated paths retain their stated limits; `docs/VALIDATION.md` remains authoritative for support.
+- The GitHub release lists Windows, Linux, and macOS downloads with SHA-256 sidecars and attestation verification instructions.
+- Version 1.5.0 is the preceding first-touch assessment release; version 1.4.10 is the earlier defence-in-depth release.
 
 ## Who it is for
 - Penetration testers, red teamers, and Active Directory security specialists.
@@ -28,7 +28,8 @@
 - Install: `cargo install adhammer` — https://crates.io/crates/adhammer
 - Library: `cargo add adhammer-sdk`
 - Source: https://github.com/icedracon/adhammer
-- Release notes: https://github.com/icedracon/adhammer/releases/tag/v1.5.0
+- Release downloads: https://github.com/icedracon/adhammer/releases/tag/v1.5.1
+- Changelog: https://github.com/icedracon/adhammer/blob/v1.5.1/CHANGELOG.md#151--2026-09-11
 - Validation ledger: https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md
 - Ecosystem repositories: https://github.com/icedracon?tab=repositories
 
