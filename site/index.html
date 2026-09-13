@@ -1895,7 +1895,7 @@
     "applicationSubCategory": "Active Directory penetration testing",
     "operatingSystem": "Linux, macOS, Windows",
     "programmingLanguage": "Rust",
-    "softwareVersion": "1.5.0",
+    "softwareVersion": "1.5.1",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
     "description": "ADhammer is an open-source Active Directory pentest tool in Rust for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.",
@@ -1968,7 +1968,7 @@
       </div>
 
       <div class="entrance-copy">
-        <p class="entrance-kicker">Open source · Rust · v1.5.0</p>
+        <p class="entrance-kicker">Open source · Rust · v1.5.1</p>
         <h1>AD<span class="entrance-slash">//</span>HAMMER</h1>
         <p class="entrance-description">Active Directory assessment.<br>Follow the relationship. Keep the evidence.</p>
         <div class="entrance-actions">
@@ -2215,38 +2215,39 @@
               <path class="release-line release-line-current-path" d="M145 254 C150 329 82 357 65 427"></path>
               <path class="release-line-pulse" pathLength="1" d="M145 254 C150 329 82 357 65 427"></path>
             </svg>
-            <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.9" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.9</strong><em>Trust + hardening</em></span>
+              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
+              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
+              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.5.1</strong><em>Operator UX + reliability</em></span>
             </a>
-            <span class="release-lineage-status">Latest 3 published releases / current v1.5.0</span>
+            <span class="release-lineage-status">Latest 3 published releases / current v1.5.1</span>
           </div>
-          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.9 is an earlier published release, version 1.4.10 is the previous published release, and version 1.5.0 is the current published release.</figcaption>
+          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.4.10 is an earlier published release, version 1.5.0 is the previous published release, and version 1.5.1 is the current published release.</figcaption>
         </figure>
         <div class="release-story reveal">
           <span class="eyebrow proof">03 / Release signal</span>
-          <h2 id="release-title">First touch.<span>Before credentials.</span></h2>
-          <p class="release-intro">Version 1.5.0 opens a first-touch Active Directory assessment path: discover in-scope DCs, fingerprint web surfaces, and map anonymous SMB posture before credentials are available. It also adds a supported-coercion-family matrix and hashcat-mode guidance on roast output.</p>
-          <div class="release-facts" aria-label="Version 1.5.0 highlights">
-            <div class="release-fact"><strong>0 credentials</strong><span>Scoped DNS discovery · web fingerprint · SMB posture</span></div>
-            <div class="release-fact"><strong>One null session</strong><span>Per-host anonymous SMB / RPC posture in deep runs</span></div>
-            <div class="release-fact"><strong>SHA-256 + Sigstore</strong><span>Verification material and instructions are available</span></div>
+          <h2 id="release-title">Clearer signals.<span>Fewer surprises.</span></h2>
+          <p class="release-intro">Version 1.5.1 focuses on operator experience and reliability. The changelog documents diagnostic preflight, credential-reference handling fixes, cleaner JSON output, and reports that distinguish an inconclusive run from a clean result.</p>
+          <div class="release-facts" aria-label="Version 1.5.1 highlights">
+            <div class="release-fact"><strong>Diagnostic preflight</strong><span>Documented checks with explicit ok / warn / fail / skipped states</span></div>
+            <div class="release-fact"><strong>Clearer JSON</strong><span>Posture results retained; progress narration kept on stderr</span></div>
+            <div class="release-fact"><strong>Honest outcomes</strong><span>No checks recorded means inconclusive, not vulnerability-free</span></div>
           </div>
           <div class="release-boundary">
             <b>Truth boundary</b>
-            <p>The validation ledger remains authoritative for support and readiness claims. Version 1.5.0 identifies scoped, observable AD surfaces; a reachable endpoint or response is evidence to inspect, not proof of exploitability.</p>
+            <p>These are documented release changes, not a new live-validation claim. The validation ledger remains authoritative; partial and unvalidated paths retain their stated limits.</p>
           </div>
-          <div class="release-distribution-note"><span>Published / 2026-09-04</span><p>GitHub Releases and crates.io now offer 1.5.0. Static release builds use rustls with bundled AWS-LC; each platform build has a SHA-256 sidecar and GitHub OIDC Sigstore attestation instructions.</p></div>
+          <div class="release-distribution-note"><span>GitHub / 2026-09-12 · crates.io / 2026-09-13</span><p>Version 1.5.1 is available on both platforms. The GitHub release lists Windows, Linux, and macOS downloads with SHA-256 sidecars and attestation verification instructions.</p></div>
           <div class="release-links">
-            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">Read v1.5.0 notes ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">Download v1.5.1 ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/blob/v1.5.1/CHANGELOG.md#151--2026-09-11" target="_blank" rel="noopener">What changed in 1.5.1 ↗</a>
             <a class="release-link" href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">Open on crates.io ↗</a>
             <a class="release-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           </div>
@@ -2347,11 +2348,11 @@
     <section class="final" id="install">
       <div class="shell final-inner reveal">
         <img class="final-mark" src="assets/favicon.png" alt="" width="132" height="132">
-        <span class="eyebrow">Open source / MIT / v1.5.0</span>
+        <span class="eyebrow">Open source / MIT / v1.5.1</span>
         <h2>Take it<span>into the field.</span></h2>
         <p>Install the Rust CLI or download a prebuilt binary for Windows, Linux, or macOS. Review command help and the validation ledger before an assessment.</p>
         <div class="final-links">
-          <a class="final-link primary" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">Download v1.5.0 <i>↗</i></a>
+          <a class="final-link primary" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">Download v1.5.1 <i>↗</i></a>
           <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">Benchmark record ↗</a>
         </div>
