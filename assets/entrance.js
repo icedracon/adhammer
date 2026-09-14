@@ -75,11 +75,11 @@
       pointer.y=quiet?0:pointer.y+(targetPointer.y-pointer.y)*.07;
       stage.style.setProperty('--journey',progress.toFixed(4));
       var camera=cameraFor(progress,quiet,pointer);
-      var compact=width<641;
-      var xUnit=Math.min(width*.42,height*.68), yUnit=height*.42;
+      var compact=width<761;
+      var xUnit=Math.min(width*(compact?.48:.28),height*.62), yUnit=height*.40;
       var points=scene.nodes.map(function (node) {
         var p=project(node,camera);
-        return {x:width*.5+p.x*xUnit,y:height*(compact?.34:.36)+p.y*yUnit,z:p.z,scale:p.scale};
+        return {x:width*(compact?.54:.72)+p.x*xUnit,y:height*(compact?.29:.43)+p.y*yUnit,z:p.z,scale:p.scale};
       });
       ctx.clearRect(0,0,width,height);
       scene.edges.forEach(function (edge) {

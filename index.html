@@ -1885,6 +1885,7 @@
   <link rel="stylesheet" href="assets/entrance.css">
   <link rel="stylesheet" href="assets/journey.css">
   <link rel="stylesheet" href="assets/frozen-evidence.css">
+  <link rel="stylesheet" href="assets/editorial.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1968,9 +1969,9 @@
       </div>
 
       <div class="entrance-copy">
-        <p class="entrance-kicker">Open source · Rust · v1.5.1</p>
-        <h1>AD<span class="entrance-slash">//</span>HAMMER</h1>
-        <p class="entrance-description">Active Directory assessment.<br>Follow the relationship. Keep the evidence.</p>
+        <p class="entrance-kicker">Active Directory · Open source · v1.5.1</p>
+        <h1 aria-label="ADhammer">AD<span class="entrance-slash">//</span><span class="entrance-name">HAMMER</span></h1>
+        <p class="entrance-description">Follow the relationship.<br><em>Keep the evidence.</em></p>
         <div class="entrance-actions">
           <a class="entrance-explore" href="#engine">Explore the path <span aria-hidden="true">↓</span></a>
           <a class="entrance-install" href="#install">Install ADhammer ↗</a>
@@ -1978,7 +1979,7 @@
       </div>
       <div class="entrance-route-note" aria-hidden="true"><span>Selected route / illustrative</span><b>Possible is not yet proven.</b></div>
       <div class="entrance-footer">
-        <span>Route 01 · illustrative graph</span>
+        <span>Rust / MIT <i aria-hidden="true">—</i> Illustrative graph</span>
         <a href="#engine" id="skip-entrance">Skip intro ↘</a>
       </div>
       <p class="sr-only">Illustrative route: svc-build, workstation-07, delegation, Tier-0. Scroll to explore the graph, then follow Collect, Graph, Validate, and Report. This is a presentation, not a live assessment.</p>
@@ -1989,7 +1990,7 @@
       <div class="shell">
         <div class="section-head reveal">
           <span class="section-no">01 / Trace the relationship</span>
-          <div><h2>One route.<br>Four states.</h2><p>Follow the same illustrative route from directory objects to an evidence record. Scroll through the four stages, or select a stage to inspect it.</p></div>
+          <div><h2>One route.<br><em>Four states.</em></h2><p>From directory objects to an evidence record. Scroll through the stages or select one to inspect it.</p></div>
         </div>
         <div class="engine-story">
           <div class="phase-list">
@@ -2072,8 +2073,8 @@
             <span class="sr-only" id="theatre-announcer" aria-live="polite"></span>
           </figure>
         </div>
-        <div class="journey-inspector" aria-labelledby="journey-title">
-          <div class="journey-heading"><div><span class="eyebrow">Route 01 / same path, closer look</span><h3 id="journey-title">What makes the connection?</h3></div><span class="journey-state" id="journey-state">Observed objects</span></div>
+        <details class="journey-inspector" aria-labelledby="journey-title">
+          <summary class="journey-heading"><span><span class="eyebrow">Route 01 / closer look</span><span class="journey-summary-title" id="journey-title">What makes the connection?</span></span><span class="journey-summary-meta"><span class="journey-state" id="journey-state">Observed objects</span><span class="journey-toggle" aria-hidden="true">+</span></span></summary>
           <div class="journey-nodes" role="group" aria-label="Inspect the four objects in illustrative route 01">
             <button type="button" data-route-node="0" aria-pressed="true" aria-controls="journey-detail"><small>01 / Identity</small><b>svc-build</b><span>Where the path starts</span></button>
             <button type="button" data-route-node="1" aria-pressed="false" aria-controls="journey-detail"><small>02 / Host</small><b>workstation-07</b><span>Where context matters</span></button>
@@ -2082,7 +2083,7 @@
           </div>
           <div class="journey-detail" id="journey-detail" aria-live="polite" aria-atomic="true"><div><span id="journey-kind">Starting identity</span><h4 id="journey-node-title">svc-build</h4><p id="journey-description">A fictional service identity starts this route. Its permissions and relationships supply context; its presence alone does not establish compromise.</p></div><div><span>Evidence needed</span><p id="journey-evidence">Confirm the identity and relevant permissions from collected directory objects. Do not infer usable credentials or a live session.</p></div></div>
           <div class="journey-handoff"><span>Conceptual route, not a reproducible exploit chain.</span><a href="#proof">Follow Route 01 into the record <span aria-hidden="true">↘</span></a></div>
-        </div>
+        </details>
       </div>
     </section>
 
@@ -2217,15 +2218,15 @@
             </svg>
             <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.4.10" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Earlier · published</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
+              <span class="release-lineage-copy"><small>Earlier</small><strong>v1.4.10</strong><em>Defence in depth</em></span>
             </a>
             <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Previous · published</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
+              <span class="release-lineage-copy"><small>Previous</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
             </a>
             <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Current · published</small><strong>v1.5.1</strong><em>Operator UX + reliability</em></span>
+              <span class="release-lineage-copy"><small>Current</small><strong>v1.5.1</strong><em>Operator UX + reliability</em></span>
             </a>
             <span class="release-lineage-status">Latest 3 published releases / current v1.5.1</span>
           </div>
