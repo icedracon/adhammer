@@ -1,29 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="280" viewBox="0 0 960 280" role="img" aria-labelledby="title desc">
-  <title id="title">ADhammer assessment workflow</title>
-  <desc id="desc">ADhammer: discover, map, validate, report. A multicolor schematic on a dark background.</desc>
-  <defs>
-    <linearGradient id="surface" x2="1" y2="1">
-      <stop stop-color="#151027"/><stop offset=".55" stop-color="#080C16"/><stop offset="1" stop-color="#08221F"/>
-    </linearGradient>
-    <linearGradient id="spectrum">
-      <stop stop-color="#2EA8FF"/><stop offset=".34" stop-color="#A78BFA"/><stop offset=".67" stop-color="#F7C948"/><stop offset="1" stop-color="#55D6BE"/>
-    </linearGradient>
-  </defs>
-  <rect width="960" height="280" rx="20" fill="url(#surface)"/>
-  <rect x="1" y="1" width="958" height="278" rx="19" fill="none" stroke="#FFFFFF" stroke-opacity=".16"/>
-  <path d="M48 42H912" stroke="url(#spectrum)" stroke-width="4"/>
-  <text x="48" y="143" fill="#F6F5FA" font-family="Arial,Helvetica,sans-serif" font-size="76" font-weight="800" letter-spacing="-3">AD//HAMMER</text>
-  <path d="M700 104H742L777 69H832L867 104H911M742 104L777 139H832L867 104" fill="none" stroke="#A78BFA" stroke-width="2" stroke-opacity=".6"/>
-  <circle cx="742" cy="104" r="6" fill="#A78BFA"/><circle cx="832" cy="69" r="6" fill="#F7C948"/><circle cx="867" cy="104" r="6" fill="#55D6BE"/>
-  <g font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">
-    <rect x="48" y="192" width="198" height="48" rx="8" fill="#2EA8FF" fill-opacity=".1"/>
-    <text x="64" y="223" fill="#7ACBFF">Discover</text>
-    <rect x="270" y="192" width="198" height="48" rx="8" fill="#A78BFA" fill-opacity=".1"/>
-    <text x="286" y="223" fill="#C6B1FF">Map</text>
-    <rect x="492" y="192" width="198" height="48" rx="8" fill="#F7C948" fill-opacity=".1"/>
-    <text x="508" y="223" fill="#F7D775">Validate</text>
-    <rect x="714" y="192" width="198" height="48" rx="8" fill="#55D6BE" fill-opacity=".1"/>
-    <text x="730" y="223" fill="#80E5CF">Report</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
+  <title id="title">ADhammer — evidence-first Active Directory assessment</title>
+  <desc id="desc">Charcoal, ivory, and coral typography above a four-stage conceptual workflow: discover, map, validate, report.</desc>
+  <rect width="960" height="320" fill="#171d1c"/>
+  <path d="M48 45H77" stroke="#f8795b" stroke-width="5"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="92" y="50" fill="#e6ded0" font-size="14" font-weight="700" letter-spacing="2">ACTIVE DIRECTORY / OPEN-SOURCE RUST</text>
+    <text x="44" y="156" fill="#f5efe3" font-size="96" font-weight="800" letter-spacing="-5">AD<tspan fill="#f8795b">//</tspan>HAMMER</text>
+    <text x="48" y="201" fill="#bfc6bd" font-size="24" letter-spacing="-.3">From directory state to defensible evidence.</text>
+    <path d="M48 239H912" stroke="#3d4540"/>
+    <g font-size="17" font-weight="700">
+      <text x="48" y="283" fill="#f8795b">01</text>
+      <text x="82" y="283" fill="#f5efe3">DISCOVER</text>
+      <text x="280" y="283" fill="#f8795b">02</text>
+      <text x="314" y="283" fill="#f5efe3">MAP</text>
+      <text x="508" y="283" fill="#f8795b">03</text>
+      <text x="542" y="283" fill="#f5efe3">VALIDATE</text>
+      <text x="753" y="283" fill="#f8795b">04</text>
+      <text x="787" y="283" fill="#f5efe3">REPORT</text>
+    </g>
   </g>
+  <g fill="none" stroke="#f8795b" stroke-width="1.5">
+    <path d="M226 275H245L240 270M245 275L240 280"/>
+    <path d="M453 275H472L467 270M472 275L467 280"/>
+    <path d="M698 275H717L712 270M717 275L712 280"/>
+  </g>
+  <path d="M845 57L881 93L845 129M866 57L902 93L866 129" fill="none" stroke="#b5e8ed" stroke-opacity=".55" stroke-width="2"/>
+  <rect y="315" width="960" height="5" fill="#f8795b"/>
 </svg>
 
