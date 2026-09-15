@@ -1887,6 +1887,7 @@
   <link rel="stylesheet" href="assets/frozen-evidence.css">
   <link rel="stylesheet" href="assets/editorial.css">
   <link rel="stylesheet" href="assets/observatory.css">
+  <link rel="stylesheet" href="assets/esc-explorer.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -2167,34 +2168,69 @@
     </section>
     </details>
 
-    <details class="research-drawer" id="coverage">
-      <summary><span>Reference / capabilities</span><b>Inspect the coverage matrix</b><i aria-hidden="true">+</i></summary>
-      <section class="coverage">
-      <div class="shell">
-        <div class="coverage-head reveal">
-          <div><span class="eyebrow dark">05 / AD CS map</span><h2>Coverage you can interrogate.</h2></div>
-          <div class="coverage-score">15<span> / 16</span></div>
+    <section class="esc-explorer" id="coverage" aria-labelledby="esc-explorer-title">
+      <div class="shell" id="esc-explorer">
+        <div class="esc-intro">
+          <div><span class="esc-kicker">05 / AD CS field guide</span><h2 id="esc-explorer-title">Understand the condition.<br>Know what to check.</h2></div>
+          <p>Explore ESC1–ESC16 through configuration, evidence, and defensive checks. Select a class for its explanation and an ADhammer example where a focused check is verified.</p>
         </div>
-        <div class="coverage-layout">
-          <div class="esc-orbit reveal" id="esc-orbit">
-            <div class="esc-core"><div><b>AD CS</b><span>ESC coverage</span></div></div>
-          </div>
-          <div class="esc-info reveal" aria-live="polite">
-            <div class="esc-info-kicker"><i id="esc-status-dot"></i><span id="esc-status">Active enrollment</span></div>
-            <h3 id="esc-title">ESC1</h3>
-            <p id="esc-description">Active enrollment path supported; ADhammer can issue a real certificate in an authorized validation flow.</p>
-            <div class="esc-legend" aria-label="Coverage capability legend">
-              <span><i style="background:#c5203a"></i>Active enrollment · real certificate</span>
-              <span><i style="background:#d28c24"></i>Registry probe · MS-RRP</span>
-              <span><i style="background:#4296c6"></i>Passive detection</span>
-              <span><i style="background:#9ca6ae"></i>Out of scope</span>
+        <div class="esc-dial-layout" id="esc-dial-layout" hidden>
+          <div>
+            <div class="esc-dial" id="esc-dial" aria-describedby="esc-dial-hint">
+              <div class="esc-dial-center" aria-hidden="true"><span>AD CS / FIELD GUIDE</span><strong id="esc-dial-number">ESC1</strong><small id="esc-dial-family">Templates</small></div>
+              <div class="esc-picker" id="esc-picker" role="group" aria-label="Choose an ESC class" hidden></div>
             </div>
-            <p class="esc-note">Select a class to inspect its support. Classes may combine passive, registry, and active capabilities; the matrix shows the highest supported depth. ESC12 hardware-token / YubiHSM validation is out of scope.</p>
+            <p class="esc-dial-hint" id="esc-dial-hint">Scroll over the circle · swipe sideways · or select a class</p>
+          </div>
+          <div class="esc-dial-summary">
+            <span class="esc-kicker" id="esc-dial-count">01 / 16</span>
+            <h3 id="esc-dial-title">Who defines the identity?</h3>
+            <p id="esc-dial-description">Inspect the condition, then review the evidence and check below.</p>
+            <div class="esc-dial-controls"><button type="button" id="esc-previous" aria-label="Previous ESC class">← Previous</button><button type="button" id="esc-next" aria-label="Next ESC class">Next →</button></div>
+            <a href="#esc-detail">Explanation &amp; command ↓</a>
           </div>
         </div>
+        <p class="esc-sr-only" id="esc-selection-status" role="status"></p>
+        <article class="esc-detail" id="esc-detail" aria-labelledby="esc-heading">
+          <div class="esc-detail-top"><strong id="esc-number">ESC1</strong><span id="esc-family">Templates</span></div>
+          <div class="esc-heading-row">
+            <div><h3 id="esc-heading">Who defines the identity?</h3><p id="esc-meaning">ESC1 concerns identity control in certificate templates. Risk depends on configuration, permissions, and the service accepting the certificate.</p></div>
+            <aside class="esc-boundary"><h4>What this does not prove</h4><p id="esc-boundary">A template finding is not proof of impersonation. This check does not issue a certificate.</p></aside>
+          </div>
+          <div class="esc-animation">
+            <div class="esc-animation-head"><h4 id="esc-focus">Subject configuration</h4><button class="esc-action" id="esc-replay" type="button" hidden>Replay diagram ↻</button></div>
+            <ol class="esc-flow" aria-label="Illustrative inspection sequence">
+              <li><span>01 / SOURCE</span><b>Read directory</b></li>
+              <li><span>02 / CONDITION</span><b>Inspect template</b></li>
+              <li><span>03 / CONTEXT</span><b>Retain context</b></li>
+              <li><span>04 / REVIEW</span><b>Review finding</b></li>
+            </ol>
+            <p id="esc-flow-caption">Illustrative review sequence / ESC1 / not a running test</p>
+          </div>
+          <div class="esc-command-card">
+            <div class="esc-command-heading"><h4 id="esc-check-label">Template configuration check</h4><button class="esc-action" id="esc-copy" type="button" hidden>Copy example</button></div>
+            <pre><code id="esc-command">adhammer check adcs --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --json</code></pre>
+            <p id="esc-copy-status" class="esc-copy-status" role="status"></p>
+            <p class="esc-scope-note">v1.5.1 syntax · documentation placeholders, not ready-to-run targets. Replace hosts, account, and CA name only within your approved scope. Protect the password file. These examples contact real services when run; this page never executes commands or accepts credentials.</p>
+          </div>
+          <div class="esc-guide">
+            <article><h4>Before you run it</h4><p id="esc-prerequisite">Approved LDAP collection scope, a trusted LDAPS certificate, and appropriate directory-read permissions.</p></article>
+            <article><h4>What ADhammer does</h4><p id="esc-behavior">Collects directory data, extracts certificate templates, and emits template-analysis findings as JSON.</p></article>
+            <article><h4>Read the result</h4><p id="esc-result">Review the affected template and its configuration evidence, then confirm permissions and approval controls separately.</p></article>
+            <article><h4>Defensive follow-up</h4><p id="esc-remedy">Constrain requester-controlled identity fields and restrict enrollment.</p></article>
+            <article class="esc-guide-wide"><h4>Coverage limits</h4><p id="esc-check-limit">No complete ACL walk, CA registry audit, or active enrollment. Empty output does not establish a secure environment.</p></article>
+          </div>
+          <div class="esc-sources">
+            <a id="esc-code-source" href="https://github.com/icedracon/adhammer/blob/146415c4ce8d4e96c6d375e804fbe27a19349836/cli/src/checks/adcs.rs" target="_blank" rel="noopener">Check implementation ↗</a>
+            <a href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
+            <a href="https://learn.microsoft.com/en-us/defender-for-identity/security-posture-assessments/certificates" target="_blank" rel="noopener">Microsoft AD CS guidance ↗</a>
+            <a href="https://support.microsoft.com/en-us/servicing/os/windows-server/2022/05/kb5014754-certificate-based-authentication-changes-on-windows-domain-controllers" target="_blank" rel="noopener">Current mapping guidance ↗</a>
+          </div>
+        </article>
+        <p class="esc-footnote">Configuration signals ≠ proven exploitation. Missing reads, incomplete scope, and patch differences can change the interpretation. ESC1–ESC16 is this guide’s scope, not an exhaustive taxonomy or a support score. Examples were not executed against a live domain for this site.</p>
+        <noscript><p class="esc-footnote">JavaScript is off. The ESC1 example remains readable; enable JavaScript for the other class cards and illustrative animation. The validation ledger above remains the authority for support.</p></noscript>
       </div>
     </section>
-    </details>
 
     <details class="research-drawer" id="protocols">
       <summary><span>Reference / engineering</span><b>Explore the Rust foundations</b><i aria-hidden="true">+</i></summary>
@@ -2252,7 +2288,7 @@
           <a href="https://github.com/icedracon" target="_blank" rel="noopener">About icedracon</a>
           <a href="#release">Release</a>
           <a href="#benchmarks">Benchmarks</a>
-          <a href="#coverage">Coverage</a>
+          <a href="#coverage">ESC Explorer</a>
           <a href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">crates.io</a>
           <a href="https://github.com/icedracon/adhammer" target="_blank" rel="noopener">GitHub</a>
         </nav>
@@ -2263,6 +2299,7 @@
   </footer>
 
   <script src="assets/observatory.js"></script>
+  <script src="assets/esc-explorer.js"></script>
   <script src="assets/entrance.js"></script>
   <script>
     (function () {
@@ -2496,54 +2533,6 @@
       });
       selectBenchmark(0);
 
-      var escData = [
-        { id: "ESC1", level: "active", status: "Active enrollment", description: "Active enrollment path supported; ADhammer can issue a real certificate in an authorized validation flow." },
-        { id: "ESC2", level: "passive", status: "Passive detection", description: "Configuration is mapped and reported as a passive finding with its directory context." },
-        { id: "ESC3", level: "active", status: "Active enrollment", description: "Active enrollment support is available for authorized validation of this class." },
-        { id: "ESC4", level: "passive", status: "Passive detection", description: "Template-control exposure is detected and preserved with the related directory objects." },
-        { id: "ESC5", level: "passive", status: "Passive detection", description: "Vulnerable PKI object access is mapped through directory permissions." },
-        { id: "ESC6", level: "active", status: "Active + registry", description: "Registry-backed discovery and active certificate validation are supported for authorized testing." },
-        { id: "ESC7", level: "registry", status: "Registry probe", description: "CA role and registry state are probed through MS-RRP and attached to the finding." },
-        { id: "ESC8", level: "active", status: "Active enrollment", description: "Active validation is supported for the relevant enrollment path under authorization." },
-        { id: "ESC9", level: "passive", status: "Passive detection", description: "Certificate mapping configuration is detected and reported with context." },
-        { id: "ESC10", level: "registry", status: "Registry probe", description: "Registry state is queried through MS-RRP to support this class of finding." },
-        { id: "ESC11", level: "registry", status: "Registry probe", description: "Enrollment transport configuration is inspected with a registry-backed probe." },
-        { id: "ESC12", level: "out", status: "Out of scope", description: "Hardware-token / YubiHSM validation is intentionally out of scope." },
-        { id: "ESC13", level: "passive", status: "Passive detection", description: "Issuance policy and group-link relationships are detected in the directory model." },
-        { id: "ESC14", level: "passive", status: "Passive detection", description: "Explicit certificate mapping exposure is detected and retained in the graph." },
-        { id: "ESC15", level: "active", status: "Active enrollment", description: "Active enrollment validation is supported for this class in authorized environments." },
-        { id: "ESC16", level: "registry", status: "Registry probe", description: "Relevant CA registry configuration is queried and reported through MS-RRP." }
-      ];
-      var escColors = { active: "#c5203a", registry: "#d28c24", passive: "#4296c6", out: "#9ca6ae" };
-      var orbit = document.getElementById("esc-orbit");
-      var escTitle = document.getElementById("esc-title");
-      var escStatus = document.getElementById("esc-status");
-      var escDescription = document.getElementById("esc-description");
-      var escDot = document.getElementById("esc-status-dot");
-      function selectEsc(index) {
-        var item = escData[index];
-        escTitle.textContent = item.id;
-        escStatus.textContent = item.status;
-        escDescription.textContent = item.description;
-        escDot.style.background = escColors[item.level];
-        Array.prototype.forEach.call(orbit.querySelectorAll(".esc-node"), function (button) {
-          button.setAttribute("aria-pressed", Number(button.getAttribute("data-index")) === index ? "true" : "false");
-        });
-      }
-      escData.forEach(function (item, index) {
-        var button = document.createElement("button");
-        button.type = "button";
-        button.className = "esc-node";
-        button.textContent = item.id;
-        button.style.setProperty("--i", index);
-        button.setAttribute("data-index", index);
-        button.setAttribute("data-level", item.level);
-        button.setAttribute("aria-label", item.id + ": " + item.status);
-        button.setAttribute("aria-pressed", index === 0 ? "true" : "false");
-        button.addEventListener("click", function () { selectEsc(index); });
-        orbit.appendChild(button);
-      });
-      selectEsc(0);
 
       function seededRandom(seed) {
         var value = seed >>> 0;
