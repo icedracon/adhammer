@@ -92,4 +92,3 @@
  if(typeof module==='object'&&module.exports)module.exports=api;
  else{root.ADhammerObservatory=api;mount();}
 })(typeof window!=='undefined'?window:globalThis);
-

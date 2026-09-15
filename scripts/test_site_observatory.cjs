@@ -40,4 +40,3 @@ for(const match of html.matchAll(/(?:src|href)="([^"#?]+)(?:[?#][^"]*)?"/g)){
 assert(!html.includes('id="schema-canvas"'),'Old graph canvas must not be mounted');
 assert(!html.includes('src="assets/frozen-evidence.js"'),'Old experiment must not be mounted');
 console.log('PASS: shared state, no implicit proof, cut/restore, reset, invalid input, inline syntax, IDs and asset references');
-

@@ -22,4 +22,3 @@ if(process.argv[2]){
  const r=spawnSync('python',[path.join(__dirname,'render_observatory_preview.py')],{input:JSON.stringify(p),encoding:'utf8'});
  process.stdout.write(r.stdout||'');process.stderr.write(r.stderr||'');process.exit(r.status||0);
 }
-
