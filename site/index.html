@@ -1886,6 +1886,7 @@
   <link rel="stylesheet" href="assets/journey.css">
   <link rel="stylesheet" href="assets/frozen-evidence.css">
   <link rel="stylesheet" href="assets/editorial.css">
+  <link rel="stylesheet" href="assets/observatory.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1986,214 +1987,81 @@
       </div>
     </section>
 
-    <section class="engine" id="engine">
+    <section class="observatory" id="engine" aria-labelledby="observatory-title" data-stage="0" data-evidence="pending" data-cut="none">
       <div class="shell">
-        <div class="section-head reveal">
-          <span class="section-no">01 / Trace the relationship</span>
-          <div><h2>One route.<br><em>Four states.</em></h2><p>From directory objects to an evidence record. Scroll through the stages or select one to inspect it.</p></div>
+        <div class="observatory-heading">
+          <div><span class="eyebrow">01 / The evidence observatory</span><h2 id="observatory-title">Inside the<br><em>evidence.</em></h2></div>
+          <p>One fictional route. Follow its relationships, inspect what is known, and carry the same context into a report.</p>
         </div>
-        <div class="engine-story">
-          <div class="phase-list">
-            <article class="phase active" data-scene="0">
-              <button class="phase-button" type="button" aria-pressed="true" aria-current="step" aria-controls="attack-path-stage">
-                <span class="phase-top"><span>01 / Collect</span><i></i></span>
-                <h3>See the domain assemble.</h3>
-                <p>LDAP objects, access-control entries, trusts, certificate services, delegation, and posture checks enter one typed in-memory model.</p>
-                <span class="phase-tags"><span>LDAP</span><span>SD_FLAGS</span><span>AD CS</span><span>Trusts</span></span>
-              </button>
-            </article>
-            <article class="phase" data-scene="1">
-              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
-                <span class="phase-top"><span>02 / Graph</span><i></i></span>
-                <h3>Watch control emerge.</h3>
-                <p>Identity and permission relationships become directional edges. In-process path analysis makes the route legible without breaking context.</p>
-                <span class="phase-tags"><span>ACL edges</span><span>Dijkstra</span><span>Tier-0</span><span>BloodHound</span></span>
-              </button>
-            </article>
-            <article class="phase" data-scene="2">
-              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
-                <span class="phase-top"><span>03 / Validate</span><i></i></span>
-                <h3>Turn possible into proven.</h3>
-                <p>Supported findings can be exercised under authorization. Evidence changes path state; unsupported routes remain explicitly potential.</p>
-                <span class="phase-tags"><span>Hash</span><span>Certificate</span><span>Ticket</span><span>Artifact</span></span>
-              </button>
-            </article>
-            <article class="phase" data-scene="3">
-              <button class="phase-button" type="button" aria-pressed="false" aria-controls="attack-path-stage">
-                <span class="phase-top"><span>04 / Report</span><i></i></span>
-                <h3>Carry the proof forward.</h3>
-                <p>Finding, technique, route, validation state, and artifact remain connected across human-readable and machine-readable exports.</p>
-                <span class="phase-tags"><span>JSON</span><span>HTML</span><span>Markdown</span><span>BloodHound CE</span></span>
-              </button>
-            </article>
+        <div class="observatory-workbench" id="observatory-workbench">
+          <div class="observatory-topline"><span>AD//HAMMER <i>/</i> ROUTE 01</span><span>Fictional data · browser-only</span></div>
+          <div class="observatory-stages" role="group" aria-label="Explore the four stages" hidden>
+            <button type="button" data-ob-stage="0" aria-pressed="true" aria-controls="observatory-scene"><span>01</span> Discover</button>
+            <button type="button" data-ob-stage="1" aria-pressed="false" aria-controls="observatory-scene"><span>02</span> Map</button>
+            <button type="button" data-ob-stage="2" aria-pressed="false" aria-controls="observatory-scene"><span>03</span> Inspect</button>
+            <button type="button" data-ob-stage="3" aria-pressed="false" aria-controls="observatory-scene"><span>04</span> Report</button>
           </div>
-
-          <figure class="schema-wrap" id="attack-path-stage" data-scene="0" data-verdict="possible" role="region" aria-label="Illustrative Attack Path Theatre: directory objects are being collected into a typed model." aria-describedby="theatre-caption">
-            <img class="schema-dragon" src="assets/ice-dragon-graph.webp" alt="" width="1200" height="675" aria-hidden="true">
-            <canvas id="schema-canvas" aria-hidden="true"></canvas>
-            <svg class="theatre-route-visual" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-              <path class="theatre-route-base" d="M150 370 C270 292 350 360 445 318 S650 224 820 260"></path>
-              <path class="theatre-route-current" pathLength="1" d="M150 370 C270 292 350 360 445 318 S650 224 820 260"></path>
-              <circle class="theatre-route-node" cx="150" cy="370" r="9"></circle>
-              <circle class="theatre-route-node" cx="355" cy="338" r="9"></circle>
-              <circle class="theatre-route-node" cx="590" cy="270" r="9"></circle>
-              <circle class="theatre-route-node" cx="820" cy="260" r="11"></circle>
-              <text class="theatre-route-label" x="150" y="402">SVC-BUILD</text>
-              <text class="theatre-route-label" x="355" y="370">WORKSTATION-07</text>
-              <text class="theatre-route-label" x="590" y="302">DELEGATION</text>
-              <text class="theatre-route-label" x="820" y="294">TIER-0</text>
-            </svg>
-            <div class="schema-chrome">
-              <span class="theatre-lab-note">Illustrative lab data · authorized flow</span>
-              <div class="theatre-overlay theatre-intake" aria-hidden="true">
-                <span>Directory signals / normalized</span>
-                <div class="theatre-signal-grid"><b>LDAP object</b><b>ACE</b><b>Trust</b><b>AD CS</b></div>
+          <div class="observatory-layout">
+            <div class="observatory-map">
+              <div class="observatory-scene" id="observatory-scene" role="group" aria-label="Select an object in the fictional directory graph">
+                <svg class="observatory-graph" viewBox="0 0 760 430" preserveAspectRatio="none" aria-hidden="true">
+                  <defs><linearGradient id="ob-floor" x2="0" y2="1"><stop stop-color="#b5e8ed" stop-opacity=".10"/><stop offset="1" stop-color="#b5e8ed" stop-opacity="0"/></linearGradient></defs>
+                  <g class="ob-floor" fill="none" stroke="#a6c7c8" stroke-opacity=".12">
+                    <ellipse cx="395" cy="244" rx="325" ry="150"/><ellipse cx="395" cy="244" rx="230" ry="106"/><ellipse cx="395" cy="244" rx="130" ry="60"/>
+                    <path d="M70 244H720M395 94V394M160 140L630 350M630 140L160 350"/>
+                  </g>
+                  <path d="M76 271L274 194L486 241L676 120L676 220L486 341L274 294L76 371Z" fill="url(#ob-floor)"/>
+                  <g class="ob-context" fill="#92b6b9" stroke="#92b6b9" stroke-width="1">
+                    <path d="M76 271L116 114L320 71L486 241M274 194L430 106L605 65L676 120M274 194L240 360L486 341L676 120" fill="none"/>
+                    <circle cx="116" cy="114" r="4"/><circle cx="320" cy="71" r="4"/><circle cx="430" cy="106" r="4"/><circle cx="605" cy="65" r="4"/><circle cx="240" cy="360" r="4"/><circle cx="486" cy="341" r="4"/>
+                  </g>
+                  <g class="ob-edges" fill="none" stroke-width="2.5">
+                    <path data-ob-edge="identity" d="M76 271L274 194"/><path data-ob-edge="delegation" d="M274 194L486 241"/><path data-ob-edge="boundary" d="M486 241L676 120"/>
+                  </g>
+                  <path class="ob-trace" d="M76 271L274 194L486 241L676 120" pathLength="100" fill="none" stroke-width="3"/>
+                </svg>
+                <button class="ob-node" type="button" data-ob-node="0" aria-pressed="true" aria-controls="ob-inspector" style="--x:10%;--y:63%"><span class="ob-node-ring">01</span><b>svc-build</b><small>Identity</small></button>
+                <button class="ob-node" type="button" data-ob-node="1" aria-pressed="false" aria-controls="ob-inspector" style="--x:36%;--y:45%"><span class="ob-node-ring">02</span><b>workstation-07</b><small>Host</small></button>
+                <button class="ob-node" type="button" data-ob-node="2" aria-pressed="false" aria-controls="ob-inspector" style="--x:64%;--y:56%"><span class="ob-node-ring">03</span><b>delegation</b><small>Relationship</small></button>
+                <button class="ob-node" type="button" data-ob-node="3" aria-pressed="false" aria-controls="ob-inspector" style="--x:89%;--y:28%"><span class="ob-node-ring">04</span><b>tier-0</b><small>Boundary</small></button>
+                <span class="ob-scene-caption">DIRECTORY MODEL <i>01 / 04</i></span>
               </div>
-              <div class="theatre-overlay theatre-verdict" aria-hidden="true">
-                <span>Selected control path / state transition</span>
-                <div class="theatre-verdict-shift"><b class="possible">POSSIBLE</b><i>→</i><b class="proven">PROVEN</b></div>
-              </div>
-              <div class="theatre-overlay theatre-proof" aria-hidden="true">
-                <span>Evidence docked to selected route</span>
-                <dl><dt>primitive</dt><dd>supported validation</dd><dt>artifact</dt><dd>illustrative · no captured result</dd><dt>path state</dt><dd>PROVEN</dd></dl>
-              </div>
-              <div class="theatre-overlay theatre-report" aria-hidden="true">
-                <span>Report ready / context preserved</span>
-                <h4>Supported path</h4>
-                <p>Finding, technique, route, command, validation state, and evidence remain linked.</p>
-                <div class="theatre-report-formats"><b>JSON</b><b>HTML</b><b>MARKDOWN</b><b>BLOODHOUND CE</b></div>
-              </div>
-              <div class="schema-top"><span>ADHAMMER / CONTROL MODEL</span><strong id="schema-status">COLLECTING</strong></div>
-              <div class="schema-bottom">
-                <div><b id="schema-title">Directory intake</b><span id="schema-meta">objects → typed model<br>50+ checks in context</span></div>
-                <div class="schema-step-dots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
-              </div>
+              <div class="ob-scene-footer"><span id="ob-stage-description">Objects provide context. Their presence is not proof of access.</span><button type="button" id="ob-next" hidden>Map relationships →</button></div>
             </div>
-            <figcaption class="sr-only" id="theatre-caption">Illustrative four-stage authorized workflow: collect Active Directory objects, resolve a possible Tier-0 control path, attach evidence to mark it proven, and preserve the result in portable reports.</figcaption>
-            <span class="sr-only" id="theatre-announcer" aria-live="polite"></span>
-          </figure>
-        </div>
-        <details class="journey-inspector" aria-labelledby="journey-title">
-          <summary class="journey-heading"><span><span class="eyebrow">Route 01 / closer look</span><span class="journey-summary-title" id="journey-title">What makes the connection?</span></span><span class="journey-summary-meta"><span class="journey-state" id="journey-state">Observed objects</span><span class="journey-toggle" aria-hidden="true">+</span></span></summary>
-          <div class="journey-nodes" role="group" aria-label="Inspect the four objects in illustrative route 01">
-            <button type="button" data-route-node="0" aria-pressed="true" aria-controls="journey-detail"><small>01 / Identity</small><b>svc-build</b><span>Where the path starts</span></button>
-            <button type="button" data-route-node="1" aria-pressed="false" aria-controls="journey-detail"><small>02 / Host</small><b>workstation-07</b><span>Where context matters</span></button>
-            <button type="button" data-route-node="2" aria-pressed="false" aria-controls="journey-detail"><small>03 / Relationship</small><b>delegation</b><span>What connects the objects</span></button>
-            <button type="button" data-route-node="3" aria-pressed="false" aria-controls="journey-detail"><small>04 / Boundary</small><b>tier-0</b><span>Why the destination matters</span></button>
+            <aside class="ob-inspector" id="ob-inspector" aria-label="Selected object and evidence">
+              <span class="ob-eyeline" id="ob-kind">01 / Identity</span>
+              <h3 id="ob-name">svc-build</h3>
+              <p id="ob-description">A fictional service identity. A directory object does not establish usable credentials or a live session.</p>
+              <div class="ob-evidence-note"><span>Evidence to examine</span><p id="ob-needed">The object's source, collection time, and relevant permissions.</p></div>
+              <div class="ob-state" role="status" aria-live="polite" aria-atomic="true"><span id="ob-state-label">Observed / untested</span><p id="ob-state-detail">No evidence fixture is attached.</p></div>
+              <button type="button" class="ob-attach" id="ob-attach" aria-pressed="false" hidden>Attach fictional evidence ＋</button>
+              <details class="ob-experiment" id="path-lab">
+                <summary>What if a relationship disappears?</summary>
+                <p>Remove one edge in this model. This does not change a real environment.</p>
+                <label for="ob-relationship">Relationship</label>
+                <select id="ob-relationship"><option value="delegation">Delegation relationship</option><option value="identity">Identity → host</option></select>
+                <button type="button" id="ob-cut" aria-pressed="false" hidden>Remove relationship</button>
+              </details>
+              <button type="button" class="ob-reset" id="ob-reset" hidden>Reset the demo</button>
+            </aside>
           </div>
-          <div class="journey-detail" id="journey-detail" aria-live="polite" aria-atomic="true"><div><span id="journey-kind">Starting identity</span><h4 id="journey-node-title">svc-build</h4><p id="journey-description">A fictional service identity starts this route. Its permissions and relationships supply context; its presence alone does not establish compromise.</p></div><div><span>Evidence needed</span><p id="journey-evidence">Confirm the identity and relevant permissions from collected directory objects. Do not infer usable credentials or a live session.</p></div></div>
-          <div class="journey-handoff"><span>Conceptual route, not a reproducible exploit chain.</span><a href="#proof">Follow Route 01 into the record <span aria-hidden="true">↘</span></a></div>
-        </details>
+          <div class="ob-bottomline"><span>Observation ≠ proof</span><span>No connection to a real domain. No commands are executed.</span></div>
+        </div>
+        <noscript><p>The graph shows a fictional identity, host, relationship, and privileged boundary. JavaScript enables selection and the local evidence simulation; the record and documentation remain readable below.</p></noscript>
       </div>
     </section>
 
-    <section class="frozen-lab" id="path-lab" aria-labelledby="thesis-title" data-evidence="pending" data-cut="none">
-      <div class="shell">
-        <div class="frozen-heading"><div><span class="eyebrow">Route 01 / the counterfactual</span><h2 id="thesis-title">A path is a hypothesis.<br><em>Put it to the test.</em></h2></div><p>Reveal a relationship. Attach a fictional evidence fixture. Then ask what changes when one connection disappears.</p></div>
-        <div class="frozen-workbench">
-          <div class="frozen-specimen">
-            <div class="frozen-caption"><span>01 — Relationship specimen</span><span>Fictional model</span></div>
-            <div class="frozen-field" aria-hidden="true">
-              <svg class="frozen-graph" viewBox="0 0 700 420" focusable="false">
-                <g class="frozen-uncertain"><path d="M80 250 L160 105 L345 65 L495 140 L610 95 M160 105 L280 210 M345 65 L425 290 M495 140 L580 245 M80 250 L170 350 L425 290 L620 350"/><circle cx="160" cy="105" r="5"/><circle cx="345" cy="65" r="5"/><circle cx="495" cy="140" r="5"/><circle cx="610" cy="95" r="5"/><circle cx="170" cy="350" r="5"/><circle cx="620" cy="350" r="5"/></g>
-                <g class="frozen-base"><path d="M80 250 L280 210 L425 290 L580 245"/></g>
-                <g class="frozen-focus"><path data-frozen-edge="identity" d="M80 250 L280 210"/><path data-frozen-edge="delegation" d="M280 210 L425 290"/><path data-frozen-edge="boundary" d="M425 290 L580 245"/></g>
-                <g class="frozen-points"><circle cx="80" cy="250" r="10"/><circle cx="280" cy="210" r="10"/><circle cx="425" cy="290" r="10"/><circle class="frozen-target" cx="580" cy="245" r="14"/></g>
-                <g class="frozen-labels"><text x="80" y="285">svc-build</text><text x="280" y="185">workstation-07</text><text x="425" y="325">delegation</text><text x="580" y="285">tier-0</text></g>
-              </svg>
-              <div class="frozen-scan"></div>
-            </div>
-            <div class="frozen-reveal-control"><label for="frozen-reveal">Reveal relationships</label><input id="frozen-reveal" type="range" min="0" max="100" value="40" aria-describedby="frozen-reveal-note"><span id="frozen-reveal-note">Light reveals structure, not proof.</span></div>
-            <p class="frozen-text-route">svc-build → workstation-07 → delegation → tier-0</p>
-          </div>
-          <div class="frozen-console">
-            <span class="frozen-console-index">02 — Evidence &amp; intervention</span>
-            <h3>What holds this<br>route together?</h3>
-            <p>These conceptual edges explain the model, not exploit prerequisites. Nothing here connects to a real domain.</p>
-            <div class="frozen-actions" hidden>
-              <button type="button" id="frozen-attach" aria-pressed="false">Attach demo evidence <span aria-hidden="true">＋</span></button>
-              <label for="frozen-relationship">Relationship to remove</label>
-              <select id="frozen-relationship"><option value="delegation">Delegation relationship</option><option value="identity">Identity → host relationship</option></select>
-              <button type="button" id="frozen-break" aria-pressed="false">Break the path <span aria-hidden="true">↗</span></button>
-            </div>
-            <div class="frozen-outcome" role="status" aria-live="polite" aria-atomic="true"><span id="frozen-state">Possible / untested</span><p id="frozen-result">The fictional route is connected. No evidence has been attached.</p></div>
-            <p class="frozen-boundary" id="frozen-remaining">Other faint relationships remain untested. This model cannot establish whether an environment is secure.</p>
-            <button type="button" id="frozen-reset" hidden>Reset experiment</button>
-            <noscript><p>This is a static fictional graph. Enable JavaScript to explore evidence and relationship removal.</p></noscript>
-          </div>
-        </div>
-        <p class="frozen-footnote">Browser-only simulation. Removing an edge illustrates a defensive hypothesis; ADhammer is not performing remediation. The record below is a separate illustrative snapshot.</p>
+    <section class="ob-report-section" id="proof" aria-labelledby="ob-report-title">
+      <div class="shell ob-report-layout">
+        <div class="ob-report-intro"><span class="eyebrow">02 / Context, preserved</span><h2 id="ob-report-title">A record.<br><em>Not a guess.</em></h2><p>The same selected object and evidence state, carried forward. Change the model above and this illustrative record changes with it.</p><a href="#engine">Return to the Observatory ↑</a></div>
+        <article class="ob-report" aria-label="Live illustrative record">
+          <div class="ob-report-top"><b>AD//HAMMER</b><span>ILLUSTRATIVE RECORD / 001</span></div>
+          <div class="ob-report-heading"><span id="ob-report-kind">01 / Identity</span><h3 id="ob-report-name">svc-build</h3><strong id="ob-report-state">Observed / untested</strong></div>
+          <dl><dt>Route</dt><dd>svc-build → workstation-07 → delegation → tier-0</dd><dt>Connection</dt><dd id="ob-report-connection">Intact in the fictional model</dd><dt>Evidence</dt><dd id="ob-report-evidence">None attached</dd><dt>Interpretation</dt><dd id="ob-report-interpretation">An observed object is not proof of access.</dd></dl>
+          <div class="ob-report-foot"><span>DEMO DATA</span><p>This is a presentation model, not captured output, a validation receipt, or an exact export schema.</p></div>
+        </article>
       </div>
-    </section>
-
-    <section class="proof-section" id="proof">
-      <div class="shell proof-grid">
-        <div class="proof-copy reveal">
-          <span class="eyebrow dark">02 / Evidence artifact</span>
-          <h2>Evidence.<br><span>Not inference.</span></h2>
-          <p>Route 01 continues here. The identity, host, relationship, and target stay attached to the record. This is an illustrative data shape, not captured assessment output.</p>
-          <a class="ledger-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Open the public validation ledger <i>↗</i></a>
-          <aside class="journey-source"><span>Documented capability / separate from the demo</span><h3>The scan pipeline</h3><p>The public ledger marks <code>adhammer scan</code> as supported and records live validation on Windows Server 2025 dated 30 August 2026.</p><p>Windows Server 2019 and 2022 receipts are still listed as owed. That entry does not validate the fictional route shown here.</p><a href="https://github.com/icedracon/adhammer/blob/8898940d7ab57a606a43f617fe2d73a4d4a64f02/docs/VALIDATION.md" target="_blank" rel="noopener">Read the exact ledger revision ↗</a></aside>
-        </div>
-        <div class="reveal">
-          <div class="artifact-shell">
-            <div class="artifact-top"><span class="window-dots"><i></i><i></i><i></i></span><span>Route 01 / illustrative record</span></div>
-            <div class="artifact-tabs" role="tablist" aria-label="Evidence artifact views">
-              <button class="artifact-tab" id="tab-graph" type="button" role="tab" aria-selected="true" aria-controls="panel-graph" data-artifact="graph">Graph state</button>
-              <button class="artifact-tab" id="tab-evidence" type="button" role="tab" aria-selected="false" aria-controls="panel-evidence" data-artifact="evidence">Evidence</button>
-              <button class="artifact-tab" id="tab-exports" type="button" role="tab" aria-selected="false" aria-controls="panel-exports" data-artifact="exports">Exports</button>
-            </div>
-            <div class="artifact-panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph">
-              <div class="artifact-kicker"><span>Path state / 03</span><span>authorization required</span></div>
-              <div class="state-shift">
-                <div class="state-card"><small>Before validation</small><b>POSSIBLE</b></div>
-                <div class="state-arrow">→</div>
-                <div class="state-card proven"><small>Evidence attached</small><b>PROVEN</b></div>
-              </div>
-              <div class="route" aria-label="Illustrative four-node path">
-                <div class="route-node" data-record-node="0"><i></i><b>svc-build</b><span>identity</span></div>
-                <div class="route-node" data-record-node="1"><i></i><b>workstation-07</b><span>host context</span></div>
-                <div class="route-node" data-record-node="2"><i></i><b>delegation</b><span>relationship</span></div>
-                <div class="route-node" data-record-node="3"><i></i><b>tier-0</b><span>target boundary</span></div>
-              </div>
-              <p class="journey-selection" id="journey-record-selection">Inspecting svc-build · same selection as Route 01.</p>
-              <dl class="artifact-record">
-                <dt>relationship</dt><dd>directional control path</dd>
-                <dt>validation</dt><dd class="proof-value">supported primitive · artifact captured</dd>
-                <dt>context</dt><dd>finding + technique + command + path remain linked</dd>
-              </dl>
-            </div>
-            <div class="artifact-panel" id="panel-evidence" role="tabpanel" aria-labelledby="tab-evidence" hidden>
-              <div class="artifact-kicker"><span>Artifact / immutable context</span><span>example shape</span></div>
-              <pre class="code-record"><span class="key">finding</span>:    "supported-path"
-<span class="key">state</span>:      <span class="value">"proven"</span>
-<span class="key">technique</span>:  "MITRE-tagged"
-<span class="key">artifact</span>:   {
-  "type":   "protocol-evidence",
-  "sha256": "attached-at-validation",
-  "source": "authorized-session"
-}
-<span class="key">exports</span>:    ["json", "html", "markdown", "bloodhound-ce"]</pre>
-              <dl class="artifact-record">
-                <dt>design rule</dt><dd>A supported finding can carry captured evidence.</dd>
-                <dt>boundary</dt><dd>Unsupported findings remain potential and are not overstated.</dd>
-                <dt>verification</dt><dd><a href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Public ledger ↗</a></dd>
-              </dl>
-            </div>
-            <div class="artifact-panel" id="panel-exports" role="tabpanel" aria-labelledby="tab-exports" hidden>
-              <div class="artifact-kicker"><span>Portable context</span><span>same model / four surfaces</span></div>
-              <div class="export-stack">
-                <div class="export-row"><b>JSON</b><span>Structured findings and evidence fields</span><i>machine</i></div>
-                <div class="export-row"><b>HTML</b><span>Inspectable assessment report</span><i>human</i></div>
-                <div class="export-row"><b>Markdown</b><span>Portable review and handoff</span><i>plain</i></div>
-                <div class="export-row"><b>BloodHound CE</b><span>Graph-compatible bundle</span><i>graph</i></div>
-              </div>
-              <p class="artifact-caption">Export availability and exact field shape are documented in the repository. This view demonstrates the information hierarchy.</p>
-            </div>
-          </div>
-          <p class="artifact-caption">Illustrative interface. For current validated command paths, limits, and lab evidence, use the repository ledger.</p>
-        </div>
-      </div>
+      <div class="shell ob-support-note"><span>Actual capability support is separate.</span><p>Consult the public ledger for evidence, tested environments, and outstanding validation.</p><a href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Read the validation ledger ↗</a></div>
     </section>
 
     <section class="release-pulse" id="release" aria-labelledby="release-title">
@@ -2256,7 +2124,9 @@
       </div>
     </section>
 
-    <section class="benchmarks" id="benchmarks">
+    <details class="research-drawer" id="benchmarks">
+      <summary><span>Reference / performance</span><b>Historical benchmark record</b><i aria-hidden="true">+</i></summary>
+      <section class="benchmarks">
       <div class="shell">
         <div class="bench-head reveal">
           <span class="eyebrow proof">04 / Measured in the open</span>
@@ -2295,8 +2165,11 @@
         </details>
       </div>
     </section>
+    </details>
 
-    <section class="coverage" id="coverage">
+    <details class="research-drawer" id="coverage">
+      <summary><span>Reference / capabilities</span><b>Inspect the coverage matrix</b><i aria-hidden="true">+</i></summary>
+      <section class="coverage">
       <div class="shell">
         <div class="coverage-head reveal">
           <div><span class="eyebrow dark">05 / AD CS map</span><h2>Coverage you can interrogate.</h2></div>
@@ -2321,8 +2194,11 @@
         </div>
       </div>
     </section>
+    </details>
 
-    <section class="protocols" id="protocols">
+    <details class="research-drawer" id="protocols">
+      <summary><span>Reference / engineering</span><b>Explore the Rust foundations</b><i aria-hidden="true">+</i></summary>
+      <section class="protocols">
       <div class="shell">
         <div class="protocol-head reveal">
           <div><span class="eyebrow">06 / Rust ecosystem</span><h2>Under the surface.</h2></div>
@@ -2345,6 +2221,7 @@
         </div>
       </div>
     </section>
+    </details>
 
     <section class="final" id="install">
       <div class="shell final-inner reveal">
@@ -2385,8 +2262,7 @@
     </div>
   </footer>
 
-  <script src="assets/journey.js"></script>
-  <script src="assets/frozen-evidence.js"></script>
+  <script src="assets/observatory.js"></script>
   <script src="assets/entrance.js"></script>
   <script>
     (function () {
@@ -2686,317 +2562,6 @@
       });
       else document.getElementById("top").classList.add("entrance-static");
 
-      function schemaGraph() {
-        var canvas = document.getElementById("schema-canvas");
-        var wrap = canvas ? canvas.closest(".schema-wrap") : null;
-        var phases = Array.prototype.slice.call(document.querySelectorAll(".phase"));
-        if (!canvas || !wrap || !phases.length) return;
-        var context = canvas.getContext("2d");
-        var width = 0;
-        var height = 0;
-        var dpr = 1;
-        var scene = 0;
-        var visible = true;
-        var running = false;
-        var raf = 0;
-        var lastFrame = 0;
-        var targetRotX = 0;
-        var targetRotY = 0;
-        var rotX = 0;
-        var rotY = 0;
-        var random = seededRandom(2025);
-        var nodes = [];
-        var sceneTargets = [[], [], [], []];
-        var labels = [
-          { status: "COLLECTING", title: "Directory intake", meta: "objects → typed model<br>50+ checks in context", aria: "Illustrative Attack Path Theatre: directory objects are being collected into a typed model." },
-          { status: "PATH / POSSIBLE", title: "Control path resolved", meta: "svc-build → tier-0<br>state: possible", aria: "Illustrative Attack Path Theatre: a possible directional control path from a service identity to Tier-0 is selected." },
-          { status: "VALIDATING", title: "Evidence in flight", meta: "supported primitive<br>artifact pending", aria: "Illustrative Attack Path Theatre: a supported validation is moving along the selected route toward evidence." },
-          { status: "REPORT READY", title: "Portable evidence record", meta: "JSON · HTML · Markdown<br>BloodHound CE", aria: "Illustrative Attack Path Theatre: the proven route and its evidence are preserved in portable reports." }
-        ];
-        var status = document.getElementById("schema-status");
-        var schemaTitle = document.getElementById("schema-title");
-        var schemaMeta = document.getElementById("schema-meta");
-        var announcer = document.getElementById("theatre-announcer");
-        var dots = Array.prototype.slice.call(wrap.querySelectorAll(".schema-step-dots i"));
-
-        for (var i = 0; i < 28; i += 1) {
-          var lane = i % 4;
-          sceneTargets[0].push({
-            x: -.82 + lane * .52 + (random() - .5) * .11,
-            y: -.68 + Math.floor(i / 4) * .22 + (random() - .5) * .08,
-            z: -.4 + random() * .8
-          });
-          var angle = i / 28 * Math.PI * 2;
-          var radius = .35 + (i % 3) * .18;
-          var graphTarget = {
-            x: Math.cos(angle * 1.03) * radius,
-            y: Math.sin(angle) * radius * .78,
-            z: Math.sin(angle * 2.3) * .45
-          };
-          sceneTargets[1].push(graphTarget);
-          sceneTargets[2].push({
-            x: graphTarget.x,
-            y: graphTarget.y,
-            z: graphTarget.z
-          });
-          var column = i % 4;
-          var row = Math.floor(i / 4);
-          sceneTargets[3].push({
-            x: -.72 + column * .48,
-            y: -.68 + row * .22,
-            z: (column - 1.5) * .09
-          });
-          nodes.push({ x: sceneTargets[0][i].x, y: sceneTargets[0][i].y, z: sceneTargets[0][i].z, pulse: random() * Math.PI * 2 });
-        }
-
-        function setVerdict(isProven) {
-          var proven = Boolean(isProven);
-          wrap.setAttribute("data-verdict", proven ? "proven" : "possible");
-          if (window.ADhammerJourney) window.ADhammerJourney.setStage(scene, proven);
-          if (scene !== 2) return;
-          status.textContent = proven ? "PATH / PROVEN" : "VALIDATING";
-          status.style.color = proven ? "var(--green)" : "var(--amber)";
-          schemaTitle.textContent = proven ? "Evidence attached" : "Evidence in flight";
-          schemaMeta.innerHTML = proven ? "possible → proven<br>artifact attached" : "supported primitive<br>artifact pending";
-          wrap.setAttribute("aria-label", proven ? "Illustrative Attack Path Theatre: evidence is attached and the selected Tier-0 route is now proven." : labels[2].aria);
-          if (reduced && width && height) draw(0);
-        }
-
-        function setScene(nextScene, shouldAnnounce) {
-          scene = nextScene;
-          wrap.setAttribute("data-scene", String(scene));
-          if (window.ADhammerJourney) window.ADhammerJourney.setStage(scene, false);
-          if (scene !== 2) wrap.setAttribute("data-verdict", "possible");
-          phases.forEach(function (phase, index) {
-            var active = index === scene;
-            phase.classList.toggle("active", active);
-            var button = phase.querySelector(".phase-button");
-            if (button) {
-              button.setAttribute("aria-pressed", active ? "true" : "false");
-              if (active) button.setAttribute("aria-current", "step");
-              else button.removeAttribute("aria-current");
-            }
-          });
-          status.textContent = labels[scene].status;
-          status.style.color = scene === 2 ? "var(--amber)" : scene === 3 ? "var(--green)" : scene === 1 ? "var(--proof-bright)" : "var(--ice)";
-          schemaTitle.textContent = labels[scene].title;
-          schemaMeta.innerHTML = labels[scene].meta;
-          wrap.setAttribute("aria-label", labels[scene].aria);
-          dots.forEach(function (dot, index) {
-            dot.className = index === scene ? (scene === 2 ? "proof-on" : scene === 3 ? "export-on" : "on") : "";
-          });
-          if (shouldAnnounce && announcer) announcer.textContent = labels[scene].aria;
-          if (reduced) {
-            nodes.forEach(function (node, index) {
-              node.x = sceneTargets[scene][index].x;
-              node.y = sceneTargets[scene][index].y;
-              node.z = sceneTargets[scene][index].z;
-            });
-            draw(0);
-          }
-        }
-
-        function resize() {
-          var rect = canvas.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          width = rect.width;
-          height = rect.height;
-          dpr = Math.min(window.devicePixelRatio || 1, window.innerWidth < 700 ? 1 : 1.5);
-          var pixelWidth = Math.round(width * dpr);
-          var pixelHeight = Math.round(height * dpr);
-          if (canvas.width === pixelWidth && canvas.height === pixelHeight) return;
-          canvas.width = pixelWidth;
-          canvas.height = pixelHeight;
-          context.setTransform(dpr, 0, 0, dpr, 0, 0);
-          draw(performance.now());
-        }
-        function project(node) {
-          var cy = Math.cos(rotY);
-          var sy = Math.sin(rotY);
-          var cx = Math.cos(rotX);
-          var sx = Math.sin(rotX);
-          var x1 = node.x * cy - node.z * sy;
-          var z1 = node.x * sy + node.z * cy;
-          var y1 = node.y * cx - z1 * sx;
-          var z2 = node.y * sx + z1 * cx;
-          var scale = 1 / (1.72 - z2 * .28);
-          return { x: width * .5 + x1 * width * .43 * scale, y: height * .49 + y1 * height * .53 * scale, z: z2, scale: scale };
-        }
-        function draw(time) {
-          if (!width || !height) return;
-          context.clearRect(0, 0, width, height);
-          rotX += (targetRotX - rotX) * .055;
-          rotY += (targetRotY - rotY) * .055;
-          nodes.forEach(function (node, index) {
-            var target = sceneTargets[scene][index];
-            var ease = reduced ? 1 : .075;
-            node.x += (target.x - node.x) * ease;
-            node.y += (target.y - node.y) * ease;
-            node.z += (target.z - node.z) * ease;
-          });
-          var points = nodes.map(project);
-          var verdictProven = scene === 2 && wrap.getAttribute("data-verdict") === "proven";
-          var connections = [];
-          if (scene === 0) {
-            for (var i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), "normal"]);
-          } else if (scene === 3) {
-            for (i = 0; i < 24; i += 1) connections.push([i, Math.min(27, i + 4), i >= 20 ? "export" : "normal"]);
-          } else {
-            for (i = 0; i < points.length; i += 1) {
-              var next = (i + 1) % points.length;
-              var chord = (i + 7) % points.length;
-              var routeKind = i >= 7 && i <= 12 ? (verdictProven ? "proven" : "possible") : "normal";
-              connections.push([i, next, routeKind]);
-              if (i % 2 === 0) connections.push([i, chord, i === 8 ? routeKind : "normal"]);
-            }
-          }
-          connections.forEach(function (edge) {
-            var a = points[edge[0]];
-            var b = points[edge[1]];
-            var edgeKind = edge[2];
-            var emphasized = edgeKind !== "normal";
-            context.beginPath();
-            context.moveTo(a.x, a.y);
-            context.lineTo(b.x, b.y);
-            context.strokeStyle = edgeKind === "proven" ? "rgba(130,228,178,.82)" : edgeKind === "possible" ? "rgba(121,210,255,.74)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.2)";
-            context.lineWidth = emphasized ? 1.5 : .7;
-            if (emphasized) {
-              context.shadowBlur = edgeKind === "proven" ? 14 : 9;
-              context.shadowColor = edgeKind === "proven" ? "rgba(130,228,178,.8)" : edgeKind === "export" ? "rgba(130,228,178,.7)" : "rgba(121,210,255,.7)";
-            }
-            context.stroke();
-            context.shadowBlur = 0;
-          });
-          points.forEach(function (point, index) {
-            var pathNode = (scene === 1 || scene === 2) && index >= 8 && index <= 13;
-            var proofNode = verdictProven && pathNode;
-            var possibleNode = pathNode && !verdictProven;
-            var outputNode = scene === 3 && index >= 20;
-            var radius = (proofNode ? 3.2 : possibleNode ? 2.8 : outputNode ? 2.6 : 1.7) * Math.max(.75, point.scale);
-            context.beginPath();
-            context.arc(point.x, point.y, radius, 0, Math.PI * 2);
-            context.fillStyle = proofNode ? "#82e4b2" : possibleNode ? "#c9f2ff" : outputNode ? "#82e4b2" : "rgba(201,242,255,.88)";
-            if (proofNode || possibleNode || outputNode) {
-              context.shadowBlur = proofNode ? 14 : 9;
-              context.shadowColor = proofNode ? "rgba(130,228,178,.9)" : outputNode ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)";
-            }
-            context.fill();
-            context.shadowBlur = 0;
-          });
-          if ((scene === 1 || scene === 2) && !reduced) {
-            var pulse = (time * .0007) % 5;
-            var step = Math.floor(pulse);
-            var amount = pulse - step;
-            var start = points[8 + step];
-            var end = points[9 + step];
-            var px = start.x + (end.x - start.x) * amount;
-            var py = start.y + (end.y - start.y) * amount;
-            var glow = context.createRadialGradient(px, py, 0, px, py, 24);
-            glow.addColorStop(0, "rgba(255,255,255,.95)");
-            glow.addColorStop(.18, verdictProven ? "rgba(130,228,178,.8)" : "rgba(121,210,255,.82)");
-            glow.addColorStop(1, verdictProven ? "rgba(130,228,178,0)" : "rgba(121,210,255,0)");
-            context.fillStyle = glow;
-            context.beginPath();
-            context.arc(px, py, 24, 0, Math.PI * 2);
-            context.fill();
-          }
-        }
-        function loop(time) {
-          if (!running) return;
-          if (time - lastFrame > 30) {
-            lastFrame = time;
-            draw(time);
-          }
-          raf = window.requestAnimationFrame(loop);
-        }
-        function start() {
-          if (running || reduced || !visible) return;
-          running = true;
-          raf = window.requestAnimationFrame(loop);
-        }
-        function stop() {
-          running = false;
-          if (raf) window.cancelAnimationFrame(raf);
-        }
-        var sceneScrollQueued = false;
-        function syncSceneFromScroll() {
-          sceneScrollQueued = false;
-          var marker = window.innerHeight * .55;
-          var closestIndex = 0;
-          var closestDistance = Infinity;
-          var activeRect = null;
-          phases.forEach(function (phase, index) {
-            var rect = phase.getBoundingClientRect();
-            var distance = Math.abs(rect.top + rect.height * .5 - marker);
-            if (distance < closestDistance) {
-              closestDistance = distance;
-              closestIndex = index;
-              activeRect = rect;
-            }
-          });
-          if (closestIndex !== scene) setScene(closestIndex, false);
-          if (closestIndex === 2 && activeRect) {
-            var sceneProgress = Math.max(0, Math.min(1, (marker - activeRect.top) / Math.max(1, activeRect.height)));
-            setVerdict(reduced || sceneProgress > .58);
-          }
-        }
-        function requestSceneSync() {
-          if (sceneScrollQueued) return;
-          sceneScrollQueued = true;
-          window.requestAnimationFrame(syncSceneFromScroll);
-        }
-        phases.forEach(function (phase, index) {
-          var button = phase.querySelector(".phase-button");
-          if (button) button.addEventListener("click", function () {
-            setScene(index, true);
-            if (index === 2) setVerdict(true);
-          });
-        });
-        if ("IntersectionObserver" in window) {
-          var canvasObserver = new IntersectionObserver(function (entries) {
-            visible = entries[0].isIntersecting;
-            if (visible) start(); else stop();
-          }, { threshold: 0 });
-          canvasObserver.observe(wrap);
-        }
-        if (!window.matchMedia || window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
-          wrap.addEventListener("pointermove", function (event) {
-            if (reduced) return;
-            var rect = wrap.getBoundingClientRect();
-            targetRotY = ((event.clientX - rect.left) / rect.width - .5) * .45;
-            targetRotX = -((event.clientY - rect.top) / rect.height - .5) * .28;
-          }, { passive: true });
-          wrap.addEventListener("pointerleave", function () { targetRotX = 0; targetRotY = 0; }, { passive: true });
-        }
-        if ("ResizeObserver" in window) new ResizeObserver(resize).observe(wrap);
-        else window.addEventListener("resize", resize, { passive: true });
-        window.addEventListener("scroll", requestSceneSync, { passive: true });
-        window.addEventListener("resize", requestSceneSync, { passive: true });
-        document.addEventListener("visibilitychange", function () {
-          if (document.hidden) stop();
-          else if (visible) start();
-        });
-        setScene(0, false);
-        resize();
-        requestSceneSync();
-        if (reduced) draw(0); else start();
-        motionListeners.push(function (isReduced) {
-          if (isReduced) {
-            stop();
-            nodes.forEach(function (node, index) {
-              node.x = sceneTargets[scene][index].x;
-              node.y = sceneTargets[scene][index].y;
-              node.z = sceneTargets[scene][index].z;
-            });
-            if (scene === 2) setVerdict(true);
-            draw(0);
-          } else {
-            requestSceneSync();
-            start();
-          }
-        });
-      }
-      schemaGraph();
     })();
   </script>
 </body>

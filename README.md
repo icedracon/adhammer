@@ -7,6 +7,8 @@
   &nbsp; · &nbsp;
   <a href="#quick-start">Quick start</a>
   &nbsp; · &nbsp;
+  <a href="#10-useful-starting-commands">10 commands</a>
+  &nbsp; · &nbsp;
   <a href="docs/VALIDATION.md">Validation ledger</a>
   &nbsp; · &nbsp;
   <a href="https://docs.rs/adhammer-sdk">SDK docs</a>
@@ -48,7 +50,152 @@ verification instructions. No Python runtime or sidecar service is required.
 > Read the [security policy](SECURITY.md) and [capability boundaries](docs/VALIDATION.md)
 > before use.
 
+## 10 useful starting commands
+
+A practical starting set for **v1.5.1**, not a usage ranking. Expand a command
+to see what it does and what to expect. Installation contacts crates.io;
+only **05–06** below probe a directory environment. The other commands stay local.
+
+<details>
+<summary><strong>01 / Install the documented version</strong></summary>
+
+```sh
+cargo install --locked adhammer@1.5.1
+```
+
+Builds and installs the CLI using Cargo. Requires a compatible Rust toolchain
+and registry access; use the release binaries above if you do not want to build.
+
+</details>
+
+<details>
+<summary><strong>02 / Check which version is running</strong></summary>
+
+```sh
+adhammer --version
+```
+
+For this release, the output is `adhammer 1.5.1`. If it differs, check which
+executable your shell resolves before following version-specific documentation.
+
+</details>
+
+<details>
+<summary><strong>03 / Explore the command tree</strong></summary>
+
+```sh
+adhammer --help
+```
+
+Lists the available command groups and global options. Printing help does not
+start an assessment. Use a subcommand's own `--help` for its accepted arguments.
+
+</details>
+
+<details>
+<summary><strong>04 / Understand diagnostic options</strong></summary>
+
+```sh
+adhammer doctor --help
+```
+
+Shows the diagnostic flags, including `--domain`, `--dc`, `--timeout`, and
+`--json`. The domain-controller flag is **`--dc`**, not `--dc-ip`.
+
+</details>
+
+<details>
+<summary><strong>05 / Check DNS and connectivity in your authorized environment</strong></summary>
+
+```sh
+adhammer doctor --domain corp.example --dc 192.0.2.10 --timeout 3
+```
+
+`corp.example` and `192.0.2.10` are documentation placeholders: replace them
+only with your approved environment's values. This performs DNS discovery and
+TCP reachability checks; it is **not offline**. No credentials are supplied here,
+so an authenticated LDAP bind is not tested. The timeout applies per probe,
+not to the total run.
+
+Expect a diagnostic checklist and a verdict. A reachable port does not establish
+that authentication works or that an assessment capability is validated.
+
+</details>
+
+<details>
+<summary><strong>06 / Request machine-readable diagnostics</strong></summary>
+
+```sh
+adhammer doctor --domain corp.example --dc 192.0.2.10 --timeout 3 --json
+```
+
+Runs the same network diagnostics as 05, but emits JSON containing checks and
+a verdict. Use it for your own approved diagnostic workflow. Inspect the actual
+result rather than assuming every check passed; scrub identifiers before sharing it.
+
+</details>
+
+<details>
+<summary><strong>07 / Read the scan interface before using it</strong></summary>
+
+```sh
+adhammer scan --help
+```
+
+Prints collection and report options without connecting to a domain. Review
+the flags and the [validation ledger](docs/VALIDATION.md) before choosing a
+scoped assessment; this example does not initiate one.
+
+</details>
+
+<details>
+<summary><strong>08 / Generate Bash completion text</strong></summary>
+
+```sh
+adhammer completions bash
+```
+
+Prints a Bash completion script to standard output. It does not install or
+activate it; review it and follow your shell's normal completion setup.
+
+</details>
+
+<details>
+<summary><strong>09 / Generate PowerShell completion text</strong></summary>
+
+```powershell
+adhammer completions powershell
+```
+
+Prints the PowerShell completion script. Your profile remains unchanged;
+generation alone does not enable tab completion in the current session.
+
+</details>
+
+<details>
+<summary><strong>10 / Generate the local manual</strong></summary>
+
+```sh
+adhammer man
+```
+
+Prints the manual in **roff source format**, not a rendered terminal page.
+It does not install a system manual or change your machine's configuration.
+
+</details>
+
+The network examples above illustrate syntax and expected behavior, not captured
+assessment results. They were not run against a live domain for this README.
+
 ## A workflow with an evidence trail
+
+<p align="center">
+  <a href="https://icedracon.github.io/adhammer/#engine"><img src="docs/observatory-preview.gif" alt="Fictional Observatory demo: directory objects connect into a route, a synthetic fixture is attached, and the same context enters an illustrative report." width="800" /></a>
+</p>
+
+*Animated schematic, not a screen recording or real assessment. Plays once.*
+[Open the interactive Observatory](https://icedracon.github.io/adhammer/#engine) ·
+[Static preview](docs/observatory-preview.png)
 
 | Stage | Purpose |
 |:--|:--|
