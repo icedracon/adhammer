@@ -594,6 +594,7 @@ pub async fn pkinit_with_cert(
     let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
         match picky_asn1_der::from_bytes::<KrbError>(&resp) {
             Ok(err) => {
+                let code = err.0.error_code.0;
                 let etext = err
                     .0
                     .e_text
@@ -601,19 +602,29 @@ pub async fn pkinit_with_cert(
                     .as_ref()
                     .map(|t| String::from_utf8_lossy(t.0.as_bytes()).into_owned())
                     .unwrap_or_default();
-                let edata = err
-                    .0
-                    .e_data
-                    .0
-                    .as_ref()
-                    .map(|d| hex::encode(&d.0 .0))
-                    .unwrap_or_default();
-                anyhow!(
-                    "KDC rejected PKINIT AS-REQ: error {} '{}' e-data={}",
-                    err.0.error_code.0,
-                    etext,
-                    edata
-                )
+                // Stream 2 / A.5: route the raw ASN.1 e-data hex to tracing::debug!
+                // instead of dumping it into the anyhow message. Operators see the
+                // named error_code + e_text (readable); `-vv` (RUST_LOG=debug) still
+                // surfaces the hex when a KDC ships something interesting in there.
+                if let Some(d) = err.0.e_data.0.as_ref() {
+                    tracing::debug!(
+                        error_code = code,
+                        e_data_hex = %hex::encode(&d.0 .0),
+                        "PKINIT AS-REQ rejected — raw e-data hex"
+                    );
+                }
+                match crate::name_asrep_krb_error(code) {
+                    Some(named) => {
+                        if etext.is_empty() {
+                            anyhow!("KDC rejected PKINIT AS-REQ: {named}")
+                        } else {
+                            anyhow!("KDC rejected PKINIT AS-REQ: {named} — KDC e-text: '{etext}'")
+                        }
+                    }
+                    None => {
+                        anyhow!("KDC rejected PKINIT AS-REQ: unhandled error_code {code} '{etext}'")
+                    }
+                }
             }
             Err(_) => anyhow!("AS-REP decode: {e}"),
         }

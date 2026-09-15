@@ -28,6 +28,7 @@ experimental-gkdi = ["dep:ms-gkdi"]
 [dependencies]
 adhammer-core = { workspace = true }
 ldap3 = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 smb2-client = { workspace = true }
 anyhow = { workspace = true }

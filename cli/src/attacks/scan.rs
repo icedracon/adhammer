@@ -59,7 +59,8 @@ pub(crate) struct ScanArgs {
     #[arg(long)]
     pub gssapi: bool,
     /// **Deprecated in favour of `--out <path.zip>`.** Also export the collected
-    /// domain as a BloodHound .zip at this path (BloodHound CE v5 ingest JSON).
+    /// domain as a BloodHound .zip at this path (BloodHound CE ingest JSON;
+    /// this exporter targets schema v5, both v5 and v6 loaders accept it).
     /// Slated for removal in 1.6.
     #[arg(long)]
     pub bloodhound: Option<String>,
@@ -86,6 +87,19 @@ pub(crate) struct ScanArgs {
     /// for the engagement. Requires `--sysvol`.
     #[arg(long, value_name = "PATH")]
     pub gpp_dump_out: Option<String>,
+    /// **1.5.2 UX-C parity**: accepted for CLI-muscle-memory parity with
+    /// `doctor --domain` — `scan` discovers the realm from RootDSE, so this is
+    /// a hint, not a target selector. Silently ignored except in `-v` narration.
+    #[arg(long, value_name = "REALM", hide = true)]
+    pub domain: Option<String>,
+    /// **1.5.2 opt-in RustHound-CE collector.** Requires `--features rusthound-ce`.
+    /// Runs RH-CE's `LdapOnly` collection over the same LDAP session ADhammer just
+    /// bound (no re-auth), and writes a BloodHound-CE ingest ZIP at `<PATH>`.
+    /// Cooperative with the existing exporter — the ADhammer `Snapshot`/graph/
+    /// findings path is unaffected. See docs/PLAN_1.5.2.md.
+    #[cfg(feature = "rusthound-ce")]
+    #[arg(long = "rusthound-ce", value_name = "PATH")]
+    pub rusthound_ce: Option<String>,
 }
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {
@@ -150,8 +164,54 @@ pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
 }
 
 async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
+    if let Some(d) = a.domain.as_ref() {
+        tracing::info!(hint = %d, "--domain is a CLI-parity hint; realm comes from RootDSE");
+    }
     let sp = ui::Spinner::start("collecting AD objects over LDAP");
-    let snap = Collector::connect(&config(&a)).await?.collect().await?;
+    #[cfg_attr(not(feature = "rusthound-ce"), allow(unused_mut))]
+    let mut collector = Collector::connect(&config(&a)).await?;
+
+    // 1.5.2 opt-in: co-run RustHound-CE's LdapOnly collection over the same session
+    // before we consume the Collector with `.collect()`.
+    #[cfg(feature = "rusthound-ce")]
+    if let Some(rh_out) = a.rusthound_ce.as_ref() {
+        let realm = a
+            .domain
+            .clone()
+            .unwrap_or_else(|| String::from("unknown.realm"));
+        // H-E polish: if the operator handed us what looks like a filename
+        // (`.zip`) rather than a directory, use its PARENT as RH-CE's output
+        // dir and let RH-CE pick its own timestamped basename inside.
+        let out_dir = if rh_out.to_lowercase().ends_with(".zip") {
+            std::path::Path::new(rh_out)
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| String::from("."))
+        } else {
+            rh_out.clone()
+        };
+        let opts = adhammer_bloodhound::rusthound_ce::AdapterOptions::new(realm, out_dir);
+        match adhammer_bloodhound::rusthound_ce::run_over_shared_session(
+            collector.ldap_mut(),
+            &opts,
+        )
+        .await
+        {
+            Ok(zip_path) => {
+                let size = adhammer_bloodhound::rusthound_ce::zip_size_bytes(&zip_path)
+                    .map(|n| format!(" ({n} bytes)"))
+                    .unwrap_or_default();
+                ui::ok(&format!("BloodHound-CE ZIP written → {zip_path}{size}"));
+                checklist.record_ok("rusthound-ce collect", format!("{zip_path}{size}"));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "rusthound-ce collect failed — continuing scan");
+                checklist.record_ok("rusthound-ce collect", format!("skipped: {e}"));
+            }
+        }
+    }
+
+    let snap = collector.collect().await?;
     sp.done(&format!("{} AD object(s) collected", snap.objects.len()));
     checklist.record_ok(
         "LDAP connect + collect",
@@ -221,7 +281,9 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
         }
     }
 
-    // Optional BloodHound export (BloodHound CE v5 ingest .zip) alongside the report.
+    // Optional BloodHound export (BloodHound CE ingest .zip; the built-in path emits
+    // schema v5 which BH-CE 5.x and 6.x both accept — the opt-in `rusthound-ce` feature
+    // writes v6 instead) alongside the report.
     // Two paths: the DEPRECATED --bloodhound flag (kept working through 1.4.x for one
     // release cycle) and the new --out=<path>.zip auto-inference. --bloodhound wins if
     // both are set so scripts that already know their zip path don't silently overwrite.

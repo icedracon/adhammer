@@ -1,15 +1,15 @@
-//! `enum shares --anon` — no-cred anonymous share enumeration (smbclient -L shape).
+//! `enum shares` — SMB share enumeration (smbclient -L shape).
 //!
-//! WS-BB-SHARES (1.5.0). Over one anonymous SMB session (`login_null`), binds
-//! `\srvsvc` and calls `NetrShareEnum` level 1 (`SHARE_INFO_1`: netname / type /
-//! remark) — the classic no-cred share listing. On a legacy DC this returns the
-//! full share table (SYSVOL, NETLOGON, admin `$` shares); on a hardened DC (2019+
-//! default) the null session, the `\srvsvc` bind, or the enum itself is refused,
-//! and that refusal is reported as the finding rather than erroring out.
-//!
-//! `--anon` is required and explicit: it records in the invocation that the enum
-//! used zero credentials, and reserves the bare `enum shares` name for a future
-//! authenticated mode.
+//! Two modes now (1.5.2 Task L):
+//! - **`--anon`**: no-cred anonymous share enumeration (WS-BB-SHARES, 1.5.0).
+//!   Binds `\srvsvc` over `login_null` and calls `NetrShareEnum` level 1
+//!   (SHARE_INFO_1: netname / type / remark). A hardened DC refuses the null
+//!   session, the `\srvsvc` bind, or the enum itself — reported as a finding
+//!   rather than an error.
+//! - **`--user` / `--password` / `--domain`**: authenticated share enum.
+//!   Uses SMB NTLMSSP to log in, then the same NetrShareEnum path. Reveals
+//!   the full share table (SYSVOL / NETLOGON / admin$ / any custom shares
+//!   the caller has ACL for).
 
 use anyhow::Result;
 use clap::Parser;
@@ -19,9 +19,19 @@ pub(crate) struct SharesArgs {
     /// Target DC / host (IP or name).
     #[arg(long)]
     pub host: String,
-    /// Enumerate over an anonymous (null) session — required; no credentials used.
-    #[arg(long)]
+    /// Enumerate over an anonymous (null) session — mutually exclusive with `--user`.
+    #[arg(long, conflicts_with = "user")]
     pub anon: bool,
+    /// Authenticated SMB user (sAMAccountName). Requires `--password` and
+    /// `--domain`.
+    #[arg(long, requires = "password", requires = "domain")]
+    pub user: Option<String>,
+    /// SMB password. Accepts `env:VAR` / `@file:PATH` / secure prompt.
+    #[arg(long)]
+    pub password: Option<adhammer_core::SecretString>,
+    /// NetBIOS or DNS domain for the authenticated bind.
+    #[arg(long)]
+    pub domain: Option<String>,
     /// Emit JSON instead of the human summary.
     #[arg(long)]
     pub json: bool,
@@ -42,14 +52,32 @@ struct SharesReport {
     notes: Vec<String>,
 }
 
-pub(crate) async fn shares(a: SharesArgs) -> Result<()> {
+pub(crate) async fn shares(mut a: SharesArgs) -> Result<()> {
     use smb2_client::SmbClient;
 
-    if !a.anon {
-        anyhow::bail!("pass --anon: only anonymous (no-cred) share enumeration is wired in 1.5.0");
+    if !a.anon && a.user.is_none() {
+        anyhow::bail!(
+            "pass --anon for a null-session enum OR --user/--password/--domain for an \
+             authenticated enum"
+        );
+    }
+    let authed_mode = a.user.is_some();
+    // Resolve @file:/env: for the password when in authed mode (Task L).
+    if authed_mode {
+        if let Some(pw) = a.password.take() {
+            a.password = Some(crate::resolve_secret(&pw, "ADHAMMER_PASSWORD")?);
+        }
     }
 
-    let sp = crate::ui::Spinner::start(format!("anonymous share enum → {}", a.host));
+    let sp = crate::ui::Spinner::start(format!(
+        "{} share enum → {}",
+        if authed_mode {
+            "authenticated"
+        } else {
+            "anonymous"
+        },
+        a.host
+    ));
     let mut rep = SharesReport::default();
 
     let mut smb = match SmbClient::connect(&a.host).await {
@@ -62,12 +90,23 @@ pub(crate) async fn shares(a: SharesArgs) -> Result<()> {
     };
     rep.reachable = true;
 
-    if let Err(e) = smb.login_null(&a.host).await {
+    if authed_mode {
+        let user = a.user.as_deref().unwrap();
+        let domain = a.domain.as_deref().unwrap();
+        let pw = a.password.as_ref().unwrap().expose_secret();
+        if let Err(e) = smb.login(&a.host, domain, user, pw).await {
+            sp.done_warn(&format!("SMB auth failed: {e}"));
+            rep.notes.push(format!("SMB login: {e}"));
+            return emit(&a, &rep);
+        }
+        rep.null_session = false; // authed, but keep the field name for JSON stability
+    } else if let Err(e) = smb.login_null(&a.host).await {
         sp.done(&format!("{}: anonymous session refused (hardened)", a.host));
         rep.notes.push(format!("null session refused: {e}"));
         return emit(&a, &rep);
+    } else {
+        rep.null_session = true;
     }
-    rep.null_session = true;
 
     if let Err(e) = smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await {
         sp.done(&format!("{}: IPC$ refused (hardened)", a.host));
@@ -110,10 +149,22 @@ pub(crate) async fn shares(a: SharesArgs) -> Result<()> {
                     remark: s.remark.clone(),
                 })
                 .collect();
+            let mode_tag = if a.user.is_some() {
+                "authenticated"
+            } else {
+                "anonymous"
+            };
+            let anon_tag = if a.user.is_none() {
+                " [ANON EXPOSED]"
+            } else {
+                ""
+            };
             sp.done(&format!(
-                "{}: anonymous share enum OK — {} share(s) [ANON EXPOSED]",
+                "{}: {} share enum OK — {} share(s){}",
                 a.host,
-                rows.len()
+                mode_tag,
+                rows.len(),
+                anon_tag
             ));
             rep.shares = Some(rows);
             emit(&a, &rep)
@@ -163,14 +214,24 @@ fn emit(a: &SharesArgs, r: &SharesReport) -> Result<()> {
         return Ok(());
     }
 
-    println!("\n== {} — anonymous shares ==", san(&a.host));
+    let mode_tag = if a.user.is_some() {
+        "authenticated"
+    } else {
+        "anonymous"
+    };
+    println!("\n== {} — {mode_tag} shares ==", san(&a.host));
     if !r.reachable {
         println!("  SMB (445) not reachable");
-    } else if !r.null_session {
+    } else if a.user.is_none() && !r.null_session {
         println!("  null session refused — DC hardened against anonymous SMB.");
     } else if let Some(rows) = &r.shares {
+        let session_desc = if a.user.is_some() {
+            format!("{mode_tag} session established")
+        } else {
+            String::from("null session established")
+        };
         println!(
-            "  null session established · NetrShareEnum → {} share(s):",
+            "  {session_desc} · NetrShareEnum → {} share(s):",
             rows.len()
         );
         let non_admin = rows.iter().filter(|s| !s.special).count();
@@ -183,7 +244,7 @@ fn emit(a: &SharesArgs, r: &SharesReport) -> Result<()> {
             };
             println!("    {:<16} {}{tag}{remark}", san(&s.netname), s.stype);
         }
-        if non_admin > 0 {
+        if a.user.is_none() && non_admin > 0 {
             println!(
                 "\n  ** {non_admin} non-admin share(s) listable anonymously [ANON EXPOSED] — \
                  this DC permits null-session NetrShareEnum. Harden: RestrictNullSessAccess=1."

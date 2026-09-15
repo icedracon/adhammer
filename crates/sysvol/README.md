@@ -46,7 +46,7 @@ through the OS SMB redirector on a domain-joined host) and:
 
 ```toml
 [dependencies]
-adhammer-sysvol = "1.4"
+adhammer-sysvol = "1.5"
 ```
 
 ## Example

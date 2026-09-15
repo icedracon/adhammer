@@ -51,7 +51,7 @@ PKINIT chain.
 
 ```toml
 [dependencies]
-adhammer-kerberos = "1.4"
+adhammer-kerberos = "1.5"
 ```
 
 ## Related

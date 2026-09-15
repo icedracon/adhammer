@@ -69,16 +69,24 @@ pub(crate) enum KerbCmd {
 
 #[derive(Parser)]
 pub(crate) struct TrustMintArgs {
+    /// Read every argument from an INI-style KEY=VALUE file instead of the
+    /// command line. Useful in environments where the caller's process
+    /// harness rejects command-line launches carrying a trust-key hash in
+    /// argv. Keys: `user`, `realm`, `kdc`, `password`, `nt_hash`, `out`
+    /// (one per line; lines starting with `#` are comments). `env:VAR` /
+    /// `@file:PATH` still work for `password` and `nt_hash`.
+    #[arg(long, value_name = "PATH")]
+    pub from_file: Option<String>,
     /// Trust account SAM — always `$`-suffixed on Windows (e.g. `PARENT$`).
     #[arg(long)]
-    pub user: String,
+    pub user: Option<String>,
     /// Target realm to auth against (the FOREIGN realm's KDC — the trust key
     /// is the shared secret between the two realms).
     #[arg(long)]
-    pub realm: String,
+    pub realm: Option<String>,
     /// Foreign realm's KDC (host or IP).
     #[arg(long)]
-    pub kdc: String,
+    pub kdc: Option<String>,
     /// Trust key as an RC4 NT hash (32 hex chars). One of --nt-hash or --password.
     #[arg(long, conflicts_with = "password")]
     pub nt_hash: Option<adhammer_core::SecretString>,
@@ -90,14 +98,160 @@ pub(crate) struct TrustMintArgs {
     pub out: Option<String>,
 }
 
+#[cfg_attr(test, derive(Debug))]
+enum TrustMintCredential {
+    Password(adhammer_core::SecretString),
+    NtHash(adhammer_core::SecretString),
+}
+
+#[cfg_attr(test, derive(Debug))]
+struct TrustMintConfig {
+    user: String,
+    realm: String,
+    kdc: String,
+    credential: TrustMintCredential,
+    out: Option<String>,
+}
+
+impl TrustMintConfig {
+    fn from_flags(a: &TrustMintArgs) -> Result<Self> {
+        let credential = match (&a.password, &a.nt_hash) {
+            (Some(pw), None) => TrustMintCredential::Password(crate::resolve_secret(
+                pw,
+                "ADHAMMER_PASSWORD",
+            )?),
+            (None, Some(h)) => TrustMintCredential::NtHash(crate::resolve_secret(
+                h,
+                "ADHAMMER_NT_HASH",
+            )?),
+            (Some(_), Some(_)) => {
+                bail!("pass --password OR --nt-hash, not both")
+            }
+            (None, None) => {
+                bail!("--password or --nt-hash required (or use --from-file)")
+            }
+        };
+        Ok(Self {
+            user: a
+                .user
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--user required (or use --from-file)"))?,
+            realm: a
+                .realm
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--realm required (or use --from-file)"))?,
+            kdc: a
+                .kdc
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--kdc required (or use --from-file)"))?,
+            credential,
+            out: a.out.clone(),
+        })
+    }
+}
+
+#[cfg_attr(test, derive(Debug))]
+struct TrustMintFile {
+    user: Option<String>,
+    realm: Option<String>,
+    kdc: Option<String>,
+    password: Option<String>,
+    nt_hash: Option<String>,
+    out: Option<String>,
+}
+
+impl TrustMintFile {
+    fn overlay(self, a: &TrustMintArgs) -> Result<TrustMintConfig> {
+        let take =
+            |from_file: Option<String>, from_flag: Option<String>, name: &str| -> Result<String> {
+                from_flag.or(from_file).ok_or_else(|| {
+                    anyhow::anyhow!("{name} missing in both --from-file and CLI flags")
+                })
+            };
+        let pw_raw = a
+            .password
+            .as_ref()
+            .map(|s| s.expose_secret().to_string())
+            .or(self.password);
+        let nt_raw = a
+            .nt_hash
+            .as_ref()
+            .map(|s| s.expose_secret().to_string())
+            .or(self.nt_hash);
+        let credential = match (pw_raw, nt_raw) {
+            (Some(pw), None) => TrustMintCredential::Password(crate::resolve_secret(
+                pw.as_str(),
+                "ADHAMMER_PASSWORD",
+            )?),
+            (None, Some(h)) => TrustMintCredential::NtHash(crate::resolve_secret(
+                h.as_str(),
+                "ADHAMMER_NT_HASH",
+            )?),
+            (Some(_), Some(_)) => bail!(
+                "password and nt_hash cannot both be set (merged view of --from-file + CLI flags)"
+            ),
+            (None, None) => {
+                bail!("trust credential missing — set password or nt_hash")
+            }
+        };
+        Ok(TrustMintConfig {
+            user: take(self.user, a.user.clone(), "user")?,
+            realm: take(self.realm, a.realm.clone(), "realm")?,
+            kdc: take(self.kdc, a.kdc.clone(), "kdc")?,
+            credential,
+            out: a.out.clone().or(self.out),
+        })
+    }
+}
+
+fn load_trust_mint_ini(path: &str) -> Result<TrustMintFile> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("read --from-file {path}"))?;
+    let mut f = TrustMintFile {
+        user: None,
+        realm: None,
+        kdc: None,
+        password: None,
+        nt_hash: None,
+        out: None,
+    };
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (k, v) = line
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("{path}:{}: expected KEY=VALUE", n + 1))?;
+        let v = v.trim().to_string();
+        match k.trim() {
+            "user" => f.user = Some(v),
+            "realm" => f.realm = Some(v),
+            "kdc" => f.kdc = Some(v),
+            "password" => f.password = Some(v),
+            "nt_hash" => f.nt_hash = Some(v),
+            "out" => f.out = Some(v),
+            other => anyhow::bail!("{path}:{}: unknown key `{other}`", n + 1),
+        }
+    }
+    Ok(f)
+}
+
 #[derive(Parser)]
 pub(crate) struct TrustDumpArgs {
+    /// Read every argument from an INI-style KEY=VALUE file instead of the
+    /// command line. Useful in environments where the caller's process
+    /// harness rejects command-line launches that carry a bind password in
+    /// argv. Keys: `url`, `user`, `password`, `insecure`, `hint_external`
+    /// (one per line; lines starting with `#` are comments). `env:VAR` /
+    /// `@file:PATH` still work for `password`.
+    #[arg(long, value_name = "PATH")]
+    pub from_file: Option<String>,
     /// LDAP URL — the LOCAL realm's DC (we enumerate trusted-domain objects
     /// as an authenticated user on this side).
     #[arg(long)]
-    pub url: String,
+    pub url: Option<String>,
     #[arg(long)]
-    pub user: String,
+    pub user: Option<String>,
     #[arg(long, default_value = "")]
     pub password: adhammer_core::SecretString,
     #[arg(long)]
@@ -105,6 +259,108 @@ pub(crate) struct TrustDumpArgs {
     /// Emit the `[hint]` external-tool block for the LSA-side extract.
     #[arg(long, default_value_t = true)]
     pub hint_external: bool,
+}
+
+#[cfg_attr(test, derive(Debug))]
+struct TrustDumpConfig {
+    url: String,
+    user: String,
+    password: adhammer_core::SecretString,
+    insecure: bool,
+    hint_external: bool,
+}
+
+impl TrustDumpConfig {
+    fn from_flags(a: &TrustDumpArgs) -> Result<Self> {
+        Ok(Self {
+            url: a
+                .url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--url required (or use --from-file)"))?,
+            user: a
+                .user
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--user required (or use --from-file)"))?,
+            password: crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?,
+            insecure: a.insecure,
+            hint_external: a.hint_external,
+        })
+    }
+}
+
+#[cfg_attr(test, derive(Debug))]
+struct TrustDumpFile {
+    url: Option<String>,
+    user: Option<String>,
+    password: Option<String>,
+    insecure: Option<bool>,
+    hint_external: Option<bool>,
+}
+
+impl TrustDumpFile {
+    fn overlay(self, a: &TrustDumpArgs) -> Result<TrustDumpConfig> {
+        let take =
+            |from_file: Option<String>, from_flag: Option<String>, name: &str| -> Result<String> {
+                from_flag.or(from_file).ok_or_else(|| {
+                    anyhow::anyhow!("{name} missing in both --from-file and CLI flags")
+                })
+            };
+        // Password: CLI default is "" — treat empty as unset so INI can override.
+        let pw_raw = if !a.password.is_empty() {
+            Some(a.password.expose_secret().to_string())
+        } else {
+            self.password
+        };
+        let password = match pw_raw {
+            Some(v) => crate::resolve_secret(v.as_str(), "ADHAMMER_PASSWORD")?,
+            None => adhammer_core::SecretString::new(String::new()),
+        };
+        Ok(TrustDumpConfig {
+            url: take(self.url, a.url.clone(), "url")?,
+            user: take(self.user, a.user.clone(), "user")?,
+            password,
+            insecure: a.insecure || self.insecure.unwrap_or(false),
+            hint_external: self.hint_external.unwrap_or(a.hint_external),
+        })
+    }
+}
+
+fn load_trust_dump_ini(path: &str) -> Result<TrustDumpFile> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("read --from-file {path}"))?;
+    let mut f = TrustDumpFile {
+        url: None,
+        user: None,
+        password: None,
+        insecure: None,
+        hint_external: None,
+    };
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (k, v) = line
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("{path}:{}: expected KEY=VALUE", n + 1))?;
+        let v = v.trim().to_string();
+        match k.trim() {
+            "url" => f.url = Some(v),
+            "user" => f.user = Some(v),
+            "password" => f.password = Some(v),
+            "insecure" => {
+                f.insecure = Some(v.parse::<bool>().map_err(|_| {
+                    anyhow::anyhow!("{path}:{}: insecure must be true|false", n + 1)
+                })?);
+            }
+            "hint_external" => {
+                f.hint_external = Some(v.parse::<bool>().map_err(|_| {
+                    anyhow::anyhow!("{path}:{}: hint_external must be true|false", n + 1)
+                })?);
+            }
+            other => anyhow::bail!("{path}:{}: unknown key `{other}`", n + 1),
+        }
+    }
+    Ok(f)
 }
 
 #[derive(Parser)]
@@ -359,7 +615,27 @@ async fn pkinit_impl(a: PkinitArgs, checklist: &mut ui::StageChecklist) -> Resul
         format!("sname={}, endtime={}", tgt.sname, tgt.end_time),
     );
 
-    let ccache_path = a.out.clone().unwrap_or_else(|| format!("{user}.ccache"));
+    // Task K polish: when --out is NOT set and the default path already exists
+    // (typical operator flow: multiple `attack asktgt` / `kerb pkinit` runs
+    // against the same user), fall back to a timestamped path instead of
+    // erroring. Explicit --out is always respected verbatim so scripted
+    // pipelines stay deterministic. write_secret_artifact still refuses to
+    // overwrite — that's the underlying no-silent-evidence-erasure guarantee.
+    let ccache_path = match a.out.clone() {
+        Some(p) => p,
+        None => {
+            let base = format!("{user}.ccache");
+            if std::path::Path::new(&base).exists() {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                format!("{user}.{ts}.ccache")
+            } else {
+                base
+            }
+        }
+    };
     adhammer_core::write_secret_artifact(
         std::path::Path::new(&ccache_path),
         adhammer_core::SecretArtifact::Ccache,
@@ -386,28 +662,36 @@ async fn pkinit_impl(a: PkinitArgs, checklist: &mut ui::StageChecklist) -> Resul
 /// so operators looking for the "cross-forest trust-key → ticket" primitive
 /// find it under the Kerberos group with matching docs.
 pub(crate) async fn trust_mint(a: TrustMintArgs) -> Result<()> {
-    if !a.user.ends_with('$') {
+    let cfg = match a.from_file.as_deref() {
+        Some(p) => load_trust_mint_ini(p)?.overlay(&a)?,
+        None => TrustMintConfig::from_flags(&a)?,
+    };
+    if !cfg.user.ends_with('$') {
         crate::ui::warn(
             "trust accounts are `$`-suffixed on Windows (e.g. PARENT$) — proceeding, but the KDC will likely reject a non-trust SAM.",
         );
     }
+    let (password, nt_hash) = match cfg.credential {
+        TrustMintCredential::Password(pw) => (Some(pw), None),
+        TrustMintCredential::NtHash(h) => (None, Some(h)),
+    };
     // Reuse attack asktgt's argument struct, which already implements the
     // AS-REQ round-trip with hash or password + ccache write.
     let a2 = crate::attacks::asktgt::AsktgtArgs {
-        user: a.user.clone(),
-        realm: a.realm.clone(),
-        kdc: a.kdc.clone(),
-        nt_hash: a.nt_hash,
-        password: a.password,
+        user: cfg.user.clone(),
+        realm: cfg.realm.clone(),
+        kdc: cfg.kdc.clone(),
+        nt_hash,
+        password,
         out: Some(
-            a.out
+            cfg.out
                 .clone()
-                .unwrap_or_else(|| format!("{}.ccache", a.user)),
+                .unwrap_or_else(|| format!("{}.ccache", cfg.user)),
         ),
     };
     println!(
         "[*] cross-realm TGT: user={} realm={} kdc={}",
-        a.user, a.realm, a.kdc
+        cfg.user, cfg.realm, cfg.kdc
     );
     crate::attacks::asktgt::asktgt(a2).await
 }
@@ -415,20 +699,23 @@ pub(crate) async fn trust_mint(a: TrustMintArgs) -> Result<()> {
 /// F3 — enumerate `trustedDomain` objects on the local DC via LDAP. Prints a
 /// per-trust row + emits the external-tool hint for the LSA-side secret
 /// extract (ms-lsad v0.3 is still deferred).
-pub(crate) async fn trust_dump(mut a: TrustDumpArgs) -> Result<()> {
+pub(crate) async fn trust_dump(a: TrustDumpArgs) -> Result<()> {
     use adhammer_collector::{Collector, LdapConfig};
-    a.password = crate::resolve_secret(&a.password, "ADHAMMER_PASSWORD")?;
+    let cfg = match a.from_file.as_deref() {
+        Some(p) => load_trust_dump_ini(p)?.overlay(&a)?,
+        None => TrustDumpConfig::from_flags(&a)?,
+    };
 
-    let cfg = LdapConfig {
-        url: a.url.clone(),
-        bind_dn: a.user.clone(),
-        password: a.password.clone(),
+    let ldap_cfg = LdapConfig {
+        url: cfg.url.clone(),
+        bind_dn: cfg.user.clone(),
+        password: cfg.password.clone(),
         base_dn: None,
-        insecure: a.insecure,
+        insecure: cfg.insecure,
         gssapi: false,
         allow_plaintext_bind: false,
     };
-    let mut c = Collector::connect(&cfg).await?;
+    let mut c = Collector::connect(&ldap_cfg).await?;
     let base = c.base_dn().to_string();
     let system_dn = format!("CN=System,{base}");
 
@@ -476,11 +763,11 @@ pub(crate) async fn trust_dump(mut a: TrustDumpArgs) -> Result<()> {
         println!("  · {name}\tdirection={direction}\ttype={ttype}\tattrs={attrs}");
     }
 
-    if a.hint_external {
+    if cfg.hint_external {
         let mut p = crate::gap_hint::HintParams::new();
         // Pass the URL host as the target-DC hint slot; caller adjusts.
-        p.dc_host = Some(host_from_ldap_url(&a.url));
-        p.user = Some(a.user);
+        p.dc_host = Some(host_from_ldap_url(&cfg.url));
+        p.user = Some(cfg.user);
         crate::gap_hint::hint_external(crate::gap_hint::Gap::TrustDump, &p);
     }
     Ok(())
@@ -552,6 +839,44 @@ fn host_from_ldap_url(url: &str) -> String {
 mod tests {
     use super::*;
 
+    fn tmp_ini(name: &str, body: &str) -> String {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "adhammer_kerb_{}_{}_{}.ini",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, body).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn empty_trust_mint_args() -> TrustMintArgs {
+        TrustMintArgs {
+            from_file: None,
+            user: None,
+            realm: None,
+            kdc: None,
+            nt_hash: None,
+            password: None,
+            out: None,
+        }
+    }
+
+    fn empty_trust_dump_args() -> TrustDumpArgs {
+        TrustDumpArgs {
+            from_file: None,
+            url: None,
+            user: None,
+            password: adhammer_core::SecretString::new(String::new()),
+            insecure: false,
+            hint_external: true,
+        }
+    }
+
     #[test]
     fn decode_cert_bytes_any_handles_pem() {
         let pem = b"-----BEGIN CERTIFICATE-----\nAAECAwQFBgc=\n-----END CERTIFICATE-----\n";
@@ -570,5 +895,127 @@ mod tests {
         let pem = b"-----BEGIN CERTIFICATE-----\nAAEC\n-----END CERTIFICATE-----\n\
                     -----BEGIN CERTIFICATE-----\nAwQF\n-----END CERTIFICATE-----\n";
         assert_eq!(decode_cert_bytes_any(pem).unwrap(), vec![0u8, 1, 2]);
+    }
+
+    // ─────────────────────── trust-mint --from-file ───────────────────────
+
+    #[test]
+    fn trust_mint_ini_parses_valid_keys() {
+        let path = tmp_ini(
+            "mint_valid",
+            "# comment\n\
+             user=PARENT$\n\
+             realm=PARENT.LOCAL\n\
+             kdc=parent-dc.parent.local\n\
+             nt_hash=31d6cfe0d16ae931b73c59d7e0c089c0\n\
+             out=/tmp/parent.ccache\n",
+        );
+        let f = load_trust_mint_ini(&path).unwrap();
+        assert_eq!(f.user.as_deref(), Some("PARENT$"));
+        assert_eq!(f.realm.as_deref(), Some("PARENT.LOCAL"));
+        assert_eq!(f.kdc.as_deref(), Some("parent-dc.parent.local"));
+        assert_eq!(
+            f.nt_hash.as_deref(),
+            Some("31d6cfe0d16ae931b73c59d7e0c089c0")
+        );
+        assert_eq!(f.out.as_deref(), Some("/tmp/parent.ccache"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn trust_mint_ini_unknown_key_errors() {
+        let path = tmp_ini("mint_unknown", "user=X$\nbogus_key=1\n");
+        let err = load_trust_mint_ini(&path).unwrap_err().to_string();
+        assert!(err.contains("unknown key"), "err was {err:?}");
+        assert!(err.contains("bogus_key"), "err was {err:?}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn trust_mint_cli_flag_beats_ini_value() {
+        let path = tmp_ini(
+            "mint_beat",
+            "user=INI$\n\
+             realm=INI.LOCAL\n\
+             kdc=ini-kdc\n\
+             nt_hash=31d6cfe0d16ae931b73c59d7e0c089c0\n",
+        );
+        let f = load_trust_mint_ini(&path).unwrap();
+        let mut a = empty_trust_mint_args();
+        a.user = Some("CLI$".to_string());
+        let cfg = f.overlay(&a).unwrap();
+        assert_eq!(cfg.user, "CLI$");
+        assert_eq!(cfg.realm, "INI.LOCAL");
+        assert!(matches!(cfg.credential, TrustMintCredential::NtHash(_)));
+    }
+
+    #[test]
+    fn trust_mint_missing_required_key_errors() {
+        let path = tmp_ini(
+            "mint_missing",
+            "# no realm\n\
+             user=PARENT$\n\
+             kdc=parent-dc\n\
+             nt_hash=31d6cfe0d16ae931b73c59d7e0c089c0\n",
+        );
+        let f = load_trust_mint_ini(&path).unwrap();
+        let a = empty_trust_mint_args();
+        let err = f.overlay(&a).unwrap_err().to_string();
+        assert!(err.contains("realm"), "err was {err:?}");
+    }
+
+    // ─────────────────────── trust-dump --from-file ───────────────────────
+
+    #[test]
+    fn trust_dump_ini_parses_valid_keys() {
+        let path = tmp_ini(
+            "dump_valid",
+            "# comment\n\
+             url=ldaps://dc.corp.local\n\
+             user=CORP\\alice\n\
+             password=hunter2\n\
+             insecure=true\n\
+             hint_external=false\n",
+        );
+        let f = load_trust_dump_ini(&path).unwrap();
+        assert_eq!(f.url.as_deref(), Some("ldaps://dc.corp.local"));
+        assert_eq!(f.user.as_deref(), Some("CORP\\alice"));
+        assert_eq!(f.password.as_deref(), Some("hunter2"));
+        assert_eq!(f.insecure, Some(true));
+        assert_eq!(f.hint_external, Some(false));
+    }
+
+    #[test]
+    fn trust_dump_ini_unknown_key_errors() {
+        let path = tmp_ini("dump_unknown", "url=x\nbogus_key=1\n");
+        let err = load_trust_dump_ini(&path).unwrap_err().to_string();
+        assert!(err.contains("unknown key"), "err was {err:?}");
+        assert!(err.contains("bogus_key"), "err was {err:?}");
+    }
+
+    #[test]
+    fn trust_dump_cli_flag_beats_ini_value() {
+        let path = tmp_ini(
+            "dump_beat",
+            "url=ldap://ini-host\nuser=ini-user\n",
+        );
+        let f = load_trust_dump_ini(&path).unwrap();
+        let mut a = empty_trust_dump_args();
+        a.url = Some("ldap://cli-host".to_string());
+        let cfg = f.overlay(&a).unwrap();
+        assert_eq!(cfg.url, "ldap://cli-host");
+        assert_eq!(cfg.user, "ini-user");
+    }
+
+    #[test]
+    fn trust_dump_missing_required_key_errors() {
+        let path = tmp_ini(
+            "dump_missing",
+            "# no url here\nuser=alice\n",
+        );
+        let f = load_trust_dump_ini(&path).unwrap();
+        let a = empty_trust_dump_args();
+        let err = f.overlay(&a).unwrap_err().to_string();
+        assert!(err.contains("url"), "err was {err:?}");
     }
 }

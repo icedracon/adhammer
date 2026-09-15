@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.5.1"
+version = "1.5.2"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -27,21 +27,28 @@ description = "ADhammer — Active Directory security assessment and offensive t
 repository = "https://github.com/icedracon/adhammer"
 
 [workspace.dependencies]
+# 1.5.2 opt-in BloodHound-CE collector interop (g0h4n/RustHound-CE @ v2.5.x).
+# OFF by default — pulled in only when adhammer-bloodhound's `rusthound-ce`
+# feature is on. `default-features=false` avoids the upstream Kerberos/GSSAPI
+# system-lib requirement (libclang / libkrb5-dev); `nogssapi` forces
+# ldap3/tls-rustls-ring, which coexists with (but is not the same as)
+# adhammer's default AWS-LC provider — see docs/PLAN_1.5.2.md landmines.
+rusthound-ce = { version = "=2.5.13", default-features = false, features = ["nogssapi"] }
 # WS-FOUNDATION-INTEGRATE (1.4.10 foundation, capability in 1.5.0) —
 # CIDR + IP-address types for EngagementScope. Small (2 deps, no
 # transitive network stack), widely audited. No DNS resolver dep:
 # DNS SRV lookup is intentionally hand-rolled to keep resolver behavior bounded
 # and avoid adding a second network stack.
-ipnet        = "2.11"
+ipnet        = "2.12"
 # the from-scratch protocol stack, now consumed as standalone published crates
 # (extracted from this repo — https://crates.io/crates/{windows-sddl,ntlmssp,smb2-client,dcerpc})
-windows-sddl = "0.1.3"
+windows-sddl = "0.1.4"
 ad-acl       = "0.1"
 ntlmssp      = "0.1.1"
 smb2-client  = "0.2"
 # dcerpc tracks the git repo until 0.2 is published (it carries the in-development
 # RRP / DCOM / Netlogon modules that `enum esc|posture` and `attack zerologon` use).
-dcerpc       = "0.2.8"
+dcerpc       = "0.2.10"
 # ADCS + DPAPI-NG protocol libraries — extracted parsers + CSR builder + LAPS-v2
 # tree walk used by `check adcs` (ms-crtd ESC rule pack), `attack icpr-esc1` (ms-icpr),
 # and the opt-in collector GKDI adapter. ms-icpr's `network` feature (sealed `\PIPE\cert`
@@ -60,16 +67,16 @@ ms-tds       = "0.1.1"
 # and leaves blob unwrap for a follow-up verb.
 dpapi-offline = "0.1.2"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.5.1" }
-adhammer-collector = { path = "crates/collector", version = "1.5.1", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.5.1" }
-adhammer-graph     = { path = "crates/graph",     version = "1.5.1" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.5.1" }
-adhammer-report    = { path = "crates/report",    version = "1.5.1" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.5.1" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.5.1" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.1" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.5.1" }
+adhammer-core      = { path = "crates/core",      version = "1.5.2" }
+adhammer-collector = { path = "crates/collector", version = "1.5.2", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.5.2" }
+adhammer-graph     = { path = "crates/graph",     version = "1.5.2" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.5.2" }
+adhammer-report    = { path = "crates/report",    version = "1.5.2" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.5.2" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.5.2" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.2" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.5.2" }
 
 # WS-HASHGLASS (1.5.0) — pentester-focused hash-type identifier
 # consumed by `attack roast` to annotate each emitted hash with its hashcat
@@ -102,6 +109,25 @@ aes         = "0.8"
 cbc         = "0.1"
 hex         = "0.4"
 base64      = "0.22"
+# 1.5.2 F4b KDBX4 extract — Argon2d for the ONE KDF call needed to unlock a
+# KeePass DB given a KNOWN password; SHA256/SHA512 for the header + block
+# HMAC chain. Brute-forcing the master password is intentionally NOT in-tree
+# (hashcat -m 13400 owns that); adhammer only decrypts + unmasks when the
+# password is already recovered.
+argon2      = { version = "0.5", default-features = false, features = ["alloc"] }
+sha2        = { version = "0.10" }
+# 1.5.2 F4b KDBX4 extract — ChaCha20 stream (both outer body cipher and inner
+# protected-field cipher), gzip inflate for compressed bodies, quick-xml for
+# the KeePass 2.x XML walk.
+chacha20    = "0.9"
+flate2      = { version = "1", default-features = false, features = ["rust_backend"] }
+quick-xml   = "0.36"
+# 1.5.2 Task Q — ese-parser 0.1 (ESE file header + random-access page read) +
+# ntds-parse 0.2 (PEK unwrap + NT-hash AES-CBC decrypt). Row walk is
+# ese-parser 0.2 roadmap; this build ships as a scaffold validator + gap_hint
+# pointer at impacket-secretsdump -ntds, per the F5 lsa lsass-parse pattern.
+ese-parser  = "0.1"
+ntds-parse  = "0.2"
 
 [profile.release]
 lto = "thin"

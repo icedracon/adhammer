@@ -42,11 +42,11 @@ Hints are printed to **stderr** so `--json` stdout stays pure.
 | 8 | [BloodHound live collect](#bloodhound-collect) | `rusthound-ce` | live collector loop is a separate project (we emit the ZIP) |
 | 9 | [Cert-template ACE grant](#template-ace-edit) | `certipy template -write-default-configuration` | template DACL write not wired (F2 covers the flag flip) |
 | 10 | [PFX → PEM + CRT](#pfx-decode) | `openssl pkcs12` | avoids a pkcs12 dep for one file-format decode |
-| 11 | [Pre-Win2000 mass spray](#pre2k-spray) | `nxc smb --pre2k` | no dedicated verb yet — 1.5.2 adds `attack pre2k` |
-| 12 | [Change expired password](#expired-changepw) | `impacket-changepasswd` | SAMR ChangePassword2 verb wired but no CLI surface yet — 1.5.2 adds `attack changepasswd` |
-| 13 | [Full PSRP runspace shell](#psrp-runspace) | `evil-winrm` | `--shell powershell` wraps single commands only; full PSRP is ~500 LOC — 1.6 |
-| 14 | [HTTP-to-LDAPS relay + CVE-2019-1040](#relay-http-mic) | `impacket-ntlmrelayx --http-port ... --remove-mic` | `attack relay` is SMB-listener today; HTTP listener + MIC-strip is 1.5.2 |
-| 15 | [Create computer via MachineAccountQuota](#create-computer) | `impacket-addcomputer` | RBCD trustee bootstrap; `attack abuse --create-computer` lands in 1.5.2 |
+| 11 | [Pre-Win2000 mass spray](#pre2k-spray) | `nxc smb --pre2k` | no dedicated verb yet; planned as `attack pre2k` — use external tool today |
+| 12 | [Change expired password](#expired-changepw) | `impacket-changepasswd` | SAMR ChangePassword2 primitive wired but no CLI verb yet — planned as `attack changepasswd` |
+| 13 | [Full PSRP runspace shell](#psrp-runspace) | `evil-winrm` | `--shell powershell` wraps single commands only; full PSRP is ~500 LOC — later release |
+| 14 | [HTTP-to-LDAPS relay + CVE-2019-1040](#relay-http-mic) | `impacket-ntlmrelayx --http-port ... --remove-mic` | `attack relay` is SMB-listener today; HTTP listener + MIC-strip planned — use external tool today |
+| 15 | [Create computer via MachineAccountQuota](#create-computer) | `impacket-addcomputer` | RBCD trustee bootstrap; `attack abuse --create-computer` planned — use external tool today |
 
 ---
 
@@ -105,9 +105,14 @@ impacket-secretsdump -ntds <ntds.dit> -system <SYSTEM.hive> LOCAL
 
 ## F3 — LSA policy secret dump (cross-realm trust keys) {#f3-trust-dump}
 
-**Why not built-in:** `LsarRetrievePrivateData` (opnum 43) lives in
-ms-lsad's v0.3 roadmap and hasn't published yet. The `G$$<trust-domain>`
-secret is *the* cross-forest primitive, so this WILL land — as F3 in 1.5.2.
+**Why not built-in:** `kerb trust-dump` ships in 1.5.2 as the LDAP-level
+enumerator (`trustedDomain` objects → partner / direction / type /
+attributes), which is often enough to plan a cross-forest chain. The
+*secret-material* fetch — `LsarRetrievePrivateData` opnum 43 pulling
+the `G$$<trust-domain>` key so you can forge inter-realm tickets — is
+still gapped: opnum 43 lives on ms-lsad's v0.3 roadmap and hasn't
+published yet. Use the external tool for the key extract until that
+lands.
 
 **External tool:**
 
@@ -194,7 +199,7 @@ via RC4-HMAC), but there's no batch verb that reads a CSV of
 `PASSWD_NOTREQD` computer accounts and tries each one. Discovered live
 against an external live DC (2026-09-11) — the fastest path there is a mass spray of
 computer accounts whose passwords still match the pre-provisioning
-convention. Ships as `attack pre2k` in 1.5.2.
+convention. Planned as `attack pre2k`; not yet shipped.
 
 **External tool:**
 
@@ -209,8 +214,8 @@ nxc smb <dc-ip> --pre2k -u accounts.txt -p accounts.txt
 covers the *admin-rewrites-someone-else's-password* case. What's missing is
 the *pre-created account whose password is expired and needs to change
 itself over a session with no existing TGT* case — the flow used against
-`PASSWORD_MUST_CHANGE`-flagged accounts. Ships as `attack changepasswd`
-in 1.5.2.
+`PASSWORD_MUST_CHANGE`-flagged accounts. Planned as `attack changepasswd`;
+not yet shipped.
 
 **External tool:**
 
@@ -248,8 +253,9 @@ an external live DC:
 2. **`--remove-mic`** — CVE-2019-1040 MIC bypass — to make the relayed
    session pass an unsigned bind against LDAPS.
 
-Both ship as `attack relay --listen-http --remove-mic --escalate-user
-<sam>` in 1.5.2. Marked P0 for that milestone.
+Both are planned as `attack relay --listen-http --remove-mic
+--escalate-user <sam>`; not yet shipped. Use the external tool for the
+HTTP-relay + MIC-strip chain today.
 
 **External tool:**
 
@@ -266,7 +272,8 @@ authenticated user) to add a new computer account and use *that* as the
 `msDS-AllowedToActOnBehalfOfOtherIdentity` value. adhammer's `attack
 abuse` covers the ACL write on the victim, but the *create the trustee*
 step is a separate LDAP `add` + SAMR password-set that hasn't been
-wrapped. Ships as `attack abuse --create-computer <name>` in 1.5.2.
+wrapped. Planned as `attack abuse --create-computer <name>`;
+not yet shipped.
 
 **External tool:**
 

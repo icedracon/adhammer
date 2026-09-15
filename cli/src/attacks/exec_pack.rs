@@ -123,14 +123,24 @@ pub(crate) async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
     .await?;
     smb.tree_connect(&format!("\\\\{}\\C$", a.auth.host))
         .await?;
+    // Stream 3 / A.3: exponential backoff (500 → 2000ms, 6 attempts, ~8.4s
+    // total). WMI Win32_Process.Create returns before the child has flushed
+    // its stdout to the redirected file — the previous fixed 300ms cadence
+    // raced heavy commands (`net group`, `whoami /all`) and reported "output
+    // not captured" while the file appeared moments later. Backoff gives slow
+    // hosts room to breathe without stretching the fast-path wait.
     let mut out = None;
-    for _ in 0..24 {
+    let mut last_err: Option<String> = None;
+    for delay_ms in [500u64, 700, 1000, 1400, 2000, 2000] {
         match smb.read_file_delete(&out_rel).await {
             Ok(b) => {
                 out = Some(b);
                 break;
             }
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(300)).await,
+            Err(e) => {
+                last_err = Some(e.to_string());
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
         }
     }
     match out {
@@ -139,7 +149,20 @@ pub(crate) async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
             println!("\n{}", s.trim_end());
         }
         Some(_) => crate::ui::info("command produced no output"),
-        None => crate::ui::info("output not captured (command may still have run)"),
+        None => {
+            crate::ui::info("output not captured (command may still have run)");
+            if let Some(err) = last_err {
+                eprintln!("[hint] last C$ read error: {err}");
+            }
+            eprintln!(
+                "[hint] manual retrieval: `smbclient //{h}/C$ -c 'get {p}' -U {d}/{u}%<pw>` \
+                 (Windows/WmiPrvSE sometimes flushes >8s after Win32_Process.Create returns)",
+                h = a.auth.host,
+                p = out_rel.replace('\\', "/"),
+                d = a.auth.domain,
+                u = a.auth.user,
+            );
+        }
     }
     Ok(())
 }
@@ -169,7 +192,7 @@ pub(crate) async fn atexec_cmd(mut a: ExecArgs) -> Result<()> {
 
     smb.tree_connect(&format!("\\\\{}\\IPC$", a.auth.host))
         .await?;
-    let (path, run_hr) = dcerpc::tsch::atexec(
+    let (path, run_hr) = match dcerpc::tsch::atexec(
         &mut smb,
         &full,
         &a.auth.domain,
@@ -177,7 +200,38 @@ pub(crate) async fn atexec_cmd(mut a: ExecArgs) -> Result<()> {
         &a.auth.password,
         &a.auth.host,
     )
-    .await?;
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            // 1.5.2 Task S: MS-TSCH sealed-RPC empty-auth_value fault reproduced
+            // on 2022 DCs; classify + emit the standard impacket-atexec fallback
+            // so the CLI carries the operator through until the kerbcore-swap +
+            // sealed-response fix lands.
+            let msg = e.to_string();
+            let looks_sealed = msg.contains("sealed response")
+                || msg.contains("empty auth_value")
+                || msg.contains("STATUS_PIPE_BUSY")
+                || msg.contains("0xc00000ae");
+            if looks_sealed {
+                eprintln!("[!] MS-TSCH sealed-RPC fault: {msg}");
+                eprintln!(
+                    "[hint] this step is a known adhammer gap: sealed-response \
+                     auth_value handling on the SchRpcRun path; unblocked by the \
+                     kerbcore swap tracked at [[project-kerbcore]]."
+                );
+                eprintln!(
+                    "[hint] external tool: impacket-atexec {d}/{u}@{h} '{c}'",
+                    d = a.auth.domain,
+                    u = a.auth.user,
+                    h = a.auth.host,
+                    c = a.command
+                );
+                eprintln!("[hint] see docs/GAPS.md#psexec-sealed for the full row");
+            }
+            return Err(e.into());
+        }
+    };
     println!("[+] scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted");
 
     smb.tree_connect(&format!("\\\\{}\\C$", a.auth.host))

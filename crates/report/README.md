@@ -45,7 +45,7 @@ title spoof cannot re-materialize in any of the four renderers.
 
 ```toml
 [dependencies]
-adhammer-report = "1.4"
+adhammer-report = "1.5"
 ```
 
 ## Related

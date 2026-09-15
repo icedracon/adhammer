@@ -1,8 +1,15 @@
-//! BloodHound export — turn a collected [`Snapshot`] into BloodHound CE v5 ingest JSON that the
+//! BloodHound export — turn a collected [`Snapshot`] into BloodHound CE ingest JSON that the
 //! BloodHound UI ingests, so the in-process control-path graph becomes explorable in the tool
-//! every AD team already uses. Targets the BloodHound Community Edition v5 ingest format: one file per
+//! every AD team already uses. Targets the BloodHound Community Edition ingest format: one file per
 //! node type (`users`/`computers`/`groups`/`domains`/`ous`/`gpos`/`containers`), each a
 //! `{"data":[…],"meta":{…}}` document, packaged into a single `.zip`.
+//!
+//! The `meta.version` field in this crate's built-in exporter is emitted as `5` (the
+//! historical BloodHound-CE ingest schema this crate first targeted). The opt-in
+//! [`rusthound_ce`] adapter (feature `rusthound-ce`) delegates to RustHound-CE upstream,
+//! which currently emits `meta.version = 6` and additional ADCS-extension file types
+//! (`aiacas`/`enterprisecas`/`rootcas`/`certtemplates`/`issuancepolicies`/`ntauthstores`).
+//! Both are accepted by current BloodHound-CE releases.
 //!
 //! Node identity: SIDs for security principals, GUIDs for OUs/GPOs/containers. Edges come from
 //! group membership (`Members`) and from ACEs parsed out of `nTSecurityDescriptor` — the same
@@ -15,6 +22,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use windows_sddl::rights;
 use windows_sddl::{AccessMask, AceType};
+
+// Opt-in 1.5.2 RustHound-CE adapter (feature-gated, additive, not default).
+#[cfg(feature = "rusthound-ce")]
+pub mod rusthound_ce;
 
 const VERSION: u32 = 5;
 

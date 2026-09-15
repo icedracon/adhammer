@@ -9,10 +9,13 @@
 //! each handler independently reviewable. See `.agents/arch-0-plan.md`.
 
 pub(crate) mod adcs;
+pub(crate) mod anon_services;
 pub(crate) mod dns;
 pub(crate) mod esc_registry;
 pub(crate) mod host;
 pub(crate) mod krb;
+pub(crate) mod ldap_info;
+pub(crate) mod ldap_users;
 pub(crate) mod net;
 pub(crate) mod nullbind;
 pub(crate) mod posture;

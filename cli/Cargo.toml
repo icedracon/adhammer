@@ -69,6 +69,11 @@ tls-native = ["adhammer-collector/tls-native"]
 gssapi = ["adhammer-collector/gssapi"]
 # Specialized attack client; not part of the default release until live validation lands.
 mssql = ["dep:ms-tds"]
+# 1.5.2 opt-in RustHound-CE BloodHound-CE collector (g0h4n/RustHound-CE); off by default.
+# Adds `scan --rusthound-ce <path>` which runs RH-CE's LdapOnly collection over the
+# same LDAP session ADhammer already bound, then writes a BloodHound-CE ZIP.
+# See docs/PLAN_1.5.2.md.
+rusthound-ce = ["adhammer-bloodhound/rusthound-ce"]
 
 [dependencies]
 adhammer-core = { workspace = true }
@@ -85,7 +90,7 @@ smb2-client = { workspace = true }
 adhammer-ldap = { workspace = true }
 dcerpc = { workspace = true }
 ms-drsr = "0.2"
-dpapi-ng = { version = "0.1", features = ["rpc"] }
+dpapi-ng = { version = "0.2", features = ["rpc"] }
 dpapi-offline = { workspace = true }
 # ESC1-15 static analysis (`check adcs`) + MS-ICPR CSR construction (`attack icpr-esc1`).
 ms-crtd = { workspace = true }
@@ -118,6 +123,22 @@ hashglass = { workspace = true }
 ntlmssp = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
+# 1.5.2 F4a — KDBX4 crack pipeline (Argon2d KDF + SHA256/SHA512 + HMAC-SHA256
+# header verification). Pure-Rust, RustCrypto lineage, matches the S-tier
+# minimalism rule.
+argon2 = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+# 1.5.2 F4b — outer cipher (ChaCha20 or AES256-CBC) + inflate + XML for KDBX4 body extract.
+chacha20 = { workspace = true }
+aes = { workspace = true }
+cbc = { workspace = true }
+flate2 = { workspace = true }
+quick-xml = { workspace = true }
+# 1.5.2 Task Q — attack ntds-offline (scaffold; row walk lands when
+# ese-parser hits 0.2).
+ese-parser = { workspace = true }
+ntds-parse = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 clap_complete = "4"

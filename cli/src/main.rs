@@ -132,8 +132,9 @@ enum Command {
     #[command(subcommand)]
     Kerb(attacks::kerb::KerbCmd),
     /// Offline credential recovery / decode: `creds gpp-decrypt` (F6) —
-    /// MS14-025 GPP `cpassword` → plaintext. `creds kdbx-crack` / `kdbx-extract`
-    /// (F4a/b — KDBX4 Argon2d + ChaCha20) land in follow-up commits.
+    /// MS14-025 GPP `cpassword` → plaintext. `creds kdbx-extract` (F4b) —
+    /// KDBX4 protected-field decrypt given a KNOWN master password (brute
+    /// forcing is out-of-tree; use `keepass2john | hashcat -m 13400`).
     #[command(subcommand)]
     Creds(attacks::creds::CredsCmd),
     /// F1b — direct LDAP primitives that bypass the collector: `ldap auth`
@@ -183,6 +184,12 @@ enum CheckCmd {
     /// collected from LDAP. Complements `scan` — no ACL walk, just the
     /// template-shape checks straight out of `ms-crtd::detect_esc`.
     Adcs(checks::adcs::CheckAdcsArgs),
+    /// **1.5.2 G-D** — MS-RRP probe of `HKLM\SYSTEM\CurrentControlSet\Control\
+    /// SecurityProviders\WDigest\UseLogonCredential` on a target host.
+    /// Reports a Critical finding when the value is DWORD 1 (WDigest caches
+    /// cleartext creds in LSASS). Requires SMB creds with remote-registry
+    /// access — typically local admin.
+    Wdigest(checks::wdigest::CheckWdigestArgs),
 }
 
 // CheckAdcsArgs moved to `checks::adcs` in arch-0.
@@ -286,6 +293,23 @@ enum EnumCmd {
     /// cpassword with the public MS key. Requires `--anon`; `--dump` to
     /// write recovered plaintext to a 0600 artifact.
     Sysvol(enums::sysvol::SysvolArgs),
+    /// **1.5.2 H-F** — no-cred anonymous RootDSE fingerprint over LDAP (AD serves
+    /// it anonymously by design). Reports the realm short-name, DC account,
+    /// naming contexts, SASL mechs, functional levels, and sync state without
+    /// any credentials. First-touch companion to `doctor`.
+    LdapInfo(enums::ldap_info::LdapInfoArgs),
+    /// **1.5.2 Stream 7** — no-cred anonymous LDAP user enumeration. Runs an
+    /// anonymous subtree search for `(objectClass=user)` and dumps
+    /// sAMAccountName + UAC + description. Fails clean with a hint when the
+    /// DC (correctly) hides user objects from anonymous bind; the modern
+    /// default. Requires `--anon`.
+    #[command(name = "ldap-users")]
+    LdapUsers(enums::ldap_users::LdapUsersArgs),
+    /// **1.5.2 G-E** — bundled TCP probes for anonymous NON-SMB service
+    /// exposure: rsync 873 module list, FTP 21 `USER anonymous`, TFTP 69
+    /// (UDP probe deferred). SMB null-session is `enum nullbind` / `enum
+    /// host --anon`; this verb is the not-SMB set.
+    AnonServices(enums::anon_services::AnonServicesArgs),
 }
 
 // SessionsArgs moved to `enums::sessions` in arch-0.
@@ -335,6 +359,23 @@ enum AttackCmd {
     Wmiexec(attacks::exec_pack::ExecArgs),
     /// Local secretsdump: reg-save SYSTEM+SAM, pull over C$, decrypt local NT hashes offline.
     Secretsdump(attacks::secretsdump::SecretsdumpArgs),
+    /// **[SCAFFOLDING]** 1.5.2 Task R — standalone SMB→LDAP NTLM relay listener.
+    /// Binds TCP :445 (or a chosen port) and logs the first incoming SMB2/NTLMSSP
+    /// frame from a coerced peer. Complements `attack coerce --listener <us>`
+    /// for pipeline rehearsal. The end-to-end forward-to-LDAP path (SMB2-*server*
+    /// primitives + NTLMSSP frame relay + post-auth chain) lands when the
+    /// `smb2-client` sibling grows a server side. Hidden from `--help` until
+    /// the forward path is live.
+    #[command(hide = true)]
+    RelayListen(attacks::relay_listen::RelayListenArgs),
+    /// **[SCAFFOLDING]** 1.5.2 Task Q — offline NTDS.dit domain-secrets extraction.
+    /// Validates the ESE file header + confirms the paired SYSTEM hive is readable,
+    /// then emits a `[hint]` block pointing at `impacket-secretsdump -ntds ... LOCAL`
+    /// with your captured paths pre-substituted. The pure-Rust `datatable` ROW walk
+    /// (ese-parser 0.2 upstream) lands in a follow-up. Same staging pattern as
+    /// F5 `lsa lsass-parse`. Hidden from `--help` until the row walk is live.
+    #[command(hide = true)]
+    NtdsOffline(attacks::ntds_offline::NtdsOfflineArgs),
     /// Read a gMSA managed password over LDAP → NT hash (for accounts you may retrieve).
     Gmsa(attacks::gmsa::GmsaArgs),
     /// Read LAPS local-admin passwords (ms-Mcs-AdmPwd / msLAPS-Password) over LDAPS.
@@ -881,6 +922,9 @@ fn cmd_label(cmd: &Command) -> &'static str {
             EnumCmd::Shares(_) => "enum shares",
             EnumCmd::Host(_) => "enum host",
             EnumCmd::Sysvol(_) => "enum sysvol",
+            EnumCmd::LdapInfo(_) => "enum ldap-info",
+            EnumCmd::LdapUsers(_) => "enum ldap-users",
+            EnumCmd::AnonServices(_) => "enum anon-services",
         },
         Command::Attack(a) => match a {
             AttackCmd::Roast(_) => "attack roast",
@@ -899,6 +943,8 @@ fn cmd_label(cmd: &Command) -> &'static str {
             AttackCmd::Atexec(_) => "attack atexec",
             AttackCmd::Wmiexec(_) => "attack wmiexec",
             AttackCmd::Secretsdump(_) => "attack secretsdump",
+            AttackCmd::NtdsOffline(_) => "attack ntds-offline",
+            AttackCmd::RelayListen(_) => "attack relay-listen",
             AttackCmd::Gmsa(_) => "attack gmsa",
             AttackCmd::Laps(_) => "attack laps",
             AttackCmd::Winrm(_) => "attack winrm",
@@ -936,6 +982,7 @@ fn cmd_label(cmd: &Command) -> &'static str {
         },
         Command::Creds(c) => match c {
             attacks::creds::CredsCmd::GppDecrypt(_) => "creds gpp-decrypt",
+            attacks::creds::CredsCmd::KdbxExtract(_) => "creds kdbx-extract",
         },
         Command::Ldap(l) => match l {
             attacks::ldap::LdapCmd::Auth(_) => "ldap auth",
@@ -968,6 +1015,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Enum(EnumCmd::Shares(a)) => enums::shares::shares(a).await,
         Command::Enum(EnumCmd::Host(a)) => enums::host::host(a).await,
         Command::Enum(EnumCmd::Sysvol(a)) => enums::sysvol::sysvol(a).await,
+        Command::Enum(EnumCmd::LdapInfo(a)) => enums::ldap_info::ldap_info(a).await,
+        Command::Enum(EnumCmd::LdapUsers(a)) => enums::ldap_users::ldap_users(a).await,
+        Command::Enum(EnumCmd::AnonServices(a)) => enums::anon_services::anon_services(a).await,
         Command::Attack(AttackCmd::Roast(a)) => attacks::roast::roast(a).await,
         Command::Attack(AttackCmd::Spray(a)) => attacks::spray::spray(a).await,
         Command::Attack(AttackCmd::Abuse(a)) => attacks::abuse::abuse(a).await,
@@ -986,6 +1036,8 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Atexec(a)) => attacks::exec_pack::atexec_cmd(a).await,
         Command::Attack(AttackCmd::Wmiexec(a)) => attacks::exec_pack::wmiexec_cmd(a).await,
         Command::Attack(AttackCmd::Secretsdump(a)) => attacks::secretsdump::secretsdump(a).await,
+        Command::Attack(AttackCmd::NtdsOffline(a)) => attacks::ntds_offline::ntds_offline(a).await,
+        Command::Attack(AttackCmd::RelayListen(a)) => attacks::relay_listen::relay_listen(a).await,
         Command::Attack(AttackCmd::Gmsa(a)) => attacks::gmsa::gmsa(a).await,
         Command::Attack(AttackCmd::Laps(a)) => attacks::laps::laps(a).await,
         Command::Attack(AttackCmd::Winrm(a)) => attacks::winrm_exec::winrm_exec(a).await,
@@ -1018,6 +1070,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Mssql(a)) => attacks::mssql::mssql(a).await,
         Command::Attack(AttackCmd::Dns(a)) => attacks::dns::dns(a).await,
         Command::Check(CheckCmd::Adcs(a)) => checks::adcs::check_adcs(a).await,
+        Command::Check(CheckCmd::Wdigest(a)) => checks::wdigest::check_wdigest(a).await,
         Command::Setup(setup::SetupCmd::Krb5(a)) => setup::krb5::run(a).await,
         Command::Run(a) => blackbox::run(a).await,
         Command::Doctor(a) => doctor::doctor(a).await,
@@ -1027,6 +1080,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Kerb(attacks::kerb::KerbCmd::TrustDump(a)) => attacks::kerb::trust_dump(a).await,
         Command::Creds(attacks::creds::CredsCmd::GppDecrypt(a)) => {
             attacks::creds::gpp_decrypt(a).await
+        }
+        Command::Creds(attacks::creds::CredsCmd::KdbxExtract(a)) => {
+            attacks::creds::kdbx_extract(a).await
         }
         Command::Ldap(attacks::ldap::LdapCmd::Auth(a)) => attacks::ldap::auth(a).await,
         Command::Lsa(attacks::lsa_offline::LsaCmd::LsassParse(a)) => {

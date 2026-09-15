@@ -41,7 +41,7 @@ and a `remediation` string. `impact` is required by the internal
 
 ```toml
 [dependencies]
-adhammer-checks = "1.4"
+adhammer-checks = "1.5"
 ```
 
 ## Example

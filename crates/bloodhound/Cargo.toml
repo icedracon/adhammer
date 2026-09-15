@@ -15,3 +15,16 @@ adhammer-core = { workspace = true }
 windows-sddl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# 1.5.2 opt-in RustHound-CE collector interop. OFF by default. Enable with
+# `--features rusthound-ce` on adhammer-bloodhound. Pulls ldap3/tls-rustls-ring
+# via RH-CE's `nogssapi` feature. Not compatible with a build that fixes
+# ldap3's TLS backend elsewhere in the graph — see docs/PLAN_1.5.2.md.
+rusthound-ce = { workspace = true, optional = true }
+ldap3 = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+log = { version = "0.4", optional = true }
+
+[features]
+default = []
+rusthound-ce = ["dep:rusthound-ce", "dep:ldap3", "dep:tokio", "dep:log"]

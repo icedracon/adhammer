@@ -1,16 +1,13 @@
 //! `creds` — offline credential recovery / decode primitives that do not need
 //! a live target.
 //!
-//! First inhabitant: `creds gpp-decrypt` (F6) — decode an MS14-025 Group Policy
-//! Preferences `cpassword` blob to plaintext using the public MS AES-256 key
-//! (already implemented in `adhammer_sysvol::gpp::decrypt_cpassword`). Surfaces
-//! as a standalone verb so a `cpassword=` string pulled from a third-party dump
-//! or an SMB share triage can be decoded without a fresh SYSVOL sweep.
-//!
-//! Follow-ups landing under the same group (see docs plan for 1.5.1):
-//! - `creds kdbx-crack <file> --wordlist` (F4a) — KDBX4 Argon2d master-key brute.
-//! - `creds kdbx-extract <file> --key <hex>|--password <pw>` (F4b) — ChaCha20
-//!   protected-field decrypt of a cracked-or-known KeePass DB.
+//! - `creds gpp-decrypt` (F6) — decode an MS14-025 Group Policy Preferences
+//!   `cpassword` blob to plaintext using the public MS AES-256 key.
+//! - `creds kdbx-extract` (F4b) — given a KNOWN KeePass master password,
+//!   decrypt a KDBX4 body and unmask every protected field. Brute-forcing
+//!   the master password is intentionally NOT in-tree — that job belongs to
+//!   `keepass2john <file> | hashcat -m 13400 <wordlist>`, and adhammer's
+//!   `docs/GAPS.md#kdbx-crack` row points at exactly that.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -22,6 +19,33 @@ pub(crate) enum CredsCmd {
     /// plaintext-equivalent, which is the whole finding). Takes the base64
     /// string on the CLI or reads it from `--file`.
     GppDecrypt(GppDecryptArgs),
+    /// **1.5.2 F4b** — KDBX4 protected-field extract. Given a KNOWN
+    /// master password (recover it via `keepass2john <file> | hashcat -m 13400`
+    /// first — hashcat owns the brute), this verb runs the full KeePass
+    /// pipeline: Argon2d KDF → SHA-512 HMAC base key → outer cipher
+    /// (AES256-CBC / ChaCha20) → gzip inflate → inner header parse → XML
+    /// walk → protected-field unmask via inner ChaCha20 stream. Prints the
+    /// recovered `Title / UserName / Password / URL` per entry. adhammer
+    /// does NOT ship an in-tree brute — that would just be a slower hashcat.
+    KdbxExtract(KdbxExtractArgs),
+}
+
+#[derive(Parser)]
+pub(crate) struct KdbxExtractArgs {
+    /// Path to a `.kdbx` file (KDBX4 format).
+    #[arg(long, value_name = "PATH")]
+    pub file: String,
+    /// Master password (accepts `env:VAR` / `@file:PATH` / secure prompt).
+    /// Mutually exclusive with `--key`.
+    #[arg(long, conflicts_with = "key")]
+    pub password: Option<adhammer_core::SecretString>,
+    /// Hex-encoded composite key (from a prior `kdbx-crack` — 64 hex chars).
+    /// Mutually exclusive with `--password`.
+    #[arg(long, value_name = "HEX")]
+    pub key: Option<String>,
+    /// Emit JSON envelope.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Parser)]
@@ -63,6 +87,66 @@ pub(crate) async fn gpp_decrypt(a: GppDecryptArgs) -> Result<()> {
     match a.account.as_deref() {
         Some(name) => println!("{name}\t{}", pt.expose_secret()),
         None => println!("{}", pt.expose_secret()),
+    }
+    Ok(())
+}
+
+pub(crate) async fn kdbx_extract(a: KdbxExtractArgs) -> Result<()> {
+    let bytes = std::fs::read(&a.file).with_context(|| format!("read --file {}", a.file))?;
+    let header =
+        crate::attacks::kdbx::parse_header(&bytes).with_context(|| format!("parse {}", a.file))?;
+    let pw = match (a.password.as_ref(), a.key.as_ref()) {
+        (Some(p), None) => p.expose_secret().to_string(),
+        (None, Some(_)) => {
+            anyhow::bail!("--key (composite-key hex) path is deferred; supply --password for now");
+        }
+        (None, None) => anyhow::bail!("supply --password or --key"),
+        (Some(_), Some(_)) => unreachable!("clap enforces conflicts_with"),
+    };
+    let sp = crate::ui::Spinner::start(format!(
+        "KDBX{}.{} — Argon2d + body decrypt + XML walk",
+        header.major, header.minor
+    ));
+    // Verify password first so we fail fast on wrong pw before body decrypt.
+    if !crate::attacks::kdbx::verify_password(&header, &pw)? {
+        sp.done_warn("wrong password (header HMAC mismatch)");
+        anyhow::bail!("wrong password");
+    }
+    let entries =
+        crate::attacks::kdbx::extract(&bytes, &header, &pw).context("KDBX4 body extract")?;
+    sp.done(&format!(
+        "recovered {} entries — protected fields unmasked",
+        entries.len()
+    ));
+
+    if a.json {
+        let arr: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "title": e.title, "username": e.username, "password": e.password,
+                    "url": e.url, "notes": e.notes, "custom": e.custom,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "command": "adhammer creds kdbx-extract",
+                "success": true,
+                "evidence": {"file": a.file, "entries": arr},
+            }))?
+        );
+    } else {
+        for e in &entries {
+            println!(
+                "{}\t{}\t{}\t{}",
+                e.title.clone().unwrap_or_default(),
+                e.username.clone().unwrap_or_default(),
+                e.password.clone().unwrap_or_default(),
+                e.url.clone().unwrap_or_default(),
+            );
+        }
     }
     Ok(())
 }

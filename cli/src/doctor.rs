@@ -224,7 +224,12 @@ pub(crate) async fn doctor(a: DoctorArgs) -> Result<()> {
                     "success (credentials + transport accepted)".into(),
                 ),
                 Ok(Err(e)) => {
-                    let verdict = classify_bind(&format!("{e:#}"));
+                    let raw = format!("{e:#}");
+                    // 1.5.2 UX-B: honour the "-vv for raw diagnostic" promise.
+                    // The classifier is best-effort; when it whiffs, the raw
+                    // wire result now actually lands under `-vv`.
+                    tracing::debug!(raw_error = %raw, "ldap-bind wire result");
+                    let verdict = classify_bind(&raw);
                     rec(
                         "ldap-bind",
                         Status::Fail,

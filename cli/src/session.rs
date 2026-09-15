@@ -81,6 +81,11 @@ impl Session {
             only: Vec::new(),
             skip: Vec::new(),
             gpp_dump_out: None,
+            // 1.5.2 UX-C parity flag — session-driven runs don't hint a realm.
+            domain: None,
+            // 1.5.2 opt-in RustHound-CE co-collect — off unless the CLI verb wired it.
+            #[cfg(feature = "rusthound-ce")]
+            rusthound_ce: None,
         }
     }
 }

@@ -50,9 +50,9 @@ therefore not a supported invocation on the ADhammer workspace.
 
 ```toml
 [dependencies]
-adhammer-collector = "1.4"     # tls-rustls default
+adhammer-collector = "1.5"     # tls-rustls default
 # or:
-adhammer-collector = { version = "1.4", default-features = false, features = ["tls-native"] }
+adhammer-collector = { version = "1.5", default-features = false, features = ["tls-native"] }
 ```
 
 ## Example

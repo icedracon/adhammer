@@ -77,10 +77,16 @@ pub async fn discover_dns(
     discover_dns_with(&lookup, scope).await
 }
 
-/// Best-effort system nameserver discovery. Unix: parse
-/// `/etc/resolv.conf`. Windows + others: returns empty — the caller
-/// (CLI verb) must supply an explicit `--dns-server` there until the
-/// platform adapter enumeration lands. Never errors.
+/// Best-effort system nameserver discovery.
+///
+/// * Unix: parse `/etc/resolv.conf`.
+/// * Windows (1.5.2 UX-A): shell out to PowerShell `Get-DnsClientServerAddress`
+///   and pull the IPv4 servers. Zero new deps and works from any user context.
+///   On any failure (PowerShell missing, no adapters, non-UTF-8 output) returns
+///   empty and the caller falls back to the "pass `--dns-server`" bail.
+/// * Other targets: returns empty.
+///
+/// Never errors.
 pub fn system_nameservers() -> Vec<IpAddr> {
     #[cfg(unix)]
     {
@@ -98,7 +104,44 @@ pub fn system_nameservers() -> Vec<IpAddr> {
         }
         out
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let Ok(output) = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | \
+                 Select-Object -ExpandProperty ServerAddresses",
+            ])
+            .output()
+        else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(ip) = line.parse::<IpAddr>() {
+                // Skip loopback and link-local (169.254.x) — never a useful DNS target.
+                if ip.is_loopback() {
+                    continue;
+                }
+                if seen.insert(ip) {
+                    out.push(ip);
+                }
+            }
+        }
+        out
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         Vec::new()
     }

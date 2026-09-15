@@ -2049,6 +2049,42 @@ mod tests {
         assert!(html.contains("Coercion + ADCS ESC8"));
     }
 
+    /// 1.5.2 ship-gate receipt: dump a representative HTML report to
+    /// `ADHAMMER_REPORT_DUMP_HTML` when the operator sets that env var,
+    /// so a real report can be eyeballed without a live DC. Skipped in
+    /// normal CI (env var absent = no-op). Ignored by default; run with
+    /// `cargo test -p adhammer-report --lib -- --ignored dump_html_receipt`.
+    #[test]
+    #[ignore]
+    fn dump_html_receipt() {
+        let Ok(path) = std::env::var("ADHAMMER_REPORT_DUMP_HTML") else {
+            eprintln!("ADHAMMER_REPORT_DUMP_HTML not set — nothing to dump");
+            return;
+        };
+        let r = empty_report(vec![
+            mk_finding("A-Esc8", Severity::Critical, "ADCS ESC8 — Web Enrollment coerce"),
+            mk_finding("A-Esc1", Severity::High, "ADCS ESC1 — enrollee-supplied SAN"),
+            mk_finding("A-Kerberoast", Severity::High, "Kerberoastable Domain Admin"),
+            mk_finding("P-PwdPolicy", Severity::Medium, "Weak password policy"),
+            mk_finding("A-WDigest", Severity::Low, "WDigest UseLogonCredential=1"),
+        ])
+        .with_coverage(vec![
+            ("A-Esc8", 1),
+            ("A-Esc1", 1),
+            ("A-Kerberoast", 1),
+            ("P-PwdPolicy", 1),
+            ("A-WDigest", 1),
+            ("A-Zerologon", 0),
+            ("A-DcSync", 0),
+        ]);
+        let html = r.to_html();
+        std::fs::write(&path, &html).expect("write HTML receipt");
+        eprintln!(
+            "wrote {} bytes of HTML → {path}",
+            html.len()
+        );
+    }
+
     #[test]
     fn days_to_ymd_basic_calendar_math() {
         assert_eq!(days_to_ymd(0), (1970, 1, 1));

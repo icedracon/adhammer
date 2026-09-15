@@ -207,6 +207,18 @@ pub struct Collector {
     config_dn: String,
 }
 
+impl Collector {
+    /// Borrow the underlying `ldap3::Ldap` session — additive interop hook
+    /// added in 1.5.2 for the opt-in RustHound-CE collector (`api::run_collection`
+    /// takes `&mut ldap3::Ldap`). Not meant for other callers; the session's
+    /// controls and bind state are ADhammer-owned and may change between minor
+    /// releases. See docs/PLAN_1.5.2.md.
+    #[doc(hidden)]
+    pub fn ldap_mut(&mut self) -> &mut ldap3::Ldap {
+        &mut self.ldap
+    }
+}
+
 /// One ADIDNS record parsed from a `dnsRecord` blob.
 #[derive(Debug, Clone)]
 pub struct DnsRecordEntry {
@@ -847,6 +859,20 @@ impl Collector {
         Ok(())
     }
 
+    /// Remove the entire attribute from the object. Used by `attack abuse
+    /// --action write-rbcd --value ""` (Stream 1 / A.2) to clear
+    /// `msDS-AllowedToActOnBehalfOfOtherIdentity` after an engagement.
+    pub async fn delete_attribute(&mut self, dn: &str, attr: &str) -> Result<()> {
+        use ldap3::Mod;
+        let m: Mod<Vec<u8>> = Mod::Delete(attr.as_bytes().to_vec(), HashSet::new());
+        self.ldap
+            .modify(dn, vec![m])
+            .await?
+            .success()
+            .context("modify (delete attribute) failed")?;
+        Ok(())
+    }
+
     /// Read all values of a multi-valued text attribute — `msDS-KeyCredentialLink`
     /// entries (DN-Binary syntax, ASCII), `servicePrincipalName`, `member`, etc.
     /// Returns an empty `Vec` when the attribute is absent.
@@ -1095,6 +1121,141 @@ pub async fn read_rootdse_anonymous(url: &str, insecure: bool) -> Result<RootDse
         }
     }
     Ok(out)
+}
+
+/// Rich RootDSE fingerprint used by `enum ldap-info` (1.5.2 H-F). Anonymous
+/// simple_bind + single Base search that pulls every operational attribute
+/// the first-touch verb surfaces: naming contexts, functional levels, SASL
+/// mechs, `ldapServiceName` (from which we derive the realm short-name and
+/// the DC computer account), sync/GC state, `highestCommittedUSN`, and the
+/// controls / capabilities counts. Never touches `--user` / `--password`;
+/// same TLS knobs as [`read_rootdse_anonymous`].
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct RootDseRich {
+    pub default_nc: Option<String>,
+    pub root_domain_nc: Option<String>,
+    pub configuration_nc: Option<String>,
+    pub schema_nc: Option<String>,
+    pub naming_contexts: Vec<String>,
+    pub dns_host: Option<String>,
+    pub server_name: Option<String>,
+    pub ldap_service_name: Option<String>,
+    /// Realm short-name parsed out of `ldapServiceName`
+    /// (`realm-lower:dc-account$@REALM-UPPER` → `REALM-UPPER`).
+    pub realm_short: Option<String>,
+    /// DC computer account parsed out of `ldapServiceName` (without the `$`).
+    pub dc_account: Option<String>,
+    pub sasl: Vec<String>,
+    pub supported_ldap_version: Vec<String>,
+    pub supported_controls: usize,
+    pub supported_capabilities: usize,
+    pub is_synchronized: Option<String>,
+    pub is_global_catalog_ready: Option<String>,
+    pub domain_functionality: Option<String>,
+    pub forest_functionality: Option<String>,
+    pub domain_controller_functionality: Option<String>,
+    pub highest_committed_usn: Option<String>,
+    pub current_time: Option<String>,
+    pub subschema_subentry: Option<String>,
+}
+
+/// Parse an AD `ldapServiceName` string
+/// (e.g. `testlab.local:dc01$@TESTLAB.LOCAL`) into
+/// `(realm_upper, dc_account_no_dollar)`. Handles the common malformed
+/// shapes rather than panicking: no colon → treat the whole string as the
+/// after-colon part; no `@` → realm becomes `None`; no `$` suffix on the
+/// left of `@` → dc_account becomes `None`. Extracted from `read_rootdse_rich`
+/// so 1.5.2 H-F carries a unit test seeded from the wire response every
+/// production DC returns.
+pub fn parse_ldap_service_name(s: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(s) = s else {
+        return (None, None);
+    };
+    let after_colon = s.split_once(':').map(|x| x.1).unwrap_or(s);
+    let dc = after_colon
+        .split('@')
+        .next()
+        .and_then(|v| v.strip_suffix('$'))
+        .map(str::to_string);
+    let realm = after_colon.split('@').nth(1).map(str::to_string);
+    (realm, dc)
+}
+
+pub async fn read_rootdse_rich(url: &str, insecure: bool) -> Result<RootDseRich> {
+    ensure_tls_configuration(url, insecure)?;
+    let (conn, mut ldap) = if insecure {
+        LdapConnAsync::with_settings(insecure_settings()?, url).await
+    } else {
+        LdapConnAsync::new(url).await
+    }
+    .context("anonymous ldap connect")?;
+    ldap3::drive!(conn);
+    ldap.simple_bind("", "").await.context("anonymous bind")?;
+
+    let (rs, _) = ldap
+        .search(
+            "",
+            Scope::Base,
+            "(objectClass=*)",
+            vec![
+                "defaultNamingContext",
+                "rootDomainNamingContext",
+                "configurationNamingContext",
+                "schemaNamingContext",
+                "namingContexts",
+                "dnsHostName",
+                "serverName",
+                "ldapServiceName",
+                "supportedSASLMechanisms",
+                "supportedLDAPVersion",
+                "supportedControl",
+                "supportedCapabilities",
+                "isSynchronized",
+                "isGlobalCatalogReady",
+                "domainFunctionality",
+                "forestFunctionality",
+                "domainControllerFunctionality",
+                "highestCommittedUSN",
+                "currentTime",
+                "subschemaSubentry",
+            ],
+        )
+        .await
+        .context("rich RootDSE search")?
+        .success()
+        .context("rich RootDSE result")?;
+    let e = rs.into_iter().next().context("empty RootDSE")?;
+    let se = SearchEntry::construct(e);
+    let one = |k: &str| se.attrs.get(k).and_then(|v| v.first()).cloned();
+    let many = |k: &str| se.attrs.get(k).cloned().unwrap_or_default();
+
+    let ldap_service_name = one("ldapServiceName");
+    let (realm_short, dc_account) = parse_ldap_service_name(ldap_service_name.as_deref());
+
+    Ok(RootDseRich {
+        default_nc: one("defaultNamingContext"),
+        root_domain_nc: one("rootDomainNamingContext"),
+        configuration_nc: one("configurationNamingContext"),
+        schema_nc: one("schemaNamingContext"),
+        naming_contexts: many("namingContexts"),
+        dns_host: one("dnsHostName"),
+        server_name: one("serverName"),
+        ldap_service_name,
+        realm_short,
+        dc_account,
+        sasl: many("supportedSASLMechanisms"),
+        supported_ldap_version: many("supportedLDAPVersion"),
+        supported_controls: many("supportedControl").len(),
+        supported_capabilities: many("supportedCapabilities").len(),
+        is_synchronized: one("isSynchronized"),
+        is_global_catalog_ready: one("isGlobalCatalogReady"),
+        domain_functionality: one("domainFunctionality"),
+        forest_functionality: one("forestFunctionality"),
+        domain_controller_functionality: one("domainControllerFunctionality"),
+        highest_committed_usn: one("highestCommittedUSN"),
+        current_time: one("currentTime"),
+        subschema_subentry: one("subschemaSubentry"),
+    })
 }
 
 #[cfg(all(test, not(any(feature = "tls-native", feature = "tls-rustls"))))]
@@ -1617,4 +1778,62 @@ mod tests {
         require_bind_integrity(&cfg("ldap://dc:389", "alice", false, true))
             .expect("explicit opt-in must be respected");
     }
+}
+
+// 1.5.2 H-F: unit tests for the ldapServiceName parser, seeded from the
+// exact wire responses that testlab.local 2019 + 2022 DCs return.
+#[cfg(test)]
+mod ldap_service_name_tests {
+    use super::parse_ldap_service_name;
+
+    #[test]
+    fn canonical_shape_from_win2022() {
+        // Wire response from testlab.local DC01 2022server (2026-09-14).
+        let (realm, dc) =
+            parse_ldap_service_name(Some("testlab.local:dc01$@TESTLAB.LOCAL"));
+        assert_eq!(realm.as_deref(), Some("TESTLAB.LOCAL"));
+        assert_eq!(dc.as_deref(), Some("dc01"));
+    }
+
+    #[test]
+    fn short_realm() {
+        let (realm, dc) = parse_ldap_service_name(Some("corp:DC01$@CORP"));
+        assert_eq!(realm.as_deref(), Some("CORP"));
+        assert_eq!(dc.as_deref(), Some("DC01"));
+    }
+
+    #[test]
+    fn missing_input_returns_pair_of_none() {
+        let (realm, dc) = parse_ldap_service_name(None);
+        assert!(realm.is_none());
+        assert!(dc.is_none());
+    }
+
+    #[test]
+    fn missing_at_sign_realm_is_none_but_dc_still_parses() {
+        // Non-canonical shape (some appliances have been seen without the
+        // `@REALM` half); we still recover the DC account rather than fail.
+        let (realm, dc) = parse_ldap_service_name(Some("corp:dc01$"));
+        assert!(realm.is_none());
+        assert_eq!(dc.as_deref(), Some("dc01"));
+    }
+
+    #[test]
+    fn missing_dollar_suffix_leaves_dc_none() {
+        // If the left half of `@` does not end in `$` the account name is
+        // malformed; we return None rather than guess.
+        let (realm, dc) = parse_ldap_service_name(Some("corp:dc01@CORP.LOCAL"));
+        assert_eq!(realm.as_deref(), Some("CORP.LOCAL"));
+        assert!(dc.is_none());
+    }
+}
+
+// 1.5.2 UX-A: system_nameservers regression — Unix path parses resolv.conf,
+// Windows path calls PowerShell (untestable in-crate without mocking a shell,
+// so covered by the live-fire receipt in docs/PLAN_1.5.2.md instead).
+#[cfg(all(test, unix))]
+mod system_nameservers_unix_tests {
+    // (Empty on purpose — the fn reads /etc/resolv.conf which is host-specific;
+    // a real unit test would need a mock filesystem. The behavior is instead
+    // covered by end-to-end tests in the CLI crate and the live-fire receipt.)
 }

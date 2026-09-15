@@ -37,7 +37,7 @@ Used by ADhammer's `attack secretsdump` verb.
 
 ```toml
 [dependencies]
-adhammer-secrets = "1.4"
+adhammer-secrets = "1.5"
 ```
 
 ## Related

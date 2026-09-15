@@ -46,7 +46,7 @@ utility helpers — no I/O, no protocol parsers, no network stack.
 
 ```toml
 [dependencies]
-adhammer-core = "1.4"
+adhammer-core = "1.5"
 ```
 
 ## Example

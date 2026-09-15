@@ -24,7 +24,7 @@ can
 
 ```toml
 [dependencies]
-adhammer-sdk = "1.4"
+adhammer-sdk = "1.5"
 ```
 
 and then `use adhammer_sdk::{graph, kerberos, sysvol, …}` instead of

@@ -41,6 +41,10 @@ pub(crate) fn classify_bind(err: &str) -> BindVerdict {
             return BindVerdict::AccountState(msg);
         }
     }
+    // 1.5.2 UX-B widening: catch strong-auth / channel-binding refusals BEFORE
+    // the generic rc=49 fallthrough. WS2019/2022 DCs default to rejecting
+    // plaintext simple binds and often surface as rc=8 without the sub-status
+    // text; some paths return the bare "strongerAuthRequired" name only.
     if has("80090346")
         || has("strongerauth")
         || has("stronger auth")
@@ -49,8 +53,22 @@ pub(crate) fn classify_bind(err: &str) -> BindVerdict {
         || has("signing")
         || has("result code: 8")
         || has("rc=8")
+        || has("rc: 8,")
+        || has("(strongerauthrequired)")
     {
         return BindVerdict::StrongerAuthRequired;
+    }
+    // 1.5.2 UX-B widening: generic InvalidCredentials — some paths surface only
+    // the LDAP result code (49) without the Windows sub-status "data 52e" text.
+    // Kept BELOW the specific sub-status matches so we still get the precise
+    // hint when the wire carries it.
+    if has("result code: 49")
+        || has("rc: 49,")
+        || has("rc=49")
+        || has("(invalidcredentials)")
+        || has("supplied credential is invalid")
+    {
+        return BindVerdict::InvalidCredentials;
     }
     if has("connection refused")
         || has("timed out")
@@ -85,7 +103,8 @@ pub(crate) fn bind_fix(v: &BindVerdict) -> &'static str {
             "host/port unreachable — check the --url host, firewall, and that the DC is up"
         }
         BindVerdict::Other => {
-            "unrecognized bind error — re-run with -vv for the raw LDAP diagnostic"
+            "unrecognized bind error — re-run with -vv to log the raw LDAP wire result \
+             (`ldap-bind wire result` line), then file an issue with that line"
         }
     }
 }
@@ -194,6 +213,39 @@ mod tests {
         assert_eq!(
             classify_bind("AcceptSecurityContext error, data 533, v4563"),
             BindVerdict::AccountState("account disabled")
+        );
+    }
+
+    // 1.5.2 UX-B regression tests — seeded from the 2026-09-14 testlab.local
+    // live-fire where the classifier whiffed and returned "Other" on wire
+    // responses that carried enough info to name the cause.
+    #[test]
+    fn bare_rc49_is_invalid_credentials_ux_b() {
+        // Seen from ldap3 wrapping a rc:49 response with no Windows sub-status.
+        assert_eq!(
+            classify_bind("LdapResult { rc: 49, matched: \"\", text: \"\", refs: [] }"),
+            BindVerdict::InvalidCredentials
+        );
+    }
+
+    #[test]
+    fn strongerauthrequired_name_only_is_stronger_auth_ux_b() {
+        // Some ldap3 paths render the name without the numeric code.
+        assert_eq!(
+            classify_bind("LDAP bind failed: (strongerAuthRequired)"),
+            BindVerdict::StrongerAuthRequired
+        );
+    }
+
+    #[test]
+    fn supplied_credential_is_invalid_ux_b() {
+        // Native S.DS.Protocols-shape wrapped errors surface this phrase; the
+        // classifier should now name it InvalidCredentials rather than Other.
+        assert_eq!(
+            classify_bind(
+                "bind failed as `administrator@testlab.local` — The supplied credential is invalid"
+            ),
+            BindVerdict::InvalidCredentials
         );
     }
 
