@@ -2062,9 +2062,21 @@ mod tests {
             return;
         };
         let r = empty_report(vec![
-            mk_finding("A-Esc8", Severity::Critical, "ADCS ESC8 — Web Enrollment coerce"),
-            mk_finding("A-Esc1", Severity::High, "ADCS ESC1 — enrollee-supplied SAN"),
-            mk_finding("A-Kerberoast", Severity::High, "Kerberoastable Domain Admin"),
+            mk_finding(
+                "A-Esc8",
+                Severity::Critical,
+                "ADCS ESC8 — Web Enrollment coerce",
+            ),
+            mk_finding(
+                "A-Esc1",
+                Severity::High,
+                "ADCS ESC1 — enrollee-supplied SAN",
+            ),
+            mk_finding(
+                "A-Kerberoast",
+                Severity::High,
+                "Kerberoastable Domain Admin",
+            ),
             mk_finding("P-PwdPolicy", Severity::Medium, "Weak password policy"),
             mk_finding("A-WDigest", Severity::Low, "WDigest UseLogonCredential=1"),
         ])
@@ -2079,10 +2091,7 @@ mod tests {
         ]);
         let html = r.to_html();
         std::fs::write(&path, &html).expect("write HTML receipt");
-        eprintln!(
-            "wrote {} bytes of HTML → {path}",
-            html.len()
-        );
+        eprintln!("wrote {} bytes of HTML → {path}", html.len());
     }
 
     #[test]

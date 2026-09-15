@@ -85,6 +85,16 @@ pub fn write_secret_artifact(
     kind: SecretArtifact,
     bytes: &[u8],
 ) -> std::io::Result<()> {
+    // Stream 9 / --out-dir: when the operator sets ADHAMMER_OUT_DIR and passes
+    // a RELATIVE path here (the common case — `<target>.ccache`, `<target>.key.pem`
+    // — every ccache/key/report writer already uses a bare filename), prepend
+    // that directory so a whole engagement's artifacts land in one place. An
+    // absolute path is respected verbatim (the operator explicitly picked a
+    // location). Directory is created on demand so scripts can pass a fresh
+    // per-target subdir without a shell mkdir first.
+    let final_path = resolve_out_dir(path);
+    let path = final_path.as_deref().unwrap_or(path);
+
     #[cfg(unix)]
     let mut f = {
         use std::os::unix::fs::OpenOptionsExt;
@@ -105,6 +115,23 @@ pub fn write_secret_artifact(
     f.write_all(bytes).map_err(|e| annotate(e, kind, path))?;
     f.sync_all().map_err(|e| annotate(e, kind, path))?;
     Ok(())
+}
+
+/// If `ADHAMMER_OUT_DIR` is set AND `path` is relative, return
+/// `<ADHAMMER_OUT_DIR>/<path>`, creating the directory if it doesn't exist.
+/// Absolute paths and unset env are pass-through.
+fn resolve_out_dir(path: &Path) -> Option<std::path::PathBuf> {
+    if path.is_absolute() {
+        return None;
+    }
+    let dir = std::env::var_os("ADHAMMER_OUT_DIR")?;
+    let dir = std::path::PathBuf::from(dir);
+    if !dir.as_os_str().is_empty() {
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join(path))
+    } else {
+        None
+    }
 }
 
 #[cfg(windows)]
@@ -269,6 +296,45 @@ mod tests {
             SecretArtifact::Other("custom-label").label(),
             "custom-label"
         );
+    }
+
+    /// Stream 9 / --out-dir: ADHAMMER_OUT_DIR redirects RELATIVE artifact
+    /// paths into a shared directory; an absolute path is respected verbatim.
+    /// Env var is process-global — set/restore around the test so parallel
+    /// runs don't collide.
+    #[test]
+    fn out_dir_env_redirects_relative_paths() {
+        let dir =
+            std::env::temp_dir().join(format!("adhammer_out_dir_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // SAFETY: single-threaded test — no other #[test] here mutates this var.
+        std::env::set_var("ADHAMMER_OUT_DIR", &dir);
+        let rel = std::path::PathBuf::from("bootstrap.ccache");
+        write_secret_artifact(&rel, SecretArtifact::Ccache, b"redirected").unwrap();
+        let landed = dir.join(&rel);
+        assert!(landed.exists(), "artifact landed under out-dir: {landed:?}");
+        assert_eq!(std::fs::read(&landed).unwrap(), b"redirected");
+        std::env::remove_var("ADHAMMER_OUT_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn out_dir_env_leaves_absolute_paths_alone() {
+        let dir =
+            std::env::temp_dir().join(format!("adhammer_out_dir_ignored_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::set_var("ADHAMMER_OUT_DIR", &dir);
+        let abs = tmp_path("absolute.ccache");
+        let _ = std::fs::remove_file(&abs);
+        write_secret_artifact(&abs, SecretArtifact::Ccache, b"abs-wins").unwrap();
+        assert!(abs.exists(), "absolute path was respected");
+        // The out-dir directory may or may not exist depending on scheduling;
+        // what matters is the file did NOT land under it.
+        let redirected = dir.join(abs.file_name().unwrap());
+        assert!(!redirected.exists(), "abs path must not be redirected");
+        std::env::remove_var("ADHAMMER_OUT_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&abs);
     }
 
     #[cfg(windows)]

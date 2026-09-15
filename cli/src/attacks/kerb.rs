@@ -116,14 +116,12 @@ struct TrustMintConfig {
 impl TrustMintConfig {
     fn from_flags(a: &TrustMintArgs) -> Result<Self> {
         let credential = match (&a.password, &a.nt_hash) {
-            (Some(pw), None) => TrustMintCredential::Password(crate::resolve_secret(
-                pw,
-                "ADHAMMER_PASSWORD",
-            )?),
-            (None, Some(h)) => TrustMintCredential::NtHash(crate::resolve_secret(
-                h,
-                "ADHAMMER_NT_HASH",
-            )?),
+            (Some(pw), None) => {
+                TrustMintCredential::Password(crate::resolve_secret(pw, "ADHAMMER_PASSWORD")?)
+            }
+            (None, Some(h)) => {
+                TrustMintCredential::NtHash(crate::resolve_secret(h, "ADHAMMER_NT_HASH")?)
+            }
             (Some(_), Some(_)) => {
                 bail!("pass --password OR --nt-hash, not both")
             }
@@ -183,10 +181,9 @@ impl TrustMintFile {
                 pw.as_str(),
                 "ADHAMMER_PASSWORD",
             )?),
-            (None, Some(h)) => TrustMintCredential::NtHash(crate::resolve_secret(
-                h.as_str(),
-                "ADHAMMER_NT_HASH",
-            )?),
+            (None, Some(h)) => {
+                TrustMintCredential::NtHash(crate::resolve_secret(h.as_str(), "ADHAMMER_NT_HASH")?)
+            }
             (Some(_), Some(_)) => bail!(
                 "password and nt_hash cannot both be set (merged view of --from-file + CLI flags)"
             ),
@@ -995,10 +992,7 @@ mod tests {
 
     #[test]
     fn trust_dump_cli_flag_beats_ini_value() {
-        let path = tmp_ini(
-            "dump_beat",
-            "url=ldap://ini-host\nuser=ini-user\n",
-        );
+        let path = tmp_ini("dump_beat", "url=ldap://ini-host\nuser=ini-user\n");
         let f = load_trust_dump_ini(&path).unwrap();
         let mut a = empty_trust_dump_args();
         a.url = Some("ldap://cli-host".to_string());
@@ -1009,10 +1003,7 @@ mod tests {
 
     #[test]
     fn trust_dump_missing_required_key_errors() {
-        let path = tmp_ini(
-            "dump_missing",
-            "# no url here\nuser=alice\n",
-        );
+        let path = tmp_ini("dump_missing", "# no url here\nuser=alice\n");
         let f = load_trust_dump_ini(&path).unwrap();
         let a = empty_trust_dump_args();
         let err = f.overlay(&a).unwrap_err().to_string();

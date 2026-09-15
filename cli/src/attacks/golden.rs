@@ -150,7 +150,12 @@ async fn golden_impl(cfg: GoldenConfig, checklist: &mut ui::StageChecklist) -> R
         group_rids: cfg.groups.clone(),
         domain_subauths: subs,
         logon_server: cfg.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: cfg.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+        logon_domain: cfg
+            .realm
+            .split('.')
+            .next()
+            .unwrap_or("DOMAIN")
+            .to_uppercase(),
         extra_sids: extras,
     };
     if !cfg.foreign_sid.is_empty() {
@@ -287,7 +292,9 @@ impl GoldenFile {
             .as_ref()
             .map(|s| s.expose_secret().to_string())
             .or(self.krbtgt_aes256)
-            .ok_or_else(|| anyhow::anyhow!("krbtgt_aes256 missing in both --from-file and CLI flags"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("krbtgt_aes256 missing in both --from-file and CLI flags")
+            })?;
         let krbtgt_aes256 = crate::resolve_secret(key_raw.as_str(), "ADHAMMER_PASSWORD")?;
         Ok(GoldenConfig {
             kdc: take(self.kdc, a.kdc.clone(), "kdc")?,
@@ -329,9 +336,10 @@ fn load_golden_ini(path: &str) -> Result<GoldenFile> {
             "realm" => f.realm = Some(v),
             "krbtgt_aes256" => f.krbtgt_aes256 = Some(v),
             "rc4" => {
-                f.rc4 = Some(v.parse::<bool>().map_err(|_| {
-                    anyhow::anyhow!("{path}:{}: rc4 must be true|false", n + 1)
-                })?);
+                f.rc4 =
+                    Some(v.parse::<bool>().map_err(|_| {
+                        anyhow::anyhow!("{path}:{}: rc4 must be true|false", n + 1)
+                    })?);
             }
             "domain_sid" => f.domain_sid = Some(v),
             other => anyhow::bail!("{path}:{}: unknown key `{other}`", n + 1),

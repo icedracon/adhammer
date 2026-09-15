@@ -1789,8 +1789,7 @@ mod ldap_service_name_tests {
     #[test]
     fn canonical_shape_from_win2022() {
         // Wire response from testlab.local DC01 2022server (2026-09-14).
-        let (realm, dc) =
-            parse_ldap_service_name(Some("testlab.local:dc01$@TESTLAB.LOCAL"));
+        let (realm, dc) = parse_ldap_service_name(Some("testlab.local:dc01$@TESTLAB.LOCAL"));
         assert_eq!(realm.as_deref(), Some("TESTLAB.LOCAL"));
         assert_eq!(dc.as_deref(), Some("dc01"));
     }

@@ -1452,7 +1452,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 from_file: None,
                 realm: Some(s.realm()),
                 service_aes256: Some(service_aes256.into()),
-                spn: Some(spn),
+                spn: vec![spn],
                 domain_sid: Some(domain_sid),
                 user,
                 rid,

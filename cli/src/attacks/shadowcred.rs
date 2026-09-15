@@ -140,8 +140,7 @@ impl ShadowcredFile {
         let pfx_raw = if a.pfx_password.expose_secret() != "adhammer" {
             Some(a.pfx_password.expose_secret().to_string())
         } else {
-            self.pfx_password
-                .or_else(|| Some("adhammer".to_string()))
+            self.pfx_password.or_else(|| Some("adhammer".to_string()))
         };
         let pfx_password = match pfx_raw {
             Some(v) => crate::resolve_secret(v.as_str(), "ADHAMMER_PFX_PASSWORD")?,
