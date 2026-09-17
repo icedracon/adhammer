@@ -654,8 +654,12 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
     reader.config_mut().trim_text(true);
 
     let mut entries: Vec<KdbxEntry> = Vec::new();
-    let mut in_entry = false;
-    let mut current = KdbxEntry::default();
+    // Entry stack: KDBX nests prior versions as <History><Entry>…</Entry></History>
+    // inside each live entry. Fields bind to the innermost open entry (top of
+    // stack); protected values are unmasked for EVERY entry — history included —
+    // so the inner ChaCha20 stream stays byte-aligned. Only entries that close
+    // at depth 0 are emitted; history entries are consumed for sync then dropped.
+    let mut stack: Vec<KdbxEntry> = Vec::new();
     let mut in_string = false;
     let mut in_key = false;
     let mut in_value = false;
@@ -670,11 +674,8 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
             .map_err(|e| anyhow::anyhow!("kdbx xml: {e}"))?
         {
             Event::Start(e) => match e.name().as_ref() {
-                b"Entry" => {
-                    in_entry = true;
-                    current = KdbxEntry::default();
-                }
-                b"String" if in_entry => {
+                b"Entry" => stack.push(KdbxEntry::default()),
+                b"String" if !stack.is_empty() => {
                     in_string = true;
                     cur_key.clear();
                     cur_value.clear();
@@ -715,10 +716,12 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
             }
             Event::End(e) => match e.name().as_ref() {
                 b"Entry" => {
-                    if in_entry {
-                        entries.push(std::mem::take(&mut current));
+                    if let Some(done) = stack.pop() {
+                        // Emit only top-level entries; discard history versions.
+                        if stack.is_empty() {
+                            entries.push(done);
+                        }
                     }
-                    in_entry = false;
                 }
                 b"String" => {
                     if in_string {
@@ -727,20 +730,22 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
                             let ct = B64
                                 .decode(cur_value.as_bytes())
                                 .map_err(|e| anyhow::anyhow!("protected value b64: {e}"))?;
-                            let mut buf = ct.clone();
-                            inner_cipher.apply_keystream(&mut buf);
-                            String::from_utf8_lossy(&buf).into_owned()
+                            let mut vbuf = ct.clone();
+                            inner_cipher.apply_keystream(&mut vbuf);
+                            String::from_utf8_lossy(&vbuf).into_owned()
                         } else {
                             cur_value.clone()
                         };
-                        match cur_key.as_str() {
-                            "Title" => current.title = Some(final_val),
-                            "UserName" => current.username = Some(final_val),
-                            "Password" => current.password = Some(final_val),
-                            "URL" => current.url = Some(final_val),
-                            "Notes" => current.notes = Some(final_val),
-                            other => {
-                                current.custom.insert(other.to_string(), final_val);
+                        if let Some(entry) = stack.last_mut() {
+                            match cur_key.as_str() {
+                                "Title" => entry.title = Some(final_val),
+                                "UserName" => entry.username = Some(final_val),
+                                "Password" => entry.password = Some(final_val),
+                                "URL" => entry.url = Some(final_val),
+                                "Notes" => entry.notes = Some(final_val),
+                                other => {
+                                    entry.custom.insert(other.to_string(), final_val);
+                                }
                             }
                         }
                     }
@@ -811,5 +816,68 @@ mod tests {
         assert_eq!(KDF_UUID_AES.len(), 16);
         assert_eq!(KDF_UUID_ARGON2D.len(), 16);
         assert_eq!(KDF_UUID_ARGON2ID.len(), 16);
+    }
+
+    /// Base64-encode `plaintext` XOR'd with the next bytes of `cipher`'s
+    /// keystream — i.e. exactly how KeePass serializes a protected value.
+    fn protect(cipher: &mut chacha20::ChaCha20, plaintext: &str) -> String {
+        use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+        use chacha20::cipher::StreamCipher;
+        let mut buf = plaintext.as_bytes().to_vec();
+        cipher.apply_keystream(&mut buf);
+        B64.encode(buf)
+    }
+
+    /// Regression: KDBX entries keep prior versions in a nested
+    /// `<History><Entry>…</Entry></History>`. The walker must (a) bind fields to
+    /// the innermost open entry, (b) consume the inner ChaCha20 stream for the
+    /// history value so later entries stay aligned, and (c) emit ONLY the live
+    /// top-level entries. The pre-fix walker reset the live entry on the nested
+    /// `<Entry>` and emitted the history version in its place.
+    #[test]
+    fn history_entries_do_not_clobber_live_entry() {
+        use chacha20::cipher::KeyIvInit;
+
+        let key = [7u8; 32];
+        let nonce = [0u8; 12];
+        // Protected values are encoded against ONE stream in document order:
+        //   pass1 (entry 1) -> old1 (entry 1 history) -> pass2 (entry 2).
+        let mut enc = chacha20::ChaCha20::new((&key).into(), (&nonce).into());
+        let p_pass1 = protect(&mut enc, "pass1");
+        let p_old1 = protect(&mut enc, "old1");
+        let p_pass2 = protect(&mut enc, "pass2");
+
+        let xml = format!(
+            r#"<Root><Group>
+              <Entry>
+                <String><Key>Title</Key><Value>One</Value></String>
+                <String><Key>UserName</Key><Value>alice</Value></String>
+                <String><Key>Password</Key><Value Protected="True">{p_pass1}</Value></String>
+                <History>
+                  <Entry>
+                    <String><Key>Password</Key><Value Protected="True">{p_old1}</Value></String>
+                  </Entry>
+                </History>
+              </Entry>
+              <Entry>
+                <String><Key>Title</Key><Value>Two</Value></String>
+                <String><Key>Password</Key><Value Protected="True">{p_pass2}</Value></String>
+              </Entry>
+            </Group></Root>"#
+        );
+
+        let mut dec = chacha20::ChaCha20::new((&key).into(), (&nonce).into());
+        let entries = walk_kdbx_xml(xml.as_bytes(), &mut dec).unwrap();
+
+        // History version is discarded — only the two live entries survive.
+        assert_eq!(entries.len(), 2, "history entry must not be emitted");
+        // Entry 1's live fields are intact (the bug replaced them with history).
+        assert_eq!(entries[0].title.as_deref(), Some("One"));
+        assert_eq!(entries[0].username.as_deref(), Some("alice"));
+        assert_eq!(entries[0].password.as_deref(), Some("pass1"));
+        // Entry 2 still decrypts correctly, proving the inner stream stayed
+        // byte-aligned across the consumed history value.
+        assert_eq!(entries[1].title.as_deref(), Some("Two"));
+        assert_eq!(entries[1].password.as_deref(), Some("pass2"));
     }
 }
