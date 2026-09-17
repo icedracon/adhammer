@@ -18,4 +18,11 @@ ignore = [
     # oracle. There is no cryptographic-oracle exposure in the operator's
     # workflow. Revisit when rsa upstream ships a constant-time fix.
     "RUSTSEC-2023-0071",
+    # The three below are pulled ONLY by the opt-in `rusthound-ce` feature
+    # (off by default) through its transitive reqwest / DNS / XML stack. They
+    # are NOT present in the default shipped binary. Mirrored in deny.toml.
+    # Drop each when RustHound-CE bumps the offending transitive dep.
+    "RUSTSEC-2024-0421", # idna 0.4.0 — punycode label decode (rusthound-ce only)
+    "RUSTSEC-2026-0194", # quick-xml 0.37.5 — dup-attr quadratic (rusthound-ce only)
+    "RUSTSEC-2026-0195", # quick-xml 0.37.5 — ns-decl alloc DoS (rusthound-ce only)
 ]

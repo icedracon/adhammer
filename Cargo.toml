@@ -121,7 +121,7 @@ sha2        = { version = "0.10" }
 # the KeePass 2.x XML walk.
 chacha20    = "0.9"
 flate2      = { version = "1", default-features = false, features = ["rust_backend"] }
-quick-xml   = "0.36"
+quick-xml   = "0.41"
 # 1.5.2 Task Q — ese-parser 0.1 (ESE file header + random-access page read) +
 # ntds-parse 0.2 (PEK unwrap + NT-hash AES-CBC decrypt). Row walk is
 # ese-parser 0.2 roadmap; this build ships as a scaffold validator + gap_hint

@@ -27,6 +27,13 @@ ignore = [
     # rsa 0.9.x Marvin attack (RUSTSEC-2023-0071) — no upstream fix exists
     # for any pure-Rust RSA implementation. Rationale in .cargo/audit.toml.
     "RUSTSEC-2023-0071",
+    # The three below are pulled ONLY by the opt-in `rusthound-ce` feature
+    # (off by default) through its transitive reqwest / DNS / XML stack — they
+    # are NOT present in the default shipped binary. Tracked upstream; drop each
+    # when RustHound-CE bumps the offending transitive dep.
+    "RUSTSEC-2024-0421", # idna 0.4.0 — punycode label decode (rusthound-ce only)
+    "RUSTSEC-2026-0194", # quick-xml 0.37.5 — dup-attr quadratic (rusthound-ce only)
+    "RUSTSEC-2026-0195", # quick-xml 0.37.5 — ns-decl alloc DoS (rusthound-ce only)
 ]
 
 # ---------------------------------------------------------------------------

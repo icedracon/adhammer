@@ -644,7 +644,9 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
     use quick_xml::Reader;
 
     let mut reader = Reader::from_reader(xml);
-    reader.config_mut().trim_text(true);
+    // Do NOT trim: a KeePass value can legitimately have leading/trailing spaces
+    // (passwords) and entity refs split the text into segments we must not trim.
+    reader.config_mut().trim_text(false);
 
     let mut entries: Vec<KdbxEntry> = Vec::new();
     // Entry stack: KDBX nests prior versions as <History><Entry>…</Entry></History>
@@ -697,14 +699,34 @@ fn walk_kdbx_xml(xml: &[u8], inner_cipher: &mut chacha20::ChaCha20) -> Result<Ve
                 }
             }
             Event::Text(t) => {
+                // quick-xml 0.41 emits entity refs (`&amp;`) as separate
+                // `GeneralRef` events, so text segments carry no entities — just
+                // charset-decode them.
                 let text = t
-                    .unescape()
-                    .map_err(|e| anyhow::anyhow!("kdbx xml text: {e}"))?
+                    .decode()
+                    .map_err(|e| anyhow::anyhow!("kdbx xml text decode: {e}"))?
                     .into_owned();
                 if in_key {
                     cur_key.push_str(&text);
                 } else if in_value {
                     cur_value.push_str(&text);
+                }
+            }
+            Event::GeneralRef(r) => {
+                // Resolve an entity reference (`&amp;`, `&#38;`, …) and append it
+                // to the field currently being built.
+                if in_key || in_value {
+                    let name = r
+                        .decode()
+                        .map_err(|e| anyhow::anyhow!("kdbx xml ref decode: {e}"))?;
+                    let resolved = quick_xml::escape::unescape(&format!("&{name};"))
+                        .map_err(|e| anyhow::anyhow!("kdbx xml entity &{name};: {e}"))?
+                        .into_owned();
+                    if in_key {
+                        cur_key.push_str(&resolved);
+                    } else {
+                        cur_value.push_str(&resolved);
+                    }
                 }
             }
             Event::End(e) => match e.name().as_ref() {
@@ -843,7 +865,7 @@ mod tests {
         let xml = format!(
             r#"<Root><Group>
               <Entry>
-                <String><Key>Title</Key><Value>One</Value></String>
+                <String><Key>Title</Key><Value>A &amp; B</Value></String>
                 <String><Key>UserName</Key><Value>alice</Value></String>
                 <String><Key>Password</Key><Value Protected="True">{p_pass1}</Value></String>
                 <History>
@@ -865,7 +887,8 @@ mod tests {
         // History version is discarded — only the two live entries survive.
         assert_eq!(entries.len(), 2, "history entry must not be emitted");
         // Entry 1's live fields are intact (the bug replaced them with history).
-        assert_eq!(entries[0].title.as_deref(), Some("One"));
+        // The title also exercises XML entity unescaping (`&amp;` -> `&`).
+        assert_eq!(entries[0].title.as_deref(), Some("A & B"));
         assert_eq!(entries[0].username.as_deref(), Some("alice"));
         assert_eq!(entries[0].password.as_deref(), Some("pass1"));
         // Entry 2 still decrypts correctly, proving the inner stream stayed
