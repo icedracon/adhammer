@@ -213,7 +213,10 @@ async fn deep_check(host: &str, port: u16, zone: Option<&str>) -> Option<String>
 
 async fn connect(host: &str, port: u16) -> Option<tokio::net::TcpStream> {
     tokio::time::timeout(
-        std::time::Duration::from_millis(1200),
+        adhammer_core::speed::pick(
+            std::time::Duration::from_millis(1200),
+            std::time::Duration::from_millis(400),
+        ),
         smb2_client::socks::dial(host, port),
     )
     .await
@@ -377,7 +380,10 @@ async fn vnc_noauth(host: &str) -> Option<String> {
     let mut s = connect(host, 5900).await?;
     let mut ver = [0u8; 12];
     tokio::time::timeout(
-        std::time::Duration::from_millis(900),
+        adhammer_core::speed::pick(
+            std::time::Duration::from_millis(900),
+            std::time::Duration::from_millis(300),
+        ),
         s.read_exact(&mut ver),
     )
     .await
@@ -472,7 +478,10 @@ async fn mysql_probe(host: &str) -> Option<String> {
     // --- read the server's initial HandshakeV10 packet ---
     let mut hdr = [0u8; 4];
     tokio::time::timeout(
-        std::time::Duration::from_millis(1000),
+        adhammer_core::speed::pick(
+            std::time::Duration::from_millis(1000),
+            std::time::Duration::from_millis(350),
+        ),
         s.read_exact(&mut hdr),
     )
     .await
@@ -553,7 +562,10 @@ async fn mssql_prelogin(host: &str) -> Option<String> {
 
     let mut hdr = [0u8; 8];
     tokio::time::timeout(
-        std::time::Duration::from_millis(1000),
+        adhammer_core::speed::pick(
+            std::time::Duration::from_millis(1000),
+            std::time::Duration::from_millis(350),
+        ),
         s.read_exact(&mut hdr),
     )
     .await
@@ -683,7 +695,10 @@ async fn dns_axfr(host: &str, zone: &str) -> Option<usize> {
     loop {
         let mut len = [0u8; 2];
         match tokio::time::timeout(
-            std::time::Duration::from_millis(1500),
+            adhammer_core::speed::pick(
+                std::time::Duration::from_millis(1500),
+                std::time::Duration::from_millis(500),
+            ),
             s.read_exact(&mut len),
         )
         .await

@@ -72,6 +72,14 @@ struct Cli {
     #[arg(long, global = true, value_name = "[user:pass@]host:port")]
     socks: Option<String>,
 
+    /// Native speed: strip the deliberate pacing — the WMI command-output
+    /// read-back backoff (~8s → ~2s) and the conservative per-port scan
+    /// timeouts — for operators who want raw throughput on a fast, authorized
+    /// network. Safety controls that protect the target (e.g. the password-spray
+    /// lockout window) are NOT affected. Also settable via `ADHAMMER_FAST=1`.
+    #[arg(long, global = true)]
+    fast: bool,
+
     /// Force the JSON `AttackResult` envelope (the DEFAULT for attack/enum/dump). NOTE: the
     /// envelope is `{command, success, evidence}` where `evidence` is the human text output —
     /// use it for pass/fail automation, not field extraction. For fully-structured JSON use
@@ -678,6 +686,13 @@ async fn main() -> Result<()> {
     enable_windows_console();
     validate_secret_argv(&std::env::args().skip(1).collect::<Vec<_>>())?;
     let cli = Cli::parse();
+    // Native speed: `--fast` or ADHAMMER_FAST=1 strips deliberate pacing.
+    adhammer_core::speed::set_native(
+        cli.fast
+            || std::env::var("ADHAMMER_FAST")
+                .map(|v| v != "0" && !v.is_empty())
+                .unwrap_or(false),
+    );
     if cli.examples {
         print!("{QUICKSTART}");
         return Ok(());

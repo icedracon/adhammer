@@ -131,7 +131,15 @@ pub(crate) async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
     // hosts room to breathe without stretching the fast-path wait.
     let mut out = None;
     let mut last_err: Option<String> = None;
-    for delay_ms in [500u64, 700, 1000, 1400, 2000, 2000] {
+    // `--fast` tightens the read-back cadence (~2.1s worst case vs ~7.6s); it
+    // still retries so we don't report "output not captured" while the child is
+    // mid-flush. The default schedule stays gentle for slow/loaded hosts.
+    let schedule: &[u64] = if adhammer_core::speed::is_native() {
+        &[100, 200, 300, 400, 500, 600]
+    } else {
+        &[500, 700, 1000, 1400, 2000, 2000]
+    };
+    for &delay_ms in schedule {
         match smb.read_file_delete(&out_rel).await {
             Ok(b) => {
                 out = Some(b);

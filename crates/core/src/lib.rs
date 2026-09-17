@@ -9,6 +9,7 @@ pub mod scope;
 pub mod secret_write;
 pub mod sid;
 pub mod snapshot;
+pub mod speed;
 
 pub use finding::{
     AttackResult, Category, Evidence, Finding, Mitre, NextCommand, Severity, WireDirection,
