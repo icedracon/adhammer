@@ -672,6 +672,24 @@ fn effective_interactive_verbosity(cmd_is_none: bool, quiet: bool, user_verbosit
 /// ADhammer's LDAP and AD CS paths activate `aws-lc-rs`. With both crate features present,
 /// Rustls deliberately refuses to guess and its implicit `ClientConfig::builder()` panics unless
 /// the application installs a provider first.
+/// Restore the default SIGPIPE disposition on Unix.
+///
+/// Rust's runtime sets SIGPIPE to `SIG_IGN`, so the first `println!` to a pipe
+/// whose reader has gone away (`adhammer … | head`) returns EPIPE and the macro
+/// panics with "failed printing to stdout: Broken pipe". Resetting to `SIG_DFL`
+/// makes the process terminate quietly via SIGPIPE (the conventional behaviour
+/// for `| head`). No-op on non-Unix.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    // SAFETY: a single libc call setting a process-global signal disposition to
+    // a constant, with no shared state.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn install_rustls_crypto_provider() -> Result<()> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -682,6 +700,7 @@ fn install_rustls_crypto_provider() -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    reset_sigpipe();
     install_rustls_crypto_provider()?;
     enable_windows_console();
     validate_secret_argv(&std::env::args().skip(1).collect::<Vec<_>>())?;

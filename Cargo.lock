@@ -44,6 +44,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "ipnet",
+ "libc",
  "ms-crtd",
  "ms-drsr",
  "ms-icpr",

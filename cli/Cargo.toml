@@ -149,3 +149,9 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dialoguer = "0.11"
+
+# QoL: restore default SIGPIPE on Unix so `adhammer … | head` exits quietly
+# instead of panicking on a broken pipe. Already in the tree via dialoguer;
+# unix-only, no Windows footprint.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
