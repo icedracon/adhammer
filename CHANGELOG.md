@@ -3,13 +3,63 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased] — 1.5.2 — RH-CE opt-in + 1.5.1 UX fixes + 3 first-touch verbs + F4 scaffold
+## [Unreleased] — 1.5.2 — RH-CE opt-in + first-touch verbs + F4 · correctness/dep hardening · QoL flags · typed JSON · report polish
 
 Additive integration cadence. No breaking changes to commands, JSON consumers,
 the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.2.md` (compressed scope,
 2026-09-14).
 
 ### Added
+
+- **Operator QoL flags.** Global `--fast` (and `ADHAMMER_FAST=1`) strips the
+  deliberate pacing — the WMI command-output read-back backoff (~7.6s→~2.1s) and
+  the conservative network-sweep timeouts — for a fast, authorized network;
+  safety controls that protect the target (e.g. the spray lockout window) are
+  NOT affected. `--quiet`/`-q` suppresses the decorative stderr chrome (spinner +
+  progress narration) for scripting; stdout data and warnings/errors are
+  untouched. `--no-color` folds into the `NO_COLOR` convention.
+- **`--version` build provenance.** `--version` now prints
+  `1.5.2 (<git-commit>, <date>)` via the new `adhammer_core::build` (build.rs);
+  `-V` stays the short version. Off a git checkout every field falls back to
+  `unknown`.
+- **F-B4-full typed JSON.** `attack dcsync`, `attack secretsdump` and
+  `enum samr` now emit structured `--json` (accounts + per-etype Kerberos keys;
+  rid/name rows) — all six high-value data verbs are now typed. Text output is
+  unchanged and the untyped envelope stays the fallback, so nothing regresses.
+- **Report deliverable polish.** The HTML report gains an `@media print`
+  stylesheet (ink palette, no mid-card page breaks, `<details>` forced open — the
+  HTML now prints/PDFs clean), a `tool:` provenance line in the fingerprint
+  footer (version + commit + date, kept OUT of the hashed JSON so determinism
+  holds), and a top-level `schema_version` on the JSON (`REPORT_SCHEMA_VERSION`)
+  so downstream consumers can pin the shape.
+- **Fuzz: `lsa_offline` target** for the offline SAM/LSA decrypt chain
+  (`adhammer_secrets::{local_dump, local_lsa}`) — closes the audit's
+  "lsa_offline unverified" gap.
+
+### Changed
+
+- **KDBX body extract runs the Argon2d KDF once** (was run twice — in the verify
+  step and again inside extract); the now-redundant `verify_password` wrapper is
+  removed. The KDBX XML walk migrated to `quick-xml 0.41` (entity `GeneralRef`
+  events + no `trim_text`, so passwords keep their spaces and `&amp;` round-trips).
+
+### Fixed / Security
+
+- **KDBX History bug (correctness).** `walk_kdbx_xml` treated every `<Entry>` as
+  top-level, so any entry carrying a `<History>` version (the KeePass default)
+  emitted the stale historical credential and dropped the live one — silently,
+  since the inner ChaCha20 stream stayed aligned. An entry stack now binds fields
+  to the innermost open entry and emits only live, top-level entries.
+- **`rustls 0.23.43 → 0.23.45`** (RUSTSEC-2026-0285) — reachable via LDAPS and the
+  ESC8 HTTP client.
+- **`quick-xml 0.36 → 0.41`** — clears the default-binary DoS advisories
+  (RUSTSEC-2026-0194 / -0195). The three RH-CE-feature-only transitive advisories
+  (idna 0.4.0, quick-xml 0.37.5) are documented ignores in `deny.toml` +
+  `.cargo/audit.toml` — absent from the default shipped binary.
+- **Broken pipe.** `adhammer … | head` now exits quietly (SIGPIPE→`SIG_DFL` on
+  Unix) instead of panicking with "Broken pipe"; a no-op on Windows.
+
+### Added (prior 1.5.2 scope)
 
 - **RustHound-CE opt-in adapter (feature-gated, live-fire-verified).** New
   `adhammer-bloodhound::rusthound_ce` module compiled ONLY under
