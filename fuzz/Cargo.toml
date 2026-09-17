@@ -44,6 +44,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "lsa_offline"
+path = "fuzz_targets/lsa_offline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "pac_credential_info"
 path = "fuzz_targets/pac_credential_info.rs"
 test = false
