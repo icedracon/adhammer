@@ -33,6 +33,18 @@ fn pace_ms(var: &str, default_ms: u64) -> u64 {
         .unwrap_or(default_ms)
 }
 
+static QUIET: AtomicBool = AtomicBool::new(false);
+/// Suppress decorative stderr chrome (spinner + progress narration) for
+/// scripting. Data on stdout and warnings/errors are NOT affected. Set once
+/// from the global `--quiet`/`-q` flag.
+pub fn set_quiet(on: bool) {
+    QUIET.store(on, Ordering::Relaxed);
+}
+/// True when `--quiet` is in effect.
+pub fn is_quiet() -> bool {
+    QUIET.load(Ordering::Relaxed)
+}
+
 // SGR codes.
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -122,6 +134,9 @@ fn glyph(color: &str, ascii: &str, uni: &str) -> String {
 
 /// Success line, e.g. `✓ 42 objects collected`.
 pub fn ok(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     eprintln!("{} {msg}", glyph(GREEN, "[+]", "✓"));
 }
 /// Warning / attention line, e.g. a finding.
@@ -134,11 +149,17 @@ pub fn bad(msg: &str) {
 }
 /// Neutral informational line.
 pub fn info(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     eprintln!("{} {msg}", glyph(CYAN, "[*]", "•"));
 }
 
 /// A neutral guide line without a status glyph.
 pub fn note(msg: &str) {
+    if is_quiet() {
+        return;
+    }
     if stderr_tty() {
         eprintln!("{DIM}{msg}{RESET}");
     } else {
@@ -197,11 +218,14 @@ fn outcome_badge(kind: OutcomeKind) -> String {
 }
 
 pub fn outcome(kind: OutcomeKind, msg: &str) {
+    if is_quiet() {
+        return;
+    }
     eprintln!("{} {msg}", outcome_badge(kind));
 }
 
 pub fn linger(ms: u64) {
-    if pace_enabled() && ms > 0 {
+    if pace_enabled() && ms > 0 && !is_quiet() {
         std::thread::sleep(Duration::from_millis(ms));
     }
 }
@@ -310,6 +334,9 @@ fn elapsed_tag(secs: f32) -> String {
 }
 
 pub fn proof_block(kind: &str, evidence: &str) {
+    if is_quiet() {
+        return;
+    }
     let ev = evidence.trim();
     if ev.is_empty() {
         return;
@@ -557,6 +584,10 @@ impl Spinner {
     pub fn start(msg: impl Into<String>) -> Self {
         let msg = msg.into();
         let stop = Arc::new(AtomicBool::new(false));
+        // --quiet: fully silent, no start line and no animation thread.
+        if is_quiet() {
+            return Spinner { stop, handle: None };
+        }
         // Animate only on a real TTY — piped/redirected runs get a single start line instead.
         // WS-1.4.7-P2-B: also skip animation + ANSI when `NO_COLOR` is set. The spinner
         // both animates (repeated \r rewrites) and paints ANSI colors, so a NO_COLOR-aware

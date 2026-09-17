@@ -85,6 +85,12 @@ struct Cli {
     #[arg(long, global = true)]
     no_color: bool,
 
+    /// Quiet: suppress the decorative stderr chrome (spinner + progress
+    /// narration) for scripting. Data on stdout and warnings/errors are NOT
+    /// affected — only the human progress noise is dropped.
+    #[arg(short = 'q', long, global = true)]
+    quiet: bool,
+
     /// Force the JSON `AttackResult` envelope (the DEFAULT for attack/enum/dump). NOTE: the
     /// envelope is `{command, success, evidence}` where `evidence` is the human text output —
     /// use it for pass/fail automation, not field extraction. For fully-structured JSON use
@@ -724,6 +730,8 @@ async fn main() -> Result<()> {
     if cli.no_color {
         std::env::set_var("NO_COLOR", "1");
     }
+    // Q4: `--quiet` suppresses decorative stderr chrome (data + errors unaffected).
+    crate::ui::set_quiet(cli.quiet);
     // Native speed: `--fast` or ADHAMMER_FAST=1 strips deliberate pacing.
     adhammer_core::speed::set_native(
         cli.fast
