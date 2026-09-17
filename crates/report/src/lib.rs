@@ -666,8 +666,10 @@ impl Report {
              <p class=muted>Deterministic sha256 of the canonical JSON serialization — same domain \
              state on repeat scans yields the same fingerprint. Useful as an audit-trail identifier \
              or a baseline-diff key.</p>\
+             <p><code>tool</code>: <code>adhammer {}</code></p>\
              <p><code>domain</code>: <code>{}</code></p>\
              <p><code>sha256</code>: <code>{}</code></p></section>",
+            html_escape(&adhammer_core::build::long_version()),
             html_escape(&self.domain),
             self.content_hash(),
         )
@@ -1885,6 +1887,11 @@ mod tests {
         assert!(
             html.contains("details>*{display:block !important}"),
             "print must force <details> open so nothing is hidden on paper"
+        );
+        // P1d: provenance — the fingerprint footer names the tool build.
+        assert!(
+            html.contains("<code>tool</code>") && html.contains("adhammer 1.5.2"),
+            "report must carry tool-version provenance"
         );
         // Toggle UI + JS + localStorage.
         assert!(html.contains("class=theme-toggle"), "toggle button missing");

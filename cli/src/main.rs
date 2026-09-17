@@ -704,7 +704,17 @@ async fn main() -> Result<()> {
     install_rustls_crypto_provider()?;
     enable_windows_console();
     validate_secret_argv(&std::env::args().skip(1).collect::<Vec<_>>())?;
-    let cli = Cli::parse();
+    // Q3: `--version` carries build provenance (commit + date); `-V` stays short.
+    let cli = {
+        use clap::{CommandFactory, FromArgMatches};
+        // Leak once: a process-lifetime version string clap can hold as &'static.
+        let lv: &'static str = Box::leak(adhammer_core::build::long_version().into_boxed_str());
+        let matches = Cli::command().long_version(lv).get_matches();
+        match Cli::from_arg_matches(&matches) {
+            Ok(c) => c,
+            Err(e) => e.exit(),
+        }
+    };
     // Native speed: `--fast` or ADHAMMER_FAST=1 strips deliberate pacing.
     adhammer_core::speed::set_native(
         cli.fast

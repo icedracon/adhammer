@@ -11,6 +11,16 @@ pub mod sid;
 pub mod snapshot;
 pub mod speed;
 
+/// Build-time provenance (git commit + date), captured by `build.rs`.
+pub mod build {
+    include!(concat!(env!("OUT_DIR"), "/build_info.rs"));
+
+    /// One-line version + provenance, e.g. `1.5.2 (abc123def456, 2026-09-18)`.
+    pub fn long_version() -> String {
+        format!("{} ({GIT_SHA}, {COMMIT_DATE})", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 pub use finding::{
     AttackResult, Category, Evidence, Finding, Mitre, NextCommand, Severity, WireDirection,
     WireExchange, WireLayer,
