@@ -150,8 +150,14 @@ pub struct CheckCoverage {
     pub kill_chain_phase: String,
 }
 
+/// The `to_json` schema version. Bump on any BREAKING change to the JSON shape
+/// so downstream consumers can pin against it; additive fields do NOT bump it.
+pub const REPORT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Serialize)]
 pub struct Report {
+    /// Schema version of this JSON document — see [`REPORT_SCHEMA_VERSION`].
+    pub schema_version: u32,
     pub domain: String,
     pub total_score: u64,
     pub category_scores: BTreeMap<&'static str, u64>,
@@ -211,6 +217,7 @@ impl Report {
         let total_score = category_scores.values().sum();
         let composite_chains = composite::detect(&findings);
         Report {
+            schema_version: REPORT_SCHEMA_VERSION,
             domain,
             total_score,
             category_scores,
@@ -1904,6 +1911,16 @@ mod tests {
         assert!(
             !html.contains("background:#0d1323"),
             "hardcoded code bg must be token-driven"
+        );
+    }
+
+    #[test]
+    fn json_is_schema_versioned() {
+        // P4: consumers can pin against a declared schema version.
+        let json = empty_report(vec![]).to_json();
+        assert!(
+            json.contains("\"schema_version\": 1"),
+            "report JSON must carry schema_version: {json}"
         );
     }
 

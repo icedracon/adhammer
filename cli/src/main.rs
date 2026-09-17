@@ -80,6 +80,11 @@ struct Cli {
     #[arg(long, global = true)]
     fast: bool,
 
+    /// Disable ANSI color/styling in all output (equivalent to `NO_COLOR=1`).
+    /// Useful for logs, CI, and redirection. `CLICOLOR_FORCE=1` still overrides.
+    #[arg(long, global = true)]
+    no_color: bool,
+
     /// Force the JSON `AttackResult` envelope (the DEFAULT for attack/enum/dump). NOTE: the
     /// envelope is `{command, success, evidence}` where `evidence` is the human text output —
     /// use it for pass/fail automation, not field extraction. For fully-structured JSON use
@@ -715,6 +720,10 @@ async fn main() -> Result<()> {
             Err(e) => e.exit(),
         }
     };
+    // Q9: `--no-color` folds into the NO_COLOR convention the ui layer already honors.
+    if cli.no_color {
+        std::env::set_var("NO_COLOR", "1");
+    }
     // Native speed: `--fast` or ADHAMMER_FAST=1 strips deliberate pacing.
     adhammer_core::speed::set_native(
         cli.fast
