@@ -107,13 +107,17 @@ pub(crate) async fn kdbx_extract(a: KdbxExtractArgs) -> Result<()> {
         "KDBX{}.{} — Argon2d + body decrypt + XML walk",
         header.major, header.minor
     ));
-    // Verify password first so we fail fast on wrong pw before body decrypt.
-    if !crate::attacks::kdbx::verify_password(&header, &pw)? {
+    // Derive the Argon2d key ONCE, verify it against the header HMAC (fail fast
+    // on a wrong password before body decrypt), then reuse the same key for the
+    // body extract — Argon2d is expensive, so we never run the KDF twice.
+    let final_key =
+        crate::attacks::kdbx::derive_final_key(&pw, &header).context("KDBX4 key derivation")?;
+    if !crate::attacks::kdbx::verify_header_hmac(&header, &final_key) {
         sp.done_warn("wrong password (header HMAC mismatch)");
         anyhow::bail!("wrong password");
     }
     let entries =
-        crate::attacks::kdbx::extract(&bytes, &header, &pw).context("KDBX4 body extract")?;
+        crate::attacks::kdbx::extract(&bytes, &header, &final_key).context("KDBX4 body extract")?;
     sp.done(&format!(
         "recovered {} entries — protected fields unmasked",
         entries.len()

@@ -444,15 +444,10 @@ pub(crate) fn verify_header_hmac(header: &Kdbx4Header, final_key: &[u8; 32]) -> 
         <Hmac<Sha256> as Mac>::new_from_slice(&block_key).expect("HMAC accepts any key length");
     mac.update(&header.header_bytes);
     let computed = mac.finalize().into_bytes();
-    // Constant-time compare.
+    // Plain equality is correct here: this is a local self-check against a value
+    // already sitting in the operator's own file, not a secret compared across a
+    // trust boundary, so there is no remote timing oracle to defend against.
     computed.as_slice() == header.header_hmac
-}
-
-/// Attempt to unlock a KDBX4 file with `password`. Returns `Ok(true)` on
-/// match, `Ok(false)` on wrong password, `Err` on file / parse / KDF error.
-pub(crate) fn verify_password(header: &Kdbx4Header, password: &str) -> Result<bool> {
-    let final_key = derive_final_key(password, header)?;
-    Ok(verify_header_hmac(header, &final_key))
 }
 
 // --------------------------------------------------------------------------
@@ -473,19 +468,17 @@ pub(crate) struct KdbxEntry {
     pub custom: std::collections::BTreeMap<String, String>,
 }
 
-/// Decrypt, inflate and XML-walk a KDBX4 file with a candidate password.
-/// Returns the entries recovered (with protected fields unmasked). Errors on
-/// wrong password (the HMAC check inside [`verify_password`] would already
-/// catch it; the caller should short-circuit through `verify_password` before
-/// calling this to save Argon2d cycles on the bad-password path).
+/// Decrypt, inflate and XML-walk a KDBX4 file using the Argon2d `final_key` the
+/// caller already derived and HMAC-verified via [`derive_final_key`] +
+/// [`verify_header_hmac`]. Returns the entries recovered (protected fields
+/// unmasked). This does NOT re-run the KDF — Argon2d is expensive and the caller
+/// has already paid for it on the verify path.
 pub(crate) fn extract(
     file_bytes: &[u8],
     header: &Kdbx4Header,
-    password: &str,
+    final_key: &[u8; 32],
 ) -> Result<Vec<KdbxEntry>> {
-    let final_key = derive_final_key(password, header)?;
-    // Same key derivation as verify_password's HMAC path — recompute the
-    // base key for body blocks.
+    // Recompute the body-block HMAC base key from the caller-supplied final_key.
     let mut base_hasher = Sha512::new();
     base_hasher.update(header.master_seed);
     base_hasher.update(final_key);
