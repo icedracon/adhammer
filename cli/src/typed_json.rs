@@ -11,9 +11,9 @@
 //! recognised shape we emit a typed doc, otherwise fall through to the plain
 //! `{command,success,evidence}` envelope so nothing regresses.
 //!
-//! Deeper verbs (dcsync / secretsdump / samr) need per-verb rewrites — those
-//! remain on the F-B4-full track for 1.5.2; the audit's honest note in the
-//! `--json` help text is the operator-facing stopgap.
+//! 1.5.2 F-B4-full adds the deeper credential verbs: **dcsync** + **secretsdump**
+//! (shared secretsdump-format lines → typed accounts + per-etype Kerberos keys)
+//! and **samr** (rid/name rows). All six high-value data verbs are now typed.
 //!
 //! Contract: **stdin never changes**. Only the JSON envelope shape does, and
 //! only when a typed row set is recognised.
@@ -30,9 +30,11 @@ pub(crate) enum Structured {
     Roast(RoastDoc),
     Laps(LapsDoc),
     Gmsa(GmsaDoc),
-    /// Marker — recognised as coming from a supported verb but no rows to type.
-    /// Reserved for follow-up F-B4 verbs (dcsync/samr/secretsdump) that will
-    /// emit this when a wire error prevents structured extraction.
+    Dcsync(SecretsDoc),
+    Samr(SamrDoc),
+    Secretsdump(SecretsDoc),
+    /// Marker — recognised as coming from a supported verb but no rows to type
+    /// (e.g. a wire error left the stdout empty).
     Empty {
         verb: String,
     },
@@ -90,6 +92,42 @@ pub(crate) struct GmsaEntry {
     pub error: Option<String>,
 }
 
+/// Shared by `dcsync` and `secretsdump` — both emit secretsdump-format
+/// credential lines on stdout.
+#[derive(Debug, Serialize)]
+pub(crate) struct SecretsDoc {
+    pub accounts: Vec<SecretAccount>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SecretAccount {
+    pub sam: String,
+    pub rid: Option<u32>,
+    /// NT hash (hex). Emitted by the verb on stdout by design.
+    pub nt_hash: Option<String>,
+    /// LM hash (hex); the AD empty-hash constant in practice.
+    pub lm_hash: Option<String>,
+    pub kerberos_keys: Vec<KerberosKey>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct KerberosKey {
+    pub etype: String,
+    /// Raw key material (hex).
+    pub key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SamrDoc {
+    pub users: Vec<SamrUser>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SamrUser {
+    pub rid: u32,
+    pub name: String,
+}
+
 /// Try to parse `verb_label` (e.g. `attack roast`) + captured `stdout` +
 /// `stderr` into a `Structured`. Returns `None` when the verb isn't in the
 /// first wave, or when the text doesn't match the expected shape (parse
@@ -99,6 +137,9 @@ pub(crate) fn try_structured(verb_label: &str, stdout: &str, stderr: &str) -> Op
         "attack roast" => Some(Structured::Roast(parse_roast(stdout, stderr))),
         "attack laps" => Some(Structured::Laps(parse_laps(stdout))),
         "attack gmsa" => Some(Structured::Gmsa(parse_gmsa(stdout, stderr))),
+        "attack dcsync" => Some(Structured::Dcsync(parse_secrets_lines(stdout))),
+        "enum samr" => Some(Structured::Samr(parse_samr(stdout))),
+        "attack secretsdump" => Some(Structured::Secretsdump(parse_secrets_lines(stdout))),
         _ => None,
     }
 }
@@ -299,6 +340,91 @@ fn parse_gmsa(stdout: &str, stderr: &str) -> GmsaDoc {
     }
 }
 
+// -----------------------------------------------------------------------------
+// dcsync / secretsdump — stdout carries secretsdump-format credential lines:
+//   <sam>:<rid>:<lm>:<nt>:::      NT-hash line (LM is the empty-hash constant)
+//   <sam>:<etype-name>:<hexkey>   one Kerberos key per line
+// Both verbs emit this shape, so one parser covers them. Grouped by SAM;
+// BTreeMap keeps the output deterministic (sorted), which the report/determinism
+// dimension wants anyway.
+// -----------------------------------------------------------------------------
+
+fn looks_like_hex_key(s: &str) -> bool {
+    s.len() >= 16 && s.len().is_multiple_of(2) && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn parse_secrets_lines(stdout: &str) -> SecretsDoc {
+    let mut by_sam: std::collections::BTreeMap<String, SecretAccount> = Default::default();
+    let ensure = |m: &mut std::collections::BTreeMap<String, SecretAccount>, sam: &str| {
+        m.entry(sam.to_string()).or_insert_with(|| SecretAccount {
+            sam: sam.to_string(),
+            rid: None,
+            nt_hash: None,
+            lm_hash: None,
+            kerberos_keys: Vec::new(),
+        });
+    };
+    for line in stdout.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = t.split(':').collect();
+        // NT-hash line: <sam>:<rid>:<lm>:<nt>:::  (numeric rid, 32-hex nt).
+        if parts.len() >= 4 {
+            if let Ok(rid) = parts[1].parse::<u32>() {
+                let nt = parts[3];
+                if nt.len() == 32 && nt.chars().all(|c| c.is_ascii_hexdigit()) {
+                    ensure(&mut by_sam, parts[0]);
+                    let e = by_sam.get_mut(parts[0]).unwrap();
+                    e.rid = Some(rid);
+                    e.nt_hash = Some(nt.to_string());
+                    e.lm_hash = Some(parts[2].to_string());
+                    continue;
+                }
+            }
+        }
+        // Kerberos key line: <sam>:<etype>:<hexkey>  (exactly 3 fields, hex key).
+        if parts.len() == 3 && !parts[1].is_empty() && looks_like_hex_key(parts[2]) {
+            ensure(&mut by_sam, parts[0]);
+            by_sam
+                .get_mut(parts[0])
+                .unwrap()
+                .kerberos_keys
+                .push(KerberosKey {
+                    etype: parts[1].to_string(),
+                    key: parts[2].to_string(),
+                });
+        }
+    }
+    SecretsDoc {
+        accounts: by_sam.into_values().collect(),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// samr — stdout is `== SAMR users (N) ==` then `  <rid>\t<name>` rows.
+// -----------------------------------------------------------------------------
+
+fn parse_samr(stdout: &str) -> SamrDoc {
+    let mut users = Vec::new();
+    for line in stdout.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("==") {
+            continue;
+        }
+        if let Some(tab) = t.find('\t') {
+            if let Ok(rid) = t[..tab].trim().parse::<u32>() {
+                users.push(SamrUser {
+                    rid,
+                    name: t[tab + 1..].trim().to_string(),
+                });
+            }
+        }
+    }
+    SamrDoc { users }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +494,57 @@ mod tests {
     #[test]
     fn unknown_verb_returns_none() {
         assert!(try_structured("attack coerce", "", "").is_none());
+    }
+
+    #[test]
+    fn dcsync_parses_nt_hash_and_kerberos_keys_grouped_by_sam() {
+        // Synthetic hex only (fixture discipline) — no real key material.
+        // `<lm>` placeholder for the LM field: the parser stores it verbatim,
+        // and this keeps the fixture clear of the `hash:hash` leak-hook shape.
+        let out = "\
+Administrator:500:<lm>:0123456789abcdef0123456789abcdef:::
+Administrator:aes256-cts-hmac-sha1-96:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Administrator:rc4-hmac:0123456789abcdef0123456789abcdef
+[+] DRSBind OK — sealed replication handle (no --target: bind-only check)
+";
+        let d = parse_secrets_lines(out);
+        assert_eq!(d.accounts.len(), 1, "the [+] status line must be ignored");
+        let a = &d.accounts[0];
+        assert_eq!(a.sam, "Administrator");
+        assert_eq!(a.rid, Some(500));
+        assert_eq!(
+            a.nt_hash.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(a.kerberos_keys.len(), 2);
+        assert_eq!(a.kerberos_keys[0].etype, "aes256-cts-hmac-sha1-96");
+        assert_eq!(a.kerberos_keys[1].etype, "rc4-hmac");
+    }
+
+    #[test]
+    fn samr_parses_rid_name_rows_and_skips_header() {
+        let out = "== SAMR users (2) ==\n  500\tAdministrator\n  1104\tsvc_sql\n";
+        let d = parse_samr(out);
+        assert_eq!(d.users.len(), 2);
+        assert_eq!(d.users[0].rid, 500);
+        assert_eq!(d.users[0].name, "Administrator");
+        assert_eq!(d.users[1].rid, 1104);
+        assert_eq!(d.users[1].name, "svc_sql");
+    }
+
+    #[test]
+    fn deeper_verbs_dispatch_to_typed_docs() {
+        assert!(matches!(
+            try_structured("attack dcsync", "", ""),
+            Some(Structured::Dcsync(_))
+        ));
+        assert!(matches!(
+            try_structured("enum samr", "", ""),
+            Some(Structured::Samr(_))
+        ));
+        assert!(matches!(
+            try_structured("attack secretsdump", "", ""),
+            Some(Structured::Secretsdump(_))
+        ));
     }
 }
