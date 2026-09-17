@@ -477,6 +477,7 @@ impl Report {
              .cov{{border-collapse:collapse;width:100%;font-size:13px}}\
              .cov th,.cov td{{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}}\
              .cov th{{color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.04em}}\
+             @media print{{:root{{--bg:#fff;--panel:#fff;--panel-2:#f4f4f4;--text:#000;--muted:#333;--line:#bbb;--code-bg:#f0f0f0}}body{{background:#fff;color:#000;font-size:11pt}}.wrap{{padding:0;max-width:none}}.stat,.sev-card,.score-card,.panel,.finding,.path,.chain{{box-shadow:none;break-inside:avoid;page-break-inside:avoid}}details>*{{display:block !important}}details>summary{{display:none !important}}h2{{page-break-after:avoid}}a{{color:#000;text-decoration:underline}}}}\
              </style>\
              <button type=button class=theme-toggle id=theme-toggle aria-label=\"Toggle light/dark theme\" title=\"Toggle theme\">\u{2600}\u{FE0F} / \u{1F319}</button>\
              <script>\
@@ -1874,6 +1875,16 @@ mod tests {
         assert!(
             html.contains(":root[data-theme=\"dark\"]"),
             "toggle must have a matching selector"
+        );
+        // P1e: a print stylesheet so the HTML doubles as a clean PDF deliverable —
+        // ink-friendly colors, no mid-card page breaks, and <details> forced open.
+        assert!(
+            html.contains("@media print{"),
+            "print stylesheet must ship so the report prints/PDFs cleanly"
+        );
+        assert!(
+            html.contains("details>*{display:block !important}"),
+            "print must force <details> open so nothing is hidden on paper"
         );
         // Toggle UI + JS + localStorage.
         assert!(html.contains("class=theme-toggle"), "toggle button missing");
