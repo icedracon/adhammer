@@ -158,8 +158,29 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         return Some("DNS resolution failed — use the DC IP for --url/--host, or point resolv.conf at the AD DNS");
     }
 
-    // TLS.
-    if has("certificate") || has("self-signed") || has("tls") && has("verify") {
+    // AD CS enrollment refusals — the wire message includes the word "certificate",
+    // so must be classified BEFORE the TLS branch or the wrong hint fires.
+    if has("denied by policy module") || has("template that is not supported") {
+        return Some(
+            "AD CS refused the CSR — the CA has not (re-)published this template. On the DC: \
+             `certutil -SetCATemplates +<name>` then `Restart-Service CertSvc`",
+        );
+    }
+    // PKINIT KDC-side rejection: RFC 4556 §3.2.3 KDC_ERR_CERTIFICATE_MISMATCH (66) —
+    // the cert was issued, but the KDC's account-mapping policy refused it
+    // (KB5014754 Full Enforcement, live since Feb 2025).
+    if has("error_code 66") || has("kdc_err_certificate_mismatch") {
+        return Some(
+            "PKINIT blocked by KB5014754 strong cert mapping — the cert issued fine but the KDC \
+             refuses to map it to an account without a SID/SecurityIdentifier extension. Try a \
+             pre-KB5014754 DC or add the SID mapping via certipy-style OID 1.3.6.1.4.1.311.25.2",
+        );
+    }
+
+    // TLS. Narrowed: don't fire on generic "certificate" text — a wire like
+    // "Denied by Policy Module: certificate template …" matched the old rule.
+    let tls_context = has("verify") || has("self-signed") || has("unknown ca") || has("chain");
+    if (has("tls") || has("certificate")) && tls_context {
         return Some("TLS verification failed — pass --insecure for a lab self-signed DC cert, or trust the CA");
     }
 
@@ -290,5 +311,37 @@ mod tests {
     fn fix_hint_is_none_for_unrecognized() {
         assert!(fix_hint("some totally unrelated internal error xyz").is_none());
         assert!(fix_hint("").is_none());
+    }
+
+    #[test]
+    fn adcs_policy_refusal_does_not_misclassify_as_tls() {
+        // Live 2025 DC wire: `Denied by Policy Module 0x80094800, The request was for a
+        // certificate template that is not supported ...` — the word "certificate" used to
+        // trip the TLS hint. The AD CS branch now precedes it.
+        let h = fix_hint(
+            "Denied by Policy Module  0x80094800, The request was for a certificate template \
+             that is not supported by the Active Directory Certificate Services policy: ESC1Vuln",
+        )
+        .unwrap();
+        assert!(h.contains("AD CS"), "got: {h}");
+        assert!(h.contains("SetCATemplates"), "got: {h}");
+        assert!(!h.contains("TLS"), "wrong branch: {h}");
+    }
+
+    #[test]
+    fn pkinit_error_66_maps_to_kb5014754() {
+        // RFC 4556 §3.2.3 — KDC_ERR_CERTIFICATE_MISMATCH. Live wire on Server 2025:
+        // `KDC rejected PKINIT AS-REQ: unhandled error_code 66 ''`
+        let h = fix_hint("KDC rejected PKINIT AS-REQ: unhandled error_code 66 ''").unwrap();
+        assert!(h.contains("KB5014754"), "got: {h}");
+        assert!(h.contains("SID"), "got: {h}");
+    }
+
+    #[test]
+    fn genuine_tls_error_still_classifies() {
+        // Genuine TLS problem — the narrowed matcher must still fire.
+        let h =
+            fix_hint("tls handshake: certificate verify failed: self-signed certificate").unwrap();
+        assert!(h.contains("TLS verification failed"), "got: {h}");
     }
 }
