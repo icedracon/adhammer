@@ -73,14 +73,17 @@ pub(crate) fn classify_bind(err: &str) -> BindVerdict {
     if has("connection refused")
         || has("timed out")
         || has("timeout")
-        || has("os error 10061")
-        || has("os error 104")
-        || has("reset by peer")
+        || has("os error 10061") // WSAECONNREFUSED (Windows)
+        || has("os error 111")   // ECONNREFUSED (Linux)
         || has("no route")
         || has("unreachable")
     {
         return BindVerdict::Unreachable;
     }
+    // NOTE: `reset by peer` / `os error 104` (ECONNRESET) is deliberately NOT here.
+    // A peer that resets is reachable — the reset is a TLS-handshake refusal or
+    // signing-policy kill. fix_hint() handles that class separately with its own
+    // remedy; a doctor call surfaces it via BindVerdict::Other → the raw diagnostic.
     if e.is_empty() {
         return BindVerdict::Success;
     }
@@ -177,6 +180,36 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         );
     }
 
+    // Adhammer's own plaintext-bind safety guard: the raw remedy already lives in the
+    // guard message ("switch to ldaps://, pass --gssapi, or set allow_plaintext_bind=true"),
+    // but its wording contains "certificate" and used to trip the TLS matcher. Classify
+    // it explicitly so the operator sees the *actual* remedy, not `--insecure`.
+    if has("refusing to send an authenticated ldap simple_bind over plaintext") {
+        return Some(
+            "LDAP requires an integrity-checked bind — use `ldaps://…:636 --insecure` for a \
+             lab cert, `--gssapi` for SASL-sealed LDAP/389, or `--allow-plaintext-ldap` if \
+             the DC really has no LDAPS cert (cleartext credentials on the wire)",
+        );
+    }
+
+    // TCP reset — the peer accepted the handshake and then killed the flow. This is NOT
+    // unreachable (nc -zv succeeds), so it must be classified BEFORE the generic
+    // reachability branch. On ldaps:// it's almost always a TLS-handshake refusal (the
+    // DC's Schannel policy rejects our ciphersuite/protocol, or requires channel binding
+    // / client cert). On ldap:// it can be an LDAP signing kill.
+    if has("connection reset by peer")
+        || has("os error 104")     // ECONNRESET (Linux/musl)
+        || has("os error 10054")   // WSAECONNRESET (Windows)
+        || has("wsaeconnreset")
+    {
+        return Some(
+            "TCP reset — the port is OPEN but the peer killed the flow. For ldaps://: \
+             the DC's Schannel policy rejected the handshake (try `--tls-native` for \
+             OpenSSL/Schannel ciphers, or check the DC's SCH_USE_STRONG_CRYPTO and \
+             ciphersuite policy). For ldap://: the DC is enforcing LDAP signing.",
+        );
+    }
+
     // TLS. Narrowed: don't fire on generic "certificate" text — a wire like
     // "Denied by Policy Module: certificate template …" matched the old rule.
     let tls_context = has("verify") || has("self-signed") || has("unknown ca") || has("chain");
@@ -184,13 +217,13 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         return Some("TLS verification failed — pass --insecure for a lab self-signed DC cert, or trust the CA");
     }
 
-    // Generic connection (last — broadest).
+    // Generic connection (last — broadest). Reset-by-peer is handled above so it does
+    // not fall in here as "unreachable" (a peer that resets is by definition reachable).
     if has("connection refused")
         || has("timed out")
         || has("timeout")
-        || has("os error 10061")
-        || has("os error 104")
-        || has("reset by peer")
+        || has("os error 10061") // WSAECONNREFUSED
+        || has("os error 111")   // ECONNREFUSED (Linux)
         || has("no route")
         || has("unreachable")
     {
@@ -343,5 +376,46 @@ mod tests {
         let h =
             fix_hint("tls handshake: certificate verify failed: self-signed certificate").unwrap();
         assert!(h.contains("TLS verification failed"), "got: {h}");
+    }
+
+    #[test]
+    fn plaintext_bind_refusal_names_actual_remedy_not_tls() {
+        // 2026-09-18 live-fire on armbusinessbank.local — the safety guard's OWN wording
+        // contained "certificate" and used to trip the TLS branch, so operators saw
+        // "pass --insecure" (a no-op here). The dedicated branch names the real remedy.
+        let h = fix_hint(
+            "refusing to send an authenticated LDAP simple_bind over plaintext \
+             \"ldap://armbusinessbank.local:389\": switch to `ldaps://`, pass `--gssapi`, \
+             or set `allow_plaintext_bind = true` on the LdapConfig if this is a lab DC \
+             without an LDAPS certificate.",
+        )
+        .unwrap();
+        assert!(h.contains("integrity-checked bind"), "got: {h}");
+        assert!(h.contains("--gssapi"), "got: {h}");
+        assert!(h.contains("--allow-plaintext-ldap"), "got: {h}");
+        assert!(!h.starts_with("TLS verification"), "wrong branch: {h}");
+    }
+
+    #[test]
+    fn tcp_reset_is_not_unreachable() {
+        // 2026-09-18 live-fire on armbusinessbank.local:636 — `nc -zv` proved the port
+        // was open, yet the tool said "host/port unreachable". A peer that RESETS is
+        // by definition reachable; the reset is a TLS-handshake / signing policy kill.
+        let h = fix_hint(
+            "ldap connect: I/O error: Connection reset by peer (os error 104): \
+             Connection reset by peer (os error 104)",
+        )
+        .unwrap();
+        assert!(h.contains("TCP reset"), "got: {h}");
+        assert!(h.contains("Schannel") || h.contains("signing"), "got: {h}");
+        assert!(!h.contains("unreachable"), "wrong branch: {h}");
+    }
+
+    #[test]
+    fn connection_refused_still_maps_to_unreachable() {
+        // Regression guard: pruning "reset by peer" from the unreachable branch must
+        // NOT break the honest-unreachable case.
+        let h = fix_hint("Connection refused (os error 111)").unwrap();
+        assert!(h.contains("unreachable"), "got: {h}");
     }
 }
