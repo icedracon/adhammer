@@ -124,6 +124,18 @@ pub fn build_csr_with_sid_ext(
 ) -> Result<Csr> {
     let mut rng = rand::thread_rng();
     let key = RsaPrivateKey::new(&mut rng, 2048)?;
+    build_csr_from_key(&key, subject_cn, upn, target_sid)
+}
+
+/// Build a CSR from a caller-supplied RSA private key — same wire format as
+/// [`build_csr_with_sid_ext`] but no key generation. Used by verbs that already
+/// hold a key (e.g. `attack icpr-esc1 --key <pem>`) and want the SID-mapping extension.
+pub fn build_csr_from_key(
+    key: &RsaPrivateKey,
+    subject_cn: &str,
+    upn: Option<&str>,
+    target_sid: Option<&str>,
+) -> Result<Csr> {
     let pk = key.to_public_key();
 
     // SubjectPublicKeyInfo { rsaEncryption NULL, BIT STRING(RSAPublicKey{n,e}) }

