@@ -102,7 +102,17 @@ gpp_dump*.txt
 /docs/LIVE_FIRE_*.md
 /docs/HTB_*.md
 /docs/*_RECEIPT_*.md
+/docs/RECEIPT_*.md
 /docs/UX_TEST_PLAN_*.md
 /docs/AI_RELEASE_GOVERNANCE.md
 /docs/ECOSYSTEM_READINESS_100.md
+# Internal ops runbooks + review notes + version-stamped working contracts +
+# comparative benchmarks — maintainer-local, never in the public tree.
+/docs/PRE_REVIEW_*.md
+/docs/RELEASE_CHECKLIST.md
+/docs/SIGNING_ROTATIONS.md
+/docs/METHOD_CATALOG_*.md
+/docs/*_CONTRACT_*.md
+/docs/BENCHMARKS.md
+/bench/
 /scripts/check_release_governance.py

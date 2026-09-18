@@ -36,8 +36,7 @@ pub(crate) enum LsaCmd {
     /// present in this build. The verb emits a `[hint]` block pointing at
     /// the specialist tool with your dump path pre-substituted; run that
     /// tool for the actual creds. Hidden from `--help` until the symbol
-    /// walk lands, per the 1.4.7 `check krb-seal` scaffolding precedent
-    /// (docs/PRE_REVIEW_1.5.1.md §5).
+    /// walk lands, per the 1.4.7 `check krb-seal` scaffolding precedent.
     #[command(hide = true)]
     LsassParse(LsassParseArgs),
 }

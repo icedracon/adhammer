@@ -16,8 +16,8 @@
 //!   surface is stable for muscle memory + scripting while the pure-Rust row
 //!   walk matures upstream.
 //!
-//! Same staging pattern as F5 `lsa lsass-parse` (docs/PRE_REVIEW_1.5.1.md §5)
-//! and F4a `creds kdbx-*` (crack → hashcat, extract in-tree).
+//! Same staging pattern as F5 `lsa lsass-parse`
+//! and F4a `creds kdbx-*` (crack externally, extract in-tree).
 
 use anyhow::{Context, Result};
 use clap::Parser;

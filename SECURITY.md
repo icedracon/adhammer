@@ -135,8 +135,8 @@ never in the git tree, never in a CI secret, never in a screenshot.
    publish new crates under this identity today).
 2. Update the maintainer's password manager entry with the new token.
 3. Revoke the previous token immediately from the same page.
-4. Post the rotation event (not the token) into
-   `docs/SIGNING_ROTATIONS.md` as an append-only log entry, dated.
+4. Record the rotation event (not the token) in the maintainer's
+   local, append-only rotation log, dated.
 5. If the rotation was compromise-triggered, publish a GitHub
    Security Advisory naming the suspected compromise window and any
    affected publishes.
