@@ -61,6 +61,11 @@ pub(crate) struct Esc4Args {
     /// Also PKINIT with the issued cert as part of the chain (`esc1 --pkinit`).
     #[arg(long)]
     pub pkinit: bool,
+    /// **1.5.2 KB5014754 bypass.** Target user's objectSid — forwarded to the chained
+    /// `esc1 --sid <SID>` so the issued cert PKINITs against Full-Enforcement KDCs. See
+    /// `attack esc1 --help` for details.
+    #[arg(long, value_name = "SID")]
+    pub sid: Option<String>,
 
     /// **Restore.** After the chain finishes (win or fail), write the original
     /// `msPKI-Certificate-Name-Flag` + `msPKI-Enrollment-Flag` values back —
@@ -211,6 +216,7 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
         out: "esc1.crt".to_string(),
         pkinit: a.pkinit,
         kdc: a.kdc.clone(),
+        sid: a.sid.clone(),
     })
     .await;
 

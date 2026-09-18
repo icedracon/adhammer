@@ -1380,6 +1380,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     .into_owned(),
                 pkinit,
                 kdc: Some(s.dc.clone()),
+                sid: None,
             })
             .await
         }
@@ -1590,6 +1591,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 smb_domain: None,
                 kdc: None,
                 pkinit: false,
+                sid: None,
                 restore: false,
             })
             .await

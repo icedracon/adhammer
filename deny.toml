@@ -32,8 +32,9 @@ ignore = [
     # are NOT present in the default shipped binary. Tracked upstream; drop each
     # when RustHound-CE bumps the offending transitive dep.
     "RUSTSEC-2024-0421", # idna 0.4.0 — punycode label decode (rusthound-ce only)
-    "RUSTSEC-2026-0194", # quick-xml 0.37.5 — dup-attr quadratic (rusthound-ce only)
-    "RUSTSEC-2026-0195", # quick-xml 0.37.5 — ns-decl alloc DoS (rusthound-ce only)
+    # RUSTSEC-2026-0194/0195 (quick-xml 0.37.5 dup-attr / ns-decl DoS) — dropped 2026-09-18
+    # when the workspace quick-xml pinned to 0.41.x; the vulnerable 0.37.5 version no
+    # longer appears in the tree, so the entries are stale and cargo-deny errors on them.
 ]
 
 # ---------------------------------------------------------------------------

