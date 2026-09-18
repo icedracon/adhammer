@@ -45,12 +45,15 @@ pub(crate) fn classify_bind(err: &str) -> BindVerdict {
     // the generic rc=49 fallthrough. WS2019/2022 DCs default to rejecting
     // plaintext simple binds and often surface as rc=8 without the sub-status
     // text; some paths return the bare "strongerAuthRequired" name only.
+    // NOTE: "signing" alone is too generic (SMB signing errors and some doctor
+    // remediation strings also contain the word). Require LDAP context for
+    // that match so an SMB path never gets routed to the LDAP-signing hint.
     if has("80090346")
         || has("strongerauth")
         || has("stronger auth")
         || has("confidentiality")
         || has("channel binding")
-        || has("signing")
+        || (has("signing") && (has("ldap") || has("simple_bind") || has("simple bind")))
         || has("result code: 8")
         || has("rc=8")
         || has("rc: 8,")
@@ -112,6 +115,25 @@ pub(crate) fn bind_fix(v: &BindVerdict) -> &'static str {
     }
 }
 
+/// Match "kdc error N" at a word boundary — the character AFTER the number (if any) must
+/// be a non-digit. Prevents "KDC error 6" from spuriously matching "KDC error 68". `e` is
+/// already lowercased by `fix_hint`.
+fn kdc_code(e: &str, code: u16) -> bool {
+    let needle = format!("kdc error {code}");
+    let mut start = 0;
+    while let Some(pos) = e[start..].find(&needle) {
+        let abs = start + pos;
+        let end = abs + needle.len();
+        let after = e.as_bytes().get(end).copied();
+        // Boundary: end-of-string, or the next char is NOT an ASCII digit.
+        if !after.is_some_and(|b| b.is_ascii_digit()) {
+            return true;
+        }
+        start = end;
+    }
+    false
+}
+
 /// WS-UX-ERRORS: classify ANY verb's error string into a one-line named fix, or `None`
 /// when unrecognized. `main` appends this as anyhow context so the fix is the headline
 /// and the raw error the cause. Ordered most-specific first.
@@ -156,9 +178,43 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         return Some("named pipe/RPC endpoint not available — the service may be stopped or the opnum blocked");
     }
 
-    // DNS / discovery.
-    if has("failed to lookup") || has("name or service not known") || has("no such host") {
+    // DNS / discovery. Narrowed: "failed to lookup" alone would also catch things like
+    // "failed to lookup sAMAccountName" (an LDAP search miss). tokio's DNS error is
+    // specifically "failed to lookup address information" — require the "address" token
+    // together with "failed to lookup" so the LDAP-lookup case falls through.
+    if (has("failed to lookup") && has("address"))
+        || has("name or service not known")
+        || has("no such host")
+    {
         return Some("DNS resolution failed — use the DC IP for --url/--host, or point resolv.conf at the AD DNS");
+    }
+
+    // Kerberos numeric KDC error codes (adhammer's `bail!("AS-REQ rejected, KDC error N")`
+    // format). Without this the operator gets a bare number and no fix advice. `kdc_code`
+    // matches at a word boundary so `kdc error 6` cannot spuriously match `kdc error 68`.
+    if kdc_code(&e, 68) {
+        return Some("KDC error 68 (KDC_ERR_WRONG_REALM) — wrong realm; the referral in the reply names the correct realm to retry against");
+    }
+    if kdc_code(&e, 25) {
+        return Some("KDC error 25 (KDC_ERR_PREAUTH_REQUIRED) — the account requires pre-auth (normal); this stops AS-REP roasting but the account is valid");
+    }
+    if kdc_code(&e, 24) {
+        return Some("KDC error 24 (KDC_ERR_PREAUTH_FAILED) — the supplied password/hash is WRONG for the account, but the account itself exists");
+    }
+    if kdc_code(&e, 23) {
+        return Some("KDC error 23 (KDC_ERR_KEY_EXPIRED) — the account's password expired; reset it before roasting");
+    }
+    if kdc_code(&e, 18) {
+        return Some("KDC error 18 (KDC_ERR_CLIENT_REVOKED) — the account is disabled/locked; check with `enum krb-users` or SAMR");
+    }
+    if kdc_code(&e, 14) {
+        return Some("KDC error 14 (KDC_ERR_ETYPE_NOSUPP) — the account's etypes don't include AES; enable AES on the account, or accept RC4 downgrade with --rc4");
+    }
+    if kdc_code(&e, 7) {
+        return Some("KDC error 7 (KDC_ERR_S_PRINCIPAL_UNKNOWN) — the target SPN is not in AD; check --spn / --target-spn (needs an FQDN, not an IP)");
+    }
+    if kdc_code(&e, 6) {
+        return Some("KDC error 6 (KDC_ERR_C_PRINCIPAL_UNKNOWN) — user not found in the realm; check --user spelling and case-sensitive --realm");
     }
 
     // AD CS enrollment refusals — the wire message includes the word "certificate",
@@ -417,5 +473,81 @@ mod tests {
         // NOT break the honest-unreachable case.
         let h = fix_hint("Connection refused (os error 111)").unwrap();
         assert!(h.contains("unreachable"), "got: {h}");
+    }
+
+    #[test]
+    fn ldap_search_lookup_miss_is_not_dns() {
+        // A search that returns no entries can bubble up as "failed to lookup <attr>" —
+        // that must NOT be routed to the DNS branch. Tightened matcher requires "address".
+        let h = fix_hint("failed to lookup sAMAccountName=svc_missing");
+        assert!(
+            h.map(|s| !s.contains("DNS resolution failed"))
+                .unwrap_or(true),
+            "LDAP lookup miss must not misclassify as DNS: {h:?}"
+        );
+    }
+
+    #[test]
+    fn dns_getaddrinfo_still_classifies() {
+        // The genuine tokio DNS failure (uniquely says "failed to lookup address ...")
+        // must still fire the DNS hint after the tightening.
+        let h = fix_hint(
+            "io error: failed to lookup address information: nodename nor servname provided",
+        )
+        .unwrap();
+        assert!(h.contains("DNS resolution failed"), "got: {h}");
+    }
+
+    #[test]
+    fn smb_signing_error_not_routed_to_ldap_signing_hint() {
+        // If the SMB stack ever emits a message containing "signing" (documented
+        // remediation strings do, per `crates/graph/src/lib.rs`), the LDAP
+        // StrongerAuthRequired hint must NOT fire on it. Tightened matcher requires
+        // LDAP context.
+        let smb_msg = "smb signing verification failed on RESPONSE packet";
+        assert_ne!(
+            classify_bind(smb_msg),
+            BindVerdict::StrongerAuthRequired,
+            "SMB signing errors must not be routed to LDAP StrongerAuthRequired"
+        );
+    }
+
+    #[test]
+    fn genuine_ldap_signing_still_classifies() {
+        // A genuine LDAP signing rejection (contains both "signing" AND LDAP context)
+        // must still be caught after the tightening.
+        assert_eq!(
+            classify_bind("ldap bind refused: signing/sealing required"),
+            BindVerdict::StrongerAuthRequired
+        );
+        assert_eq!(
+            classify_bind("simple_bind rejected because signing is required"),
+            BindVerdict::StrongerAuthRequired
+        );
+    }
+
+    #[test]
+    fn kdc_numeric_error_codes_are_translated() {
+        // Adhammer's kerberos crate emits bare `bail!("AS-REQ rejected, KDC error N")`
+        // (see crates/kerberos/src/tgs.rs:354). Without this the operator gets a
+        // number with no context. Cover the tell-tale codes.
+        let cases = [
+            (6, "KDC_ERR_C_PRINCIPAL_UNKNOWN"),
+            (7, "KDC_ERR_S_PRINCIPAL_UNKNOWN"),
+            (14, "KDC_ERR_ETYPE_NOSUPP"),
+            (18, "KDC_ERR_CLIENT_REVOKED"),
+            (23, "KDC_ERR_KEY_EXPIRED"),
+            (24, "KDC_ERR_PREAUTH_FAILED"),
+            (25, "KDC_ERR_PREAUTH_REQUIRED"),
+            (68, "KDC_ERR_WRONG_REALM"),
+        ];
+        for (code, name) in cases {
+            let msg = format!("AS-REQ rejected, KDC error {code}");
+            let h = fix_hint(&msg).unwrap_or_else(|| panic!("no hint for KDC error {code}"));
+            assert!(
+                h.contains(name),
+                "KDC error {code} hint should name {name} — got: {h}"
+            );
+        }
     }
 }
