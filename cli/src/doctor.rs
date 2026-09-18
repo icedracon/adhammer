@@ -59,6 +59,13 @@ pub(crate) struct DoctorArgs {
     /// Emit the preflight result as JSON (checks + verdict) instead of the human checklist.
     #[arg(long)]
     pub json: bool,
+    /// **1.5.2 workstation preflight.** Domain-joined client host or IP to check instead of
+    /// (or in addition to) the DC. Probes SMB/445, WinRM/5985+5986, RDP/3389 — the surface a
+    /// workstation-target attack chain (`attack lsa`, `attack exec`, `attack wmiexec`,
+    /// `attack winrm`, coerce → relay) actually needs. Skips the DC-specific probes
+    /// (Kerberos/LDAP/GC) when only `--client` is given.
+    #[arg(long, value_name = "HOST")]
+    pub client: Option<String>,
 }
 
 const PORTS: &[(u16, &str)] = &[
@@ -198,6 +205,54 @@ pub(crate) async fn doctor(a: DoctorArgs) -> Result<()> {
             "tcp",
             Status::Skipped,
             "no target — pass --dc or --url".into(),
+        );
+    }
+
+    // 2b. Workstation preflight (1.5.2): SMB/WinRM/RDP surface of a domain-joined client.
+    // Purely reachability today; the authenticated posture checks (SMB signing / RemoteRegistry
+    // service state / RunAsPPL / WDigest UseLogonCredential) reuse `enum posture` and
+    // `check wdigest` — this probe just says whether the workstation is even worth trying.
+    if let Some(client) = &a.client {
+        const CLIENT_PORTS: &[(u16, &str)] = &[
+            (445, "SMB"),
+            (5985, "WinRM"),
+            (5986, "WinRM-HTTPS"),
+            (3389, "RDP"),
+        ];
+        for (port, label) in CLIENT_PORTS {
+            let name = format!("client-tcp-{port}");
+            if tcp_reach(client, *port, to).await {
+                rec(
+                    &name,
+                    Status::Ok,
+                    format!("{client}:{port} ({label}) reachable"),
+                );
+            } else if *port == 445 {
+                rec(&name, Status::Fail, format!(
+                    "{client}:445 (SMB) unreachable — workstation exec / posture / secretsdump paths need SMB"
+                ));
+            } else if *port == 5985 || *port == 5986 {
+                rec(
+                    &name,
+                    Status::Warn,
+                    format!(
+                        "{client}:{port} ({label}) closed — `attack winrm` will fail on this host"
+                    ),
+                );
+            } else {
+                rec(
+                    &name,
+                    Status::Warn,
+                    format!(
+                        "{client}:{port} ({label}) closed — optional path (RDP disabled by policy)"
+                    ),
+                );
+            }
+        }
+        rec(
+            "client-followups",
+            Status::Skipped,
+            "authenticated posture checks: `enum posture --host {client}` / `check wdigest --host {client}` / `enum sessions --host {client}` (need --user/--password)".into(),
         );
     }
 
