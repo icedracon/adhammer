@@ -73,31 +73,54 @@ pub(crate) struct WebHit {
 /// discovered DC. Returns every endpoint that responded.
 pub(crate) async fn fingerprint_host(host: &str, timeout: u64) -> Vec<WebHit> {
     let mut hits = Vec::new();
+    // One connect per port up front: a filtered 80/443 otherwise costs
+    // ENDPOINTS.len() × timeout (each probe re-hits the same dead port). Skip
+    // the whole endpoint set for a port that will not even accept a connection.
+    let http_up = port_open(host, 80, timeout).await;
+    let https_up = port_open(host, 443, timeout).await;
+    if !http_up && !https_up {
+        return hits;
+    }
     for (path, tech) in ENDPOINTS {
-        if let Some((status, server, auth)) = probe_http(host, 80, path, timeout).await {
-            hits.push(WebHit {
-                scheme: "http",
-                port: 80,
-                path: (*path).to_string(),
-                tech,
-                status,
-                server,
-                www_authenticate: auth,
-            });
+        if http_up {
+            if let Some((status, server, auth)) = probe_http(host, 80, path, timeout).await {
+                hits.push(WebHit {
+                    scheme: "http",
+                    port: 80,
+                    path: (*path).to_string(),
+                    tech,
+                    status,
+                    server,
+                    www_authenticate: auth,
+                });
+            }
         }
-        if let Some((status, server, auth)) = probe_https(host, 443, path, timeout).await {
-            hits.push(WebHit {
-                scheme: "https",
-                port: 443,
-                path: (*path).to_string(),
-                tech,
-                status,
-                server,
-                www_authenticate: auth,
-            });
+        if https_up {
+            if let Some((status, server, auth)) = probe_https(host, 443, path, timeout).await {
+                hits.push(WebHit {
+                    scheme: "https",
+                    port: 443,
+                    path: (*path).to_string(),
+                    tech,
+                    status,
+                    server,
+                    www_authenticate: auth,
+                });
+            }
         }
     }
     hits
+}
+
+/// One bounded TCP connect — the port-liveness guard for `fingerprint_host`.
+/// Returns false on connect timeout or refusal so a filtered 80/443 costs a
+/// single `timeout` rather than one per endpoint.
+async fn port_open(host: &str, port: u16, timeout: u64) -> bool {
+    let dur = std::time::Duration::from_secs(timeout);
+    matches!(
+        tokio::time::timeout(dur, TcpStream::connect((host, port))).await,
+        Ok(Ok(_))
+    )
 }
 
 /// True if a hit is the ESC8 cleartext-NTLM relay tell.
@@ -359,7 +382,7 @@ fn print_json(all: &[(String, Vec<WebHit>)]) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_head;
+    use super::{parse_head, port_open};
 
     #[test]
     fn parses_status_server_and_joins_www_authenticate() {
@@ -387,5 +410,18 @@ mod tests {
     fn non_http_first_line_rejected() {
         assert!(parse_head("SSH-2.0-OpenSSH_9.0\r\n").is_none());
         assert!(parse_head("").is_none());
+    }
+
+    #[tokio::test]
+    async fn port_open_guards_the_endpoint_sweep() {
+        // A live listener reads as open …
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(port_open("127.0.0.1", port, 2).await);
+        // … and a refused port reads as closed (fast, via ECONNREFUSED — this is
+        // the guard that stops a filtered 80/443 from costing one timeout per
+        // endpoint).
+        drop(listener);
+        assert!(!port_open("127.0.0.1", port, 2).await);
     }
 }

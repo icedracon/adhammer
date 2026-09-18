@@ -1054,6 +1054,25 @@ fn cmd_label(cmd: &Command) -> &'static str {
     }
 }
 
+/// If a listener bind failed for lack of privilege, append the operational
+/// remedy. Privileged ports (SMB 445, NBT-NS 137) need root or a capability; a
+/// bare "permission denied" otherwise strands the operator with no next step.
+fn privileged_bind_hint(e: anyhow::Error, what: &str) -> anyhow::Error {
+    let msg = e.to_string().to_ascii_lowercase();
+    let privileged = msg.contains("permission denied")
+        || msg.contains("os error 13") // EACCES (Unix)
+        || msg.contains("os error 10013") // WSAEACCES (Windows)
+        || msg.contains("access is denied");
+    if privileged {
+        return e.context(format!(
+            "[hint] {what} needs a privileged bind — re-run as root (`sudo -E adhammer …`) \
+             or grant the capability once: \
+             `sudo setcap cap_net_bind_service,cap_net_raw+ep $(command -v adhammer)`"
+        ));
+    }
+    e
+}
+
 async fn dispatch(cmd: Command) -> Result<()> {
     match cmd {
         Command::Scan(a) => attacks::scan::scan(a).await,
@@ -1090,8 +1109,11 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Dcsync(a)) => attacks::dcsync::dcsync(a).await,
         Command::Attack(AttackCmd::Capture(a)) => smb2_client::server::capture(&a.listen)
             .await
-            .map_err(Into::into),
-        Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip).await,
+            .map_err(Into::into)
+            .map_err(|e| privileged_bind_hint(e, "SMB capture listener on :445")),
+        Command::Attack(AttackCmd::Poison(a)) => poison::poison(a.spoof_ip)
+            .await
+            .map_err(|e| privileged_bind_hint(e, "LLMNR/NBT-NS poisoner on :5355/:137")),
         Command::Attack(AttackCmd::Relay(a)) => attacks::relay::relay(a).await,
         Command::Attack(AttackCmd::Exec(a)) => attacks::exec_pack::exec_cmd(a).await,
         Command::Attack(AttackCmd::Atexec(a)) => attacks::exec_pack::atexec_cmd(a).await,
@@ -1770,6 +1792,19 @@ mod quickstart_tests {
             "black-box recipe missing"
         );
         assert!(help.contains("attack roast"), "attack recipe missing");
+    }
+
+    #[test]
+    fn privileged_bind_hint_appends_only_on_permission_error() {
+        let eacces = anyhow::anyhow!("bind 445: permission denied (os error 13)");
+        let hinted = privileged_bind_hint(eacces, "SMB capture listener on :445");
+        let s = format!("{hinted:#}");
+        assert!(s.contains("[hint]"), "expected privilege hint, got: {s}");
+        assert!(s.contains("setcap"), "expected setcap remedy, got: {s}");
+        // A non-privilege error is passed through unchanged (no hint noise).
+        let refused = anyhow::anyhow!("connection refused (os error 111)");
+        let passthrough = privileged_bind_hint(refused, "x");
+        assert!(!format!("{passthrough:#}").contains("[hint]"));
     }
 
     #[test]
