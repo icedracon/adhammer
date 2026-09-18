@@ -128,8 +128,8 @@ pub struct LdapConfig {
     pub allow_plaintext_bind: bool,
 }
 
-/// The server FQDN from an LDAP URL, for the GSSAPI service principal (ldap/<fqdn>).
-#[cfg(feature = "gssapi")]
+/// The server host from an LDAP URL (used for the GSSAPI service principal
+/// `ldap/<fqdn>`, and to detect an IP-literal host that needs FQDN resolution).
 fn url_host(url: &str) -> String {
     url.split("://")
         .nth(1)
@@ -374,7 +374,21 @@ impl Collector {
             root_ncs(&mut ldap).await.ok()
         };
         let domain = pre.as_ref().map(|(nc, _)| dns_from_nc(nc));
-        Self::bind(&mut ldap, cfg, domain.as_deref()).await?;
+        // GSSAPI by IP: the SPN must be `ldap/<dc-fqdn>` (a ticket for
+        // `ldap/<ip>` does not exist). Read the DC's own dnsHostName from RootDSE
+        // anonymously, before the bind, and use it as the GSSAPI target.
+        let gssapi_spn_host = if cfg.gssapi && is_ip_literal(&url_host(&cfg.url)) {
+            root_dns_hostname(&mut ldap).await
+        } else {
+            None
+        };
+        Self::bind(
+            &mut ldap,
+            cfg,
+            domain.as_deref(),
+            gssapi_spn_host.as_deref(),
+        )
+        .await?;
 
         let (default_nc, config_nc) = match pre {
             Some(v) => v,
@@ -388,19 +402,31 @@ impl Collector {
         })
     }
 
-    async fn bind(ldap: &mut ldap3::Ldap, cfg: &LdapConfig, domain: Option<&str>) -> Result<()> {
+    async fn bind(
+        ldap: &mut ldap3::Ldap,
+        cfg: &LdapConfig,
+        domain: Option<&str>,
+        gssapi_spn_host: Option<&str>,
+    ) -> Result<()> {
         if cfg.gssapi {
             #[cfg(feature = "gssapi")]
             {
-                let fqdn = url_host(&cfg.url);
-                ldap.sasl_gssapi_bind(&fqdn)
+                // SPN target = `ldap/<fqdn>`. Prefer the RootDSE-resolved FQDN
+                // (set when the caller connected by IP); otherwise the URL host
+                // is already a usable name.
+                let host = url_host(&cfg.url);
+                let target = gssapi_spn_host.unwrap_or(host.as_str());
+                ldap.sasl_gssapi_bind(target)
                     .await?
                     .success()
                     .context("GSSAPI bind failed")?;
                 return Ok(());
             }
             #[cfg(not(feature = "gssapi"))]
-            anyhow::bail!("--gssapi requires a build with `--features gssapi`");
+            {
+                let _ = gssapi_spn_host; // only consulted in the gssapi build
+                anyhow::bail!("--gssapi requires a build with `--features gssapi`");
+            }
         }
         let bind_dn = qualify_bind(&cfg.bind_dn, domain);
         ldap.simple_bind(&bind_dn, cfg.password.expose_secret())
@@ -1527,6 +1553,38 @@ async fn root_ncs(ldap: &mut ldap3::Ldap) -> Result<(String, String)> {
     Ok((default_nc, config_nc))
 }
 
+/// Anonymous RootDSE read of `dnsHostName` — the DC's own FQDN. Needed to build
+/// the correct GSSAPI service principal (`ldap/<fqdn>`) when the operator
+/// connected to the DC by IP: a ticket for `ldap/<ip>` does not exist in AD and
+/// the KDC returns S_PRINCIPAL_UNKNOWN ("Server not found in Kerberos database").
+async fn root_dns_hostname(ldap: &mut ldap3::Ldap) -> Option<String> {
+    let (rs, _) = ldap
+        .search("", Scope::Base, "(objectClass=*)", vec!["dnsHostName"])
+        .await
+        .ok()?
+        .success()
+        .ok()?;
+    let e = rs.into_iter().next()?;
+    let se = SearchEntry::construct(e);
+    se.attrs.get("dnsHostName").and_then(|v| v.first()).cloned()
+}
+
+/// True when `host` is an IP literal (bare IPv4/IPv6, or `IPv4:port`) rather than
+/// a resolvable name. A DC's LDAP SPN is `ldap/<fqdn>`, never `ldap/<ip>`, so an
+/// IP host means the GSSAPI target must be resolved from RootDSE, not used verbatim.
+fn is_ip_literal(host: &str) -> bool {
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return true; // bare IPv4 or IPv6
+    }
+    // `IPv4:port` — strip a numeric port and re-check (IPv6 always parses above).
+    match host.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => {
+            h.parse::<std::net::IpAddr>().is_ok()
+        }
+        _ => false,
+    }
+}
+
 fn to_object(se: SearchEntry) -> AdObject {
     let bin: HashMap<String, Vec<Vec<u8>>> = se.bin_attrs.into_iter().collect();
     AdObject {
@@ -1539,7 +1597,8 @@ fn to_object(se: SearchEntry) -> AdObject {
 #[cfg(test)]
 mod tests {
     use super::{
-        dns_from_nc, json_field, laps_from_entry, qualify_bind, require_bind_integrity, LdapConfig,
+        dns_from_nc, is_ip_literal, json_field, laps_from_entry, qualify_bind,
+        require_bind_integrity, LdapConfig,
     };
     use ldap3::SearchEntry;
     use std::collections::HashMap;
@@ -1727,6 +1786,18 @@ mod tests {
             gssapi,
             allow_plaintext_bind: allow_plaintext,
         }
+    }
+
+    #[test]
+    fn ip_literal_detects_ip_hosts_not_fqdns() {
+        // The GSSAPI SPN fix keys off this: an IP host needs FQDN resolution.
+        assert!(is_ip_literal("192.0.2.20"));
+        assert!(is_ip_literal("192.0.2.20:389"));
+        assert!(is_ip_literal("198.51.100.1:636"));
+        assert!(is_ip_literal("fe80::1"));
+        assert!(!is_ip_literal("dc01.example.com"));
+        assert!(!is_ip_literal("dc01.example.com:636"));
+        assert!(!is_ip_literal("DC01"));
     }
 
     #[test]
