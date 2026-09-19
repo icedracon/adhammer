@@ -141,7 +141,7 @@ dependencies = [
  "anyhow",
  "hex",
  "hmac 0.12.1",
- "md-5",
+ "md-5 0.11.0",
  "md4",
  "ms-pac-forge",
  "picky-asn1",
@@ -207,7 +207,7 @@ dependencies = [
  "dcerpc",
  "des 0.8.1",
  "hex",
- "md-5",
+ "md-5 0.11.0",
  "rc4",
  "sha2 0.10.9",
 ]
@@ -1153,7 +1153,7 @@ dependencies = [
  "des 0.8.1",
  "hex",
  "hmac 0.12.1",
- "md-5",
+ "md-5 0.10.6",
  "ms-ndr",
  "ntlmssp",
  "sha2 0.10.9",
@@ -2395,6 +2395,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "md4"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2465,7 +2475,7 @@ dependencies = [
  "dcerpc",
  "des 0.8.1",
  "hex",
- "md-5",
+ "md-5 0.10.6",
  "ntlmssp",
  "windows-sddl",
 ]
@@ -2520,7 +2530,7 @@ dependencies = [
  "anyhow",
  "hex",
  "hmac 0.12.1",
- "md-5",
+ "md-5 0.10.6",
  "md4",
  "picky-asn1",
  "picky-asn1-der",
@@ -2580,7 +2590,7 @@ dependencies = [
  "cbc 0.1.2",
  "cipher 0.4.4",
  "des 0.8.1",
- "md-5",
+ "md-5 0.10.6",
  "rc4",
  "sha2 0.10.9",
 ]
@@ -2592,7 +2602,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "356c05d7a1def1ef3ab09a432e86e1f08a30ec5657f7dc022ebabfd901b31ad7"
 dependencies = [
  "hmac 0.12.1",
- "md-5",
+ "md-5 0.10.6",
  "md4",
  "rand 0.8.8",
  "thiserror 2.0.20",
@@ -2965,7 +2975,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "http",
- "md-5",
+ "md-5 0.10.6",
  "num-bigint-dig",
  "p256",
  "p384",
@@ -4076,7 +4086,7 @@ dependencies = [
  "futures",
  "hmac 0.12.1",
  "lazy_static",
- "md-5",
+ "md-5 0.10.6",
  "md4",
  "num-bigint-dig",
  "num-derive",
