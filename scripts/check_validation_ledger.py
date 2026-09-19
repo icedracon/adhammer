@@ -169,6 +169,12 @@ def main() -> int:
         "creds": ["creds gpp-decrypt"],
         "ldap": ["ldap auth"],
         "lsa_offline": ["lsa lsass-parse"],
+        # Internal helper modules — no verb of their own. Each supports a
+        # public verb that already has a ledger row; the mapping resolves
+        # the source-file check against that parent row.
+        "kdbx": ["creds kdbx-extract"],
+        "relay_listen": ["attack relay"],
+        "ntds_offline": ["attack secretsdump"],
     }
     for stem in verb_files:
         candidates = verb_aliases.get(stem, [f"attack {stem}"])

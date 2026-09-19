@@ -167,6 +167,7 @@ Every row below records:
 |---|---|---|---|---|
 | `scan --sysvol` — GPP cpassword (MS14-025) | supported | crates/sysvol unit + fuzz + live | 2025 | 2019 + 2022 |
 | `creds gpp-decrypt` (F6) — standalone MS14-025 cpassword → plaintext | supported | deterministic MS-GPPREF AES-256 static key; crates/sysvol GPP unit tests | n/a | — |
+| `creds kdbx-extract` (F4b) — KDBX4 decrypt with known master password | supported | full KDBX4 pipeline: Argon2d KDF + HMAC verify + AES-CBC / ChaCha20 outer + gzip + protected-field unmask; 6 unit tests incl. History-bug regression | n/a | — |
 | GptTmpl.inf policy analysis | supported | crates/sysvol unit + fuzz | n/a | — |
 
 ### Server-2025-specific
