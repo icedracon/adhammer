@@ -115,7 +115,7 @@ base64      = "0.22"
 # (hashcat -m 13400 owns that); adhammer only decrypts + unmasks when the
 # password is already recovered.
 argon2      = { version = "0.5", default-features = false, features = ["alloc"] }
-sha2        = { version = "0.10" }
+sha2        = { version = "0.11" }
 # 1.5.2 F4b KDBX4 extract — ChaCha20 stream (both outer body cipher and inner
 # protected-field cipher), gzip inflate for compressed bodies, quick-xml for
 # the KeePass 2.x XML walk.
