@@ -140,7 +140,3 @@ codegen-units = 1
 # sibling chain from the registry with no local-path overrides.
 
 
-# [patch.crates-io] — TEMPORARY. Local ms-drsr 0.2.1 adds `DrsSession::bind_nt_hash`,
-# used by `attack dcsync --nt-hash` (pass-the-hash). Remove after ms-drsr 0.2.1 publishes.
-[patch.crates-io]
-ms-drsr = { path = "../ms-drsr" }
