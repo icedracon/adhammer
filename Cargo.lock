@@ -59,7 +59,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "smb2-client",
  "tokio",
  "tokio-rustls",
@@ -152,7 +152,7 @@ dependencies = [
  "rsa",
  "serde",
  "sha1 0.10.7",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "smb2-client",
  "tokio",
  "tracing",
@@ -177,7 +177,7 @@ dependencies = [
  "adhammer-graph",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -209,7 +209,7 @@ dependencies = [
  "hex",
  "md-5",
  "rc4",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
