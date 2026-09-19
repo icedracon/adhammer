@@ -1213,6 +1213,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 // rather than double-prompting them.
                 yes: true,
                 limit: None,
+                nt_hash: None,
             })
             .await
         }

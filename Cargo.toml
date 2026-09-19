@@ -138,3 +138,9 @@ codegen-units = 1
 #   dcerpc      0.2.9 → crates.io (published, verified, transitively resolves smb2-client 0.2.3)
 # hashglass 0.1.0 already on crates.io. adhammer now resolves the entire
 # sibling chain from the registry with no local-path overrides.
+
+
+# [patch.crates-io] — TEMPORARY. Local ms-drsr 0.2.1 adds `DrsSession::bind_nt_hash`,
+# used by `attack dcsync --nt-hash` (pass-the-hash). Remove after ms-drsr 0.2.1 publishes.
+[patch.crates-io]
+ms-drsr = { path = "../ms-drsr" }
