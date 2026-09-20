@@ -3,7 +3,16 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased] — 1.5.2 — RH-CE opt-in + first-touch verbs + F4 · correctness/dep hardening · QoL flags · typed JSON · report polish
+## [1.5.2] — GitHub 2026-09-19; registry publication in progress
+
+Registry release preparation (2026-09-20): the maintainer authorized publishing
+the twelve workspace crates from corrected main. The existing lightweight
+`v1.5.2` tag and its binaries remain at `7b5e60b4200d2557760867a80d0f1f225e6915dc`.
+Later validation-checker and receipt-test corrections are included in the
+registry source; this is an explicit source-provenance difference, not a retag.
+Registry availability and clean consumer verification must be checked separately.
+
+### RH-CE opt-in + first-touch verbs + F4 · correctness/dep hardening · QoL flags · typed JSON · report polish
 
 Additive integration cadence. No breaking changes to commands, JSON consumers,
 the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.2.md` (compressed scope,

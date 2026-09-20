@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from urllib.parse import quote
 
-from scripts.scrub_receipt import UnsafeReceiptError, scrub
+from scripts.scrub_receipt import UnsafeReceiptError, hard_block_patterns, scrub
 
 
 class ScrubReceiptTests(unittest.TestCase):
@@ -46,10 +49,27 @@ class ScrubReceiptTests(unittest.TestCase):
         self.assertIn("<binary-blob-96-hex-chars>", got)
 
     def test_hard_block_patterns_refuse_without_echoing_the_value(self) -> None:
-        blocked = "Zikurat" + "7"
-        with self.assertRaises(UnsafeReceiptError) as caught:
-            scrub(blocked, dc="", realm="", admin="", pw=None)
+        blocked = "SYNTHETIC-RECEIPT-DENY-123"
+        with TemporaryDirectory() as directory:
+            deny_file = Path(directory) / "leak-terms.txt"
+            deny_file.write_text("synthetic-receipt-deny-[0-9]+\n", encoding="utf-8")
+            with patch("scripts.scrub_receipt.HARD_BLOCK_FILE", deny_file):
+                with self.assertRaises(UnsafeReceiptError) as caught:
+                    scrub(blocked, dc="", realm="", admin="", pw=None)
         self.assertNotIn(blocked, str(caught.exception))
+
+    def test_missing_or_empty_hard_block_file_fails_closed(self) -> None:
+        with TemporaryDirectory() as directory:
+            deny_file = Path(directory) / "leak-terms.txt"
+            with patch("scripts.scrub_receipt.HARD_BLOCK_FILE", deny_file):
+                with self.assertRaisesRegex(UnsafeReceiptError, "unavailable"):
+                    hard_block_patterns()
+                deny_file.write_text("\n", encoding="utf-8")
+                with self.assertRaisesRegex(UnsafeReceiptError, "empty"):
+                    hard_block_patterns()
+
+    def test_repository_hard_block_file_loads(self) -> None:
+        self.assertTrue(hard_block_patterns())
 
 
 if __name__ == "__main__":
