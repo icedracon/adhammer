@@ -1,0 +1,17 @@
+WEBVTT
+
+00:00.000 --> 00:04.500
+Collect: an authorized LDAPS read gathers directory data,
+including certificate templates. This is a synthetic illustration.
+
+00:04.500 --> 00:09.000
+Inspect: template rules evaluate configuration.
+No certificate is issued by this check.
+
+00:09.000 --> 00:13.500
+Retain context: JSON findings link the rule, affected object,
+explanation, and remediation. This is not captured tool output.
+
+00:13.500 --> 00:18.000
+Review permissions, CA settings, patches, and scope separately.
+A configuration signal is not proof of exploitation.
