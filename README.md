@@ -16,6 +16,8 @@
   &nbsp;·&nbsp;
   <a href="#cli-methods-74"><strong>CLI METHODS</strong></a>
   &nbsp;·&nbsp;
+  <a href="#10-starting-workflows"><strong>10 STARTING WORKFLOWS</strong></a>
+  &nbsp;·&nbsp;
   <a href="docs/VALIDATION.md"><strong>VALIDATION LEDGER</strong></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>RELEASE NOTES</strong></a>
@@ -168,11 +170,125 @@ Wider ecosystem: [icedracon's repositories](https://github.com/icedracon?tab=rep
 
 <br />
 
+## 10 starting workflows
+
+Ten selected workflows for authorized discovery and configuration review—not
+a usage ranking or a claim that these are the most popular commands. The full
+74-method catalog follows below. Examples were checked against v1.5.2 source;
+they are not new live-validation receipts.
+
+Replace `example.test` hosts and account names only within your approved scope.
+Use a trusted LDAPS certificate, protect `audit-password.txt`, and keep collected
+output private. These commands make network connections; read-only does not
+mean invisible or impact-free. Missing reads and empty findings are not an
+all-clear. See the [validation ledger](docs/VALIDATION.md) for support limits.
+
+<details>
+<summary><strong>Open the ten examples and their interpretation</strong></summary>
+
+### 1. Check DC reachability
+
+```sh
+adhammer doctor --domain example.test --dc dc.example.test --timeout 3 --json
+```
+
+DNS SRV discovery and TCP probes, without credentials. Read `checks`, `ran`,
+`failed`, and `verdict`; a skipped bind does not establish authentication.
+
+### 2. Check a workstation's reachable services · new in 1.5.2
+
+```sh
+adhammer doctor --client workstation.example.test --timeout 3 --json
+```
+
+Probes SMB, WinRM, and RDP ports. Reachability is not authenticated posture,
+service security, or permission to execute anything on the host.
+
+### 3. Read anonymous directory metadata
+
+```sh
+adhammer enum ldap-info --url ldaps://dc.example.test:636 --text
+```
+
+Reads RootDSE metadata exposed to an anonymous connection. It does not enumerate
+all directory objects or prove a vulnerability. Anonymous access may be restricted.
+
+### 4. Inventory AD-integrated DNS
+
+```sh
+adhammer enum dns --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --text
+```
+
+Reviews visible zones and records. Visibility is permission-dependent; a record
+does not establish that its host is reachable.
+
+### 5. Review certificate-template configuration
+
+```sh
+adhammer check adcs --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --json
+```
+
+Returns a JSON findings array from template rules. Review affected objects,
+detail, and remediation. This does not issue certificates or perform a complete
+ACL or CA-registry audit.
+
+### 6. Read CA registry settings
+
+```sh
+adhammer enum esc --host ca.example.test --domain EXAMPLE --user auditor --password "@file:./audit-password.txt" --ca EXAMPLE-CA --text
+```
+
+Requires approved SMB/MS-RRP access and readable CA configuration. Correlate
+findings with the host role; missing registry reads are not secure defaults.
+Do not enable Remote Registry merely to run this example.
+
+### 7. Discover CAs and inspect HTTP enrollment exposure
+
+```sh
+adhammer enum adcs --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --text
+```
+
+Authorization must cover both LDAP discovery **and HTTP/80 probes to discovered
+CA hosts**. This is not passive enumeration or a complete HTTPS/EPA audit.
+Exposure is not proof of a working relay path.
+
+### 8. Review DC configuration posture
+
+```sh
+adhammer enum posture --host dc.example.test --domain EXAMPLE --user auditor --password "@file:./audit-password.txt" --text
+```
+
+Reads available LDAP-signing/channel-binding registry settings and probes named
+pipes. Requires appropriate SMB/MS-RRP permissions; no coercion or relay is
+executed by this example. Confirm missing values administratively.
+
+### 9. Discover directory-published SCCM infrastructure
+
+```sh
+adhammer enum sccm --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --text
+```
+
+Reviews the SCCM/MECM footprint visible in LDAP. Published objects are inventory
+leads, not proof of current service availability or exploitable configuration.
+
+### 10. Discover directory-published SCOM infrastructure
+
+```sh
+adhammer enum scom --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --text
+```
+
+Reviews directory-published management infrastructure. Incomplete permissions
+or stale objects can affect the result; validate the inventory with its owners.
+
+</details>
+
 ## CLI methods (74)
 
-Every verb the binary exposes with a compact example. Examples use RFC 2606
-reserved names (`corp.local`, `dc.corp.local`) and RFC 5737 documentation IPs
-(`192.0.2.10`) — safe to paste anywhere. Full help on any verb:
+The existing 74-method catalog is retained below. Its lab values are examples,
+not approved targets; `.local` names can resolve in real environments. Do not
+paste these commands unchanged. Review scope, impact, and the validation ledger
+first; `--insecure` disables certificate verification and is not a production
+default. Full help on any verb:
 `adhammer <group> <verb> --help`.
 
 ### Top-level (7) + setup (1)

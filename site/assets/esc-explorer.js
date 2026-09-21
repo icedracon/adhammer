@@ -1,7 +1,7 @@
 /* Documentation only: this module never connects to an assessment target. */
 (function (root) {
   'use strict';
-  var sourceRoot = 'https://github.com/icedracon/adhammer/blob/146415c4ce8d4e96c6d375e804fbe27a19349836/';
+  var sourceRoot = 'https://github.com/icedracon/adhammer/blob/7b5e60b4200d2557760867a80d0f1f225e6915dc/';
   var templateCommand = 'adhammer check adcs --url ldaps://dc.example.test:636 --user auditor@example.test --password "@file:./audit-password.txt" --json';
   var registryCommand = 'adhammer enum esc --host ca.example.test --domain EXAMPLE --user auditor --password "@file:./audit-password.txt" --ca EXAMPLE-CA --text';
   var commands = {

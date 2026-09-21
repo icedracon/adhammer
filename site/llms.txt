@@ -3,7 +3,7 @@
 > ADhammer is an open-source (MIT) Active Directory pentest and security-assessment tool in Rust. It collects a domain over LDAP, builds an attack-path graph to Tier-0, validates supported findings with captured proof, and reports findings as JSON, HTML, Markdown, and BloodHound-CE. It ships as one static binary and is also usable as a Rust library.
 
 ## What it is
-- Language: Rust. Single static binary; install with `cargo install adhammer`.
+- Language: Rust. Version 1.5.2 is available as GitHub binaries and a crates.io CLI package.
 - Author / org: zevs / icedracon — https://github.com/icedracon
 - License: MIT. Source: https://github.com/icedracon/adhammer
 
@@ -14,22 +14,24 @@
 - Report: JSON, HTML, Markdown, and BloodHound-CE; finding, path, proof, command, and MITRE technique stay linked across every export.
 
 ## Current release
-- Version 1.5.1 was published on GitHub Releases on 2026-09-12 and crates.io on 2026-09-13.
-- The changelog describes an operator-UX and reliability maintenance release: diagnostic preflight, credential-reference handling fixes, cleaner JSON output, and explicit inconclusive reports when no checks were recorded.
+- Version 1.5.2 was published on GitHub Releases on 2026-09-19 and crates.io on 2026-09-20. The CLI registry version was verified unyanked on 2026-09-20.
+- The tagged changelog documents quiet/no-color scripting controls, build provenance, print-ready HTML, report schema versioning, correctness fixes, and dependency hardening.
+- Native-speed mode uses `--fast` or `ADHAMMER_FAST=1`. In v1.5.2 it affects selected WMI readback delays and deep network-probe timeouts, not doctor/template-check runtime or the basic sweep's fixed timeouts. Shorter timeouts can miss slow responses; target-protection controls remain unchanged.
 - These are documented release changes, not a new live-validation claim. Partial and unvalidated paths retain their stated limits; `docs/VALIDATION.md` remains authoritative for support.
 - The GitHub release lists Windows, Linux, and macOS downloads with SHA-256 sidecars and attestation verification instructions.
-- Version 1.5.0 is the preceding first-touch assessment release; version 1.4.10 is the earlier defence-in-depth release.
+- Version 1.5.1 is the previous GitHub release; version 1.5.0 is the earlier first-touch assessment release.
+- The website includes six source-checked defensive CLI examples and three silent illustrative video loops. These are not live assessment recordings or new validation receipts.
 
 ## Who it is for
 - Penetration testers, red teamers, and Active Directory security specialists.
 - Built on the icedracon ecosystem of published standalone Rust crates implementing Microsoft security protocols.
 
 ## Links
-- Install: `cargo install adhammer` — https://crates.io/crates/adhammer
+- CLI registry install: `cargo install --locked adhammer@1.5.2` — https://crates.io/crates/adhammer/1.5.2
 - Library: `cargo add adhammer-sdk`
 - Source: https://github.com/icedracon/adhammer
-- Release downloads: https://github.com/icedracon/adhammer/releases/tag/v1.5.1
-- Changelog: https://github.com/icedracon/adhammer/blob/v1.5.1/CHANGELOG.md#151--2026-09-11
+- Release downloads: https://github.com/icedracon/adhammer/releases/tag/v1.5.2
+- Changelog: https://github.com/icedracon/adhammer/blob/v1.5.2/CHANGELOG.md
 - Validation ledger: https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md
 - Ecosystem repositories: https://github.com/icedracon?tab=repositories
 
