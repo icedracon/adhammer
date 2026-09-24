@@ -14,7 +14,7 @@
   &nbsp;·&nbsp;
   <a href="#quick-start"><strong>QUICK START</strong></a>
   &nbsp;·&nbsp;
-  <a href="#cli-methods-74"><strong>CLI METHODS</strong></a>
+  <a href="#cli-methods-76"><strong>CLI METHODS</strong></a>
   &nbsp;·&nbsp;
   <a href="#10-starting-workflows"><strong>10 STARTING WORKFLOWS</strong></a>
   &nbsp;·&nbsp;
@@ -282,9 +282,9 @@ or stale objects can affect the result; validate the inventory with its owners.
 
 </details>
 
-## CLI methods (74)
+## CLI methods (76)
 
-The existing 74-method catalog is retained below. Its lab values are examples,
+The existing 76-method catalog is retained below. Its lab values are examples,
 not approved targets; `.local` names can resolve in real environments. Do not
 paste these commands unchanged. Review scope, impact, and the validation ledger
 first; `--insecure` disables certificate verification and is not a production
@@ -331,7 +331,7 @@ default. Full help on any verb:
 | `enum ldap-users` | Anonymous LDAP user listing | `adhammer enum ldap-users --url ldap://dc.corp.local --anon` |
 | `enum anon-services` | rsync / FTP / TFTP anonymous probes | `adhammer enum anon-services --host 192.0.2.10` |
 
-### attack (34) — active, grouped by intent
+### attack (36) — active, grouped by intent
 
 <details open>
 <summary><strong>Kerberos & credentials (10)</strong> — roast, spray, TGT, DCSync, dumps, hash unmasks</summary>

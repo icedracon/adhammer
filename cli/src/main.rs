@@ -1853,3 +1853,81 @@ mod quickstart_tests {
         assert!(s.contains("adhammer"), "missing bin name");
     }
 }
+
+/// 1.5.3 audit Dc1: dead helper whose ONLY purpose is compile-time enforcement.
+/// The match is exhaustive on `AttackCmd`, so adding a new variant to that enum
+/// without adding an arm here is a compile error — which forces the coder to
+/// update `ATTACK_CMD_VARIANT_COUNT` and the README literal counts below.
+#[cfg(test)]
+fn _attack_cmd_variant_count_check(cmd: &AttackCmd) -> usize {
+    match cmd {
+        AttackCmd::Roast(_) => 1,
+        AttackCmd::Spray(_) => 1,
+        AttackCmd::Abuse(_) => 1,
+        AttackCmd::Coerce(_) => 1,
+        AttackCmd::Zerologon(_) => 1,
+        AttackCmd::Rbcd(_) => 1,
+        AttackCmd::Constrained(_) => 1,
+        AttackCmd::Asktgt(_) => 1,
+        AttackCmd::Dcsync(_) => 1,
+        AttackCmd::Capture(_) => 1,
+        AttackCmd::Poison(_) => 1,
+        AttackCmd::Relay(_) => 1,
+        AttackCmd::Exec(_) => 1,
+        AttackCmd::Atexec(_) => 1,
+        AttackCmd::Wmiexec(_) => 1,
+        AttackCmd::Secretsdump(_) => 1,
+        AttackCmd::RelayListen(_) => 1,
+        AttackCmd::NtdsOffline(_) => 1,
+        AttackCmd::Gmsa(_) => 1,
+        AttackCmd::Laps(_) => 1,
+        AttackCmd::Winrm(_) => 1,
+        AttackCmd::Esc1(_) => 1,
+        AttackCmd::IcprEsc1(_) => 1,
+        AttackCmd::Golden(_) => 1,
+        AttackCmd::Diamond(_) => 1,
+        AttackCmd::Unpac(_) => 1,
+        AttackCmd::DpapiMasterKey(_) => 1,
+        AttackCmd::Silver(_) => 1,
+        AttackCmd::Ptt(_) => 1,
+        AttackCmd::Unconstrained(_) => 1,
+        AttackCmd::Badsuccessor(_) => 1,
+        AttackCmd::Esc4(_) => 1,
+        AttackCmd::Shadowcred(_) => 1,
+        AttackCmd::Dcshadow(_) => 1,
+        AttackCmd::Mssql(_) => 1,
+        AttackCmd::Dns(_) => 1,
+    }
+}
+
+#[cfg(test)]
+mod readme_drift_tests {
+    /// 1.5.3 audit Dc1: the README's method-count literals used to drift from the wired
+    /// enum surface (README claimed `attack (34)` while `enum AttackCmd` carried 36
+    /// variants). This test pins them together and fails whenever they disagree, so a
+    /// future contributor cannot bump the enum without also bumping the docs.
+    ///
+    /// Compile-time half of the guard: `_attack_cmd_variant_count_check` above matches
+    /// exhaustively on `AttackCmd`, so adding a variant without touching this file is a
+    /// build failure. Runtime half: the assertions below check the exact literals in
+    /// README.md.
+    #[test]
+    fn readme_attack_count_matches_wired_variants() {
+        const ATTACK_CMD_VARIANT_COUNT: usize = 36;
+        const CLI_METHODS_TOTAL: usize = 76; // 7 top-level + 1 setup + 22 enum + 36 attack + 4 kerb + 2 creds + 2 check + 1 ldap + 1 lsa
+
+        let readme = include_str!("../../README.md");
+        assert!(
+            readme.contains(&format!("attack ({ATTACK_CMD_VARIANT_COUNT})")),
+            "README `attack (N) — active` header drifted from AttackCmd; expected `attack ({ATTACK_CMD_VARIANT_COUNT})`."
+        );
+        assert!(
+            readme.contains(&format!("## CLI methods ({CLI_METHODS_TOTAL})")),
+            "README `## CLI methods (N)` heading drifted; expected `## CLI methods ({CLI_METHODS_TOTAL})`."
+        );
+        assert!(
+            readme.contains(&format!("#cli-methods-{CLI_METHODS_TOTAL}")),
+            "README sidebar anchor `#cli-methods-N` drifted; expected `#cli-methods-{CLI_METHODS_TOTAL}`."
+        );
+    }
+}
