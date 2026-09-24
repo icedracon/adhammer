@@ -25,7 +25,8 @@
 //! (`NTLM_SUPPLEMENTAL_CREDENTIAL`).
 
 use anyhow::{anyhow, bail, Context, Result};
-use picky_krb::crypto::CipherSuite;
+// 1.5.3 kerbcore swap: AES128/256 decrypt of PAC_CREDENTIAL_INFO now via kerbcore's typed key
+// (replaces picky-krb `CipherSuite`). RC4 path stays on `crate::rc4` (unchanged, already picky-free).
 
 // tracing macros are used only in try_unpac_from_encrypted_pa_data — this
 // suppresses unused-import lints when that fn is compiled out of a downstream
@@ -268,9 +269,9 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
                 );
             }
             guarded("AES256 decrypt", move || {
-                CipherSuite::Aes256CtsHmacSha196
-                    .cipher()
-                    .decrypt(key_ref, KEY_USAGE_KERB_NON_KERB_SALT, ct_ref)
+                let k = kerbcore::KerberosKey::from_i32(18, key_ref.to_vec())
+                    .map_err(|e| anyhow!("AES256 key: {e}"))?;
+                k.decrypt(KEY_USAGE_KERB_NON_KERB_SALT as u32, ct_ref)
                     .map_err(|e| anyhow!("AES256 decrypt: {e}"))
             })
         }
@@ -282,9 +283,9 @@ fn decrypt_serialized(etype: u32, key: &[u8], ct: &[u8]) -> Result<Vec<u8>> {
                 );
             }
             guarded("AES128 decrypt", move || {
-                CipherSuite::Aes128CtsHmacSha196
-                    .cipher()
-                    .decrypt(key_ref, KEY_USAGE_KERB_NON_KERB_SALT, ct_ref)
+                let k = kerbcore::KerberosKey::from_i32(17, key_ref.to_vec())
+                    .map_err(|e| anyhow!("AES128 key: {e}"))?;
+                k.decrypt(KEY_USAGE_KERB_NON_KERB_SALT as u32, ct_ref)
                     .map_err(|e| anyhow!("AES128 decrypt: {e}"))
             })
         }

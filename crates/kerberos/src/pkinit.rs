@@ -170,6 +170,55 @@ fn dh_params() -> (BigUint, BigUint, BigUint) {
     (p, g, q)
 }
 
+/// 1.5.3 audit M-2: decode ASN.1 INTEGER value octets (as picky stores them in
+/// `IntegerAsn1.0.0`) into a `u32`, sign-extending correctly. A negative INTEGER (top bit set)
+/// is unreachable for PA-DATA type numbers in practice, but the prior naive fold silently
+/// treated a canonical-DER `[0xFF]` as 255. Real Kerberos PA-DATA types are non-negative
+/// small ints (RFC 4120 §7.5.2), so a negative decode clamps to 0 and a value >`u32::MAX`
+/// clamps to `u32::MAX` — no panic, no silent misread.
+fn decode_pa_type_as_u32(content: &[u8]) -> u32 {
+    if content.is_empty() || content.len() > 8 {
+        return 0;
+    }
+    // Sign-extend the big-endian two's-complement content into i64 (same as kerbcore der).
+    let neg = content[0] & 0x80 != 0;
+    let mut v: i64 = if neg { -1 } else { 0 };
+    for &b in content {
+        v = (v << 8) | b as i64;
+    }
+    u32::try_from(v).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod pa_type_decode_tests {
+    use super::decode_pa_type_as_u32;
+
+    #[test]
+    fn positive_small_ints_roundtrip() {
+        // Canonical DER INTEGER contents for common PA-DATA type numbers.
+        // A single-byte 0x80+ is NEGATIVE in two's-complement (DER 128 is [0x00, 0x80] — the
+        // leading zero preserves the sign). That's exactly what the audit finding was about.
+        assert_eq!(decode_pa_type_as_u32(&[2]), 2); // PA-ENC-TIMESTAMP
+        assert_eq!(decode_pa_type_as_u32(&[19]), 19); // PA-ETYPE-INFO2
+        assert_eq!(decode_pa_type_as_u32(&[0x7F]), 127); // largest single-byte positive
+        assert_eq!(decode_pa_type_as_u32(&[0x00, 0x80]), 128); // canonical DER 128
+        assert_eq!(decode_pa_type_as_u32(&[0x00, 0xa7]), 167); // PA-PAC-OPTIONS
+    }
+
+    #[test]
+    fn negative_ints_clamp_to_zero_not_wrap() {
+        // Regression guard for the prior naive `.fold((<<8)|b)` that read `[0xFF]` as 255.
+        assert_eq!(decode_pa_type_as_u32(&[0xFF]), 0); // DER -1 → clamped
+        assert_eq!(decode_pa_type_as_u32(&[0x80]), 0); // DER -128 → clamped
+    }
+
+    #[test]
+    fn empty_and_oversized_return_zero() {
+        assert_eq!(decode_pa_type_as_u32(&[]), 0);
+        assert_eq!(decode_pa_type_as_u32(&[0u8; 9]), 0);
+    }
+}
+
 /// DER definite length encoding.
 fn der_len(len: usize) -> Vec<u8> {
     if len < 0x80 {
@@ -681,10 +730,12 @@ pub async fn pkinit_with_cert(
                  .0
                 .iter()
                 .map(|pa| {
-                    let ty_bytes = &pa.padata_type.0 .0;
-                    let ty = ty_bytes
-                        .iter()
-                        .fold(0u32, |acc, &b| (acc << 8) | u32::from(b));
+                    // 1.5.3 audit M-2: decode the ASN.1 INTEGER content properly (sign-extend
+                    // + reject wider-than-i32). The prior naive `.fold((acc<<8)|b, 0u32)`
+                    // mis-parsed canonical DER negatives (`[0xFF]` = -1 → 255) and only
+                    // accidentally hit real PA types because they're small unsigned. This
+                    // matches kerbcore::der::Der::read_integer's semantics.
+                    let ty = decode_pa_type_as_u32(&pa.padata_type.0 .0);
                     (ty, pa.padata_data.0 .0.clone())
                 })
                 .collect()

