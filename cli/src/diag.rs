@@ -207,10 +207,22 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
     if kdc_code(&e, 18) {
         return Some("KDC error 18 (KDC_ERR_CLIENT_REVOKED) — the account is disabled/locked; check with `enum krb-users` or SAMR");
     }
+    // S4U path context (the error chain carries `S4U2Self failed:` / `S4U2Proxy failed:`).
+    // Some KDC codes mean something different inside S4U than they do on a plain AS/TGS
+    // exchange, so classify the S4U variant first — the generic hint below is wrong there.
+    if kdc_code(&e, 13) && has("s4u2proxy") {
+        return Some("KDC error 13 (KDC_ERR_BADOPTION) in S4U2Proxy — the request parsed fine but the KDC won't delegate: the trustee isn't authorized to act for users to this target. Configure RBCD (`abuse --action write-rbcd --target <service> --value <trustee>`) or constrained delegation, and make sure the S4U2Self ticket is forwardable (needs protocol transition / TRUSTED_TO_AUTH_FOR_DELEGATION)");
+    }
     if kdc_code(&e, 14) {
+        if has("s4u2self") || has("s4u2proxy") {
+            return Some("KDC error 14 (KDC_ERR_ETYPE_NOSUPP) in S4U — the TGT session-key etype isn't accepted for the reply: authenticating the trustee with its RC4/NT hash yields an RC4 session key, which a hardened KDC (2019+) refuses to encrypt the S4U reply under. Use the trustee's password or AES key (--account-password), not --nt-hash");
+        }
         return Some("KDC error 14 (KDC_ERR_ETYPE_NOSUPP) — the account's etypes don't include AES; enable AES on the account, or accept RC4 downgrade with --rc4");
     }
     if kdc_code(&e, 7) {
+        if has("s4u2self") {
+            return Some("KDC error 7 (KDC_ERR_S_PRINCIPAL_UNKNOWN) in S4U2Self — the trustee has no servicePrincipalName, so the KDC can't resolve it as a service target. Run S4U2Self as an account that has an SPN (a computer/service account), not a plain user");
+        }
         return Some("KDC error 7 (KDC_ERR_S_PRINCIPAL_UNKNOWN) — the target SPN is not in AD; check --spn / --target-spn (needs an FQDN, not an IP)");
     }
     if kdc_code(&e, 6) {
@@ -549,5 +561,33 @@ mod tests {
                 "KDC error {code} hint should name {name} — got: {h}"
             );
         }
+    }
+
+    #[test]
+    fn s4u_kdc_errors_get_context_aware_hints() {
+        // Live-fire against a 2019/2022/2025 DC surfaced misattributed hints: the generic
+        // code-7/14 advice is wrong inside an S4U chain. The error chain carries the
+        // operation name, so the classifier must special-case it.
+        // 7 in S4U2Self = the *trustee* (self) has no SPN, not a missing target SPN.
+        let h = fix_hint("S4U2Self failed: KDC error 7").unwrap();
+        assert!(
+            h.contains("trustee has no servicePrincipalName"),
+            "got: {h}"
+        );
+        assert!(!h.contains("target SPN is not in AD"), "got: {h}");
+        // 14 in S4U = RC4 TGT session key (from --nt-hash), not an AES-less account.
+        let h = fix_hint("S4U2Self failed: KDC error 14").unwrap();
+        assert!(h.contains("RC4/NT hash"), "got: {h}");
+        assert!(!h.contains("enable AES on the account"), "got: {h}");
+        // 13 in S4U2Proxy = delegation not authorized (the expected no-RBCD case).
+        let h = fix_hint("S4U2Proxy failed: KDC error 13").unwrap();
+        assert!(h.contains("won't delegate"), "got: {h}");
+        // Non-S4U code 7/14 keep the original generic hints.
+        assert!(fix_hint("AS-REQ rejected, KDC error 7")
+            .unwrap()
+            .contains("target SPN is not in AD"));
+        assert!(fix_hint("AS-REQ rejected, KDC error 14")
+            .unwrap()
+            .contains("enable AES on the account"));
     }
 }
