@@ -1749,9 +1749,14 @@ fn affected_html(values: &[String]) -> String {
 }
 
 pub(crate) fn html_escape(s: &str) -> String {
+    // 1.5.3 audit F1: also escape `"` and `'`. Every current insertion site is element text
+    // (where quotes are harmless), but a future attribute-value interpolation would silently
+    // become a landmine if we left them raw. Cheap defense-in-depth.
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn domain_display_name(domain: &str) -> String {
@@ -2097,6 +2102,17 @@ pub const _MIN_SEVERITY: Severity = Severity::Info;
 mod tests {
     use super::*;
     use adhammer_core::finding::{mitre, Category, Severity};
+
+    /// 1.5.3 audit F1: html_escape must cover every metacharacter that could break out of an
+    /// HTML attribute context if a future insertion site uses this helper in an attribute
+    /// value. Element-text callers are unaffected.
+    #[test]
+    fn html_escape_covers_all_five_metacharacters() {
+        assert_eq!(
+            html_escape("Tom & Jerry <script>alert(\"pwn\")</script> it's fine"),
+            "Tom &amp; Jerry &lt;script&gt;alert(&quot;pwn&quot;)&lt;/script&gt; it&#39;s fine"
+        );
+    }
 
     fn mk_finding(id: &str, sev: Severity, title: &str) -> Finding {
         Finding {

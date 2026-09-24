@@ -1894,10 +1894,13 @@ fn affected_html(values: &[String]) -> String {
 }
 
 fn html_escape(s: &str) -> String {
+    // 1.5.3 audit F1: also escape `'` (single quote) alongside `"`. Cheap defense-in-depth
+    // against any future attribute-value interpolation that might pick this helper up.
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 // ---- small derivations ----------------------------------------------------------------
