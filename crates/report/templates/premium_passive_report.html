@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:,">
+<title>ADhammer report — __DOMAIN_TITLE__</title>
+<style>__REPORT_CSS__</style>
+</head>
+<body>
+<div class="page-progress" aria-hidden="true"></div>
+<div class="report-page">
+  <header class="topbar">
+    <a class="brand" href="#overview"><span class="brand-dot"></span><span>ADhammer <small>/ passive audit</small></span></a>
+    <nav class="nav" aria-label="Report chapters">
+      <a href="#overview">Overview</a>
+      <a href="#intelligence">Attack story</a>
+      <a href="#findings">Findings</a>
+      <a href="#coverage">Coverage</a>
+      <a href="#evidence">Evidence</a>
+    </nav>
+    <div class="toolbar">
+      <button class="action-btn theme-toggle" type="button" data-theme-toggle aria-label="Toggle light or dark theme" title="Toggle theme">◐</button>
+      <button class="action-btn action-print" type="button" data-print aria-label="Print or export PDF" title="Print / Export PDF">↗</button>
+    </div>
+  </header>
+
+  <section class="hero" id="overview">
+    <div class="hero-copy">
+      <div class="eyebrow">Active Directory security assessment</div>
+      <h1 class="hero-title">__DOMAIN_TITLE__<span class="hero-subtitle">Attack-surface intelligence</span></h1>
+      <p>__EXECUTIVE_SENTENCE__</p>
+      <div class="hero-meta">
+        <span><i class="status-dot"></i>assessment complete</span>
+        <span>schema v__SCHEMA_VERSION__</span>
+        <span>__DATE__</span>
+      </div>
+    </div>
+    <div class="hero-visual" aria-label="Data-driven attack paths to Tier-0">
+      <div class="graph-shell">
+        <div class="graph-kicker">Attack surface / observed paths</div>
+        <canvas class="attack-graph"></canvas>
+        <div class="graph-empty" hidden>No direct control path to Tier-0 was present in this report</div>
+        <div class="graph-hud">
+          <div class="hud-cell"><b>__PATHS__</b><span>Tier-0 paths</span></div>
+          <div class="hud-cell"><b>__GRAPH_NODES__</b><span>full graph nodes</span></div>
+          <div class="hud-cell"><b>__GRAPH_EDGES__</b><span>full graph edges</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="metric-grid">
+      <div class="metric-card"><b class="metric-value" data-count="__TOTAL__">__TOTAL__</b><span class="metric-label">Total findings</span></div>
+      <div class="metric-card"><b class="metric-value" data-count="__RISK_SCORE__">__RISK_SCORE__</b><span class="metric-label">Risk score</span></div>
+      <div class="metric-card"><b class="metric-value" data-count="__CRITICAL__">__CRITICAL__</b><span class="metric-label">Critical</span></div>
+      <div class="metric-card"><b class="metric-value" data-count="__HIGH__">__HIGH__</b><span class="metric-label">High</span></div>
+      <div class="metric-card"><b class="metric-value" data-count="__CHAIN_COUNT__">__CHAIN_COUNT__</b><span class="metric-label">Attack chains</span></div>
+      <div class="metric-card"><b class="metric-value" data-count="__COVERAGE_COUNT__">__COVERAGE_COUNT__</b><span class="metric-label">Checks recorded</span></div>
+    </div>
+  </section>
+
+  <main>
+    <section class="chapter" id="executive" data-chapter="01">
+      <div class="section-head"><div><div class="section-tag">Decision layer</div><h2>Executive posture</h2><p>The material exposure, strongest evidence and immediate defensive priorities—before the technical detail.</p></div></div>
+      <div class="executive-grid">
+        <section class="panel">
+          <h2>Severity distribution</h2>
+          <p>Risk is weighted by severity and the configured AD control category.</p>
+          __SEVERITY_BAND__
+        </section>
+        <section class="panel">
+          <h2>Risk by control category</h2>
+          <div class="score-grid">__CATEGORY_SCORES__</div>
+        </section>
+      </div>
+      __BASELINE__
+      __ASSURANCE__
+      <div class="priority-grid">__TOP_FINDINGS__</div>
+    </section>
+
+    <section class="chapter" id="intelligence" data-chapter="02">
+      <div class="section-head"><div><div class="section-tag">Adversary view</div><h2>Attack story</h2><p>Observed findings are connected into real control paths and composite chains. The animated hero uses these same paths, not decorative data.</p></div></div>
+      __ATTACK_STORY__
+    </section>
+
+    <section class="chapter" id="findings" data-chapter="03">
+      <div class="section-head"><div><div class="section-tag">Technical analysis</div><h2>Findings</h2><p>Filter by severity, then follow each card from ground-truth evidence to impact, remediation and the next operator command.</p></div></div>
+      <div class="filter-bar" role="group" aria-label="Filter findings by severity">
+        <button class="filter-btn active" type="button" data-filter="all">All</button>
+        <button class="filter-btn" type="button" data-filter="critical">Critical</button>
+        <button class="filter-btn" type="button" data-filter="high">High</button>
+        <button class="filter-btn" type="button" data-filter="medium">Medium</button>
+        <button class="filter-btn" type="button" data-filter="low">Low / Info</button>
+      </div>
+      <div class="findings">__FINDINGS__</div>
+    </section>
+
+    <section class="chapter" id="remediation" data-chapter="04">
+      <div class="section-head"><div><div class="section-tag">Action plan</div><h2>Remediation roadmap</h2><p>Prioritized fixes extracted from the highest-impact findings. Validate operational dependencies before applying directory-wide changes.</p></div></div>
+      <div class="roadmap-grid">__ROADMAP__</div>
+    </section>
+
+    <section class="chapter" id="coverage" data-chapter="05">
+      <div class="section-head"><div><div class="section-tag">Assessment confidence</div><h2>Coverage and methodology</h2><p>Executive rollups come first; the full check roster remains expandable and auditable below.</p></div></div>
+      __COVERAGE_AREAS__
+      __COVERAGE_PHASES__
+      __COVERAGE__
+    </section>
+
+    <section class="chapter" id="evidence" data-chapter="06">
+      <div class="section-head"><div><div class="section-tag">Audit trail</div><h2>Evidence and provenance</h2><p>The report fingerprint binds the canonical JSON state; graph and protocol evidence remain embedded for technical review.</p></div></div>
+      __PRINCIPAL_GRAPH__
+      __FINGERPRINT__
+    </section>
+  </main>
+
+  <footer class="report-footer"><span>ADhammer / authorized security assessment</span><span>__TOOL_VERSION__ · __DOMAIN_META__ · __DATE__</span></footer>
+</div>
+<script id="report-graph-data" type="application/json">__GRAPH_DATA__</script>
+<script>__REPORT_JS__</script>
+</body>
+</html>

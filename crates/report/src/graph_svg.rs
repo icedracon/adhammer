@@ -152,7 +152,7 @@ pub fn attack_graph_svg(paths: &[AttackPath]) -> String {
         };
         let full = label.get(sid).map(String::as_str).unwrap_or(sid);
         svg.push_str(&format!(
-            "<g class=\"node {cls}\"><rect x={x} y={y} width={w} height={h} rx=8/>\
+            "<g class=\"node {cls}\"><rect x={x} y={y} width={w} height={h} rx=\"8\"/>\
              <text x={tx} y={ty}>{lbl}</text><title>{full}</title></g>",
             x = p.x,
             y = p.y,
