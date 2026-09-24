@@ -106,9 +106,7 @@ picky-asn1  = "0.10"
 # Pure RustCrypto (no TLS provider, no picky at runtime); retires picky-krb +
 # picky-asn1 + picky-asn1-der once the migration completes. picky-asn1-x509
 # stays for the PKINIT CMS/X.509 chain (kerbcore has no CMS/X.509 — 1.6 P-2).
-# 0.3.0 is LOCAL-ONLY (crates.io max = 0.2.1) — path dep for dev; ship sequence
-# publishes kerbcore 0.3.0 to crates.io FIRST (bottom-up), then this path drops.
-kerbcore    = { path = "../kerbcore", version = "0.3" }
+kerbcore    = "0.3"
 md-5        = "0.10"
 md4         = "0.10"
 hmac        = "0.12"
