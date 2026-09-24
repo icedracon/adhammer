@@ -1,5 +1,7 @@
 //! SYSVOL collection — Group Policy Preferences (GPP) cpassword recovery (MS14-025).
 //!
+//! 1.5.3 audit F3: lock the GPP / GptTmpl parser surface out of `unsafe`.
+//!
 //! On Windows the SYSVOL share is reachable as a UNC path (`\\domain\SYSVOL\...`) through
 //! the OS SMB redirector, so we walk it with ordinary filesystem I/O — no Rust SMB stack,
 //! no FFI. GPP XML files embed a `cpassword` attribute encrypted with an AES-256 key that
@@ -9,6 +11,7 @@
 // Clippy 1.98 suggests `as_chunks::<N>()`; these wire parsers intentionally keep
 // `chunks_exact(N)` next to their runtime field widths. See `adhammer_secrets`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+#![forbid(unsafe_code)]
 
 use adhammer_core::finding::{mitre, Category, Evidence, Severity};
 use adhammer_core::secret_write::{write_secret_artifact, SecretArtifact};

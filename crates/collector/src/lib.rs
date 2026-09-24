@@ -2,6 +2,10 @@
 //! sweeps over the domain NC *and* the Configuration NC (where AD CS templates + CAs
 //! live), and normalizes them into `core::Snapshot`. Binary attrs (objectSid,
 //! nTSecurityDescriptor, objectGUID, RBCD) are requested raw so we parse them ourselves.
+//!
+//! 1.5.3 audit F3: lock the collection + DNS-wire surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
 
 // WS-FEATURE-MATRIX (1.4.10 close as audit misinterpretation): `tls-native` and `tls-rustls` propagate to
 // `ldap3/tls-native` and `ldap3/tls-rustls-aws-lc-rs`, which are mutually

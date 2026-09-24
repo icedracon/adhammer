@@ -3,6 +3,10 @@
 //! Feed it `SYSTEM` and `SAM` hives (retrieved with `reg save` + an SMB `C$` read); it derives
 //! the bootkey and returns each local account's NT hash in secretsdump format. LSA secrets and
 //! cached domain credentials (DCC2) from the `SECURITY` hive are a planned follow-on.
+//!
+//! 1.5.3 audit F3: lock the hive / SAM / LSA / RRP parser surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
 
 // `chunks_exact(N)` reads clearly next to the wire-format constants (2 for UTF-16 code units,
 // 16 for AES blocks, etc.). We intentionally retain it despite clippy 1.98's `as_chunks::<N>()`

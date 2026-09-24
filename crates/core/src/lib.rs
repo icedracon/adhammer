@@ -1,5 +1,11 @@
 //! Shared domain model: SIDs, GUIDs, collected AD objects, findings, risk config.
 //! Everything above this crate (checks, graph, report) speaks in these types.
+//!
+//! 1.5.3 audit F3: this crate cannot be `forbid(unsafe_code)` because
+//! `secret_write.rs` holds the Windows FFI path (`CreateFileW` + `LocalFree` +
+//! `from_raw_handle`) that owns the atomic O_CREAT|O_EXCL secure-file-write.
+//! Every non-`core` library crate in the workspace is `forbid(unsafe_code)`
+//! and this crate's `unsafe` is confined to that one Windows-only function.
 
 pub mod finding;
 pub mod object;

@@ -3,6 +3,11 @@
 //! NTLM **relay** requires discrete bind steps (`sasl_step1`/`sasl_step2`) so a relay server can
 //! forward a victim's Type1/Type3. Direct credential authentication is refused because this
 //! minimal client does not implement the required post-bind SASL integrity layer.
+//!
+//! 1.5.3 audit F3: lock this transport out of `unsafe` (no memory-safety escape hatch on the
+//! relay/authentication path).
+
+#![forbid(unsafe_code)]
 
 use anyhow::{anyhow, bail, Context, Result};
 use smb2_client::spnego;

@@ -4,6 +4,10 @@
 //! that lets it control B". We seed Tier-0 (Domain/Enterprise Admins, DC computers,
 //! the domain head) and do a reverse traversal to find every principal that can reach it.
 //! Each edge carries a weight; the cheapest path is the attacker's likely route.
+//!
+//! 1.5.3 audit F3: lock the graph surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
 
 use adhammer_core::sid::Sid;
 use adhammer_core::snapshot::Snapshot;

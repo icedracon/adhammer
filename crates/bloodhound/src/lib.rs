@@ -14,6 +14,10 @@
 //! Node identity: SIDs for security principals, GUIDs for OUs/GPOs/containers. Edges come from
 //! group membership (`Members`) and from ACEs parsed out of `nTSecurityDescriptor` — the same
 //! rights the control-path graph walks, mapped to BloodHound `RightName`s.
+//!
+//! 1.5.3 audit F3: lock the BloodHound-export surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
 
 use adhammer_core::sid::{Guid, Sid};
 use adhammer_core::snapshot::Snapshot;

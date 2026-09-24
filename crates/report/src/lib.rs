@@ -1,6 +1,11 @@
 //! Scoring + output. Aggregates findings into a per-category risk score (configurable
 //! weights) and emits JSON / HTML / Markdown / plain-text reports. No external template
 //! engine — keeps the dependency surface small.
+//!
+//! 1.5.3 audit F3: lock the report renderer surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
+
 
 use adhammer_core::finding::{Category, Evidence, Severity};
 use adhammer_core::{sanitize_terminal_output, Finding};

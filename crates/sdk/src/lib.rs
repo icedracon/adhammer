@@ -19,6 +19,10 @@
 //!
 //! For the DCE/RPC, NDR, PAC, DRSUAPI, GPO, and DPAPI layers, see the standalone crates
 //! `dcerpc`, `ms-ndr`, `ms-pac`, `ms-drsr`, `gpo`, and `dpapi-offline`.
+//!
+//! 1.5.3 audit F3: lock the SDK re-export surface out of `unsafe`.
+
+#![forbid(unsafe_code)]
 
 // `adhammer-core` is aliased to `types` so it never shadows the `core` extern-prelude crate.
 pub use adhammer_core as types;

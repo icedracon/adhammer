@@ -1,5 +1,10 @@
 //! The rule engine. Each `Check` reads the immutable `Snapshot` (+ the prebuilt
 //! `ControlGraph` for path-based rules) and emits `Finding`s.
+//!
+//! 1.5.3 audit F3: lock the parser/rule surface out of `unsafe` — no memory-safety
+//! escape hatch is available inside this crate.
+
+#![forbid(unsafe_code)]
 
 use adhammer_core::snapshot::Snapshot;
 use adhammer_core::Finding;
