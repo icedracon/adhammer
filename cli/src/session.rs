@@ -33,6 +33,13 @@ pub struct Session {
     /// LDAPS on 636 works; then `ldap_url()` falls back to the standard `ldaps://<dc>:636`.
     #[serde(default)]
     pub ldap_url_override: Option<String>,
+    /// 1.5.3 wizard bug G-2: the interactive setup asks "Proceed with PLAINTEXT LDAP on 389
+    /// (password sent unencrypted)?" and captures the yes/no here. Prior to G-2, the consent
+    /// was captured but the resulting `LdapAuth.allow_plaintext_ldap` stayed hardcoded false —
+    /// so an operator who chose the plaintext fallback still got the "refusing to send an
+    /// authenticated LDAP simple_bind over plaintext" refusal at bind time.
+    #[serde(default)]
+    pub allow_plaintext_ldap: bool,
 }
 
 impl Session {
@@ -63,7 +70,10 @@ impl Session {
                 user: self.username.clone(),
                 password: self.password.expose().clone(),
                 insecure: self.insecure,
-                allow_plaintext_ldap: false,
+                // 1.5.3 wizard bug G-2: propagate the operator's plaintext-LDAP consent from
+                // the interactive setup into every session-driven action (was hardcoded false —
+                // consent captured but ignored).
+                allow_plaintext_ldap: self.allow_plaintext_ldap,
             },
             base_dn: None,
             format: "json".to_string(),

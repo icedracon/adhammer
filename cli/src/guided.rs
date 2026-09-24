@@ -11,11 +11,12 @@ use adhammer_checks::run_all_with_coverage;
 use adhammer_collector::{Collector, LdapConfig};
 use adhammer_core::finding::{Category, Finding, Severity};
 use adhammer_core::snapshot::Snapshot;
-use adhammer_graph::ControlGraph;
+use adhammer_graph::{AttackPath, ControlGraph};
 use adhammer_report::CheckCoverage;
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -37,6 +38,10 @@ pub struct GuidedArgs {
     /// Skip the per-finding **Impact:** attack-chain narrative in the saved report artifacts.
     /// The interactive card still shows it either way.
     pub no_impact: bool,
+    /// 1.5.3 wizard bug G-2: operator consented to plaintext LDAP on 389 (interactive setup
+    /// captures this when 636 is unreachable). Was hardcoded false — the actual bind refused
+    /// despite the yes-answer at setup time.
+    pub allow_plaintext_ldap: bool,
 }
 
 /// Everything a validator needs to build an attack invocation.
@@ -215,7 +220,10 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
         base_dn: None,
         insecure: a.insecure,
         gssapi: false,
-        allow_plaintext_bind: false,
+        // 1.5.3 wizard bug G-2: honor the plaintext-LDAP consent captured in the interactive
+        // setup. Was hardcoded false — a wizard-guided run on a plaintext-consented DC still
+        // refused the bind at collector level, dead-ending the operator with a confusing error.
+        allow_plaintext_bind: a.allow_plaintext_ldap,
     };
 
     let connect_host = a.host.clone().unwrap_or_else(|| url_host(&a.url));
@@ -644,7 +652,7 @@ async fn guided_impl(mut a: GuidedArgs, checklist: &mut ui::StageChecklist) -> R
     let artifacts = artifact_paths(&a.out);
     let report = build_report(&snap, &results, &impact_yes, &coverage);
     let json = build_json_report(&snap, &results, &impact_yes, &coverage);
-    let html = build_html_report(&snap, &results, &impact_yes, &coverage);
+    let html = build_html_report(&snap, &results, &impact_yes, &coverage, &paths, &json);
     let txt = build_text_report(&snap, &results, &coverage);
     let export_choice = if a.yes {
         ExportChoice::FullBundle
@@ -1224,6 +1232,7 @@ fn sev_word(s: Severity) -> &'static str {
 
 #[derive(Serialize)]
 struct GuidedArtifactReport {
+    schema_version: u32,
     domain: String,
     summary: GuidedArtifactSummary,
     findings: Vec<GuidedArtifactFinding>,
@@ -1259,28 +1268,78 @@ fn coverage_md_block(cov: &[CheckCoverage]) -> String {
 
 fn coverage_html_block(cov: &[CheckCoverage]) -> String {
     if cov.is_empty() {
-        return String::new();
+        return "<section class=panel><h2>No passive coverage roster attached</h2><p>This guided artifact contains operator outcomes, but it cannot claim full passive-check coverage.</p></section>".to_string();
     }
     let tripped = cov.iter().filter(|c| c.findings > 0).count();
     let clean = cov.len() - tripped;
     let mut rows = String::new();
     for c in cov {
         let (klass, status) = if c.findings > 0 {
-            ("tripped", format!("{} finding(s)", c.findings))
+            ("chip-warn", format!("{} finding(s)", c.findings))
         } else {
-            ("clean", "clean".to_string())
+            ("chip-good", "clean".to_string())
+        };
+        let areas = if c.control_areas.is_empty() {
+            "—".to_string()
+        } else {
+            html_escape(&c.control_areas.join(", "))
+        };
+        let phase = if c.kill_chain_phase.is_empty() {
+            "—".to_string()
+        } else {
+            html_escape(&c.kill_chain_phase)
+        };
+        let mut detail = String::new();
+        if !c.title.is_empty() {
+            detail.push_str(&format!(
+                "<div class=cov-title>{}</div>",
+                html_escape(&c.title)
+            ));
+        }
+        if !c.hypothetical_impact.is_empty() {
+            detail.push_str(&format!(
+                "<div class=cov-field><b>Expected impact:</b> {}</div>",
+                html_escape(&c.hypothetical_impact)
+            ));
+        }
+        if !c.remediation.is_empty() {
+            detail.push_str(&format!(
+                "<div class=cov-field><b>Remediation:</b> {}</div>",
+                html_escape(&c.remediation)
+            ));
+        }
+        if !c.mitre.is_empty() {
+            detail.push_str(&format!(
+                "<div class=cov-field><b>MITRE:</b> {}</div>",
+                html_escape(&c.mitre.join(", "))
+            ));
+        }
+        let details = if detail.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<tr class=cov-details><td colspan=5><details><summary>Details</summary><div class=cov-card>{detail}</div></details></td></tr>"
+            )
         };
         rows.push_str(&format!(
-            "<tr class=\"cov-{klass}\"><td><code>{}</code></td><td>{status}</td></tr>",
-            c.id.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
+            "<tr><td><code>{id}</code></td><td><span class=\"chip {klass}\">{status}</span></td><td>{proof}</td><td>{areas}</td><td>{phase}</td></tr>{details}",
+            id = html_escape(&c.id),
+            klass = klass,
+            status = html_escape(&status),
+            proof = if c.findings > 0 {
+                "<span class=\"chip chip-good\">proof</span>"
+            } else {
+                "<span class=muted>—</span>"
+            },
+            areas = areas,
+            phase = phase,
+            details = details,
         ));
     }
     format!(
         "<section class=\"panel\"><h2>Check coverage</h2>\
-         <p>All {} passive checks ran — <b>{} tripped</b>, <b>{} clean</b>.</p>\
-         <table class=\"cov\"><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>\
+         <p>All {} recorded passive checks are preserved — <b>{} tripped</b>, <b>{} clean</b>. Expand a row to inspect its expected impact, remediation and technique mapping.</p>\
+         <div class=cov-wrap><table class=\"cov\"><thead><tr><th>Check</th><th>Result</th><th>Evidence</th><th>Control area</th><th>Phase</th></tr></thead><tbody>{rows}</tbody></table></div>\
          </section>",
         cov.len(), tripped, clean
     )
@@ -1506,6 +1565,7 @@ fn build_json_report(
         })
         .collect();
     let report = GuidedArtifactReport {
+        schema_version: adhammer_report::REPORT_SCHEMA_VERSION,
         domain: snap.domain.domain_dn.clone(),
         summary: GuidedArtifactSummary {
             total: results.len(),
@@ -1525,6 +1585,8 @@ fn build_html_report(
     results: &[(Finding, Outcome)],
     impact_ids: &std::collections::HashSet<String>,
     coverage: &[CheckCoverage],
+    paths: &[AttackPath],
+    report_json: &str,
 ) -> String {
     let (validated, attempted, declined, potential) = tally(results);
     let domain_dns = dns_from_dn(&snap.domain.domain_dn);
@@ -1576,7 +1638,6 @@ fn build_html_report(
     }
 
     let mut body = String::new();
-    body.push_str(&coverage_html_block(coverage));
     for (f, o) in results {
         let impact = if impact_ids.contains(&f.id) {
             f.impact
@@ -1614,8 +1675,23 @@ fn build_html_report(
             ),
             _ => String::new(),
         };
+        let next = f
+            .next_command()
+            .map(|next| {
+                format!(
+                    "<div class=\"field\"><div class=\"k\">Next command</div><div class=\"v\"><code class=\"cmd\">{}</code></div></div>",
+                    html_escape(&next.command)
+                )
+            })
+            .unwrap_or_default();
+        let severity = sev_word(f.severity).to_ascii_lowercase();
+        let filter_severity = if f.severity == Severity::Info {
+            "low"
+        } else {
+            severity.as_str()
+        };
         body.push_str(&format!(
-            "<article class=\"finding finding-{sev}\">\
+            "<article class=\"finding finding-{sev}\" data-severity=\"{filter_severity}\">\
                <div class=\"head\">\
                  <div class=\"badge-row\">\
                    <span class=\"badge sev sev-{sev}\">{sev_word}</span>\
@@ -1631,10 +1707,12 @@ fn build_html_report(
                  <div class=\"field\"><div class=\"k\">Why</div><div class=\"v\">{detail}</div></div>\
                  {impact}\
                  <div class=\"field\"><div class=\"k\">Remediation</div><div class=\"v\">{remediation}</div></div>\
+                 {next}\
                </div>\
                {proof}\
              </article>",
-            sev = sev_word(f.severity).to_ascii_lowercase(),
+            sev = severity,
+            filter_severity = filter_severity,
             sev_word = html_escape(sev_word(f.severity)),
             outcome = html_escape(outcome_label(o)),
             id = html_escape(&f.id),
@@ -1645,51 +1723,46 @@ fn build_html_report(
             detail = html_escape(&f.detail),
             impact = impact,
             remediation = html_escape(&f.remediation),
+            next = next,
             proof = proof,
         ));
     }
-    let indexed = results.len();
-    let exposed = results
+    let graph_nodes = paths
         .iter()
-        .map(|(f, _)| f.affected.len())
-        .max()
-        .unwrap_or(0);
-    let crown_actions = if results.iter().any(|(f, _)| f.id == "P-DcsyncPath") {
-        1
-    } else if validated > 0 {
-        2
-    } else {
-        0
-    };
-    let risk_hint = if results
+        .flat_map(|path| {
+            std::iter::once(path.principal_sid.as_str())
+                .chain(path.steps.iter().map(|step| step.to_sid.as_str()))
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let lowest_cost = paths.iter().map(|path| path.cost).min();
+    let fingerprint = Sha256::digest(report_json.as_bytes())
         .iter()
-        .any(|(f, o)| f.severity == Severity::Critical && matches!(o, Outcome::Validated { .. }))
-    {
-        "validated Tier-0 path"
-    } else if results
-        .iter()
-        .any(|(f, _)| f.severity == Severity::Critical)
-    {
-        "critical exposure"
-    } else if validated > 0 {
-        "proof captured"
-    } else if results.iter().any(|(f, _)| f.severity == Severity::High) {
-        "high-risk findings"
-    } else {
-        "operator review"
-    };
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     PREMIUM_GUIDED_REPORT_TEMPLATE
+        .replace("__REPORT_CSS__", adhammer_report::PREMIUM_REPORT_CSS)
+        .replace("__REPORT_JS__", adhammer_report::PREMIUM_REPORT_JS)
         .replace("__DOMAIN__", &html_escape(domain_label))
+        .replace("__DOMAIN_DN__", &html_escape(&snap.domain.domain_dn))
         .replace(
             "__INTRO__",
             &html_escape("This report captures the supported findings observed during this ADhammer engagement, the validation paths the operator chose to run, and the proof gathered for each confirmed path. It is designed to read cleanly as a client-facing pentest deliverable while keeping commands and evidence close for technical review."),
         )
         .replace("__STATUS__", "scan complete")
-        .replace("__INDEXED__", &indexed.to_string())
-        .replace("__RISK_HINT__", risk_hint)
-        .replace("__HUD_VALIDATED__", &format!("{validated:02}"))
-        .replace("__HUD_EXPOSED__", &format!("{exposed:02}"))
-        .replace("__HUD_ACTIONS__", &format!("{crown_actions:02}"))
+        .replace(
+            "__SCHEMA_VERSION__",
+            &adhammer_report::REPORT_SCHEMA_VERSION.to_string(),
+        )
+        .replace("__DATE__", &current_utc_date())
+        .replace("__HUD_PATHS__", &paths.len().to_string())
+        .replace("__HUD_NODES__", &graph_nodes.to_string())
+        .replace(
+            "__HUD_COST__",
+            &lowest_cost
+                .map(|cost| cost.to_string())
+                .unwrap_or_else(|| "—".to_string()),
+        )
         .replace("__STAT_TOTAL__", &results.len().to_string())
         .replace("__STAT_VALIDATED__", &validated.to_string())
         .replace("__STAT_ATTEMPTED__", &attempted.to_string())
@@ -1707,6 +1780,13 @@ fn build_html_report(
             &html_escape("Each finding keeps the same reading order: what was observed, why it matters, impact when validation was selected, remediation, and proof when a validation path ran."),
         )
         .replace("__BODY__", &body)
+        .replace("__COVERAGE__", &coverage_html_block(coverage))
+        .replace("__FINGERPRINT__", &fingerprint)
+        .replace(
+            "__TOOL_VERSION__",
+            &html_escape(&adhammer_core::build::long_version()),
+        )
+        .replace("__GRAPH_DATA__", &adhammer_report::report_graph_json(paths))
         .replace(
             "__FOOTER__",
             &html_escape(&format!("{} · generated {}", domain_label, current_utc_date())),

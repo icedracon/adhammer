@@ -249,6 +249,10 @@ struct AutoArgs {
     /// The interactive card still shows it either way.
     #[arg(long)]
     no_impact: bool,
+    /// 1.5.3 wizard bug G-2: allow a plaintext-LDAP simple bind (port 389 unencrypted).
+    /// Off by default; when set, the collector's plaintext refusal is downgraded to a warning.
+    #[arg(long)]
+    allow_plaintext_ldap: bool,
 }
 
 #[derive(Subcommand)]
@@ -1191,6 +1195,7 @@ async fn dispatch(cmd: Command) -> Result<()> {
                 out: a.out,
                 yes: a.yes,
                 no_impact: a.no_impact,
+                allow_plaintext_ldap: a.allow_plaintext_ldap,
             })
             .await
         }

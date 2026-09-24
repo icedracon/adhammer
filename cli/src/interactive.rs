@@ -723,7 +723,7 @@ fn setup_wizard() -> Result<Session> {
     // bind, sending the user's password in cleartext without any explicit consent.
     // Now: any downgrade requires an explicit y-prompt that defaults to NO and refuses
     // to proceed otherwise, so plaintext-over-the-wire is always an opt-in decision.
-    let ldap_url_override = match probe_ldap_scheme(&dc_clean) {
+    let (ldap_url_override, allow_plaintext_ldap) = match probe_ldap_scheme(&dc_clean) {
         Some(ldap_url) => {
             crate::ui::warn(&format!(
                 "LDAPS (636) unreachable on {dc_clean}. The plain-LDAP fallback on port 389 sends \
@@ -743,9 +743,11 @@ fn setup_wizard() -> Result<Session> {
                      (or point --url at an LDAPS-capable DC) then re-run",
                 );
             }
-            Some(ldap_url)
+            // 1.5.3 wizard bug G-2: propagate the plaintext consent into every action the
+            // session drives. Without this, the collector's bind path refused despite the yes.
+            (Some(ldap_url), true)
         }
-        None => None,
+        None => (None, false),
     };
 
     Ok(Session {
@@ -756,46 +758,33 @@ fn setup_wizard() -> Result<Session> {
         nt_hash: nt_hash.map(|value| adhammer_core::Redacted::new(value.into())),
         insecure,
         ldap_url_override,
+        allow_plaintext_ldap,
     })
 }
 
-/// Probe `ldaps://<dc>:636`; return `Some("ldap://<dc>:389")` if the LDAPS handshake
-/// isn't going to work (port closed, connection reset, no listener). Returns `None`
-/// when LDAPS is available so the caller falls through to the default `ldap_url()`.
+/// Probe `ldaps://<dc>:636`; return `Some("ldap://<dc>:389")` when TCP 636 is unreachable
+/// (port closed / firewalled / no listener). Returns `None` when 636 accepts TCP — the actual
+/// TLS handshake happens later inside the collector with the real ClientConfig (respecting the
+/// user's `--insecure` answer).
 ///
-/// Uses a plain TCP connect + short read: LDAPS servers always respond to a TCP SYN
-/// with SYN-ACK and then wait for the ClientHello. If we see RST or timeout, LDAPS is
-/// not the right transport. 3-second budget so the wizard stays snappy.
+/// 1.5.3 wizard bug G-1: the prior implementation sent a truncated 10-byte TLS ClientHello and
+/// asked the server for a byte back. Any DC with a strict Schannel policy closed the connection
+/// on the malformed record and got flagged "LDAPS unreachable" — steering the operator into the
+/// plaintext fallback even though `adhammer scan --url ldaps://<dc>:636 --insecure` succeeds.
+/// A plain TCP connect matches what `doctor` does for the same port and cannot false-positive.
 fn probe_ldap_scheme(dc: &str) -> Option<String> {
-    use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;
     let addr = format!("{dc}:636");
     let deadline = Duration::from_secs(3);
-    match TcpStream::connect_timeout(
-        &addr.parse().ok().or_else(|| {
-            // hostnames: resolve then connect
-            std::net::ToSocketAddrs::to_socket_addrs(&addr)
-                .ok()
-                .and_then(|mut it| it.next())
-        })?,
-        deadline,
-    ) {
-        Ok(mut stream) => {
-            stream.set_read_timeout(Some(deadline)).ok();
-            // Send a minimal TLS ClientHello prefix; if the server RSTs immediately, it
-            // doesn't speak TLS on 636 (some lab DCs listen on 636 but reject TLS).
-            let hello = [0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00];
-            if stream.write_all(&hello).is_err() {
-                return Some(format!("ldap://{dc}:389"));
-            }
-            let mut buf = [0u8; 1];
-            match stream.read(&mut buf) {
-                Ok(0) => Some(format!("ldap://{dc}:389")), // clean close = no TLS
-                Ok(_) => None,                             // got server hello prefix
-                Err(_) => Some(format!("ldap://{dc}:389")), // timeout or RST
-            }
-        }
+    let sock = addr.parse().ok().or_else(|| {
+        // hostnames: resolve then connect
+        std::net::ToSocketAddrs::to_socket_addrs(&addr)
+            .ok()
+            .and_then(|mut it| it.next())
+    })?;
+    match TcpStream::connect_timeout(&sock, deadline) {
+        Ok(_) => None, // 636 accepts TCP — let the collector's real TLS handshake decide
         Err(_) => Some(format!("ldap://{dc}:389")),
     }
 }
@@ -855,6 +844,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 out: "adhammer-pentest-report.md".into(),
                 yes: false,
                 no_impact: false,
+                // 1.5.3 wizard bug G-2: propagate setup's plaintext-LDAP consent.
+                allow_plaintext_ldap: s.allow_plaintext_ldap,
             })
             .await
         }
@@ -1011,7 +1002,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     user: Some(s.username.clone()),
                     password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
-                    allow_plaintext_ldap: false,
+                    // 1.5.3 wizard bug G-2: honor the plaintext-LDAP consent captured in setup.
+                    allow_plaintext_ldap: s.allow_plaintext_ldap,
                 },
                 action: actions[ai],
                 name,
@@ -1117,7 +1109,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                     user: Some(s.username.clone()),
                     password: Some(s.password.expose().clone()),
                     insecure: s.insecure,
-                    allow_plaintext_ldap: false,
+                    // 1.5.3 wizard bug G-2: honor the plaintext-LDAP consent captured in setup.
+                    allow_plaintext_ldap: s.allow_plaintext_ldap,
                 },
                 action: actions[ai],
                 target,

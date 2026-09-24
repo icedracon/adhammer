@@ -163,6 +163,12 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
                 other += 1;
                 eprintln!("    {u}: KDC error {c}");
             }
+            // 1.5.3 audit L-2: KDC reply was neither an AS-REP nor a KRB-ERROR — distinct
+            // from `Other(0)` (that would collide with a real code-0 error).
+            Ok(CredResult::Malformed) => {
+                other += 1;
+                eprintln!("    {u}: malformed KDC reply (not an AS-REP nor a KRB-ERROR)");
+            }
             Err(e) => {
                 other += 1;
                 eprintln!("    {u}: {e}");
