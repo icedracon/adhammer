@@ -136,13 +136,16 @@ impl Check for Rc4Kerberos {
             .iter_class("user")
             .filter(|o| !o.all("servicePrincipalName").is_empty())
             .filter(|o| {
-                let et = o.int("msDS-SupportedEncryptionTypes").unwrap_or(0);
+                // 1.5.3 audit C1: 0 is already the "assume RC4 default" branch of this check
+                // (worst-case-toward-reporting), so an unparseable value collapses to the same
+                // gate-fires state as an absent one. int_or_worst makes the intent explicit.
+                let et = o.int_or_worst("msDS-SupportedEncryptionTypes", 0, 0);
                 et == 0 || (et & 0x4 != 0 && et & 0x18 == 0)
             })
             .map(|o| {
                 (
                     o.dn.clone(),
-                    o.int("msDS-SupportedEncryptionTypes").unwrap_or(0),
+                    o.int_or_worst("msDS-SupportedEncryptionTypes", 0, 0),
                 )
             })
             .collect();

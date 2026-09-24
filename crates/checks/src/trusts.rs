@@ -40,8 +40,15 @@ impl Trust {
                 .or_else(|| o.one("cn"))
                 .unwrap_or(&o.dn)
                 .to_string(),
-            attrs: o.int("trustAttributes").unwrap_or(0),
-            direction: o.int("trustDirection").unwrap_or(0),
+            // 1.5.3 audit C1: attrs=0 already trips the "no forest / no quarantine" branch
+            // (worst-case-toward-reporting); route through int_or_worst for the explicit
+            // acknowledgment.
+            attrs: o.int_or_worst("trustAttributes", 0, 0),
+            // 1.5.3 audit C1: on a present-but-unparseable trustDirection, default to
+            // TD_INBOUND | TD_OUTBOUND (=0x3) so inbound_facing() stays true and
+            // SidFilteringDisabled still evaluates. The old .unwrap_or(0) silently made
+            // inbound_facing()=false and hid the SID-filter verdict on corrupt input.
+            direction: o.int_or_worst("trustDirection", 0, TD_INBOUND | TD_OUTBOUND),
         }
     }
     fn has(&self, bit: i64) -> bool {
@@ -336,5 +343,25 @@ mod tests {
         let snap = Snapshot::new(DomainInfo::default(), vec![trust(TA_WITHIN_FOREST, 3)]);
         let g = ControlGraph::build(&snap);
         assert!(SidFilteringDisabled.run(&snap, &g).is_empty());
+    }
+
+    /// 1.5.3 audit C1: an external trust with a present-but-unparseable trustDirection used
+    /// to read as direction=0, silently making inbound_facing()=false and hiding the SID-filter
+    /// verdict. `int_or_worst` now defaults the direction to TD_INBOUND|TD_OUTBOUND (=0x3) so
+    /// the gate still trips.
+    #[test]
+    fn sid_filter_still_fires_on_unparseable_trust_direction() {
+        let mut t = trust(0, 3); // shape: external + bidirectional
+        t.attrs
+            .insert("trustDirection".into(), vec!["not-an-integer".into()]);
+        let snap = Snapshot::new(DomainInfo::default(), vec![t]);
+        let g = ControlGraph::build(&snap);
+        assert!(
+            SidFilteringDisabled
+                .run(&snap, &g)
+                .iter()
+                .any(|f| f.id == "T-SidFiltering"),
+            "expected SidFilteringDisabled to still fire on unparseable trustDirection"
+        );
     }
 }

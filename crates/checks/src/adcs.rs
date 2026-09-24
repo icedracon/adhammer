@@ -51,10 +51,17 @@ impl Template {
                 .unwrap_or(&o.dn)
                 .to_string(),
             ekus: o.all("pKIExtendedKeyUsage").to_vec(),
-            name_flag: o.int("msPKI-Certificate-Name-Flag").unwrap_or(0),
-            enroll_flag: o.int("msPKI-Enrollment-Flag").unwrap_or(0),
-            ra_signature: o.int("msPKI-RA-Signature").unwrap_or(0),
-            schema_version: o.int("msPKI-Template-Schema-Version").unwrap_or(1),
+            // 1.5.3 audit C1: on a present-but-unparseable name-flag, default to ALL bits set
+            // rather than 0. Old behaviour silently cleared ENROLLEE_SUPPLIES_SUBJECT and hid
+            // the ESC1 verdict on corrupted/hostile-snapshot input. Worst-case now trips every
+            // ESC gate the flag controls — false-positive over false-negative.
+            name_flag: o.int_or_worst("msPKI-Certificate-Name-Flag", 0, -1),
+            // 1.5.3 audit C1: enroll_flag=0 already trips the "no manager approval" branch
+            // (worst-case-toward-reporting); route through int_or_worst to make the choice
+            // explicit rather than a silent .unwrap_or.
+            enroll_flag: o.int_or_worst("msPKI-Enrollment-Flag", 0, 0),
+            ra_signature: o.int_or_worst("msPKI-RA-Signature", 0, 0),
+            schema_version: o.int_or_worst("msPKI-Template-Schema-Version", 1, 1),
             issuance_policies: !o.all("msPKI-Certificate-Policy").is_empty(),
         }
     }
@@ -567,6 +574,28 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.id == "A-Esc1"),
             "expected ESC1 finding, got {:?}",
+            findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
+    }
+
+    /// 1.5.3 audit C1: an ESC1-vulnerable template with a present-but-unparseable
+    /// `msPKI-Certificate-Name-Flag` used to read as name_flag=0, silently clearing
+    /// ENROLLEE_SUPPLIES_SUBJECT and hiding the ESC1 verdict. `int_or_worst` now defaults
+    /// the flag to all-bits-set so the gate still trips and the finding still fires.
+    #[test]
+    fn esc1_still_fires_when_name_flag_is_malformed() {
+        let mut t = esc1_template();
+        // Replace the well-formed "1" with a value that AdObject::int_or_worst cannot parse.
+        t.attrs.insert(
+            "msPKI-Certificate-Name-Flag".into(),
+            vec!["not-an-integer".into()],
+        );
+        let snap = Snapshot::new(DomainInfo::default(), vec![t]);
+        let graph = ControlGraph::build(&snap);
+        let findings = VulnerableCertTemplates.run(&snap, &graph);
+        assert!(
+            findings.iter().any(|f| f.id == "A-Esc1"),
+            "expected ESC1 to still fire on an unparseable name_flag, got {:?}",
             findings.iter().map(|f| &f.id).collect::<Vec<_>>()
         );
     }

@@ -42,6 +42,25 @@ impl AdObject {
         self.one(attr).and_then(|s| s.parse().ok())
     }
 
+    /// Like [`Self::int`] but distinguishes an absent attribute from one present-but-unparseable
+    /// and lets the caller pick a per-domain worst-case for the latter.
+    ///
+    /// - Absent (schema-legitimate default)                → `absent`.
+    /// - Present, parses cleanly                           → the parsed value.
+    /// - Present, does not parse (corrupt LDAP / hostile   → `unparseable`.
+    ///   snapshot / future schema mismatch)
+    ///
+    /// Security-relevant callers (audit finding C1) MUST NOT collapse both non-Ok cases with a
+    /// single `.int().unwrap_or(0)` — that biases toward "not vulnerable" on unreadable input
+    /// and silently suppresses findings. Pick `unparseable` as the worst-case that keeps the
+    /// gate active (e.g. all bits set for a bit-flag attribute).
+    pub fn int_or_worst(&self, attr: &str, absent: i64, unparseable: i64) -> i64 {
+        match self.one(attr) {
+            None => absent,
+            Some(s) => s.parse::<i64>().unwrap_or(unparseable),
+        }
+    }
+
     pub fn bin1(&self, attr: &str) -> Option<&[u8]> {
         self.bin
             .get(attr)
