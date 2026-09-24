@@ -3,6 +3,55 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
+## [Unreleased] — 1.5.3 — kerbcore migration begins · S4U hardening · report redesign
+
+Additive on the 1.5.x line — no breaking changes to commands, JSON consumers,
+the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.3.md`.
+
+### Added
+
+- **kerbcore swap (Phase 1, `crates/kerberos/src/unpac.rs`).** PAC_CREDENTIAL_INFO
+  decrypt for AES128 / AES256 now routes through `kerbcore::KerberosKey` instead
+  of `picky_krb::crypto::CipherSuite`. Same key-usage 16, same RustCrypto
+  primitives underneath. RC4 path is unchanged (already picky-free). Migration is
+  intentionally staged: `roasting`, `pkinit`, and `tgs` remain on picky-krb this
+  release and land in follow-up 1.5.x patches.
+- **S4U family — `s4u2self` / `s4u2proxy` / full RBCD chain as named entry
+  points in `crates/kerberos/src/tgs.rs`.** Complete WS-UNPAC-TICKET follow-up
+  work — the ticket-PAC extract path a plain PKINIT AS-REP cannot reach on
+  modern KDCs is now available via S4U2Self → service ticket → PAC decrypt.
+- **S4U-aware error hints in `cli/src/diag.rs`.** The classifier can now
+  distinguish generic KDC error codes from the same codes emitted mid-S4U
+  chain; the operator gets a chain-specific remedy instead of the generic
+  KDC_ERR_C_PRINCIPAL_UNKNOWN advice that misfires here.
+- **Premium report redesign.** New `crates/report/src/design.rs` +
+  `crates/report/templates/` (`premium_passive_report.html` + `premium_report.css`
+  + `premium_report.js`); `cli/templates/premium_guided_report.html` slimmed
+  by ~440 lines as shared assets moved into the template dir. `graph_svg.rs`
+  tweaked to match the new palette.
+- **Guided / interactive polish.** `cli/src/guided.rs` +176 lines,
+  `interactive.rs` +65 lines — smoother next-command hand-offs, cleaner
+  session-restore behaviour.
+- **`.github/dependabot.yml`** — kerbcore + template-asset paths added to the
+  update matrix.
+
+### Changed
+
+- **`crates/kerberos/Cargo.toml` description** updated to reflect the mixed
+  picky-krb + kerbcore state during migration; the "(picky-krb)" parenthetical
+  was misleading once unpac started using kerbcore.
+
+### Known
+
+- **Public-clone breaker while `kerbcore = { path = "../kerbcore", version = "0.3" }`
+  is in the workspace root.** kerbcore 0.3.0 is not yet on crates.io (max
+  published = 0.2.1); anyone cloning `icedracon/adhammer` without a sibling
+  `../kerbcore` will fail to build. Fix on the maintainer's schedule: publish
+  kerbcore 0.3.0 → crates.io first (bottom-up), then drop the `path=` and
+  keep just `kerbcore = "0.3"`.
+
+---
+
 ## [1.5.2] — GitHub 2026-09-19; registry publication in progress
 
 Registry release preparation (2026-09-20): the maintainer authorized publishing

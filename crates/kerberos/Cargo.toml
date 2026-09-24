@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "ADhammer Kerberos — AS-REP/Kerberoast, S4U/RBCD, Shadow Credentials PKINIT (picky-krb)."
+description = "ADhammer Kerberos — AS-REP/Kerberoast, S4U/RBCD, Shadow Credentials PKINIT. Mid-migration in 1.5.3: PAC_CREDENTIAL_INFO decrypt routed through kerbcore; roasting + PKINIT + TGS still on picky-krb pending completion."
 keywords = ["kerberos", "active-directory", "pkinit", "asrep", "pentesting"]
 categories = ["cryptography", "authentication"]
 repository.workspace = true
@@ -27,13 +27,20 @@ hmac = { workspace = true }
 # MS-PAC marshaling + Golden/Silver ticket forgery primitives were split out into
 # their own crate. The adapter in pac.rs re-exports the parse/build/forge API
 # and layers the picky-krb Tgt-based decrypt_ticket_pac on top of it.
-ms-pac-forge = "0.1.3"
+# 1.5.3 kerbcore swap: local path dep pulls the picky-free 0.2.0 (drops picky-krb from the tree).
+# Ship sequence: publish kerbcore 0.3.0 + ms-pac-forge 0.2.0 → drop paths.
+ms-pac-forge = { path = "../../../ms-pac-forge", version = "0.2" }
 
 # Kerberos roasting is built on picky-krb (Devolutions pure-Rust ASN.1 + KRB message
-# types) — no ASN.1 from scratch.
+# types) — no ASN.1 from scratch. BEING RETIRED in the 1.5.3 kerbcore swap
+# (docs/PLAN_1.5.3.md); both are present during the module-by-module migration.
 picky-krb = { workspace = true }
 picky-asn1 = { workspace = true }
 picky-asn1-der = "0.5"
+# 1.5.3 kerbcore swap — from-scratch AS/TGS crypto + DER/RFC4120 codec + client.
+# Replaces the picky-krb message/crypto/codec surface; picky-asn1-x509 (PKINIT
+# CMS/X.509) survives until 1.6 P-2.
+kerbcore = { workspace = true }
 serde = { workspace = true }
 rand = "0.8"
 rsa = "0.9"

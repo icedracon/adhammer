@@ -6,7 +6,7 @@ use adhammer_core::finding::{Category, Evidence, Severity};
 use adhammer_core::{sanitize_terminal_output, Finding};
 use adhammer_graph::{AttackPath, Step};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// WS-OUTPUT-SANITIZE (1.4.10): rewrite a Finding so every user-facing string
 /// field is stripped of terminal control sequences that a hostile network
@@ -73,10 +73,119 @@ fn sanitize_attack_path(p: AttackPath) -> AttackPath {
 
 pub mod baseline;
 pub mod composite;
+pub mod design;
 pub mod graph_bh;
 pub mod graph_svg;
 pub use baseline::BaselineDiff;
 pub use composite::CompositeChain;
+pub use design::{PREMIUM_REPORT_CSS, PREMIUM_REPORT_JS};
+
+const PREMIUM_PASSIVE_REPORT_TEMPLATE: &str =
+    include_str!("../templates/premium_passive_report.html");
+
+#[derive(Serialize)]
+struct ReportGraphPayload {
+    nodes: Vec<ReportGraphNode>,
+    edges: Vec<ReportGraphEdge>,
+}
+
+#[derive(Serialize)]
+struct ReportGraphNode {
+    id: String,
+    label: String,
+    tier0: bool,
+}
+
+#[derive(Serialize)]
+struct ReportGraphEdge {
+    from: String,
+    to: String,
+    label: String,
+    executable: bool,
+}
+
+fn report_graph_node_id(sid: &str, label: &str) -> String {
+    if sid.trim().is_empty() {
+        format!("label:{}", sanitize_terminal_output(label))
+    } else {
+        sanitize_terminal_output(sid)
+    }
+}
+
+/// Serialize the actual attack paths used by the report into a script-safe JSON payload.
+///
+/// Both passive and guided HTML use this exact shape for the hero visual. Escaping `<` is
+/// essential even inside `type=application/json`: without it, a hostile directory label that
+/// contains `</script>` could terminate the element before the browser's JSON parser sees it.
+pub fn report_graph_json(paths: &[AttackPath]) -> String {
+    let mut nodes: BTreeMap<String, ReportGraphNode> = BTreeMap::new();
+    let mut edges: Vec<ReportGraphEdge> = Vec::new();
+    let mut seen_edges: BTreeSet<(String, String, String)> = BTreeSet::new();
+
+    for path in paths {
+        let principal_id = report_graph_node_id(&path.principal_sid, &path.principal);
+        nodes
+            .entry(principal_id.clone())
+            .or_insert_with(|| ReportGraphNode {
+                id: principal_id.clone(),
+                label: sanitize_terminal_output(&path.principal),
+                tier0: false,
+            });
+
+        if path.steps.is_empty() {
+            let target_id = report_graph_node_id("", &path.target);
+            nodes
+                .entry(target_id.clone())
+                .or_insert_with(|| ReportGraphNode {
+                    id: target_id,
+                    label: sanitize_terminal_output(&path.target),
+                    tier0: true,
+                });
+            continue;
+        }
+
+        for (index, step) in path.steps.iter().enumerate() {
+            let from_id = report_graph_node_id(&step.from_sid, &step.from);
+            let to_id = report_graph_node_id(&step.to_sid, &step.to);
+            nodes
+                .entry(from_id.clone())
+                .or_insert_with(|| ReportGraphNode {
+                    id: from_id.clone(),
+                    label: sanitize_terminal_output(&step.from),
+                    tier0: false,
+                });
+            let is_target = index + 1 == path.steps.len() || step.to == path.target;
+            nodes
+                .entry(to_id.clone())
+                .and_modify(|node| node.tier0 |= is_target)
+                .or_insert_with(|| ReportGraphNode {
+                    id: to_id.clone(),
+                    label: sanitize_terminal_output(&step.to),
+                    tier0: is_target,
+                });
+            let label = step.edge.to_string();
+            if seen_edges.insert((from_id.clone(), to_id.clone(), label.clone())) {
+                edges.push(ReportGraphEdge {
+                    from: from_id,
+                    to: to_id,
+                    label,
+                    executable: step.command.is_some(),
+                });
+            }
+        }
+    }
+
+    serde_json::to_string(&ReportGraphPayload {
+        nodes: nodes.into_values().collect(),
+        edges,
+    })
+    .unwrap_or_else(|_| "{\"nodes\":[],\"edges\":[]}".to_string())
+    .replace('<', "\\u003c")
+    .replace('>', "\\u003e")
+    .replace('&', "\\u0026")
+    .replace('\u{2028}', "\\u2028")
+    .replace('\u{2029}', "\\u2029")
+}
 
 /// Configurable multipliers per category (diploma "risk scoring engine").
 #[derive(Clone, Debug)]
@@ -374,8 +483,171 @@ impl Report {
         digest.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Self-contained operator-facing HTML report for passive scan output.
+    /// Self-contained, data-driven HTML report for passive scan output.
+    ///
+    /// The shell, CSS and progressive-enhancement runtime are shared with the guided
+    /// report. All animated hero nodes originate in `top_paths`; no decorative or
+    /// guessed attack data is emitted.
     pub fn to_html(&self) -> String {
+        let total = self.findings.len();
+        let critical = self
+            .findings
+            .iter()
+            .filter(|finding| finding.severity == Severity::Critical)
+            .count();
+        let high = self
+            .findings
+            .iter()
+            .filter(|finding| finding.severity == Severity::High)
+            .count();
+        let medium = self
+            .findings
+            .iter()
+            .filter(|finding| finding.severity == Severity::Medium)
+            .count();
+        let low = self
+            .findings
+            .iter()
+            .filter(|finding| matches!(finding.severity, Severity::Low | Severity::Info))
+            .count();
+        let chain_count = self
+            .composite_chains
+            .iter()
+            .filter(|chain| chain.present)
+            .count();
+        let domain_title = domain_display_name(&self.domain);
+        let executive_sentence = if critical > 0 && !self.top_paths.is_empty() {
+            format!(
+                "{critical} critical finding(s) and {} modeled control path(s) to Tier-0 require immediate containment and ownership review.",
+                self.top_paths.len()
+            )
+        } else if critical > 0 {
+            format!(
+                "{critical} critical finding(s) require immediate review; no direct Tier-0 control path was attached to this report."
+            )
+        } else if high > 0 {
+            format!(
+                "No critical finding was recorded, but {high} high-severity exposure(s) should be remediated before they can combine into a domain-compromise chain."
+            )
+        } else if total == 0 && !self.coverage.is_empty() {
+            format!(
+                "No vulnerability condition tripped across {} recorded passive checks; scope and preconditions remain visible in the coverage chapter.",
+                self.coverage.len()
+            )
+        } else if total == 0 {
+            "No findings and no executed-check roster were recorded; treat this assessment as inconclusive until collection coverage is confirmed.".to_string()
+        } else {
+            format!(
+                "{total} finding(s) were recorded without a critical-severity condition; prioritize the highest-risk remediation and verify coverage gaps."
+            )
+        };
+
+        let severity_band = severity_band_html(total, critical, high, medium, low);
+        let mut attack_story = String::new();
+        attack_story.push_str(&self.chains_html());
+        attack_story.push_str(&self.graph_svg_panel());
+        attack_story.push_str(&self.paths_html());
+        if attack_story.is_empty() {
+            attack_story.push_str(
+                "<section class=panel><h2>No direct Tier-0 path modeled</h2><p>The current report contains no attached shortest-path result. Review findings and coverage independently; absence of a modeled route is not a claim that no attack path exists.</p></section>",
+            );
+        }
+
+        PREMIUM_PASSIVE_REPORT_TEMPLATE
+            .replace("__REPORT_CSS__", PREMIUM_REPORT_CSS)
+            .replace("__REPORT_JS__", PREMIUM_REPORT_JS)
+            .replace("__DOMAIN_TITLE__", &html_escape(&domain_title))
+            .replace("__DOMAIN_META__", &html_escape(&self.domain))
+            .replace("__EXECUTIVE_SENTENCE__", &html_escape(&executive_sentence))
+            .replace("__SCHEMA_VERSION__", &self.schema_version.to_string())
+            .replace("__DATE__", &current_utc_date())
+            .replace("__PATHS__", &self.top_paths.len().to_string())
+            .replace("__GRAPH_NODES__", &self.graph_nodes.to_string())
+            .replace("__GRAPH_EDGES__", &self.graph_edges.to_string())
+            .replace("__TOTAL__", &total.to_string())
+            .replace("__RISK_SCORE__", &self.total_score.to_string())
+            .replace("__CRITICAL__", &critical.to_string())
+            .replace("__HIGH__", &high.to_string())
+            .replace("__CHAIN_COUNT__", &chain_count.to_string())
+            .replace("__COVERAGE_COUNT__", &self.coverage.len().to_string())
+            .replace("__SEVERITY_BAND__", &severity_band)
+            .replace("__CATEGORY_SCORES__", &self.category_scores_html())
+            .replace("__BASELINE__", &self.baseline_html())
+            .replace("__ASSURANCE__", &self.assurance_banner_html())
+            .replace("__TOP_FINDINGS__", &self.top_findings_html())
+            .replace("__ATTACK_STORY__", &attack_story)
+            .replace("__FINDINGS__", &self.findings_html())
+            .replace("__ROADMAP__", &self.remediation_roadmap_html())
+            .replace("__COVERAGE_AREAS__", &self.coverage_areas_html())
+            .replace("__COVERAGE_PHASES__", &self.coverage_phases_html())
+            .replace("__COVERAGE__", &self.coverage_html())
+            .replace("__PRINCIPAL_GRAPH__", &self.bh_graph_panel())
+            .replace("__FINGERPRINT__", &self.hash_footer_html())
+            .replace(
+                "__TOOL_VERSION__",
+                &html_escape(&adhammer_core::build::long_version()),
+            )
+            .replace("__GRAPH_DATA__", &report_graph_json(&self.top_paths))
+    }
+
+    fn top_findings_html(&self) -> String {
+        if self.findings.is_empty() {
+            return "<article class=highlight><div class=badge-row><span class=\"badge outcome-validated\">no findings</span></div><h3>No vulnerability condition tripped</h3><p>Use the coverage chapter to confirm which checks executed and which preconditions were unavailable.</p></article>".to_string();
+        }
+        let mut findings = self.findings.iter().collect::<Vec<_>>();
+        findings.sort_by_key(|finding| std::cmp::Reverse(finding.score()));
+        findings
+            .into_iter()
+            .take(3)
+            .map(|finding| {
+                let narrative = finding.impact.as_deref().unwrap_or(&finding.detail);
+                format!(
+                    "<article class=\"highlight highlight-{sev}\"><div class=badge-row><span class=\"badge sev-{sev}\">{sev_label}</span><span class=badge>{id}</span></div><h3>{title}</h3><p>{narrative}</p></article>",
+                    sev = sev_class(finding.severity),
+                    sev_label = html_escape(sev_name(finding.severity)),
+                    id = html_escape(&finding.id),
+                    title = html_escape(&finding.title),
+                    narrative = html_escape(narrative),
+                )
+            })
+            .collect()
+    }
+
+    fn remediation_roadmap_html(&self) -> String {
+        let mut seen = BTreeSet::new();
+        let mut rows = String::new();
+        let mut findings = self.findings.iter().collect::<Vec<_>>();
+        findings.sort_by_key(|finding| std::cmp::Reverse(finding.score()));
+        for finding in findings {
+            if finding.remediation.trim().is_empty()
+                || !seen.insert(finding.remediation.trim().to_string())
+            {
+                continue;
+            }
+            let priority = seen.len();
+            rows.push_str(&format!(
+                "<article class=roadmap-card><div class=badge-row><span class=\"badge sev-{sev}\">P{priority}</span><span class=badge>{id}</span></div><h3>{title}</h3><p>{remediation}</p></article>",
+                sev = sev_class(finding.severity),
+                priority = priority,
+                id = html_escape(&finding.id),
+                title = html_escape(&finding.title),
+                remediation = html_escape(&finding.remediation),
+            ));
+            if priority == 6 {
+                break;
+            }
+        }
+        if rows.is_empty() {
+            "<article class=roadmap-card><div class=badge-row><span class=badge>review</span></div><h3>No remediation rows available</h3><p>Confirm collection coverage and retain the report fingerprint for comparison with the next assessment.</p></article>".to_string()
+        } else {
+            rows
+        }
+    }
+
+    /// Retained temporarily as a compatibility reference while the premium renderer is
+    /// exercised across downstream consumers. The public `to_html` path above is canonical.
+    #[allow(dead_code)]
+    fn to_html_legacy(&self) -> String {
         let total_findings = self.findings.len();
         let chain_count = self.composite_chains.iter().filter(|c| c.present).count();
         let path_count = self.top_paths.len();
@@ -675,7 +947,7 @@ impl Report {
              or a baseline-diff key.</p>\
              <p><code>tool</code>: <code>adhammer {}</code></p>\
              <p><code>domain</code>: <code>{}</code></p>\
-             <p><code>sha256</code>: <code>{}</code></p></section>",
+             <p><code>sha256</code>: <code class=fingerprint>{}</code></p></section>",
             html_escape(&adhammer_core::build::long_version()),
             html_escape(&self.domain),
             self.content_hash(),
@@ -1063,8 +1335,13 @@ impl Report {
                         )
                     })
                     .unwrap_or_default();
+                let filter_severity = if f.severity == Severity::Info {
+                    "low"
+                } else {
+                    sev_class(f.severity)
+                };
                 out.push_str(&format!(
-                    "<article class=finding>\
+                    "<article class=\"finding finding-{sev_class}\" data-severity=\"{filter_severity}\">\
                        <div class=finding-head>\
                          <span class=\"chip chip-{sev_class}\">{sev}</span>\
                          <span class=chip>{id}</span>\
@@ -1083,6 +1360,7 @@ impl Report {
                        {next}\
                      </article>",
                     sev_class = sev_class(f.severity),
+                    filter_severity = filter_severity,
                     sev = html_escape(sev_name(f.severity)),
                     id = html_escape(&f.id),
                     category = html_escape(cat_label(f.category)),
@@ -1476,6 +1754,59 @@ pub(crate) fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn domain_display_name(domain: &str) -> String {
+    let labels = domain
+        .split(',')
+        .filter_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            key.eq_ignore_ascii_case("dc")
+                .then_some(value.trim())
+                .filter(|value| !value.is_empty())
+        })
+        .collect::<Vec<_>>();
+    if labels.is_empty() {
+        domain.to_string()
+    } else {
+        labels.join(".")
+    }
+}
+
+fn severity_band_html(
+    total: usize,
+    critical: usize,
+    high: usize,
+    medium: usize,
+    low: usize,
+) -> String {
+    let share = |count: usize| {
+        if total == 0 {
+            0.0
+        } else {
+            count as f64 * 100.0 / total as f64
+        }
+    };
+    format!(
+        "<div class=risk-band>\
+           <div class=risk-track aria-label=\"Severity distribution: {critical} critical, {high} high, {medium} medium, {low} low or informational\">\
+             <span class=risk-critical style=\"--share:{critical_share:.3}\"></span>\
+             <span class=risk-high style=\"--share:{high_share:.3}\"></span>\
+             <span class=risk-medium style=\"--share:{medium_share:.3}\"></span>\
+             <span class=risk-low style=\"--share:{low_share:.3}\"></span>\
+           </div>\
+           <div class=risk-legend>\
+             <span><b>{critical}</b>Critical</span>\
+             <span><b>{high}</b>High</span>\
+             <span><b>{medium}</b>Medium</span>\
+             <span><b>{low}</b>Low / Info</span>\
+           </div>\
+         </div>",
+        critical_share = share(critical),
+        high_share = share(high),
+        medium_share = share(medium),
+        low_share = share(low),
+    )
+}
+
 fn collapse_ws(s: &str) -> String {
     // Squash internal newlines/tabs so MD list items and TXT lines stay single-line.
     s.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -1863,51 +2194,84 @@ mod tests {
     }
 
     #[test]
+    fn premium_html_is_data_driven_and_has_no_template_tokens() {
+        let r = empty_report(vec![mk_finding(
+            "A-Esc8",
+            Severity::Critical,
+            "ADCS relay exposure",
+        )])
+        .with_coverage(vec![("A-Esc8", 1)]);
+        let html = r.to_html();
+        assert!(html.contains("<meta name=\"viewport\""));
+        assert!(html.contains("id=\"report-graph-data\""));
+        assert!(html.contains("data-severity=\"critical\""));
+        assert!(html.contains("Remediation roadmap"));
+        assert!(!html.contains("__REPORT_"));
+        assert!(!html.contains("__DOMAIN_"));
+    }
+
+    #[test]
+    fn report_graph_json_is_script_safe() {
+        let path = AttackPath {
+            principal: "</script><img src=x onerror=alert(1)>".into(),
+            principal_sid: "S-1-5-21-9-9-1101".into(),
+            target: "Domain Admins".into(),
+            cost: 1,
+            steps: vec![Step {
+                from: "</script><img src=x onerror=alert(1)>".into(),
+                from_sid: "S-1-5-21-9-9-1101".into(),
+                edge: "GenericAll",
+                to: "Domain Admins".into(),
+                to_sid: "S-1-5-21-9-9-512".into(),
+                impact: "",
+                mitigation: "",
+                command: None,
+            }],
+        };
+        let json = report_graph_json(&[path]);
+        assert!(!json.contains("</script>"));
+        assert!(json.contains("\\u003c/script\\u003e"));
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["nodes"].as_array().unwrap().len(), 2);
+        assert_eq!(parsed["edges"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn html_carries_light_and_dark_theme_layers() {
-        // The report ships a token-layered palette so it can render in both
-        // light (default `:root`) and dark (`@media (prefers-color-scheme: dark)` +
-        // `[data-theme="dark"]` override) — plus a toggle button + inline JS that flips the
-        // `data-theme` attribute and remembers the choice in `localStorage`. Everything
-        // self-contained: no CDN, no external CSS, matches the report's no-external-requests rule.
+        // The premium report ships dark-first tokens plus an explicit light theme, a
+        // persisted toggle, print CSS, and no external assets.
         let html = empty_report(vec![]).to_html();
-        // Bare :root defines LIGHT (default). Any consumer with prefers-color-scheme unset gets it.
         assert!(
-            html.contains(":root{color-scheme:light dark;--bg:#f7f8fc"),
-            "light palette must be on bare :root as the default"
+            html.contains(":root {") && html.contains("color-scheme: dark"),
+            "dark-first token layer missing"
         );
-        // prefers-color-scheme: dark path.
         assert!(
-            html.contains("@media (prefers-color-scheme: dark)"),
-            "dark palette must live under prefers-color-scheme"
-        );
-        // Explicit override selector for the toggle.
-        assert!(
-            html.contains(":root[data-theme=\"dark\"]"),
-            "toggle must have a matching selector"
+            html.contains(":root[data-theme=\"light\"]"),
+            "toggle must have a matching light selector"
         );
         // P1e: a print stylesheet so the HTML doubles as a clean PDF deliverable —
         // ink-friendly colors, no mid-card page breaks, and <details> forced open.
         assert!(
-            html.contains("@media print{"),
+            html.contains("@media print {"),
             "print stylesheet must ship so the report prints/PDFs cleanly"
         );
         assert!(
-            html.contains("details>*{display:block !important}"),
+            html.contains("details > * { display: block !important; }"),
             "print must force <details> open so nothing is hidden on paper"
         );
         // P1d: provenance — the fingerprint footer names the tool build.
         assert!(
-            html.contains("<code>tool</code>") && html.contains("adhammer 1.5.2"),
+            html.contains("<code>tool</code>") && html.contains("adhammer 1.5.3"),
             "report must carry tool-version provenance"
         );
         // Toggle UI + JS + localStorage.
-        assert!(html.contains("class=theme-toggle"), "toggle button missing");
+        assert!(html.contains("data-theme-toggle"), "toggle button missing");
         assert!(
-            html.contains("adhammer-theme"),
+            html.contains("adhammer-report-theme"),
             "localStorage key for theme persistence missing"
         );
         // Tokens the JS/CSS both need — the sanity that no hardcoded hex remained on hop/code/cmd.
-        assert!(html.contains("--code-bg") && html.contains("--hop-bg"));
+        assert!(html.contains("--code-bg") && html.contains("var(--code-bg)"));
         assert!(
             !html.contains("background:#0d1323"),
             "hardcoded code bg must be token-driven"
@@ -2096,7 +2460,7 @@ mod tests {
             eprintln!("ADHAMMER_REPORT_DUMP_HTML not set — nothing to dump");
             return;
         };
-        let r = empty_report(vec![
+        let findings = vec![
             mk_finding(
                 "A-Esc8",
                 Severity::Critical,
@@ -2114,7 +2478,42 @@ mod tests {
             ),
             mk_finding("P-PwdPolicy", Severity::Medium, "Weak password policy"),
             mk_finding("A-WDigest", Severity::Low, "WDigest UseLogonCredential=1"),
-        ])
+        ];
+        let path_to_tier0 = AttackPath {
+            principal: "helpdesk.svc".into(),
+            principal_sid: "S-1-5-21-9-9-1101".into(),
+            target: "Domain Admins".into(),
+            cost: 2,
+            steps: vec![
+                Step {
+                    from: "helpdesk.svc".into(),
+                    from_sid: "S-1-5-21-9-9-1101".into(),
+                    edge: "GenericAll",
+                    to: "Tier0 Operators".into(),
+                    to_sid: "S-1-5-21-9-9-2100".into(),
+                    impact: "controls an intermediate privileged group",
+                    mitigation: "remove the delegated ACE",
+                    command: Some("adhammer attack shadowcred --target Tier0-Operators".into()),
+                },
+                Step {
+                    from: "Tier0 Operators".into(),
+                    from_sid: "S-1-5-21-9-9-2100".into(),
+                    edge: "MemberOf",
+                    to: "Domain Admins".into(),
+                    to_sid: "S-1-5-21-9-9-512".into(),
+                    impact: "inherits Tier-0 privileges",
+                    mitigation: "remove the nested group membership",
+                    command: Some("adhammer attack dcsync --user krbtgt".into()),
+                },
+            ],
+        };
+        let r = Report::build(
+            "DC=corp,DC=local",
+            findings,
+            vec![path_to_tier0],
+            (38, 61),
+            &RiskConfig::default(),
+        )
         .with_coverage(vec![
             ("A-Esc8", 1),
             ("A-Esc1", 1),

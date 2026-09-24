@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 license = "MIT"
 authors = ["zevs"]
@@ -67,16 +67,16 @@ ms-tds       = "0.1.1"
 # and leaves blob unwrap for a follow-up verb.
 dpapi-offline = "0.1.2"
 # internal (version required so crates.io can strip the path on publish)
-adhammer-core      = { path = "crates/core",      version = "1.5.2" }
-adhammer-collector = { path = "crates/collector", version = "1.5.2", default-features = false }
-adhammer-checks    = { path = "crates/checks",    version = "1.5.2" }
-adhammer-graph     = { path = "crates/graph",     version = "1.5.2" }
-adhammer-kerberos  = { path = "crates/kerberos",  version = "1.5.2" }
-adhammer-report    = { path = "crates/report",    version = "1.5.2" }
-adhammer-sysvol    = { path = "crates/sysvol",    version = "1.5.2" }
-adhammer-ldap      = { path = "crates/ldap",      version = "1.5.2" }
-adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.2" }
-adhammer-secrets    = { path = "crates/secrets",    version = "1.5.2" }
+adhammer-core      = { path = "crates/core",      version = "1.5.3" }
+adhammer-collector = { path = "crates/collector", version = "1.5.3", default-features = false }
+adhammer-checks    = { path = "crates/checks",    version = "1.5.3" }
+adhammer-graph     = { path = "crates/graph",     version = "1.5.3" }
+adhammer-kerberos  = { path = "crates/kerberos",  version = "1.5.3" }
+adhammer-report    = { path = "crates/report",    version = "1.5.3" }
+adhammer-sysvol    = { path = "crates/sysvol",    version = "1.5.3" }
+adhammer-ldap      = { path = "crates/ldap",      version = "1.5.3" }
+adhammer-bloodhound = { path = "crates/bloodhound", version = "1.5.3" }
+adhammer-secrets    = { path = "crates/secrets",    version = "1.5.3" }
 
 # WS-HASHGLASS (1.5.0) — pentester-focused hash-type identifier
 # consumed by `attack roast` to annotate each emitted hash with its hashcat
@@ -101,6 +101,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # crypto / kerberos (roasting layer)
 picky-krb   = "0.9"
 picky-asn1  = "0.10"
+# 1.5.3 kerbcore swap (docs/PLAN_1.5.3.md): from-scratch pure-Rust Kerberos —
+# replaces picky-krb inside adhammer-kerberos (AS/TGS/roast/S4U/forge/unpac).
+# Pure RustCrypto (no TLS provider, no picky at runtime); retires picky-krb +
+# picky-asn1 + picky-asn1-der once the migration completes. picky-asn1-x509
+# stays for the PKINIT CMS/X.509 chain (kerbcore has no CMS/X.509 — 1.6 P-2).
+# 0.3.0 is LOCAL-ONLY (crates.io max = 0.2.1) — path dep for dev; ship sequence
+# publishes kerbcore 0.3.0 to crates.io FIRST (bottom-up), then this path drops.
+kerbcore    = { path = "../kerbcore", version = "0.3" }
 md-5        = "0.10"
 md4         = "0.10"
 hmac        = "0.12"
