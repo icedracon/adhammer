@@ -52,3 +52,32 @@ updates:
       - dependency-name: "ese-parser"
       - dependency-name: "ccache-io"
       - dependency-name: "win32-min"
+      # Frozen picky stack — 0.9→0.12 is a hard API break (reverted once) and
+      # the whole picky dependency is being retired by the kerbcore swap
+      # (docs/PLAN_1.5.3.md). Ignore every update; the dep is going away.
+      - dependency-name: "picky-krb"
+      - dependency-name: "picky-asn1"
+      - dependency-name: "picky-asn1-x509"
+      # RustCrypto next-major is a lockstep cut across the whole digest/
+      # crypto-common trait line, and picky pins the 0.10 digest generation
+      # transitively — a single-crate bump breaks the trait bounds (E0277 on
+      # AssociatedOid / Digest). Block the breaking major until the coordinated
+      # crypto migration rides with the kerbcore swap; patch/minor still flow.
+      - dependency-name: "sha2"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "md-5"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "md4"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "rc4"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "des"
+        update-types: ["version-update:semver-major"]
+      # Independent breaking majors — each is a real migration (API changes),
+      # deferred to a dedicated slot rather than merged blind on release cadence.
+      - dependency-name: "rand"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "petgraph"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dialoguer"
+        update-types: ["version-update:semver-major"]
