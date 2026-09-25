@@ -184,7 +184,7 @@ async fn auth_impl(a: AuthArgs, cl: &mut ui::StageChecklist) -> Result<()> {
     cl.record_ok("parse BindResponse", format!("resultCode={result_code}"));
 
     if result_code == 0 {
-        println!("[+] LDAP schannel bind OK — DC accepted the cert.");
+        ui::ok("LDAP schannel bind OK — DC accepted the cert.");
         if !matched_dn.is_empty() {
             println!("    matchedDN: {matched_dn}");
         }

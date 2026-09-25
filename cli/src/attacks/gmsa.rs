@@ -112,10 +112,10 @@ async fn gmsa_impl(mut a: GmsaArgs, checklist: &mut ui::StageChecklist) -> Resul
     );
     // secretsdump-style line; the RID is unknown here, so print sam + hash.
     println!("{}:aad3b435b51404eeaad3b435b51404ee:{}:::", a.target, nthex);
-    eprintln!(
-        "[+] gMSA {} current-password NT hash recovered ({} blob bytes)",
+    ui::ok(&format!(
+        "gMSA {} current-password NT hash recovered ({} blob bytes)",
         a.target,
         blob.len()
-    );
+    ));
     Ok(())
 }

@@ -177,10 +177,10 @@ async fn laps_impl(mut a: LapsArgs, checklist: &mut ui::StageChecklist) -> Resul
         // Encrypted-LAPS path: msLAPS-EncryptedPassword → LAPS header → CMS ProtectedBlob →
         // MS-GKDI GetKey for the blob's KeyIdentifier → derive L2 key → open the blob.
         let Some(bytes) = &e.encrypted_blob else {
-            eprintln!(
-                "[!] {}: no cleartext and no encrypted blob to work with",
+            ui::warn(&format!(
+                "{}: no cleartext and no encrypted blob to work with",
                 e.sam
-            );
+            ));
             continue;
         };
         match decrypt_encrypted_laps(&dc_host, &domain, &user, &a.password, bytes).await {
@@ -188,10 +188,10 @@ async fn laps_impl(mut a: LapsArgs, checklist: &mut ui::StageChecklist) -> Resul
                 cleartext += 1;
                 println!("{}\t{}\t{}", e.sam, account, pw);
             }
-            Err(err) => eprintln!(
-                "[!] {} DPAPI-NG decrypt failed: {err} (bind identity may lack the GKDI read right)",
+            Err(err) => ui::warn(&format!(
+                "{} DPAPI-NG decrypt failed: {err} (bind identity may lack the GKDI read right)",
                 e.sam
-            ),
+            )),
         }
     }
     checklist.record_ok(

@@ -141,7 +141,8 @@ async fn unpac_impl(a: UnpacArgs, checklist: &mut ui::StageChecklist) -> Result<
         format!("package={}, bytes decrypted OK", creds.package),
     );
 
-    println!("[+] NT hash of {}@{}:", a.user, a.realm);
+    ui::ok(&format!("NT hash of {}@{}:", a.user, a.realm));
+    // Hash on stdout — the deliverable, pipe-friendly.
     println!("    {}", creds.nt_hex());
     if let Some(lm) = creds.lm_hash_bytes() {
         let hex: String = lm.iter().fold(String::new(), |mut s, b| {
@@ -149,16 +150,16 @@ async fn unpac_impl(a: UnpacArgs, checklist: &mut ui::StageChecklist) -> Result<
             write!(s, "{b:02x}").unwrap();
             s
         });
-        println!("[+] LM hash (non-zero, historically present): {hex}");
+        ui::ok(&format!("LM hash (non-zero, historically present): {hex}"));
     } else {
-        println!("[i] LM hash: absent / zeroed (modern DC)");
+        ui::note("LM hash: absent / zeroed (modern DC)");
     }
-    println!(
-        "[+] Pass-the-hash ready — chain into e.g. `attack overpass --user {} --realm {} --nt {}`",
+    ui::note(&format!(
+        "Pass-the-hash ready — chain into e.g. `attack overpass --user {} --realm {} --nt {}`",
         a.user,
         a.realm,
         creds.nt_hex()
-    );
+    ));
     checklist.record_ok(
         "parse NTLM_SUPPLEMENTAL_CREDENTIAL",
         format!("NT hash extracted for {}@{}", a.user, a.realm),

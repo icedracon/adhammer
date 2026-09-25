@@ -10,6 +10,7 @@
 //! logic lives in one place. `--scan-all` runs every vector over one login and
 //! prints a which-fired matrix — the fastest way to learn how a DC is hardened.
 
+use crate::ui;
 use adhammer_core::sanitize_terminal_output as san;
 use anyhow::Result;
 use clap::Parser;
@@ -121,10 +122,10 @@ pub(crate) async fn coerce(mut a: CoerceArgs) -> Result<()> {
 
     match outcome.fired {
         Some(status) => {
-            println!(
-                "[+] {} accepted via {} — status {status:#010x}",
+            ui::ok(&format!(
+                "{} accepted via {} — status {status:#010x}",
                 outcome.vector, outcome.pipe
-            );
+            ));
             println!(
                 "    {} attempted auth to \\\\{}\\... (run a relay/listener to capture)",
                 a.auth.host, a.listener

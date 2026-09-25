@@ -4,6 +4,7 @@
 //! path left open on hardened boxes that disabled SMB admin shares. Supports
 //! pass-the-hash via `--nt-hash` (32 hex NT hash instead of `--password`).
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 
@@ -78,15 +79,16 @@ pub(crate) async fn winrm_exec(mut a: WinrmArgs) -> Result<()> {
         a.shell.into(),
     )
     .await?;
-    eprintln!(
-        "[+] WinRM shell opened on {} (ShellId {})",
+    ui::ok(&format!(
+        "WinRM shell opened on {} (ShellId {})",
         a.auth.host, shell_id
-    );
+    ));
     let (stdout, stderr, exit) = client.run(&shell_id, &a.command).await?;
+    // Remote stdout is DATA — pipe-friendly on stdout.
     print!("{stdout}");
     if !stderr.is_empty() {
         eprint!("{stderr}");
     }
-    eprintln!("[+] WinRM command exited {exit}");
+    ui::ok(&format!("WinRM command exited {exit}"));
     Ok(())
 }

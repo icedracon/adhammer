@@ -130,10 +130,10 @@ async fn silver_impl(cfg: SilverConfig, checklist: &mut ui::StageChecklist) -> R
     for (i, spn) in cfg.spns.iter().enumerate() {
         let tgt = adhammer_kerberos::forge_silver_tgt(&id, &cfg.realm, &key, spn, cfg.rc4)?;
         forged += 1;
-        println!(
-            "[+] forged silver ticket: {}@{} for {} (rid {})",
+        ui::ok(&format!(
+            "forged silver ticket: {}@{} for {} (rid {})",
             cfg.user, cfg.realm, spn, cfg.rid
-        );
+        ));
         if let Some(base) = &cfg.out {
             let cc = adhammer_kerberos::silver_ccache(&tgt, &cfg.user, spn)?;
             let path = if multi {
@@ -146,7 +146,7 @@ async fn silver_impl(cfg: SilverConfig, checklist: &mut ui::StageChecklist) -> R
                 adhammer_core::SecretArtifact::Ccache,
                 &cc,
             )?;
-            println!("[+] wrote ccache → {path} ({} bytes)", cc.len());
+            ui::ok(&format!("wrote ccache → {path} ({} bytes)", cc.len()));
             ccaches += 1;
         }
         let _ = i;

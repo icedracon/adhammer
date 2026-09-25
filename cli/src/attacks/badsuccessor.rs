@@ -3,6 +3,7 @@
 //! (Migrated). The 2025 KDC then issues TGTs to the dMSA carrying the victim's
 //! PAC — full impersonation, no ACE on the victim, no password reset.
 
+use crate::ui;
 use anyhow::Result;
 use clap::Parser;
 
@@ -118,7 +119,7 @@ pub(crate) async fn badsuccessor(mut a: BadsuccessorArgs) -> Result<()> {
     }
 
     c.add_object(&dn, attrs).await?;
-    println!("[+] created dMSA {dn}");
+    ui::ok(&format!("created dMSA {dn}"));
     println!(
         "    → succeeds {} (PAC of the victim is issued to {sam})",
         a.target

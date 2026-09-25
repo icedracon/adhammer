@@ -21,6 +21,7 @@
 //!
 //! Minidump format reference: MSDN _MINIDUMP_HEADER + _MINIDUMP_DIRECTORY.
 
+use crate::ui;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
@@ -77,7 +78,9 @@ pub(crate) async fn lsass_parse(a: LsassParseArgs) -> Result<()> {
     let stream_dir_rva = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
     let flags = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
 
-    println!("[+] minidump OK — version={version_low:#x} streams={stream_count} flags={flags:#x}");
+    ui::ok(&format!(
+        "minidump OK — version={version_low:#x} streams={stream_count} flags={flags:#x}"
+    ));
 
     // Read the stream directory (12 bytes per entry: StreamType u32, DataSize u32, RVA u32).
     let dir_size = stream_count.checked_mul(12).context("stream dir size")?;

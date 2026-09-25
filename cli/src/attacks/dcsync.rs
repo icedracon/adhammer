@@ -122,7 +122,9 @@ async fn dcsync_impl(mut a: DcsyncArgs, checklist: &mut ui::StageChecklist) -> R
     match a.target {
         None => {
             let handle_hex: String = sess.handle().iter().map(|b| format!("{b:02x}")).collect();
-            println!("[+] DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)");
+            ui::ok(&format!(
+                "DRSBind OK — sealed replication handle {handle_hex} (no --target: bind-only check)"
+            ));
             checklist.record_skipped("replicate target", "no --target set — bind-only check");
         }
         Some(t) => {
@@ -193,15 +195,18 @@ async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Resul
 
     if let Some(n) = a.limit {
         if users.len() > n {
-            eprintln!(
-                "[*] --limit {n} — capping bulk run at {n} of {} enumerated accounts",
+            ui::info(&format!(
+                "--limit {n} — capping bulk run at {n} of {} enumerated accounts",
                 users.len()
-            );
+            ));
             users.truncate(n);
         }
     }
 
-    eprintln!("[+] {} accounts scheduled for replication…", users.len());
+    ui::ok(&format!(
+        "{} accounts scheduled for replication…",
+        users.len()
+    ));
 
     // 2. DCSync each over one sealed DRSUAPI session — pick password vs NT-hash auth
     // exactly like the single-target path above.
@@ -244,7 +249,9 @@ async fn dcsync_all(a: &DcsyncArgs, checklist: &mut ui::StageChecklist) -> Resul
             }
         }
     }
-    eprintln!("[+] full-domain DCSync complete: {ok} dumped, {fail} failed");
+    ui::ok(&format!(
+        "full-domain DCSync complete: {ok} dumped, {fail} failed"
+    ));
     checklist.record_ok("replicate all", format!("{ok} dumped · {fail} failed"));
     Ok(())
 }

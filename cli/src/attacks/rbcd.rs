@@ -1,6 +1,7 @@
 //! Resource-Based Constrained Delegation abuse: S4U2Self + S4U2Proxy to
 //! obtain an impersonation ticket to the target service.
 
+use crate::ui;
 use anyhow::Result;
 use clap::Parser;
 
@@ -70,10 +71,10 @@ pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
             .await?
         }
     };
-    println!(
-        "[+] got service ticket for {} as {} (enc-part etype {etype})",
+    ui::ok(&format!(
+        "got service ticket for {} as {} (enc-part etype {etype})",
         cfg.target_spn, cfg.impersonate
-    );
+    ));
     println!("    RBCD chain succeeded — impersonation ticket obtained.");
     Ok(())
 }

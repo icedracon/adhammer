@@ -83,11 +83,13 @@ async fn asktgt_impl(a: AsktgtArgs, checklist: &mut ui::StageChecklist) -> Resul
         &ccache,
     )?;
     checklist.record_ok("write ccache", format!("→ {out}"));
-    println!(
-        "[+] TGT obtained for {} → {out} ({} bytes)",
+    ui::ok(&format!(
+        "TGT obtained for {} → {out} ({} bytes)",
         a.user,
         ccache.len()
-    );
-    println!("    export KRB5CCNAME={out}  (use with Kerberos-aware tooling)");
+    ));
+    ui::note(&format!(
+        "    export KRB5CCNAME={out}  (use with Kerberos-aware tooling)"
+    ));
     Ok(())
 }

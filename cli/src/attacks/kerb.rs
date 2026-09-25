@@ -686,10 +686,10 @@ pub(crate) async fn trust_mint(a: TrustMintArgs) -> Result<()> {
                 .unwrap_or_else(|| format!("{}.ccache", cfg.user)),
         ),
     };
-    println!(
-        "[*] cross-realm TGT: user={} realm={} kdc={}",
+    ui::info(&format!(
+        "cross-realm TGT: user={} realm={} kdc={}",
         cfg.user, cfg.realm, cfg.kdc
-    );
+    ));
     crate::attacks::asktgt::asktgt(a2).await
 }
 
@@ -732,14 +732,16 @@ pub(crate) async fn trust_dump(a: TrustDumpArgs) -> Result<()> {
         .context("LDAP search for trustedDomain objects")?;
 
     if entries.is_empty() {
-        println!("[i] no `trustedDomain` objects visible under {system_dn}");
+        ui::note(&format!(
+            "[i] no `trustedDomain` objects visible under {system_dn}"
+        ));
         return Ok(());
     }
 
-    println!(
-        "[+] {} cross-forest / cross-domain trust(s):",
+    ui::ok(&format!(
+        "{} cross-forest / cross-domain trust(s):",
         entries.len()
-    );
+    ));
     for e in &entries {
         let get = |k: &str| e.attrs.get(k).and_then(|v| v.first()).cloned();
         let name = get("trustPartner")

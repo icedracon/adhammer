@@ -15,6 +15,7 @@
 //! module tests; a full row-render lands with the ms-tds ROW decoder.
 
 #[cfg(feature = "mssql")]
+use crate::ui;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
@@ -84,12 +85,14 @@ pub(crate) async fn mssql(mut a: MssqlArgs) -> Result<()> {
     let mut stacked = 0usize;
     for principal in &a.execute_as {
         if let Err(e) = c.impersonate(principal).await {
-            eprintln!("[-] EXECUTE AS LOGIN='{principal}' failed: {e:#}");
+            ui::bad(&format!("EXECUTE AS LOGIN='{principal}' failed: {e:#}"));
             revert_stack(&mut c, stacked).await;
             return Err(e).with_context(|| format!("EXECUTE AS LOGIN='{principal}'"));
         }
         stacked += 1;
-        eprintln!("[+] EXECUTE AS LOGIN='{principal}' pushed (frame {stacked})");
+        ui::ok(&format!(
+            "EXECUTE AS LOGIN='{principal}' pushed (frame {stacked})"
+        ));
     }
 
     let query_result = c.run_query(&a.query).await;
@@ -124,8 +127,8 @@ pub(crate) async fn mssql(_a: MssqlArgs) -> Result<()> {
 async fn revert_stack(c: &mut ms_tds::TdsClient, n: usize) {
     for i in (1..=n).rev() {
         match c.revert_to_self().await {
-            Ok(()) => eprintln!("[+] REVERT (frame {i})"),
-            Err(e) => eprintln!("[!] REVERT (frame {i}) failed: {e:#}"),
+            Ok(()) => ui::ok(&format!("REVERT (frame {i})")),
+            Err(e) => ui::warn(&format!("REVERT (frame {i}) failed: {e:#}")),
         }
     }
 }

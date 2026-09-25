@@ -168,10 +168,10 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
             a.user, a.realm, a.rid, a.template_user
         ),
     );
-    println!(
-        "[+] forged diamond TGT: {}@{} (rid {}, groups {:?}) — timestamps inherited from real {} TGT",
+    ui::ok(&format!(
+        "forged diamond TGT: {}@{} (rid {}, groups {:?}) — timestamps inherited from real {} TGT",
         a.user, a.realm, a.rid, a.groups, a.template_user
-    );
+    ));
 
     if let Some(spn) = &a.verify_spn {
         // Authenticator's cname MUST match the ticket's inner cname. The Diamond
@@ -185,7 +185,9 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
                     "verify with KDC (--verify-spn)",
                     format!("KDC accepted for {spn}"),
                 );
-                println!("[+] KDC accepted the diamond ticket (TGS-REP for {spn})");
+                ui::ok(&format!(
+                    "KDC accepted the diamond ticket (TGS-REP for {spn})"
+                ));
             }
             Err(e) => {
                 // KDC rejected. Propagate as Err so the exit code is non-zero — the
@@ -222,14 +224,14 @@ async fn diamond_impl(a: DiamondArgs, checklist: &mut ui::StageChecklist) -> Res
             &cc,
         )?;
         checklist.record_ok("write ccache", format!("→ {out} ({} bytes)", cc.len()));
-        println!(
-            "[+] wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
+        ui::ok(&format!(
+            "wrote ccache → {out} ({} bytes). Use: KRB5CCNAME={out}",
             cc.len()
-        );
-        println!(
-            "[i] ccache header cname = {} (template), PAC identity = {} (attacker-chosen)",
+        ));
+        ui::note(&format!(
+            "ccache header cname = {} (template), PAC identity = {} (attacker-chosen)",
             a.template_user, a.user
-        );
+        ));
     } else {
         checklist.record_ok("write ccache", "skipped (no --out)");
     }
