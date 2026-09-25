@@ -85,10 +85,10 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
             .collect()
     } else if std::path::Path::new(&a.users).is_file() {
         // Path passed without `@` prefix — a common gotcha. Treat as a file with a hint.
-        eprintln!(
-            "[!] `--users {}` looks like a file path — use `--users @{}` to read it as a list. Treating the arg as one user name.",
+        crate::ui::warn(&format!(
+            "`--users {}` looks like a file path — use `--users @{}` to read it as a list. Treating the arg as one user name.",
             a.users, a.users
-        );
+        ));
         vec![a.users.clone()]
     } else {
         a.users
@@ -109,12 +109,12 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
              lockout policy and set --lockout-threshold (e.g. 3) for repeated sprays.",
         );
     }
-    eprintln!(
-        "[*] spraying {} user(s) against {} @ {} …",
+    crate::ui::info(&format!(
+        "spraying {} user(s) against {} @ {} …",
         users.len(),
         a.realm,
         a.kdc
-    );
+    ));
     let (mut valid, mut asrep, mut disabled, mut other) = (0u32, 0u32, 0u32, 0u32);
     // Lockout guard: per-user failure timestamps, purged on each attempt.
     let window = std::time::Duration::from_secs(a.lockout_window);
@@ -127,11 +127,11 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
             hits.retain(|t| now.duration_since(*t) < window);
             if hits.len() as u32 >= a.lockout_threshold {
                 guarded += 1;
-                eprintln!(
-                    "[!] skipping {u} — hit lockout guard ({} failures in last {}s)",
+                crate::ui::warn(&format!(
+                    "skipping {u} — hit lockout guard ({} failures in last {}s)",
                     hits.len(),
                     a.lockout_window
-                );
+                ));
                 continue;
             }
         }
@@ -175,19 +175,19 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
             }
         }
     }
-    eprintln!(
-        "[*] spray done: {}/{} valid, {} AS-REP roastable, {} disabled, {} other error(s)",
+    crate::ui::info(&format!(
+        "spray done: {}/{} valid, {} AS-REP roastable, {} disabled, {} other error(s)",
         valid,
         users.len(),
         asrep,
         disabled,
         other
-    );
+    ));
     if a.lockout_threshold > 0 && guarded > 0 {
-        eprintln!(
-            "[*] lockout guard triggered on {guarded} user(s) ({}/{}s threshold)",
+        crate::ui::info(&format!(
+            "lockout guard triggered on {guarded} user(s) ({}/{}s threshold)",
             a.lockout_threshold, a.lockout_window
-        );
+        ));
     }
     // Spray-against-KDC always completes if we got here — even if 0 users matched, we
     // successfully talked to the KDC. Report the outcome shape.

@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+use crate::ui;
 use crate::{resolve_secret, smb_login};
 
 #[derive(Parser)]
@@ -42,12 +43,15 @@ pub(crate) async fn sessions(mut a: SessionsArgs) -> Result<()> {
     let mut srv = SrvsvcClient::bind(&mut smb, pipe).await?;
     let (list, ret) = srv.enum_sessions().await?;
     if ret != 0 {
-        eprintln!("[!] NetrSessionEnum returned 0x{ret:08x} (access denied? need local admin on many hosts)");
+        ui::warn(&format!(
+            "NetrSessionEnum returned 0x{ret:08x} (access denied? need local admin on many hosts)"
+        ));
     }
     if list.is_empty() {
-        eprintln!("[-] no sessions returned on {}", a.auth.host);
+        ui::bad(&format!("no sessions returned on {}", a.auth.host));
     } else {
-        eprintln!("[+] {} session(s) on {}:", list.len(), a.auth.host);
+        ui::ok(&format!("{} session(s) on {}:", list.len(), a.auth.host));
+        // Report body on stdout — pipeable data.
         for s in &list {
             let from = if s.client.is_empty() { "?" } else { &s.client };
             println!("    {:<24} from {from}", s.user);
@@ -78,7 +82,9 @@ pub(crate) async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
     let mut wks = WkstaUserClient::bind(&mut smb, pipe).await?;
     let (list, ret) = wks.enum_users().await?;
     if ret != 0 {
-        eprintln!("[!] NetrWkstaUserEnum returned {ret} (need local admin)");
+        ui::warn(&format!(
+            "NetrWkstaUserEnum returned {ret} (need local admin)"
+        ));
     }
     let raw = list.len();
     // Dedup on (user, domain, logon_server) — one Windows box typically emits many LSA
@@ -101,19 +107,20 @@ pub(crate) async fn wkssvc_enum(mut a: SessionsArgs) -> Result<()> {
             .or_default() += 1;
     }
     if grouped.is_empty() {
-        eprintln!(
-            "[-] no logged-on users on {} (raw={raw}, machine-hidden={machine_hidden})",
+        ui::bad(&format!(
+            "no logged-on users on {} (raw={raw}, machine-hidden={machine_hidden})",
             a.auth.host
-        );
+        ));
         if machine_hidden > 0 && !a.include_machine {
-            eprintln!("    pass --include-machine to show machine-account sessions");
+            ui::note("    pass --include-machine to show machine-account sessions");
         }
     } else {
-        eprintln!(
-            "[+] {} unique principal(s) on {} (raw={raw}, machine-hidden={machine_hidden}):",
+        ui::ok(&format!(
+            "{} unique principal(s) on {} (raw={raw}, machine-hidden={machine_hidden}):",
             grouped.len(),
             a.auth.host
-        );
+        ));
+        // Report body on stdout — pipeable data.
         for ((user, domain, server), count) in &grouped {
             let mark = if *count > 1 {
                 format!(" ×{count}")
@@ -167,13 +174,13 @@ pub(crate) async fn hku_enum(mut a: SessionsArgs) -> Result<()> {
     };
     let sids = reg.logged_on_sids().await?;
     if sids.is_empty() {
-        eprintln!("[-] no logged-on SIDs via HKU on {}", a.auth.host);
+        ui::bad(&format!("no logged-on SIDs via HKU on {}", a.auth.host));
     } else {
-        eprintln!(
-            "[+] {} logged-on SID(s) via HKU on {}:",
+        ui::ok(&format!(
+            "{} logged-on SID(s) via HKU on {}:",
             sids.len(),
             a.auth.host
-        );
+        ));
         for s in &sids {
             println!("    {}", s.sid);
         }
