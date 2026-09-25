@@ -939,13 +939,15 @@ fn warn_inert_output_flags(cmd: &Command, json: bool, text: bool) {
     }
     let label = cmd_label(cmd);
     if json {
-        eprintln!(
-            "note: --json has no effect on `{label}` — it renders a report. \
+        ui::warn(&format!(
+            "--json has no effect on `{label}` — it renders a report. \
              Use `--format json` (or `--out <file>.json`) for machine output."
-        );
+        ));
     }
     if text {
-        eprintln!("note: --text has no effect on `{label}` — it always renders a human report.");
+        ui::warn(&format!(
+            "--text has no effect on `{label}` — it always renders a human report."
+        ));
     }
 }
 
@@ -1140,9 +1142,9 @@ async fn dispatch(cmd: Command) -> Result<()> {
         Command::Attack(AttackCmd::Ptt(a)) => {
             // Emit the deprecation notice when the operator reached us through the `pth` alias.
             if std::env::args().any(|a| a == "pth") {
-                eprintln!(
-                    "[!] `attack pth` is deprecated (industry PTH = pass-the-hash); \
-                     use `attack ptt` (pass-the-ticket). Alias will be removed in 1.5.0."
+                ui::warn(
+                    "`attack pth` is deprecated (industry PTH = pass-the-hash); \
+                     use `attack ptt` (pass-the-ticket). Alias will be removed in 1.5.0.",
                 );
             }
             attacks::ptt::pth(a).await
@@ -1577,10 +1579,10 @@ async fn dcshadow(mut a: DcshadowArgs) -> Result<()> {
         }
 
         dcshadow::drsuapi_push(&drs, &dst_nc, rogue_dsa, target, attr_typ, value).await?;
-        println!(
-            "[+] DCShadow push landed: {target} attr=0x{attr_typ:08x} via rogue DSA {rogue_dsa}"
-        );
-        println!("    Verify: read the attribute back (e.g. `Get-ADUser -Filter …`) on the DC");
+        ui::ok(&format!(
+            "DCShadow push landed: {target} attr=0x{attr_typ:08x} via rogue DSA {rogue_dsa}"
+        ));
+        ui::note("Verify: read the attribute back (e.g. `Get-ADUser -Filter …`) on the DC");
         return Ok(());
     }
 
@@ -1600,24 +1602,25 @@ async fn dcshadow(mut a: DcshadowArgs) -> Result<()> {
                 "LDAP (≤2016)",
             )
         };
-        println!("[+] DCShadow prep registered rogue nTDSDSA via {path}");
-        println!("    Server : {}", dns.server_dn);
-        println!("    NTDS   : {}", dns.ntds_dn);
-        println!();
-        println!(
+        ui::ok(&format!(
+            "DCShadow prep registered rogue nTDSDSA via {path}"
+        ));
+        ui::field_err("Server", &dns.server_dn);
+        ui::field_err("NTDS  ", &dns.ntds_dn);
+        ui::note(&format!(
             "    Cleanup: `attack dcshadow --cleanup {name} --site {}`",
             a.site
-        );
+        ));
         return Ok(());
     }
     if let Some(name) = a.cleanup.as_deref() {
         use adhammer_collector::Collector;
         let mut coll = Collector::connect(&attacks::scan::config(&a.scan)).await?;
         dcshadow::cleanup(&mut coll, name, &a.site).await?;
-        println!(
-            "[+] DCShadow cleanup removed rogue nTDSDSA '{name}' under site '{}'",
+        ui::ok(&format!(
+            "DCShadow cleanup removed rogue nTDSDSA '{name}' under site '{}'",
             a.site
-        );
+        ));
         return Ok(());
     }
     use adhammer_graph::ControlPrimitive as P;
@@ -1637,18 +1640,20 @@ async fn dcshadow(mut a: DcshadowArgs) -> Result<()> {
         }
     }
     if who.is_empty() {
-        println!("== DCShadow-capable principals ==");
-        println!("  (none found — no principal outside Tier-0 holds replication rights)");
+        ui::header_err("DCShadow-capable principals");
+        ui::note("  (none found — no principal outside Tier-0 holds replication rights)");
     } else {
-        println!("== DCShadow-capable principals ({}) ==", who.len());
-        for (src, dst, kind) in &who {
-            println!("  {src:<32} → {dst}   [{}]", kind.name());
-        }
-        println!();
-        println!(
-            "These already have DCSync. Each is a shortcut to DA — running `attack dcsync --user krbtgt`"
+        ui::header_err(&format!("DCShadow-capable principals ({})", who.len()));
+        let rows: Vec<Vec<String>> = who
+            .iter()
+            .map(|(src, dst, kind)| vec![src.to_string(), dst.to_string(), kind.name().to_string()])
+            .collect();
+        ui::table(&["source", "→ target", "primitive"], &rows);
+        ui::note("");
+        ui::note(
+            "These already have DCSync. Each is a shortcut to DA — running `attack dcsync --user krbtgt`",
         );
-        println!("as any of them dumps the whole domain without a lateral move.");
+        ui::note("as any of them dumps the whole domain without a lateral move.");
     }
     Ok(())
 }

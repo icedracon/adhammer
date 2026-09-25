@@ -6,6 +6,7 @@ use dialoguer::{Confirm, Input, Password};
 use std::time::Instant;
 
 use crate::session::{self, Session};
+use crate::ui;
 use crate::{dcshadow, poison};
 
 use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
@@ -346,7 +347,7 @@ pub async fn run(use_old: bool, no_save: bool, verbose_auto_forced: bool) -> Res
     } else {
         let s = setup_wizard()?;
         if no_save {
-            eprintln!("[*] --no-save: session (creds) will NOT be written to disk");
+            ui::info("--no-save: session (creds) will NOT be written to disk");
         } else {
             save_session_for_interactive(&s)?;
         }
@@ -1619,7 +1620,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
         }
         Action::Constrained => {
             // Same S4U2Self+S4U2Proxy code path as RBCD; the difference is only intent.
-            eprintln!("[*] Constrained delegation shares the RBCD chain — same prompts below.");
+            ui::info("Constrained delegation shares the RBCD chain — same prompts below.");
             let account: String = Input::new()
                 .with_prompt("Controlled account (has msDS-AllowedToDelegateTo)")
                 .interact_text()?;
@@ -1668,12 +1669,10 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 .with_prompt("EXECUTE AS chain (comma-separated LOGINs, blank = none). Example: sa")
                 .allow_empty(true)
                 .interact_text()?;
-            eprintln!(
-                "[*] Common one-shots:\n\
-                 [*]   EXEC xp_cmdshell 'whoami'                — RCE as service account\n\
-                 [*]   SELECT SUSER_NAME(), SYSTEM_USER, HOST_NAME()  — identity + host\n\
-                 [*]   SELECT name FROM master..sysdatabases    — list databases"
-            );
+            ui::info("Common one-shots:");
+            ui::note("    EXEC xp_cmdshell 'whoami'                — RCE as service account");
+            ui::note("    SELECT SUSER_NAME(), SYSTEM_USER, HOST_NAME()  — identity + host");
+            ui::note("    SELECT name FROM master..sysdatabases    — list databases");
             let query: String = Input::new()
                 .with_prompt("SQL query (single statement)")
                 .with_initial_text("EXEC xp_cmdshell 'whoami'")
@@ -1842,7 +1841,7 @@ async fn fetch_key_and_sid(
 
     // Domain SID via LSAT (resolve the account, drop the RID).
     let sid = lookup_domain_sid(s, account).await?;
-    println!("[*] fetched {account} AES256 key + domain SID {sid}");
+    ui::info(&format!("fetched {account} AES256 key + domain SID {sid}"));
     Ok((key, sid))
 }
 
@@ -2342,18 +2341,28 @@ fn prompt_impersonation() -> Result<(String, u32)> {
 }
 
 fn print_roadmap_summary() {
-    println!();
-    println!("=== Open vectors (summary) ===");
-    println!("  Audit:  badSuccessor OU-ACL depth, ESC15/EKUwu, ESC5/6/7/10");
-    println!("  Attack: pass-the-ticket, pass-the-hash, constrained delegation");
-    println!("          GMSA/LAPS read, cert enrollment (ESC1/3 exploit)");
-    println!("          ESC8/11 relay, SVCCTL/TSCH remote exec");
-    println!("          full-domain DCSync, orchestrated coerce→relay→pkinit");
-    println!("  Stack:  LDAP channel binding, GSSAPI bind (feature flag)");
-    println!("          SVCCTL · TSCH · RRPM · NETLOGON · WINRM clients");
-    println!();
-    println!("  Full matrix: VECTORS.md in the repo root (or next to the binary source).");
-    println!("  Suggested close order: PTT → ESC5/7 passive → constrained del → GMSA/LAPS → SVCCTL/TSCH → cert enroll");
+    ui::header_err("Open vectors (summary)");
+    ui::field_err("Audit ", "badSuccessor OU-ACL depth, ESC15/EKUwu, ESC5/6/7/10");
+    ui::field_err(
+        "Attack",
+        "pass-the-ticket, pass-the-hash, constrained delegation",
+    );
+    ui::field_err(
+        "      ",
+        "GMSA/LAPS read, cert enrollment (ESC1/3 exploit)",
+    );
+    ui::field_err("      ", "ESC8/11 relay, SVCCTL/TSCH remote exec");
+    ui::field_err(
+        "      ",
+        "full-domain DCSync, orchestrated coerce→relay→pkinit",
+    );
+    ui::field_err("Stack ", "LDAP channel binding, GSSAPI bind (feature flag)");
+    ui::field_err("      ", "SVCCTL · TSCH · RRPM · NETLOGON · WINRM clients");
+    ui::note("");
+    ui::note("  Full matrix: VECTORS.md in the repo root (or next to the binary source).");
+    ui::note(
+        "  Suggested close order: PTT → ESC5/7 passive → constrained del → GMSA/LAPS → SVCCTL/TSCH → cert enroll",
+    );
 }
 
 #[cfg(test)]
