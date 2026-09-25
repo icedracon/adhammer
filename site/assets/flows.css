@@ -1,0 +1,67 @@
+/* Live SVG flows: illustrative only. Base styles are the finished frame, so reduced motion shows a complete, still diagram. */
+.live-flow { margin-block: 32px; border: 1px solid #394b50; background: #0c1419; overflow: hidden; }
+.live-flow svg { display: block; width: 100%; height: auto; }
+.live-flow figcaption { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 20px; border-top: 1px solid #22323a; color: #b7c7cc; font: 400 .875rem/1.5 var(--mono); }
+.live-flow figcaption button { min-height: 36px; padding: 6px 12px; border: 1px solid #3f6a63; background: #12302c; color: #dff5ef; font: inherit; font-size: .8125rem; cursor: pointer; }
+.live-flow figcaption button:disabled { opacity: .6; cursor: default; }
+.live-flow figcaption button:focus-visible { outline: 2px solid #f8795b; outline-offset: 3px; }
+@media (max-width: 700px) { .live-flow figcaption { flex-wrap: wrap; padding: 12px; } }
+
+.lf-mono { font-family: var(--mono); }
+.lf-label { font: 500 11px var(--mono); letter-spacing: .14em; fill: #7f959b; }
+.lf-note { font: 400 12.5px var(--display); fill: #9fb2b6; }
+
+/* Shared animation plumbing */
+.live-flow .anim { animation-duration: var(--dur, 9s); animation-iteration-count: infinite; animation-fill-mode: both; animation-timing-function: cubic-bezier(.45, 0, .25, 1); }
+.live-flow .pop { transform-box: fill-box; transform-origin: center; }
+.live-flow .grow { transform-box: fill-box; transform-origin: left center; }
+.live-flow.is-paused .anim, .live-flow.is-paused .anim * { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .live-flow .anim { animation: none !important; } }
+html[data-motion="paused"] .live-flow .anim { animation-play-state: paused; }
+
+/* ---------- Evidence flow: directory -> graph -> review ---------- */
+#evidence-flow { --dur: 9s; }
+#evidence-flow .row { animation-name: lf-row; }
+#evidence-flow .comet { stroke-dasharray: 10 200; animation-name: lf-comet; }
+#evidence-flow .edge { stroke-dasharray: 100; animation-name: lf-draw; }
+#evidence-flow .node { animation-name: lf-pop; }
+#evidence-flow .route { stroke-dasharray: 100; animation-name: lf-route; }
+#evidence-flow .route-pulse { stroke-dasharray: 8 200; animation-name: lf-route-pulse; }
+#evidence-flow .handoff { stroke-dasharray: 12 200; animation-name: lf-handoff; }
+#evidence-flow .bar { animation-name: lf-bar; }
+#evidence-flow .badge { animation-name: lf-badge; }
+#evidence-flow .card-glow { animation-name: lf-card; }
+#evidence-flow .stage-on { animation-name: lf-stage; }
+
+@keyframes lf-row { 0% { opacity: .3; } 5% { opacity: 1; } 84% { opacity: 1; } 94%, 100% { opacity: .3; } }
+@keyframes lf-comet { 0% { stroke-dashoffset: 10; opacity: 1; } 16% { stroke-dashoffset: -100; opacity: 1; } 17%, 100% { stroke-dashoffset: -100; opacity: 0; } }
+@keyframes lf-draw { 0%, 12% { stroke-dashoffset: 100; opacity: 1; } 30% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: 1; } 95%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes lf-pop { 0%, 14% { transform: scale(0); opacity: 0; } 22% { transform: scale(1.15); opacity: 1; } 26% { transform: scale(1); } 86% { opacity: 1; transform: scale(1); } 95%, 100% { opacity: 0; transform: scale(.8); } }
+@keyframes lf-route { 0%, 34% { stroke-dashoffset: 100; opacity: 1; } 52% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes lf-route-pulse { 0%, 52% { stroke-dashoffset: 8; opacity: 0; } 53% { opacity: 1; } 66% { stroke-dashoffset: -100; opacity: 1; } 67%, 100% { stroke-dashoffset: -100; opacity: 0; } }
+@keyframes lf-handoff { 0%, 62% { stroke-dashoffset: 12; opacity: 0; } 63% { opacity: 1; } 71% { stroke-dashoffset: -100; opacity: 1; } 72%, 100% { stroke-dashoffset: -100; opacity: 0; } }
+@keyframes lf-bar { 0%, 70% { transform: scaleX(0); } 78% { transform: scaleX(1); } 88% { transform: scaleX(1); opacity: 1; } 96%, 100% { transform: scaleX(1); opacity: 0; } }
+@keyframes lf-badge { 0%, 78% { transform: scale(.6); opacity: 0; } 82% { transform: scale(1.08); opacity: 1; } 85% { transform: scale(1); } 90% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes lf-card { 0%, 68% { stroke-opacity: .35; } 72% { stroke-opacity: 1; } 88% { stroke-opacity: 1; } 96%, 100% { stroke-opacity: .35; } }
+@keyframes lf-stage { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+/* ---------- Report flow: one record -> JSON / HTML / Markdown ---------- */
+#report-flow { --dur: 6s; }
+#report-flow .core { animation-name: lf-core; }
+#report-flow .fiber { stroke-dasharray: 14 200; animation-name: lf-fiber; }
+#report-flow .out { animation-name: lf-out; }
+#report-flow .out-fill { animation-name: lf-out-fill; }
+#report-flow .ring { animation-name: lf-ring; }
+
+@keyframes lf-core { 0%, 100% { opacity: .55; transform: scale(1); } 12% { opacity: 1; transform: scale(1.12); } 30% { opacity: .7; transform: scale(1); } }
+@keyframes lf-ring { 0% { opacity: .7; transform: scale(1); } 40%, 100% { opacity: 0; transform: scale(2.4); } }
+@keyframes lf-fiber { 0%, 8% { stroke-dashoffset: 14; opacity: 0; } 9% { opacity: 1; } 34% { stroke-dashoffset: -100; opacity: 1; } 35%, 100% { stroke-dashoffset: -100; opacity: 0; } }
+@keyframes lf-out { 0%, 30% { stroke-opacity: .3; } 36% { stroke-opacity: 1; } 80% { stroke-opacity: 1; } 95%, 100% { stroke-opacity: .3; } }
+@keyframes lf-out-fill { 0%, 32% { transform: scaleX(0); opacity: 0; } 44% { transform: scaleX(1); opacity: 1; } 84% { transform: scaleX(1); opacity: 1; } 96%, 100% { transform: scaleX(1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live-flow :is(.comet, .route-pulse, .handoff, .fiber, .ring) { opacity: 0; } }
+/* Small screens: keep diagram text readable; the diagram swipes inside its frame instead of shrinking. */
+@media (max-width: 600px) {
+  .live-flow .lf-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .live-flow .lf-scroll svg { width: 660px; max-width: none; }
+}
+.live-flow .lf-scroll:focus-visible { outline: 2px solid #f8795b; outline-offset: -2px; }
