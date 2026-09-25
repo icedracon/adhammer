@@ -6,6 +6,7 @@
 //! application partition and applies the change through the existing `Collector` surface.
 //! Every write PREVIEWS by default; `--commit` applies it to the DC (default-safe).
 
+use crate::ui;
 use adhammer_collector::dns_record;
 use adhammer_collector::{Collector, LdapConfig};
 use anyhow::{Context, Result};
@@ -111,13 +112,12 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
                 .unwrap_or(1);
             let blob = dns_record::build_a_record(&ip, a.ttl, serial);
             if dry_run {
-                println!(
-                    "[dry-run] would write attribute=dnsRecord target={dn} \
-                     value=<A {ip}, ttl={}, {}-byte DNS_RPC_RECORD>",
+                ui::info(&format!(
+                    "[dry-run] would write attribute=dnsRecord target={dn} value=<A {ip}, ttl={}, {}-byte DNS_RPC_RECORD>",
                     a.ttl,
                     blob.len()
-                );
-                println!("[dry-run] no change made");
+                ));
+                ui::info("[dry-run] no change made");
                 return Ok(());
             }
             if a.action == DnsAction::AddA {
@@ -127,36 +127,42 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
                     ("dnsRecord", vec![blob.clone()]),
                 ];
                 match c.add_object(&dn, attrs).await {
-                    Ok(()) => println!("[+] created A record {record}.{zone} → {ip}"),
+                    Ok(()) => ui::ok(&format!("created A record {record}.{zone} → {ip}")),
                     // Node already exists (or add refused) — fall back to replacing the blob;
                     // a genuine access error re-surfaces from write_binary below.
                     Err(_) => {
                         c.write_binary(&dn, "dnsRecord", blob).await?;
-                        println!("[+] node existed — replaced dnsRecord on {record}.{zone} → {ip}");
+                        ui::ok(&format!(
+                            "node existed — replaced dnsRecord on {record}.{zone} → {ip}"
+                        ));
                     }
                 }
             } else {
                 c.write_binary(&dn, "dnsRecord", blob).await?;
-                println!("[+] modified A record {record}.{zone} → {ip}");
+                ui::ok(&format!("modified A record {record}.{zone} → {ip}"));
             }
         }
         DnsAction::Tombstone => {
             if dry_run {
-                println!("[dry-run] would write attribute=dnsTombstoned target={dn} value=TRUE");
-                println!("[dry-run] no change made");
+                ui::info(&format!(
+                    "[dry-run] would write attribute=dnsTombstoned target={dn} value=TRUE"
+                ));
+                ui::info("[dry-run] no change made");
                 return Ok(());
             }
             c.modify_replace(&dn, "dnsTombstoned", "TRUE").await?;
-            println!("[+] tombstoned {record}.{zone} (dnsTombstoned=TRUE)");
+            ui::ok(&format!(
+                "tombstoned {record}.{zone} (dnsTombstoned=TRUE)"
+            ));
         }
         DnsAction::Delete => {
             if dry_run {
-                println!("[dry-run] would delete object target={dn}");
-                println!("[dry-run] no change made");
+                ui::info(&format!("[dry-run] would delete object target={dn}"));
+                ui::info("[dry-run] no change made");
                 return Ok(());
             }
             c.delete_object(&dn).await?;
-            println!("[+] deleted DNS node {record}.{zone}");
+            ui::ok(&format!("deleted DNS node {record}.{zone}"));
         }
     }
     Ok(())

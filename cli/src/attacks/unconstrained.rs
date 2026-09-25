@@ -18,6 +18,8 @@ use anyhow::Result;
 use adhammer_collector::Collector;
 
 use crate::attacks::scan::{config, ScanArgs};
+use crate::ui;
+use crate::ui::OutcomeKind;
 
 /// `attack unconstrained` — locate hosts running with `TRUSTED_FOR_DELEGATION` (UAC bit 0x80000)
 /// and print the abuse recipe for each. A domain controller carrying the bit is expected
@@ -56,36 +58,58 @@ pub(crate) async fn unconstrained(a: ScanArgs) -> Result<()> {
         }
     }
 
-    println!(
-        "== Unconstrained delegation ({} DC baseline, {} risky non-DC host(s)) ==",
-        dc_baseline,
-        risky.len()
+    let dc_label = dc_baseline.to_string();
+    let risky_label = risky.len().to_string();
+    ui::verb_banner(
+        "attack unconstrained",
+        &[
+            ("scope", "LDAP-only recon"),
+            ("dc-baseline", dc_label.as_str()),
+            ("risky-non-dc", risky_label.as_str()),
+        ],
     );
     if risky.is_empty() {
-        println!("  (none — only DCs carry TRUSTED_FOR_DELEGATION, which is expected)");
+        ui::note("(none — only DCs carry TRUSTED_FOR_DELEGATION, which is expected)");
     } else {
-        for (sam, dn) in &risky {
-            println!("  [!] {sam:<28}  {dn}");
-        }
-        println!();
-        println!("Abuse recipe (once you control one of these hosts):");
-        println!("  1. attack coerce --host <DC> --pipe efsrpc  --listener <this-host>");
-        println!("     (or --pipe spoolss|netdfs|fssagentrpc)");
-        println!("  2. Capture the incoming Kerberos AP-REQ on this host.");
-        println!("  3. Extract the forwarded TGT from the Authenticator (GSS-KRB5 Deleg flag).");
-        println!("  4. attack dcsync --user krbtgt   (or golden-ticket forge)");
+        let rows: Vec<Vec<String>> = risky
+            .iter()
+            .map(|(sam, dn)| vec![(*sam).to_string(), (*dn).to_string()])
+            .collect();
+        ui::table(&["sAMAccountName", "DN"], &rows);
+        ui::note("");
+        ui::note("Abuse recipe (once you control one of these hosts):");
+        ui::note("  1. attack coerce --host <DC> --pipe efsrpc  --listener <this-host>");
+        ui::note("     (or --pipe spoolss|netdfs|fssagentrpc)");
+        ui::note("  2. Capture the incoming Kerberos AP-REQ on this host.");
+        ui::note("  3. Extract the forwarded TGT from the Authenticator (GSS-KRB5 Deleg flag).");
+        ui::note("  4. attack dcsync --user krbtgt   (or golden-ticket forge)");
     }
 
     if !proto_transition.is_empty() {
-        println!();
-        println!(
-            "== Constrained delegation w/ protocol transition ({}) — S4U2Self abuse ==",
+        ui::note("");
+        ui::info(&format!(
+            "Constrained delegation w/ protocol transition ({}) — S4U2Self abuse",
             proto_transition.len()
-        );
-        for (sam, dn) in &proto_transition {
-            println!("  {sam:<28}  {dn}");
-        }
-        println!("  → attack constrained --host <this-host> --target <spn>");
+        ));
+        let rows: Vec<Vec<String>> = proto_transition
+            .iter()
+            .map(|(sam, dn)| vec![(*sam).to_string(), (*dn).to_string()])
+            .collect();
+        ui::table(&["sAMAccountName", "DN"], &rows);
+        ui::note("→ attack constrained --host <this-host> --target <spn>");
     }
+
+    // Close with a boxed summary so operators find the recon boundary in scrollback.
+    let status = if risky.is_empty() && proto_transition.is_empty() {
+        OutcomeKind::Clean
+    } else {
+        OutcomeKind::Validated
+    };
+    ui::summary_box(
+        "domain delegation posture",
+        status,
+        &[],
+        None,
+    );
     Ok(())
 }
