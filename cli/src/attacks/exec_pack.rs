@@ -16,6 +16,7 @@
 //! Three different host-side telemetry footprints; pick whichever isn't tripping
 //! the SIEM. All three support pass-the-hash via `--nt-hash`.
 
+use crate::ui;
 use anyhow::Result;
 use clap::Parser;
 
@@ -55,17 +56,21 @@ pub(crate) async fn exec_cmd(mut a: ExecArgs) -> Result<()> {
         "SERVICE NOT DELETED"
     };
     if r.ran {
-        println!(
-            "[+] executed as LocalSystem (service '{}', start win32 {}); {clean}",
+        ui::ok(&format!(
+            "executed as LocalSystem (service '{}', start win32 {}); {clean}",
             r.service, r.start_win32
-        );
+        ));
     } else {
-        println!("[-] service '{}' created but start returned win32 {} (command may not have run); {clean}", r.service, r.start_win32);
+        ui::bad(&format!(
+            "service '{}' created but start returned win32 {} (command may not have run); {clean}",
+            r.service, r.start_win32
+        ));
     }
     match r.output {
+        // Command output is DATA — piped to grep/awk. Keep on stdout.
         Some(o) if !o.is_empty() => println!("\n{o}"),
-        Some(_) => println!("[*] command produced no output"),
-        None => println!("[*] output not captured (see warnings; command may still have run)"),
+        Some(_) => ui::info("command produced no output"),
+        None => ui::info("output not captured (see warnings; command may still have run)"),
     }
     Ok(())
 }
@@ -154,22 +159,23 @@ pub(crate) async fn wmiexec_cmd(mut a: ExecArgs) -> Result<()> {
     match out {
         Some(b) if !b.is_empty() => {
             let s = String::from_utf8_lossy(&b);
+            // Command output is DATA — piped to grep/awk. Keep on stdout.
             println!("\n{}", s.trim_end());
         }
-        Some(_) => crate::ui::info("command produced no output"),
+        Some(_) => ui::info("command produced no output"),
         None => {
-            crate::ui::info("output not captured (command may still have run)");
+            ui::info("output not captured (command may still have run)");
             if let Some(err) = last_err {
-                eprintln!("[hint] last C$ read error: {err}");
+                ui::note(&format!("[hint] last C$ read error: {err}"));
             }
-            eprintln!(
+            ui::note(&format!(
                 "[hint] manual retrieval: `smbclient //{h}/C$ -c 'get {p}' -U {d}/{u}%<pw>` \
                  (Windows/WmiPrvSE sometimes flushes >8s after Win32_Process.Create returns)",
                 h = a.auth.host,
                 p = out_rel.replace('\\', "/"),
                 d = a.auth.domain,
                 u = a.auth.user,
-            );
+            ));
         }
     }
     Ok(())
@@ -222,35 +228,38 @@ pub(crate) async fn atexec_cmd(mut a: ExecArgs) -> Result<()> {
                 || msg.contains("STATUS_PIPE_BUSY")
                 || msg.contains("0xc00000ae");
             if looks_sealed {
-                eprintln!("[!] MS-TSCH sealed-RPC fault: {msg}");
-                eprintln!(
+                ui::warn(&format!("MS-TSCH sealed-RPC fault: {msg}"));
+                ui::note(
                     "[hint] this step is a known adhammer gap: sealed-response \
                      auth_value handling on the SchRpcRun path; unblocked by the \
-                     kerbcore swap tracked at [[project-kerbcore]]."
+                     kerbcore swap tracked at [[project-kerbcore]].",
                 );
-                eprintln!(
+                ui::note(&format!(
                     "[hint] external tool: impacket-atexec {d}/{u}@{h} '{c}'",
                     d = a.auth.domain,
                     u = a.auth.user,
                     h = a.auth.host,
                     c = a.command
-                );
-                eprintln!("[hint] see docs/GAPS.md#psexec-sealed for the full row");
+                ));
+                ui::note("[hint] see docs/GAPS.md#psexec-sealed for the full row");
             }
             return Err(e.into());
         }
     };
-    println!("[+] scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted");
+    ui::ok(&format!(
+        "scheduled task {path} registered + run as LocalSystem (run HRESULT 0x{run_hr:08x}); deleted"
+    ));
 
     smb.tree_connect(&format!("\\\\{}\\C$", a.auth.host))
         .await?;
     match smb.read_file_delete(&out_rel).await {
+        // Command output is DATA — piped to grep/awk. Keep on stdout.
         Ok(b) if !b.is_empty() => println!(
             "\n{}",
             String::from_utf8_lossy(&b).replace('\r', "").trim_end()
         ),
-        Ok(_) => println!("[*] command produced no output"),
-        Err(e) => println!("[*] output not captured: {e}"),
+        Ok(_) => ui::info("command produced no output"),
+        Err(e) => ui::info(&format!("output not captured: {e}")),
     }
     Ok(())
 }
