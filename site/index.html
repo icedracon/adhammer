@@ -1889,6 +1889,7 @@
   <link rel="stylesheet" href="assets/observatory.css">
   <link rel="stylesheet" href="assets/esc-explorer.css">
   <link rel="stylesheet" href="assets/cli-methods.css">
+  <link rel="stylesheet" href="assets/polish.css">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -2130,11 +2131,11 @@
     </section>
 
     <details class="research-drawer" id="benchmarks">
-      <summary><span>Reference / performance</span><b>Historical benchmark record</b><i aria-hidden="true">+</i></summary>
+      <summary><span>Reference / performance</span><b>Historical benchmark record<small>12 recorded scenarios · versions · method · exact milliseconds</small></b><i aria-hidden="true">+</i></summary>
       <section class="benchmarks">
       <div class="shell">
         <div class="bench-head reveal">
-          <span class="eyebrow proof">04 / Measured in the open</span>
+          <span class="eyebrow proof">Reference / Measured in the open</span>
           <h2>Recorded benchmarks.</h2>
           <p>Historical ADhammer 1.3.3 measurements, with tool versions, transport differences, and raw logs. These results do not establish current-release performance.</p>
         </div>
@@ -2175,7 +2176,7 @@
     <section class="esc-explorer" id="coverage" aria-labelledby="esc-explorer-title">
       <div class="shell" id="esc-explorer">
         <div class="esc-intro">
-          <div><span class="esc-kicker">05 / AD CS field guide</span><h2 id="esc-explorer-title">Understand the condition.<br>Know what to check.</h2></div>
+          <div><span class="esc-kicker">04 / AD CS field guide</span><h2 id="esc-explorer-title">Understand the condition.<br><em>Know what to check.</em></h2></div>
           <p>Explore ESC1–ESC16 through configuration, evidence, and defensive checks. Select a class for its explanation and an ADhammer example where a focused check is verified.</p>
         </div>
         <div class="esc-dial-layout" id="esc-dial-layout" hidden>
@@ -2238,7 +2239,7 @@
 
     <section class="cli-methods" id="methods" aria-labelledby="methods-title">
       <div class="shell">
-        <div class="methods-heading"><div><span class="eyebrow">Field notes / CLI methods</span><h2 id="methods-title">From command<br>to <em>context.</em></h2></div><p>Choose the question first. See what the command reads, what it returns, and what it cannot prove.</p></div>
+        <div class="methods-heading"><div><span class="eyebrow">05 / CLI methods</span><h2 id="methods-title">From command<br>to <em>context.</em></h2></div><p>Choose the question first. See what the command reads, what it returns, and what it cannot prove.</p></div>
         <div class="methods-cinema">
           <div class="methods-screen">
             <video id="methods-film" data-ambient-video muted loop playsinline preload="none" poster="assets/cli-workflow-poster.jpg" width="1280" height="720" aria-label="AD CS template review: a continuously looping illustrative walkthrough" aria-describedby="film-description">
@@ -2278,11 +2279,11 @@
     </section>
 
     <details class="research-drawer" id="protocols">
-      <summary><span>Reference / engineering</span><b>Explore the Rust foundations</b><i aria-hidden="true">+</i></summary>
+      <summary><span>Reference / engineering</span><b>Explore the Rust foundations<small>The standalone crates ADhammer composes into one engine</small></b><i aria-hidden="true">+</i></summary>
       <section class="protocols">
       <div class="shell">
         <div class="protocol-head reveal">
-          <div><span class="eyebrow">06 / Rust ecosystem</span><h2>Under the surface.</h2></div>
+          <div><span class="eyebrow">Reference / Rust ecosystem</span><h2>Under the surface.</h2></div>
           <p>ADhammer composes published standalone icedracon crates into one Rust engine. Each layer remains independently inspectable and reusable outside the binary.</p>
         </div>
         <div class="stack-map reveal" aria-label="Protocol layers composed by ADhammer">
