@@ -1,0 +1,44 @@
+/* Motion system: one set of timings and curves for the whole page.
+   Only transform and opacity animate. Without JS, under reduced motion, or with motion paused, everything is simply shown. */
+:root {
+  --m-ease-out: cubic-bezier(.22, 1, .36, 1);
+  --m-ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --m-fast: 180ms;
+  --m-base: 320ms;
+  --m-slow: 900ms;
+  --m-stagger: 90ms;
+}
+
+/* Heading line reveal: each line rises from behind its own mask. */
+m-line { display: block; overflow: hidden; padding: 0 .12em .14em; margin: 0 -.12em -.14em; }
+m-line-in { display: inline-block; }
+.js .m-heading:not(.m-in) m-line-in { transform: translate3d(0, 108%, 0) rotate(1.5deg); opacity: 0; }
+.js .m-heading m-line-in {
+  transform-origin: 0 100%;
+  transition: transform var(--m-slow) var(--m-ease-out), opacity calc(var(--m-slow) * .6) ease;
+  transition-delay: calc(var(--i, 0) * var(--m-stagger));
+}
+
+/* Rolling version digit: a vertical strip of digits inside a one-digit window. */
+m-roll { display: inline-block; height: 1em; line-height: 1; overflow: hidden; vertical-align: -.08em; }
+m-roll-strip { display: flex; flex-direction: column; transition: transform 1.4s var(--m-ease-in-out) .25s; }
+m-roll-strip > span { height: 1em; line-height: 1; }
+.js m-roll:not(.m-in) m-roll-strip { transform: none; }
+
+/* Pointer tilt with a soft sheen that follows the cursor. Fine pointers only. */
+.m-tilt { transform-style: preserve-3d; transition: transform var(--m-base) var(--m-ease-out); will-change: transform; position: relative; }
+.m-tilt::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; opacity: 0;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, .22), transparent 60%);
+  transition: opacity var(--m-base) ease;
+}
+.m-tilt.m-hover::after { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .js .m-heading m-line-in { transform: none !important; opacity: 1 !important; transition: none; }
+  m-roll-strip { transition: none; }
+  .m-tilt { transform: none !important; }
+  .m-tilt::after { display: none; }
+}
+html[data-motion="paused"] .m-heading m-line-in { transform: none !important; opacity: 1 !important; transition: none; }
+html[data-motion="paused"] .m-tilt { transform: none !important; }
