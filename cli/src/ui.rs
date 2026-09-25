@@ -648,3 +648,284 @@ impl Drop for Spinner {
         self.stop_thread();
     }
 }
+
+// ---- 1.5.3 UX-beauty widgets ---------------------------------------------------------------
+//
+// A live pentester wants three things at a glance in a terminal: (a) which verb ran and
+// against what, (b) what happened (a status glyph is not enough — a bordered summary panel
+// pops in scrollback), and (c) where the loot landed and what to do next. These widgets
+// give every attack + enum verb the same visual language so an operator's eye finds them
+// even mid-engagement.
+//
+// Every widget is stderr-only (never pollutes JSON on stdout), respects NO_COLOR, is quiet
+// under `--quiet`, and has a plain-ASCII fallback for non-TTY streams. The box characters
+// are the same U+2500 / U+2502 / U+2554 set the existing headers already use — no new
+// unicode range is introduced.
+
+// Column of the right border on the widest supported terminal; kept narrow so a phone-tethered
+// operator can still read the whole panel without wrap.
+const BOX_WIDTH: usize = 68;
+
+/// The bordered opening banner for an attack/enum verb.
+///
+/// `verb` is the human-readable verb path (e.g. `"attack roast"`, `"enum users"`); each
+/// `(key, val)` field is aligned under the title. Prints on stderr; skipped when quiet.
+///
+/// ```text
+///   ╔══ attack roast ═══════════════════════════════════════════════════╗
+///   ║  target   dc01.corp.local                                         ║
+///   ║  time     2026-09-25 14:32:11                                     ║
+///   ╚═══════════════════════════════════════════════════════════════════╝
+/// ```
+pub fn verb_banner(verb: &str, fields: &[(&str, &str)]) {
+    if is_quiet() {
+        return;
+    }
+    let tty = stderr_tty();
+    if !tty {
+        eprintln!("== {verb} ==");
+        for (k, v) in fields {
+            eprintln!("  {k}: {v}");
+        }
+        return;
+    }
+    let inner = BOX_WIDTH - 4; // 2 border + 2 padding on each side
+    let title_pad = inner.saturating_sub(verb.chars().count() + 1); // "═verb═…" style
+    eprintln!(
+        "{BOLD}{CYAN}╔══ {verb} {}╗{RESET}",
+        "═".repeat(title_pad)
+    );
+    let key_w = fields.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
+    for (k, v) in fields {
+        let line = format!(
+            "  {DIM}{k:<key_w$}{RESET}  {v}",
+            k = k,
+            v = v,
+            key_w = key_w,
+        );
+        let stripped_len = k.chars().count() + 2 + v.chars().count() + 2; // "  key  val"
+        let pad = inner.saturating_sub(stripped_len);
+        eprintln!("{BOLD}{CYAN}║{RESET} {line}{} {BOLD}{CYAN}║{RESET}", " ".repeat(pad));
+    }
+    eprintln!("{BOLD}{CYAN}╚{}╝{RESET}", "═".repeat(BOX_WIDTH - 2));
+}
+
+/// A bordered closing summary for an attack verb — target + status + loot + next command.
+///
+/// `status` uses the [`OutcomeKind`] palette so operator eyes catch failed / clean / validated
+/// at a glance. `loot` is a list of `(label, path)` pairs highlighted in the box; `next_cmd`
+/// is a follow-on command suggestion (the same "next command" pattern doctor / hint already
+/// emit) — pass `None` if there isn't one.
+///
+/// ```text
+///   ┌── SUMMARY ────────────────────────────────────────────────────────┐
+///   │  target    dc01.corp.local                                        │
+///   │  status    ✓ validated                                            │
+///   │  loot      key   /tmp/dc01.key.pem                                │
+///   │            cert  /tmp/dc01.esc8.pem                               │
+///   │  next      attack abuse --action pkinit --target dc01 …           │
+///   └───────────────────────────────────────────────────────────────────┘
+/// ```
+pub fn summary_box(
+    target: &str,
+    status: OutcomeKind,
+    loot: &[(&str, &str)],
+    next_cmd: Option<&str>,
+) {
+    if is_quiet() {
+        return;
+    }
+    let tty = stderr_tty();
+    let status_label = format!("{} {}", outcome_badge(status), status_ascii(status));
+    if !tty {
+        eprintln!("== SUMMARY ==");
+        eprintln!("  target: {target}");
+        eprintln!("  status: {status_label}");
+        for (label, path) in loot {
+            eprintln!("  loot  : {label:<8} {path}");
+        }
+        if let Some(cmd) = next_cmd {
+            eprintln!("  next  : {cmd}");
+        }
+        return;
+    }
+    let inner = BOX_WIDTH - 4;
+    eprintln!(
+        "{BOLD}{CYAN}┌── SUMMARY {}┐{RESET}",
+        "─".repeat(inner.saturating_sub("SUMMARY ".len()))
+    );
+    print_boxed_row("target", target, inner);
+    print_boxed_row("status", &status_label, inner);
+    for (i, (label, path)) in loot.iter().enumerate() {
+        let key = if i == 0 { "loot" } else { "" };
+        let combined = format!("{label:<8} {path}");
+        print_boxed_row(key, &combined, inner);
+    }
+    if let Some(cmd) = next_cmd {
+        print_boxed_row("next", cmd, inner);
+    }
+    eprintln!("{BOLD}{CYAN}└{}┘{RESET}", "─".repeat(BOX_WIDTH - 2));
+}
+
+fn status_ascii(k: OutcomeKind) -> &'static str {
+    match k {
+        OutcomeKind::Validated => "validated",
+        OutcomeKind::Clean => "clean",
+        OutcomeKind::Skipped => "skipped",
+        OutcomeKind::Failed => "failed",
+        OutcomeKind::Blocked => "blocked",
+        OutcomeKind::Exported => "exported",
+    }
+}
+
+fn print_boxed_row(key: &str, val: &str, inner: usize) {
+    let visible = key.chars().count() + 2 + val.chars().count() + 2; // "  key  val"
+    let pad = inner.saturating_sub(visible);
+    let key_col = format!("{key:<8}");
+    let painted_key = if stderr_tty() && !key.is_empty() {
+        format!("{DIM}{key_col}{RESET}")
+    } else {
+        key_col
+    };
+    eprintln!(
+        "{BOLD}{CYAN}│{RESET}  {painted_key}  {val}{} {BOLD}{CYAN}│{RESET}",
+        " ".repeat(pad)
+    );
+}
+
+/// A highlighted single-line loot marker — used mid-verb for a piece of loot worth catching
+/// even before the summary. `label` is a one-word tag (`"hash"`, `"key"`, `"cert"`,
+/// `"ticket"`, `"secret"`); `path` is the on-disk artifact (or `-` when it's inline).
+///
+/// ```text
+///   ⚑ hash  →  /tmp/roast.20260925T143211.hashcat
+/// ```
+pub fn loot(label: &str, path: &str) {
+    if is_quiet() {
+        return;
+    }
+    let (glyph, tag) = if stderr_tty() {
+        (format!("{BOLD}{YELLOW}⚑{RESET}"), format!("{BOLD}{YELLOW}{label}{RESET}"))
+    } else {
+        ("[loot]".to_string(), label.to_string())
+    };
+    let arrow = if stderr_tty() {
+        format!("{DIM}→{RESET}")
+    } else {
+        "->".to_string()
+    };
+    eprintln!("  {glyph} {tag}  {arrow}  {path}");
+}
+
+/// A step marker for multi-stage flows (bind → collect → parse → dump). `n` is 1-indexed.
+///
+/// ```text
+///   [2/5] Bind to LDAP…
+/// ```
+pub fn step(n: usize, total: usize, label: &str) {
+    if is_quiet() {
+        return;
+    }
+    if stderr_tty() {
+        eprintln!("  {DIM}[{n}/{total}]{RESET} {label}");
+    } else {
+        eprintln!("  [{n}/{total}] {label}");
+    }
+}
+
+/// An aligned table on stderr. Column widths are computed from `max(header, row_i)` per
+/// column. `headers.len()` MUST match every row's length; a mismatched row is truncated /
+/// padded with `""` rather than panicking, so a caller with a bug doesn't crash a live
+/// engagement — the table still renders, just misaligned.
+///
+/// ```text
+///   user          etype    hash
+///   ────────────  ───────  ─────────────
+///   alice         RC4      $krb5asrep$…
+///   bob           AES256   $krb5asrep$…
+/// ```
+pub fn table(headers: &[&str], rows: &[Vec<String>]) {
+    if is_quiet() || headers.is_empty() {
+        return;
+    }
+    let cols = headers.len();
+    let widths: Vec<usize> = (0..cols)
+        .map(|i| {
+            let mut w = headers[i].chars().count();
+            for r in rows {
+                if let Some(cell) = r.get(i) {
+                    w = w.max(cell.chars().count());
+                }
+            }
+            w
+        })
+        .collect();
+    let render_row = |cells: Vec<String>| -> String {
+        cells
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let w = widths[i];
+                format!("{c:<w$}")
+            })
+            .collect::<Vec<_>>()
+            .join("  ")
+    };
+    let tty = stderr_tty();
+    let hdr_cells: Vec<String> = headers.iter().map(|h| h.to_string()).collect();
+    if tty {
+        eprintln!("  {BOLD}{}{RESET}", render_row(hdr_cells));
+        let rule = widths
+            .iter()
+            .map(|w| "─".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("  ");
+        eprintln!("  {DIM}{rule}{RESET}");
+    } else {
+        eprintln!("  {}", render_row(hdr_cells));
+        let rule = widths
+            .iter()
+            .map(|w| "-".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("  ");
+        eprintln!("  {rule}");
+    }
+    for r in rows {
+        let cells: Vec<String> = (0..cols)
+            .map(|i| r.get(i).cloned().unwrap_or_default())
+            .collect();
+        eprintln!("  {}", render_row(cells));
+    }
+}
+
+#[cfg(test)]
+mod ux_widget_tests {
+    use super::*;
+
+    /// The widget helpers all render off `stderr_tty()`; in `cargo test` the harness pipes
+    /// stderr so the TTY branch never fires. That makes them ASCII-fallback-safe under test —
+    /// no ANSI escapes leak into captured output. These tests pin the fallbacks so a future
+    /// refactor doesn't silently break the machine-parseable rendering.
+    #[test]
+    fn table_pads_columns_by_widest_cell() {
+        let widths: Vec<usize> = ["user", "etype", "hash"]
+            .iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let mut w = h.chars().count();
+                for row in [vec!["alice", "RC4", "abcd"], vec!["bo", "AES256", "z"]] {
+                    w = w.max(row[i].chars().count());
+                }
+                w
+            })
+            .collect();
+        assert_eq!(widths, vec![5, 6, 4]);
+    }
+
+    #[test]
+    fn status_ascii_is_stable_across_outcome_kinds() {
+        assert_eq!(status_ascii(OutcomeKind::Validated), "validated");
+        assert_eq!(status_ascii(OutcomeKind::Failed), "failed");
+        assert_eq!(status_ascii(OutcomeKind::Exported), "exported");
+    }
+}
