@@ -42,3 +42,9 @@ m-roll-strip > span { height: 1em; line-height: 1; }
 }
 html[data-motion="paused"] .m-heading m-line-in { transform: none !important; opacity: 1 !important; transition: none; }
 html[data-motion="paused"] .m-tilt { transform: none !important; }
+
+/* Ice Genesis layer: particles sit between the dragon art and the route graph canvas. */
+.ice-genesis { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.genesis-on .dragon-rig { opacity: calc(.2 - var(--genesis, 0) * .5) !important; transition: opacity 1.8s ease; }
+@starting-style { .genesis-on .dragon-rig { opacity: 0 !important; } }
+.genesis-on #living-graph { opacity: calc(.5 - var(--genesis, 0) * 1.6); }
