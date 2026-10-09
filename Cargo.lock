@@ -205,7 +205,7 @@ dependencies = [
  "aes 0.8.4",
  "cbc 0.1.2",
  "dcerpc",
- "des 0.8.1",
+ "des 0.9.0",
  "hex",
  "md-5",
  "rc4",
