@@ -147,7 +147,7 @@ dependencies = [
  "picky-asn1",
  "picky-asn1-der",
  "picky-asn1-x509",
- "picky-krb 0.9.6",
+ "picky-krb 0.11.1",
  "rand 0.8.8",
  "rsa",
  "serde",
