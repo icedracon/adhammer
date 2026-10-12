@@ -25,6 +25,7 @@ use picky_krb::messages::{AsRep, AsReq, KdcReq, KdcReqBody, KrbError};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+pub mod ccache;
 pub mod csr;
 pub mod gss;
 pub mod pac;

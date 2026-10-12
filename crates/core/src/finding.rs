@@ -314,7 +314,7 @@ impl Finding {
             return match n {
                 1 => mk(
                     "escalate via ESC1 (spoofed-UPN enrollment)",
-                    format!("adhammer attack icpr-esc1 --url ldaps://<dc> --user <user> --template {tmpl}"),
+                    format!("adhammer attack icpr-esc1 --host <dc> --domain <domain> --user <user> --ca <ca> --template {tmpl} --target-upn <upn>"),
                     true,
                 ),
                 4 => mk(
@@ -324,12 +324,12 @@ impl Finding {
                 ),
                 8 => mk(
                     "relay to AD CS Web Enrollment (ESC8)",
-                    "adhammer attack relay --target adcs --listener <your-ip>".into(),
+                    "adhammer attack relay --target adcs-http --ca-host <ca> --target-dc <dc> --realm <realm> --target-object <object>".into(),
                     true,
                 ),
                 11 => mk(
                     "relay to ICPR (ESC11)",
-                    "adhammer attack relay --target icpr --listener <your-ip>".into(),
+                    "adhammer attack relay --target icpr --ca-host <ca> --target-dc <dc> --realm <realm> --target-object <object>".into(),
                     true,
                 ),
                 _ => mk(
@@ -371,7 +371,7 @@ impl Finding {
         if id.contains("badsuccessor") {
             return mk(
                 "abuse dMSA (BadSuccessor)",
-                format!("adhammer attack badsuccessor --url ldaps://<dc> --user <user> --victim {victim}"),
+                format!("adhammer attack badsuccessor --url ldaps://<dc> --user <user> --dmsa-name <name> --target {victim}"),
                 true,
             );
         }
@@ -385,7 +385,7 @@ impl Finding {
         if id.contains("gmsa") {
             return mk(
                 "read the gMSA managed password",
-                "adhammer attack gmsa --url ldaps://<dc> --user <user>".into(),
+                "adhammer attack gmsa --url ldaps://<dc> --user <user> --target <gmsa$>".into(),
                 false,
             );
         }
@@ -589,7 +589,7 @@ mod next_command_tests {
             .next_command()
             .unwrap()
             .command
-            .contains("--victim targetuser"));
+            .contains("--target targetuser"));
         // Generic ESC falls back to enumeration, not a specific weaponization.
         assert_eq!(
             f("A-Esc9", vec![]).next_command().unwrap().command,

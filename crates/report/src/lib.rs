@@ -1847,7 +1847,7 @@ mod tests {
                 to_sid: "S-1-5-21-9-9-512".into(),
                 impact: "",
                 mitigation: "",
-                command: Some("adhammer attack dcsync --user krbtgt".into()),
+                command: Some("adhammer attack dcsync --host <dc> --domain <domain> --user <user> --target krbtgt".into()),
             }],
         };
         let r = Report::build(

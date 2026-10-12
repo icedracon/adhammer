@@ -647,9 +647,19 @@ async fn pkinit_impl(a: PkinitArgs, checklist: &mut ui::StageChecklist) -> Resul
         "PKINIT OK — TGT for {user}@{realm} → {ccache_path}"
     ));
     println!("KRB5CCNAME={ccache_path}");
+    // `attack dcsync` has no Kerberos bind, so point at `ptt --ccache`.
     println!(
-        "  \u{2192} next: attack dcsync --kdc {} --user {user} --realm {realm} --ccache {ccache_path} <target>",
+        "  \u{2192} next: attack ptt --ccache {ccache_path} --host <target> --kdc {} --realm {realm} --user {user} --command \"whoami\"",
         a.kdc
+    );
+    println!(
+        "    (for dcsync/exec/wmiexec/atexec via NTLM instead: kerb u2u-nt --kdc {} --realm {realm} --user {user} --key {} {}| ... --nt-hash <hash>)",
+        a.kdc,
+        a.key.as_deref().unwrap_or("<key.pem>"),
+        a.cert
+            .as_deref()
+            .map(|c| format!("--cert {c} "))
+            .unwrap_or_default()
     );
     Ok(())
 }

@@ -63,8 +63,8 @@ pub(crate) async fn krbenum(a: KrbArgs) -> Result<()> {
             Ok(KerbruteOutcome::Roastable) => {
                 roastable += 1;
                 println!(
-                    "[!] ROASTABLE   {}@{}   → adhammer attack roast --user {} --realm {} --kdc {}",
-                    name, a.realm, name, a.realm, a.kdc
+                    "[!] ROASTABLE   {}@{}   → adhammer attack roast --url ldaps://<dc> --user <user> --kdc {}",
+                    name, a.realm, a.kdc
                 );
             }
             Ok(KerbruteOutcome::Locked) => {

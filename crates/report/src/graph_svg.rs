@@ -217,7 +217,7 @@ mod tests {
             to_sid: tsid.into(),
             impact: "",
             mitigation: "",
-            command: exec.then(|| "adhammer attack dcsync --user krbtgt".to_string()),
+            command: exec.then(|| "adhammer attack dcsync --host <dc> --domain <domain> --user <user> --target krbtgt".to_string()),
         }
     }
 

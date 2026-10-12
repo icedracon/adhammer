@@ -1848,3 +1848,145 @@ mod quickstart_tests {
         assert!(s.contains("adhammer"), "missing bin name");
     }
 }
+
+#[cfg(test)]
+mod next_step_hint_tests {
+    use super::*;
+    use clap::CommandFactory;
+    use std::path::{Path, PathBuf};
+
+    const ROOTS: &[&str] = &["cli/src", "crates/core/src", "crates/report/src", "crates/graph/src"];
+
+    fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                rs_files(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                out.push(p);
+            }
+        }
+    }
+
+    fn extract(line: &str) -> Vec<String> {
+        let t = line.trim_start();
+        if t.starts_with("//") || t.contains("starts_with(") || t.contains("assert") {
+            return vec![];
+        }
+        let mut found = vec![];
+        for marker in ["adhammer ", "next: "] {
+            let mut rest = line;
+            while let Some(i) = rest.find(marker) {
+                let after = &rest[i + marker.len()..];
+                rest = after;
+                let first = after.split_whitespace().next().unwrap_or("");
+                if !matches!(first, "attack" | "enum" | "check" | "creds" | "doctor" | "run") {
+                    continue;
+                }
+                let cmd = after.replace("\\\"", "\u{1}");
+                let end = cmd.find(['`', '"']).unwrap_or(cmd.len());
+                let mut c = cmd[..end].replace('\u{1}', "\"");
+                if c.trim_end().ends_with('\\') {
+                    c.push('\u{2026}');
+                }
+                found.push(c);
+            }
+        }
+        found
+    }
+
+    fn tokens(cmd: &str) -> Vec<String> {
+        let mut out = vec![];
+        let mut cur = String::new();
+        let mut quoted = false;
+        for c in cmd.chars() {
+            match c {
+                '"' => quoted = !quoted,
+                c if c.is_whitespace() && !quoted => {
+                    if !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                }
+                c => cur.push(c),
+            }
+        }
+        if !cur.is_empty() {
+            out.push(cur);
+        }
+        out
+    }
+
+    fn check(cmd: &str, root: &clap::Command) -> Result<(), String> {
+        let wrapped = cmd.ends_with('\u{2026}');
+        let cmd = cmd
+            .trim_end_matches('\u{2026}')
+            .trim_end()
+            .trim_end_matches("\\n\\")
+            .trim_end_matches('\\');
+        let toks = tokens(cmd);
+        let mut sub = root;
+        let mut i = 0;
+        while let Some(s) = toks.get(i).and_then(|t| sub.find_subcommand(t)) {
+            sub = s;
+            i += 1;
+        }
+        if i == 0 {
+            return Err(format!("unknown subcommand `{}`", toks.first().cloned().unwrap_or_default()));
+        }
+        let mut given = vec![];
+        for t in &toks[i..] {
+            let Some(name) = t.strip_prefix("--") else { continue };
+            let name = name.split('=').next().unwrap_or(name);
+            let known = sub
+                .get_arguments()
+                .chain(root.get_arguments().filter(|a| a.is_global_set()))
+                .any(|a| a.get_long() == Some(name) || a.get_all_aliases().is_some_and(|al| al.contains(&name)));
+            if !known {
+                return Err(format!("flag `--{name}` is not accepted by `{}`", sub.get_name()));
+            }
+            given.push(name.to_string());
+        }
+        if given.is_empty() || wrapped {
+            return Ok(());
+        }
+        let missing: Vec<String> = sub
+            .get_arguments()
+            .filter(|a| a.is_required_set() && a.get_default_values().is_empty())
+            .filter_map(|a| a.get_long())
+            .filter(|l| !given.iter().any(|g| g == l))
+            .map(|l| format!("--{l}"))
+            .collect();
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("required {} of `{}` missing from hint", missing.join(", "), sub.get_name()))
+        }
+    }
+
+    #[test]
+    fn next_step_hints_match_the_real_cli_arguments() {
+        let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let root = Cli::command();
+        let mut files = vec![];
+        for r in ROOTS {
+            rs_files(&ws.join(r), &mut files);
+        }
+        files.sort();
+        let (mut checked, mut bad) = (0, vec![]);
+        for f in &files {
+            let Ok(src) = std::fs::read_to_string(f) else { continue };
+            let src = src.split("mod next_step_hint_tests").next().unwrap_or("");
+            for (n, line) in src.lines().enumerate() {
+                for cmd in extract(line) {
+                    checked += 1;
+                    if let Err(e) = check(&cmd, &root) {
+                        bad.push(format!("{}:{}: {e}\n      hint: {cmd}", f.strip_prefix(&ws).unwrap_or(f).display(), n + 1));
+                    }
+                }
+            }
+        }
+        assert!(checked > 10, "hint extractor found only {checked} hints");
+        assert!(bad.is_empty(), "{} next-step hint(s) do not match the CLI arguments:\n  {}", bad.len(), bad.join("\n  "));
+    }
+}

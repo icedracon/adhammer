@@ -112,9 +112,23 @@ impl Tgt {
     pub fn cname(&self) -> &PrincipalName {
         &self.cname
     }
+    /// Build a `Tgt` from its parts (used by [`crate::ccache::load_tgt`]).
+    pub(crate) fn from_parts(
+        ticket: Ticket,
+        session_key: Vec<u8>,
+        cname: PrincipalName,
+        crealm: String,
+    ) -> Self {
+        Tgt {
+            ticket,
+            session_key,
+            cname,
+            crealm,
+        }
+    }
 }
 
-fn encrypted_data(etype: u8, cipher: Vec<u8>) -> EncryptedData {
+pub(crate) fn encrypted_data(etype: u8, cipher: Vec<u8>) -> EncryptedData {
     EncryptedData {
         etype: ExplicitContextTag0::from(IntegerAsn1(vec![etype])),
         kvno: Optional::from(None),

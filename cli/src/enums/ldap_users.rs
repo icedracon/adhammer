@@ -109,7 +109,7 @@ pub(crate) async fn ldap_users(a: LdapUsersArgs) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "command": "adhammer enum ldap-users --anon",
+                "command": format!("adhammer enum ldap-users --anon --url {}", a.url),
                 "success": true,
                 "count": entries.len(),
                 "evidence": payload,
