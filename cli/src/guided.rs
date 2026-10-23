@@ -2004,7 +2004,14 @@ async fn connect_with_step_by_step(cfg: &LdapConfig, host_hint: &str) -> Result<
         Err(e) => {
             bind.done("LDAP bind FAILED");
             let reason = format!("{e:#}");
-            let diag = crate::interactive::diagnose_connection_error(&reason).unwrap_or(
+            // 1.5.3: prefer the shared named-fix table (account states 52e/533/775, signing /
+            // channel-binding, Kerberos, SMB status, AD CS, PKINIT) over the thinner
+            // connection-only diagnoser, so the guided bind failure teaches the same precise
+            // fix the direct-CLI path does; fall back to the connection diagnoser, then a
+            // generic LDAP-layer hint.
+            let diag = crate::diag::fix_hint(&reason)
+                .or_else(|| crate::interactive::diagnose_connection_error(&reason))
+                .unwrap_or(
                 "unknown failure at the LDAP layer — verify --user format (DOMAIN\\user or user@REALM), the password, and (for LDAPS) the cert trust chain (or add --insecure for a lab CA)",
             );
             Err(anyhow::anyhow!("{reason}\n  → cause: {diag}"))

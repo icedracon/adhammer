@@ -278,6 +278,26 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         );
     }
 
+    // Server closed the flow mid-handshake (EOF / broken pipe) — distinct from a TCP reset:
+    // the DC read our bind then closed WITHOUT an LDAP-level fault. Typically an unsupported
+    // SASL mechanism or an LDAP signing / channel-binding rejection that never emitted rc=8.
+    // Previously only the interactive wizard's `diagnose_connection_error` named this; folded
+    // here so the direct-CLI path teaches the same fix. (Windows WSAECONNRESET 10054 is a
+    // reset, handled by the TCP-reset branch above, so it is deliberately not matched here.)
+    if has("broken pipe")
+        || has("unexpected eof")
+        || has("unexpected end of file")
+        || has("os error 32")
+    // EPIPE (Linux)
+    {
+        return Some(
+            "server closed the connection mid-handshake — usually an unsupported SASL \
+             mechanism or an LDAP signing / channel-binding rejection with no explicit fault. \
+             Try `--gssapi` for a Kerberos-signed bind, or plain `ldap://…:389` to isolate \
+             whether the TLS layer is the problem",
+        );
+    }
+
     // TLS. Narrowed: don't fire on generic "certificate" text — a wire like
     // "Denied by Policy Module: certificate template …" matched the old rule.
     let tls_context = has("verify") || has("self-signed") || has("unknown ca") || has("chain");
@@ -589,5 +609,32 @@ mod tests {
         assert!(fix_hint("AS-REQ rejected, KDC error 14")
             .unwrap()
             .contains("enable AES on the account"));
+    }
+
+    #[test]
+    fn mid_handshake_eof_is_sasl_not_unreachable() {
+        // 1.5.3: folded from the interactive wizard's connection diagnoser so the direct-CLI
+        // path names it too. A DC that reads our bind then closes WITHOUT an LDAP fault is a
+        // SASL/signing rejection, NOT an unreachable host — the generic unreachable branch
+        // would be actively misleading (the port is open, the DC answered).
+        for msg in [
+            "ldap bind: Broken pipe (os error 32)",
+            "io error: unexpected end of file",
+            "transport error: unexpected eof during handshake",
+        ] {
+            let h = fix_hint(msg).unwrap_or_else(|| panic!("no hint for mid-handshake EOF: {msg}"));
+            assert!(h.contains("mid-handshake"), "got: {h}");
+            assert!(h.contains("--gssapi"), "got: {h}");
+            assert!(!h.contains("unreachable"), "wrong branch for {msg:?}: {h}");
+        }
+    }
+
+    #[test]
+    fn windows_reset_10054_stays_tcp_reset_not_eof() {
+        // WSAECONNRESET (10054) is a reset, not an EOF: it must keep the TCP-reset hint and
+        // never fall into the new mid-handshake-EOF branch.
+        let h = fix_hint("ldap connect: os error 10054").unwrap();
+        assert!(h.contains("TCP reset"), "got: {h}");
+        assert!(!h.contains("mid-handshake"), "got: {h}");
     }
 }

@@ -1972,7 +1972,18 @@ async fn run_action_with_brief(action: &Action, s: &Session) -> Result<()> {
                 &format!("{} failed ({elapsed:.1}s)", action_name(action)),
             );
             crate::ui::field_err("reason", &reason);
-            if let Some(diag) = diagnose_connection_error(&reason) {
+            // 1.5.3 UX: the wizard previously showed ONLY the connection-level
+            // `diagnose_connection_error` table, which is far thinner than the CLI's shared
+            // `diag::fix_hint` (account states 52e/533/775/…, KDC codes 6/7/13/14/18/23/24/25,
+            // S4U-specific causes, AD CS template refusal, PKINIT/KB5014754, SMB status, the
+            // plaintext-bind guard remedy). So an interactive scan that failed on a disabled
+            // account or an S4U KDC error got a generic "check Kerberos" line while the direct
+            // CLI named the exact fix. Prefer the shared named-fix table here so interactive
+            // teaches the SAME fix; fall back to the connection diagnoser for the classes it
+            // still uniquely frames (LDAPS reset carrying an explicit TLS marker).
+            if let Some(fix) = crate::diag::fix_hint(&reason) {
+                crate::ui::field_err("fix", fix);
+            } else if let Some(diag) = diagnose_connection_error(&reason) {
                 crate::ui::field_err("cause", diag);
             }
             if let Some(next) = action_failure_hint(action) {
@@ -2342,15 +2353,15 @@ fn prompt_impersonation() -> Result<(String, u32)> {
 
 fn print_roadmap_summary() {
     ui::header_err("Open vectors (summary)");
-    ui::field_err("Audit ", "badSuccessor OU-ACL depth, ESC15/EKUwu, ESC5/6/7/10");
+    ui::field_err(
+        "Audit ",
+        "badSuccessor OU-ACL depth, ESC15/EKUwu, ESC5/6/7/10",
+    );
     ui::field_err(
         "Attack",
         "pass-the-ticket, pass-the-hash, constrained delegation",
     );
-    ui::field_err(
-        "      ",
-        "GMSA/LAPS read, cert enrollment (ESC1/3 exploit)",
-    );
+    ui::field_err("      ", "GMSA/LAPS read, cert enrollment (ESC1/3 exploit)");
     ui::field_err("      ", "ESC8/11 relay, SVCCTL/TSCH remote exec");
     ui::field_err(
         "      ",
