@@ -124,16 +124,36 @@ pub(crate) async fn esc_registry_probe(
     use dcerpc::rrp::RegistryClient;
     use smb2_client::SmbClient;
 
-    let mut smb = SmbClient::connect(host).await?;
-    smb.login(host, domain, user, password).await?;
-    smb.tree_connect(&format!("\\\\{host}\\IPC$")).await?;
-    let mut reg = RegistryClient::connect(&mut smb, domain, user, password, host).await?;
-
-    let mut all = Vec::new();
-    for ca in ca_names {
-        all.extend(esc_registry::probe_esc_registry(&mut reg, ca).await);
+    // `\winreg` can transiently fail with STATUS_PIPE_NOT_AVAILABLE (0xC00000AC) — "no free
+    // named-pipe instance right now" — when it is opened on the heels of the scan's heavy
+    // LDAP/SMB traffic. (0xC00000AC is NOT STATUS_ILLEGAL_FUNCTION; that is 0xC00000AF.) The
+    // standalone `enum esc` verb opens a cold pipe and almost always lands a free instance, so
+    // the probe "works in isolation but is skipped mid-scan" — exactly the intermittent
+    // ESC6/7/10/11/16 drop seen in the field. Retry the whole connect a few times with backoff,
+    // re-establishing the SMB session each attempt so a half-open pipe never poisons the retry.
+    let mut attempt = 0u32;
+    loop {
+        attempt += 1;
+        let mut smb = SmbClient::connect(host).await?;
+        smb.login(host, domain, user, password).await?;
+        smb.tree_connect(&format!("\\\\{host}\\IPC$")).await?;
+        match RegistryClient::connect(&mut smb, domain, user, password, host).await {
+            Ok(mut reg) => {
+                let mut all = Vec::new();
+                for ca in ca_names {
+                    all.extend(esc_registry::probe_esc_registry(&mut reg, ca).await);
+                }
+                return Ok(all);
+            }
+            // STATUS_PIPE_NOT_AVAILABLE: the endpoint is busy, not absent — back off and reopen.
+            Err(e) if attempt < 4 && e.to_string().to_ascii_lowercase().contains("0xc00000ac") => {
+                drop(smb);
+                tokio::time::sleep(std::time::Duration::from_millis(300 * u64::from(attempt)))
+                    .await;
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
-    Ok(all)
 }
 
 pub(crate) async fn scan(a: ScanArgs) -> Result<()> {
@@ -604,7 +624,11 @@ fn write_out_all(report: &Report, dir: &str, top_n: usize) -> Result<usize> {
     for (name, body) in &quads {
         let path = d.join(name);
         std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
-        ui::ok(&format!("{} written ({} bytes)", path.display(), body.len()));
+        ui::ok(&format!(
+            "{} written ({} bytes)",
+            path.display(),
+            body.len()
+        ));
         total += body.len();
     }
     Ok(total)
