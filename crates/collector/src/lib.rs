@@ -310,6 +310,32 @@ async fn socks_forward_url(url: &str, insecure: bool) -> Result<Option<String>> 
     Ok(Some(format!("{scheme}://127.0.0.1:{local}")))
 }
 
+/// First-use footgun guard: a `ldaps://` URL on the plaintext LDAP port (389), or a plain
+/// `ldap://` URL on the LDAPS port (636), almost always means the scheme and the port were
+/// swapped. Left to dial, the first lands a TLS handshake on a cleartext listener (the DC sends
+/// RST → "connection reset", which the generic diagnoser misreads as a Schannel cipher problem)
+/// and the second speaks cleartext LDAP into a TLS port (hang / protocol error). Detect the swap
+/// from an EXPLICIT numeric port so the operator gets the real fix before anything is dialed; a
+/// default/implicit port (or an IPv6 literal with no port) never warns. Pure for unit testing.
+pub fn scheme_port_mismatch(url: &str) -> Option<&'static str> {
+    let (scheme, rest) = url.split_once("://")?;
+    let hostport = rest.split('/').next().unwrap_or(rest);
+    // Only an explicit trailing `:<digits>` counts (so `host`, `192.0.2.1`, `[::1]` never warn).
+    let (_, port_str) = hostport.rsplit_once(':')?;
+    let port: u16 = port_str.parse().ok()?;
+    match (scheme.to_ascii_lowercase().as_str(), port) {
+        ("ldaps", 389) => Some(
+            "ldaps:// on port 389 looks like a scheme/port swap — LDAPS listens on 636. Use \
+             `ldaps://<host>:636` for TLS, or `ldap://<host>:389` for plaintext LDAP.",
+        ),
+        ("ldap", 636) => Some(
+            "ldap:// on port 636 looks like a scheme/port swap — 636 is the LDAPS (TLS) port. Use \
+             `ldap://<host>:389` for plaintext LDAP, or `ldaps://<host>:636` for TLS.",
+        ),
+        _ => None,
+    }
+}
+
 /// WS-LDAP-INTEGRITY (1.4.10). Return `Err` if `cfg` would send a
 /// password-carrying simple_bind over plaintext `ldap://`. Anonymous binds
 /// (empty `bind_dn`) are always allowed — no credential is transmitted, so
@@ -352,6 +378,11 @@ impl Collector {
         ensure_tls_configuration(&cfg.url, cfg.insecure)?;
         // Refuse authenticated plaintext LDAP before opening a socket.
         require_bind_integrity(cfg)?;
+        // First-use scheme/port-swap guard: warn BEFORE the confusing TLS-on-389 reset / cleartext-
+        // on-636 hang, so the operator sees the real fix instead of a misattributed Schannel hint.
+        if let Some(warn) = scheme_port_mismatch(&cfg.url) {
+            tracing::warn!("{warn}");
+        }
         // Route ldap3's connect through the SOCKS pivot when one is configured.
         let dial_url = socks_forward_url(&cfg.url, cfg.insecure)
             .await?
@@ -1602,10 +1633,28 @@ fn to_object(se: SearchEntry) -> AdObject {
 mod tests {
     use super::{
         dns_from_nc, is_ip_literal, json_field, laps_from_entry, qualify_bind,
-        require_bind_integrity, LdapConfig,
+        require_bind_integrity, scheme_port_mismatch, LdapConfig,
     };
     use ldap3::SearchEntry;
     use std::collections::HashMap;
+
+    #[test]
+    fn scheme_port_mismatch_flags_swaps_only() {
+        // The two swaps warn...
+        assert!(scheme_port_mismatch("ldaps://dc.corp.local:389")
+            .unwrap()
+            .contains("636"));
+        assert!(scheme_port_mismatch("ldap://192.0.2.10:636")
+            .unwrap()
+            .contains("389"));
+        // ...the correct pairings and default/implicit ports do not.
+        assert!(scheme_port_mismatch("ldaps://dc:636").is_none());
+        assert!(scheme_port_mismatch("ldap://dc:389").is_none());
+        assert!(scheme_port_mismatch("ldaps://dc").is_none());
+        assert!(scheme_port_mismatch("ldap://192.0.2.10").is_none());
+        // An IPv6 literal with no explicit port must not false-positive.
+        assert!(scheme_port_mismatch("ldaps://[2001:db8::1]").is_none());
+    }
 
     fn entry(dn: &str, attrs: &[(&str, &str)], bin: &[&str]) -> SearchEntry {
         SearchEntry {

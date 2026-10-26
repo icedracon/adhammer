@@ -271,10 +271,12 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         || has("wsaeconnreset")
     {
         return Some(
-            "TCP reset — the port is OPEN but the peer killed the flow. For ldaps://: \
-             the DC's Schannel policy rejected the handshake (try `--tls-native` for \
-             OpenSSL/Schannel ciphers, or check the DC's SCH_USE_STRONG_CRYPTO and \
-             ciphersuite policy). For ldap://: the DC is enforcing LDAP signing.",
+            "TCP reset — the port is OPEN but the peer killed the flow. FIRST check the \
+             scheme/port: `ldaps://` must target 636 and `ldap://` 389 — a reset right after an \
+             `ldaps://…:389` dial is a TLS handshake hitting the plaintext port, not a cipher \
+             problem. Otherwise, for ldaps://: the DC's Schannel policy rejected the handshake \
+             (try `--tls-native` for OpenSSL/Schannel ciphers, or check SCH_USE_STRONG_CRYPTO and \
+             the ciphersuite policy); for ldap://: the DC is enforcing LDAP signing.",
         );
     }
 
