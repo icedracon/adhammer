@@ -807,9 +807,21 @@ async fn main() -> Result<()> {
             // WS-UX-ERRORS (1.5.1): when we recognize the failure class, make a named fix the
             // headline (anyhow context) with the raw error as the cause — so no verb dead-ends
             // on an opaque dump. Unrecognized errors pass through untouched.
-            res.map_err(|e| match diag::fix_hint(&format!("{e:#}")) {
-                Some(fix) => e.context(format!("fix: {fix}")),
-                None => e,
+            //
+            // 1.5.3: single source of truth. When an inner stage (guided/auto
+            // `connect_with_stages`) already attached a named `→ cause:` hint, do NOT re-classify
+            // the whole chain here — re-reading the embedded hint text can trip `classify_bind`
+            // on a stray keyword (e.g. "signing" inside a scheme/port-swap cause) and print a
+            // top-line `fix:` that contradicts the inner cause. The inner line is authoritative.
+            res.map_err(|e| {
+                let chain = format!("{e:#}");
+                if chain.contains("→ cause:") {
+                    return e;
+                }
+                match diag::fix_hint(&chain) {
+                    Some(fix) => e.context(format!("fix: {fix}")),
+                    None => e,
+                }
             })
         }
     }
