@@ -78,15 +78,26 @@ the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.3.md`.
   "not vulnerable"; the HTML report escapes `"` and `'`; relay sanitizes `target_object` →
   filename; `#![forbid(unsafe_code)]` across every eligible library crate; README method
   counts + a CI drift guard corrected.
+- **LDAPS cert-trust failures misread as "Other" (no hint).** A self-signed or
+  unknown-CA DC certificate surfaces from rustls as `invalid peer certificate:
+  UnknownIssuer` — wording neither `classify_bind` nor `fix_hint` matched, so
+  `doctor` and the bind paths fell through to the generic "file an issue" line
+  instead of the remedy. `fix_hint` now recognizes the rustls cert-verification
+  wording and points the operator at `--insecure` (lab) or installing the issuing
+  CA, and notes that binding by IP can trip hostname validation (use the FQDN).
+  The AD CS "certificate template" wire string is guarded so it still routes to its
+  own certutil remedy. Live-verified against a modern DC.
 
 ### Known
 
-- **Public-clone breaker while `kerbcore = { path = "../kerbcore", version = "0.3" }`
-  is in the workspace root.** kerbcore 0.3.0 is not yet on crates.io (max
-  published = 0.2.1); anyone cloning `icedracon/adhammer` without a sibling
-  `../kerbcore` will fail to build. Fix on the maintainer's schedule: publish
-  kerbcore 0.3.0 → crates.io first (bottom-up), then drop the `path=` and
-  keep just `kerbcore = "0.3"`.
+- **Public-clone bootstrap: `ms-pac-forge = { path = "../../../ms-pac-forge",
+  version = "0.2" }` in `crates/kerberos`.** kerbcore 0.3.0 is now on crates.io and
+  the workspace root uses plain `kerbcore = "0.3"` (the `path=` was dropped). The
+  remaining sibling-path dependency is ms-pac-forge 0.2.0, not yet published
+  (registry max = 0.1.3); anyone cloning without a sibling `../ms-pac-forge` at
+  0.2.0 will fail to build until it lands. Resolved in this release's publish
+  cascade, which pushes ms-pac-forge 0.2.0 to crates.io first (bottom-up) before
+  the workspace crates.
 
 ---
 
