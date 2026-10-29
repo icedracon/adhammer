@@ -34,12 +34,50 @@ the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.3.md`.
   session-restore behaviour.
 - **`.github/dependabot.yml`** — kerbcore + template-asset paths added to the
   update matrix.
+- **UX-beauty sweep (waves 1–4c + widgets).** Every heavy `attack`/`enum` verb and the
+  interactive wizard reworked onto shared `cli/src/ui.rs` widgets (verb banner, summary
+  box, stage checklist, table, `loot`/`step`). Output is calmer and consistent; the data
+  on stdout is unchanged.
+- **ldap/ldaps scheme-port-swap guard.** New pure `adhammer_collector::scheme_port_mismatch`
+  warns BEFORE dialing when a URL swaps scheme and port (`ldaps://…:389` / `ldap://…:636`) —
+  the most common first-use ldap/ldaps confusion. Explicit-port only, so default ports and
+  IPv6 literals never false-warn.
 
 ### Changed
 
 - **`crates/kerberos/Cargo.toml` description** updated to reflect the mixed
   picky-krb + kerbcore state during migration; the "(picky-krb)" parenthetical
   was misleading once unpac started using kerbcore.
+- **`TicketTimestamps` / `ServiceTicket` public shape frozen to 1.5.2** during the
+  kerbcore migration — `session_etype` is a private field + `session_etype()` getter,
+  and the picky `KerberosTime` / `PrincipalName` public types are retained at the
+  boundary via internal bridges — so 1.5.3 stays a patch (verified: 0 removed `pub`
+  lines vs `v1.5.2`). `mssql.rs` gates `use anyhow::Context` behind its feature.
+
+### Fixed
+
+- **Interactive wizard false "LDAPS unreachable" (G-1).** The LDAPS-reachability probe
+  sent a truncated TLS ClientHello that strict-Schannel DCs (Server 2019+/2025) reset,
+  steering the operator into a plaintext fallback or a dead end. Replaced with a plain-TCP
+  connect to 636 (matching `doctor`); the plaintext consent now threads through every
+  action the session drives (G-2). Live-verified: the wizard LDAPS-binds + full-scans a 2025 DC.
+- **Unified failure hints across CLI and wizard.** The interactive wizard and the guided/auto
+  bind-failure path now use the shared `diag::fix_hint` table (account states, KDC/S4U codes,
+  AD CS, PKINIT/KB5014754, SMB, the plaintext-bind guard) instead of a thinner connection-only
+  diagnoser; a mid-handshake EOF/SASL class was folded into `fix_hint` so the direct CLI gains
+  it too.
+- **Contradictory double hint.** `main`'s top-level `fix_hint` no longer re-classifies an error
+  chain that already carries an inner `→ cause:` hint, so the top line can no longer disagree
+  with the stage cause (e.g. a scheme/port swap mislabeled as "LDAP signing").
+- **ESC registry probe dropped mid-scan.** `scan` / auto's MS-RRP `\winreg` open silently
+  skipped ESC6/7/10/11/16 on STATUS_PIPE_NOT_AVAILABLE (0xC00000AC) — a transient "no free pipe
+  instance" race under the scan's own LDAP/SMB traffic, not a stopped service (the comment
+  mislabeled it STATUS_ILLEGAL_FUNCTION). Now retried up to 4× with backoff, fresh SMB session
+  each attempt; live-verified landing the ESC10 finding 3/3.
+- **Audit fixes (C1 / F1 / F2 / F3 / Dc1).** Parse-fail defaults no longer bias toward
+  "not vulnerable"; the HTML report escapes `"` and `'`; relay sanitizes `target_object` →
+  filename; `#![forbid(unsafe_code)]` across every eligible library crate; README method
+  counts + a CI drift guard corrected.
 
 ### Known
 
