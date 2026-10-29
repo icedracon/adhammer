@@ -22,7 +22,7 @@ use clap::Parser;
 use serde::Serialize;
 
 use crate::attacks::scan_anonymous::dns_srv;
-use crate::diag::{bind_fix, classify_bind};
+use crate::diag::{bind_fix, classify_bind, fix_hint, BindVerdict};
 use crate::ui;
 
 #[derive(Parser)]
@@ -285,11 +285,18 @@ pub(crate) async fn doctor(a: DoctorArgs) -> Result<()> {
                     // wire result now actually lands under `-vv`.
                     tracing::debug!(raw_error = %raw, "ldap-bind wire result");
                     let verdict = classify_bind(&raw);
-                    rec(
-                        "ldap-bind",
-                        Status::Fail,
-                        format!("{verdict:?} — {}", bind_fix(&verdict)),
-                    );
+                    // classify_bind deliberately skips the TLS/cert/reset class (see diag.rs)
+                    // and returns Other. fix_hint DOES name those — route Other through it so
+                    // the #1 ldaps failure (self-signed DC cert) gets `--insecure`, not a
+                    // "file an issue" dead end. Its hint is self-describing, so drop the label.
+                    let line = if matches!(verdict, BindVerdict::Other) {
+                        fix_hint(&raw)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("{verdict:?} — {}", bind_fix(&verdict)))
+                    } else {
+                        format!("{verdict:?} — {}", bind_fix(&verdict))
+                    };
+                    rec("ldap-bind", Status::Fail, line);
                 }
                 Err(_) => rec(
                     "ldap-bind",

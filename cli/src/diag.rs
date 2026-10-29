@@ -300,6 +300,20 @@ pub(crate) fn fix_hint(err: &str) -> Option<&'static str> {
         );
     }
 
+    // rustls reports TLS cert-trust failures as `invalid peer certificate: <reason>`
+    // (UnknownIssuer / NotValidForName / Expired / BadSignature). None of these carry the
+    // tokens `tls_context` below looks for, yet an untrusted self-signed DC cert is the #1
+    // first-contact ldaps failure. "invalid peer certificate" is rustls-specific, so it
+    // won't collide with the ADCS "certificate template" wire classified above.
+    if has("invalid peer certificate") {
+        return Some(
+            "LDAPS certificate not trusted — the DC cert is self-signed or from an unknown CA \
+             (rustls UnknownIssuer). Pass `--insecure` for a lab, or install the issuing CA in \
+             the trust store. Binding by IP can also fail hostname validation (NotValidForName) \
+             — use the DC FQDN.",
+        );
+    }
+
     // TLS. Narrowed: don't fire on generic "certificate" text — a wire like
     // "Denied by Policy Module: certificate template …" matched the old rule.
     let tls_context = has("verify") || has("self-signed") || has("unknown ca") || has("chain");
@@ -466,6 +480,34 @@ mod tests {
         let h =
             fix_hint("tls handshake: certificate verify failed: self-signed certificate").unwrap();
         assert!(h.contains("TLS verification failed"), "got: {h}");
+    }
+
+    #[test]
+    fn rustls_unknown_issuer_names_insecure_not_file_an_issue() {
+        // 2026-10-29 live-fire on testlab.local DC01 (2025) over ldaps://<ip>:636 with a
+        // self-signed DC cert. rustls surfaces `invalid peer certificate: UnknownIssuer`,
+        // which carries none of the tokens the generic TLS matcher looks for — classify_bind
+        // returned Other and doctor said "file an issue". The explicit branch must name it.
+        let h = fix_hint(
+            "ldap connect: I/O error: invalid peer certificate: UnknownIssuer: \
+             invalid peer certificate: UnknownIssuer",
+        )
+        .unwrap();
+        assert!(h.contains("--insecure"), "got: {h}");
+        assert!(h.contains("not trusted"), "got: {h}");
+    }
+
+    #[test]
+    fn adcs_template_wire_not_misread_as_tls_cert_trust() {
+        // Guard the new rustls branch: the ADCS "certificate template" refusal must still
+        // route to the AD CS hint, never to the cert-trust/--insecure one.
+        let h = fix_hint(
+            "Denied by Policy Module 0x80094800, The request was for a certificate template \
+             that is not supported",
+        )
+        .unwrap();
+        assert!(h.contains("certutil -SetCATemplates"), "got: {h}");
+        assert!(!h.contains("--insecure"), "misrouted to TLS branch: {h}");
     }
 
     #[test]
