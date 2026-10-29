@@ -105,11 +105,6 @@ pub(crate) async fn unconstrained(a: ScanArgs) -> Result<()> {
     } else {
         OutcomeKind::Validated
     };
-    ui::summary_box(
-        "domain delegation posture",
-        status,
-        &[],
-        None,
-    );
+    ui::summary_box("domain delegation posture", status, &[], None);
     Ok(())
 }

@@ -16,6 +16,7 @@
 
 #[cfg(feature = "mssql")]
 use crate::ui;
+#[cfg(feature = "mssql")]
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;

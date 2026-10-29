@@ -151,9 +151,7 @@ pub(crate) async fn dns(mut a: DnsArgs) -> Result<()> {
                 return Ok(());
             }
             c.modify_replace(&dn, "dnsTombstoned", "TRUE").await?;
-            ui::ok(&format!(
-                "tombstoned {record}.{zone} (dnsTombstoned=TRUE)"
-            ));
+            ui::ok(&format!("tombstoned {record}.{zone} (dnsTombstoned=TRUE)"));
         }
         DnsAction::Delete => {
             if dry_run {

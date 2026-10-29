@@ -116,3 +116,4 @@ gpp_dump*.txt
 /docs/BENCHMARKS.md
 /bench/
 /scripts/check_release_governance.py
+graphify-out/

@@ -6,7 +6,6 @@
 
 #![forbid(unsafe_code)]
 
-
 use adhammer_core::finding::{Category, Evidence, Severity};
 use adhammer_core::{sanitize_terminal_output, Finding};
 use adhammer_graph::{AttackPath, Step};

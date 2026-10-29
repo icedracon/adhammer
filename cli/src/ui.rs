@@ -691,11 +691,12 @@ pub fn verb_banner(verb: &str, fields: &[(&str, &str)]) {
     }
     let inner = BOX_WIDTH - 4; // 2 border + 2 padding on each side
     let title_pad = inner.saturating_sub(verb.chars().count() + 1); // "═verb═…" style
-    eprintln!(
-        "{BOLD}{CYAN}╔══ {verb} {}╗{RESET}",
-        "═".repeat(title_pad)
-    );
-    let key_w = fields.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
+    eprintln!("{BOLD}{CYAN}╔══ {verb} {}╗{RESET}", "═".repeat(title_pad));
+    let key_w = fields
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(0);
     for (k, v) in fields {
         let line = format!(
             "  {DIM}{k:<key_w$}{RESET}  {v}",
@@ -705,7 +706,10 @@ pub fn verb_banner(verb: &str, fields: &[(&str, &str)]) {
         );
         let stripped_len = k.chars().count() + 2 + v.chars().count() + 2; // "  key  val"
         let pad = inner.saturating_sub(stripped_len);
-        eprintln!("{BOLD}{CYAN}║{RESET} {line}{} {BOLD}{CYAN}║{RESET}", " ".repeat(pad));
+        eprintln!(
+            "{BOLD}{CYAN}║{RESET} {line}{} {BOLD}{CYAN}║{RESET}",
+            " ".repeat(pad)
+        );
     }
     eprintln!("{BOLD}{CYAN}╚{}╝{RESET}", "═".repeat(BOX_WIDTH - 2));
 }
@@ -800,12 +804,19 @@ fn print_boxed_row(key: &str, val: &str, inner: usize) {
 /// ```text
 ///   ⚑ hash  →  /tmp/roast.20260925T143211.hashcat
 /// ```
+///
+/// Reserved for the deferred wave-5 UX sweep (setup / session / blackbox call-sites);
+/// shipped in 1.5.3 as public API so wave-5 can adopt it without another minor bump.
+#[allow(dead_code)]
 pub fn loot(label: &str, path: &str) {
     if is_quiet() {
         return;
     }
     let (glyph, tag) = if stderr_tty() {
-        (format!("{BOLD}{YELLOW}⚑{RESET}"), format!("{BOLD}{YELLOW}{label}{RESET}"))
+        (
+            format!("{BOLD}{YELLOW}⚑{RESET}"),
+            format!("{BOLD}{YELLOW}{label}{RESET}"),
+        )
     } else {
         ("[loot]".to_string(), label.to_string())
     };
@@ -822,6 +833,10 @@ pub fn loot(label: &str, path: &str) {
 /// ```text
 ///   [2/5] Bind to LDAP…
 /// ```
+///
+/// Reserved for the deferred wave-5 UX sweep (setup / session / blackbox call-sites);
+/// shipped in 1.5.3 as public API so wave-5 can adopt it without another minor bump.
+#[allow(dead_code)]
 pub fn step(n: usize, total: usize, label: &str) {
     if is_quiet() {
         return;

@@ -7,7 +7,6 @@
 //! 1.5.3 audit F3: lock the hive / SAM / LSA / RRP parser surface out of `unsafe`.
 
 #![forbid(unsafe_code)]
-
 // `chunks_exact(N)` reads clearly next to the wire-format constants (2 for UTF-16 code units,
 // 16 for AES blocks, etc.). We intentionally retain it despite clippy 1.98's `as_chunks::<N>()`
 // suggestion; `unknown_lints` keeps older clippy versions compatible with the scoped allow.

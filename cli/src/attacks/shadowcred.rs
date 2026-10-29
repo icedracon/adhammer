@@ -297,20 +297,22 @@ async fn list(cfg: &ShadowcredConfig) -> Result<()> {
     }
     let rows: Vec<Vec<String>> = values
         .iter()
-        .map(|v| match parse_dn_binary(v).and_then(|b| parse_key_credential_blob(&b)) {
-            Some(k) => vec![
-                format_guid(&k.device_id),
-                format_filetime(k.creation_time),
-                key_usage_name(k.key_usage).to_string(),
-                key_source_name(k.key_source).to_string(),
-            ],
-            None => vec![
-                format!("<unparsed, {} chars>", v.len()),
-                String::new(),
-                String::new(),
-                String::new(),
-            ],
-        })
+        .map(
+            |v| match parse_dn_binary(v).and_then(|b| parse_key_credential_blob(&b)) {
+                Some(k) => vec![
+                    format_guid(&k.device_id),
+                    format_filetime(k.creation_time),
+                    key_usage_name(k.key_usage).to_string(),
+                    key_source_name(k.key_source).to_string(),
+                ],
+                None => vec![
+                    format!("<unparsed, {} chars>", v.len()),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ],
+            },
+        )
         .collect();
     ui::table(&["DeviceId", "Created (UTC)", "Usage", "Source"], &rows);
     Ok(())
