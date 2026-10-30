@@ -169,6 +169,15 @@ async fn spray_impl(mut a: SprayArgs, checklist: &mut ui::StageChecklist) -> Res
                 other += 1;
                 eprintln!("    {u}: malformed KDC reply (not an AS-REP nor a KRB-ERROR)");
             }
+            // 1.6.0: CredResult is now `#[non_exhaustive]` so Rust requires a wildcard arm
+            // for forward-compat with new variants. New variants are treated conservatively
+            // as "other" until a dedicated arm is added.
+            Ok(_) => {
+                other += 1;
+                eprintln!(
+                    "    {u}: unclassified CredResult variant (new in a future adhammer-kerberos)"
+                );
+            }
             Err(e) => {
                 other += 1;
                 eprintln!("    {u}: {e}");

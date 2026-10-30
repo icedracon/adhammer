@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-core",
  "ldap3",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "ipnet",
  "serde",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "anyhow",
  "smb2-client",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-checks",
  "adhammer-core",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -201,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "aes 0.8.4",
  "cbc 0.1.2",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "adhammer-core",
  "aes 0.8.4",
@@ -3728,9 +3728,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",

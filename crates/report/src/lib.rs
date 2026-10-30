@@ -2280,9 +2280,11 @@ mod tests {
             "print must force <details> open so nothing is hidden on paper"
         );
         // P1d: provenance — the fingerprint footer names the tool build.
+        // Version is derived from CARGO_PKG_VERSION so the assertion survives workspace bumps.
+        let expected_version = format!("adhammer {}", env!("CARGO_PKG_VERSION"));
         assert!(
-            html.contains("<code>tool</code>") && html.contains("adhammer 1.5.3"),
-            "report must carry tool-version provenance"
+            html.contains("<code>tool</code>") && html.contains(&expected_version),
+            "report must carry tool-version provenance ({expected_version})"
         );
         // Toggle UI + JS + localStorage.
         assert!(html.contains("data-theme-toggle"), "toggle button missing");

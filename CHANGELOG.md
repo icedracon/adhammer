@@ -3,10 +3,61 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased] — 1.5.3 — kerbcore migration begins · S4U hardening · report redesign
+## [Unreleased] — 1.6.0 — defender-grade audit trail · pure-Rust Kerberos · baseline-diff reports
 
-Additive on the 1.5.x line — no breaking changes to commands, JSON consumers,
-the public Rust API, or MSRV. Ship gate: `docs/PLAN_1.5.3.md`.
+Why this release matters, in one paragraph: 1.6.0 is the release where
+ADhammer's deliverable catches up with its collection. Engagement reports now
+carry a hash-footer provenance line + tool-version attestation (so disputed
+findings have a receipt), ship with a light/dark theme + print stylesheet (so
+the PDF is a client deliverable, not a dev dump), and support
+engagement-over-engagement **baseline-diff** keyed on `(id, affected_object)`
+(so next quarter's assessment picks up where this quarter's left off). Under
+the hood, PAC_CREDENTIAL_INFO AES128/256 decrypt now routes through
+[kerbcore](https://crates.io/crates/kerbcore) instead of picky-krb — the
+Phase-1 step toward a pure-Rust Kerberos stack with no managed-runtime
+detection surface. The sibling [ms-pac-forge
+0.2.0](https://crates.io/crates/ms-pac-forge) exposes the forge primitives
+(Golden / Silver / Diamond / Sapphire) as a standalone crate for pure-Rust
+Kerberos consumers.
+
+**Experimental in 1.6.0**: `attack rbcd` and `attack constrained` run the full
+S4U2Self + S4U2Proxy chain and return the final impersonation ticket's
+enctype as proof the chain completed, but do NOT yet persist a usable ccache.
+Full transport lands in a later 1.6.x release. The verbs refuse to run
+unless `ADHAMMER_EXPERIMENTAL=1` is set, so nobody runs them against a
+production estate expecting a drop-in TGS back.
+
+**Security bump**: rustls 0.23.45 → 0.23.46 picks up fixes for
+RUSTSEC-2026-0346/0347/0348/0349 (Debug secret leak, ECH outer-server
+buffered-data leak, Brotli DoS, downgrade). None triggered in ADhammer's
+default-build threat model but closing them before publish is the honest
+move.
+
+**Semver**: originally planned as 1.5.3 (patch); re-cut as 1.6.0 after
+`cargo semver-checks` found 3 additive-but-strictly-breaking changes in
+`adhammer-kerberos`'s public API — `TicketTimestamps.flags` (new pub field),
+`ServiceTicket.session_etype` (new private field), and `CredResult::Malformed`
+(new enum variant on a non-`#[non_exhaustive]` enum). Per the project's hard
+rule *(additive/bugfix → patch, breaking → minor/major only)*, the correct
+version for this release is 1.6.0, not 1.5.3. Strict reading of the Rust
+reference would prefer 2.0.0; the near-zero external-consumer blast radius
+(adhammer-kerberos first published at 1.5.2) justified the minor bump. No
+command/JSON-shape/MSRV breakage otherwise. Ship gate + release scope:
+`docs/PLAN_1.6.0.md` (supersedes the archived `docs/archive/PLAN_1.5.3.md`).
+
+Also landed in 1.6.0 as semver hygiene:
+
+- `#[non_exhaustive]` on `TicketTimestamps`, `ServiceTicket`, and `CredResult`
+  so future 1.6.N additions to any of them don't re-trip the strict-semver
+  lints that forced this minor bump. Downstream must construct via
+  `::default()` + field assignment (TicketTimestamps) or accessor methods
+  (ServiceTicket), and must carry a `_` catchall in `CredResult` matches.
+- `attack asktgt`: UX wrap for existing-ccache collisions (seen in live-fire
+  18). Matches on `io::ErrorKind::AlreadyExists` (not filesystem state, so
+  permission-denied / disk-full don't trigger the misleading message) and
+  surfaces "refusing to overwrite prior attack evidence — delete `<path>` and
+  re-run, or pass `--out <different>`." Preserves the writer's safety intent
+  (don't erase evidence of a prior attack step) with a one-click remedy.
 
 ### Added
 

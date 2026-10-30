@@ -77,11 +77,27 @@ async fn asktgt_impl(a: AsktgtArgs, checklist: &mut ui::StageChecklist) -> Resul
         format!("{auth_mode} · {} bytes", ccache.len()),
     );
     let out = a.out.unwrap_or_else(|| format!("{}.ccache", a.user));
-    adhammer_core::write_secret_artifact(
+    // 1.6.0 UX: write_secret_artifact refuses to overwrite (intentional — don't erase
+    // evidence of a prior attack step). If a stale ccache from an earlier run exists,
+    // the raw "file exists" error is confusing; wrap with an actionable next step.
+    // Match on the io::ErrorKind, NOT on path.exists() — the latter misfires for
+    // permission-denied / disk-full / locked-handle / bad-DACL cases where some
+    // file may be present but the actual error is unrelated to collision.
+    // adhammer_core::write_secret_artifact::annotate preserves e.kind() verbatim.
+    if let Err(e) = adhammer_core::write_secret_artifact(
         std::path::Path::new(&out),
         adhammer_core::SecretArtifact::Ccache,
         &ccache,
-    )?;
+    ) {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            anyhow::bail!(
+                "ccache file {out} already exists — refusing to overwrite prior attack evidence. \
+                 Delete it (`rm {out}`) and re-run, or pass `--out <different-path>` to write elsewhere. \
+                 (underlying: {e})"
+            );
+        }
+        return Err(e.into());
+    }
     checklist.record_ok("write ccache", format!("→ {out}"));
     ui::ok(&format!(
         "TGT obtained for {} → {out} ({} bytes)",

@@ -42,7 +42,27 @@ pub(crate) struct RbcdArgs {
 }
 
 /// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
+///
+/// 1.6.0 experimental gate: the S4U chain runs end-to-end and returns the final impersonation
+/// ticket's enctype as proof the chain completed, but the ticket itself is NOT yet persisted
+/// to a ccache usable by downstream tooling. A later 1.6.x release wires full ticket
+/// extraction + persistence. Until then, require operators to opt in explicitly via
+/// `ADHAMMER_EXPERIMENTAL=1` so nobody runs it against a production estate assuming they'll
+/// get a drop-in TGS back.
 pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
+    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
+        anyhow::bail!(
+            "attack rbcd / attack constrained are EXPERIMENTAL in 1.6.0.\n\
+             \n\
+             What works: the S4U2Self + S4U2Proxy chain runs against the KDC and returns the\n\
+             final impersonation ticket's enctype (proof the chain completed).\n\
+             What's partial: the resulting service ticket is not yet written to a ccache\n\
+             usable by downstream tooling. Full transport lands in a future 1.6.x release.\n\
+             \n\
+             To run anyway (useful for KDC-side validation and detection-engineering tabletop):\n\
+             set ADHAMMER_EXPERIMENTAL=1 in the environment and re-run."
+        );
+    }
     let cfg = match a.from_file.as_deref() {
         Some(p) => load_rbcd_ini(p)?.overlay(&a)?,
         None => RbcdConfig::from_flags(&a)?,

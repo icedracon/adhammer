@@ -647,7 +647,11 @@ pub async fn overpass_the_hash(
 }
 
 /// Outcome of a Kerberos pre-auth credential check (password spray / user enum).
+///
+/// `#[non_exhaustive]` (added in 1.6.0): the enum is expected to grow as new KDC error
+/// classifications emerge. Downstream `match` statements must carry a `_` catchall.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CredResult {
     Valid,           // AS-REP returned — password correct
     ValidButExpired, // correct password, must change (KEY_EXPIRED)
@@ -796,6 +800,11 @@ pub async fn roast_spn(tgt: &Tgt, sam: &str, spn: &str, kdc: &str) -> Result<Str
 /// reason as [`Tgt`]. Field access via `.session_key` is intentionally left `pub` so crypto
 /// call sites (`pac`, silver ticket forge, downstream tools) can consume the raw key
 /// material — but nothing formats it, and no `{:?}` will ever surface it in a trace line.
+///
+/// `#[non_exhaustive]` (added in 1.6.0): the struct carries session metadata that will keep
+/// growing (etype tracking landed in 1.5.3, more may follow). Downstream must use the
+/// accessor methods (`.session_etype()` etc.) rather than struct expressions.
+#[non_exhaustive]
 pub struct ServiceTicket {
     pub ticket: Ticket,
     pub session_key: Vec<u8>,
@@ -1249,7 +1258,13 @@ async fn rbcd_impersonate_with_tgt(
 /// / Silver default that flags anomalously — 10-year validity is a well-known IOC).
 /// A Diamond ticket populates all four from a legitimately-obtained TGT so the
 /// forged one's clock-domain matches the KDC exactly.
+///
+/// `#[non_exhaustive]` (added in 1.6.0): new timestamp-adjacent fields have landed
+/// across the 1.5.x line (`flags` for H-3, `cname_template` for the 1.4.8 BADMATCH fix)
+/// and the type will keep growing. Construct via `TicketTimestamps::default()` and
+/// mutate the fields you need, or via the forthcoming builder in 1.6.x.
 #[derive(Default, Clone)]
+#[non_exhaustive]
 pub struct TicketTimestamps {
     /// v1.5.2 public type preserved through the kerbcore Phase-1 migration — the internal
     /// forger converts to/from kerbcore's `String`-typed GeneralizedTime at the boundary
