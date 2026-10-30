@@ -11,6 +11,19 @@ Set Height 820
 Set Padding 18
 Set Theme "Dracula"
 
+# Requires: `cargo install --path cli` beforehand (see scan.tape header).
+
+# PATH shim + ISOLATED APPDATA so the demo starts cold (no saved session loaded —
+# otherwise the dev-machine's session.json would leak lab identifiers into the GIF).
+Hide
+Type 'mkdir -p /mnt/c/Users/zevs/AppData/Local/Temp/adhammer_demo_fd && rm -rf /mnt/c/Users/zevs/AppData/Local/Temp/adhammer_demo_fd/*'
+Enter
+Type 'export WSLENV="APPDATA/w" APPDATA="C:\Users\zevs\AppData\Local\Temp\adhammer_demo_fd"'
+Enter
+Type 'adhammer() { adhammer.exe "$@"; }; export -f adhammer; clear'
+Enter
+Show
+
 Type "adhammer"
 Enter
 Sleep 2s

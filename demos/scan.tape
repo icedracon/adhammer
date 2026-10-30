@@ -13,6 +13,15 @@ Set Height 820
 Set Padding 18
 Set Theme "Dracula"
 
+# Requires: `cargo install --path cli` beforehand so `adhammer` is on PATH.
+# VHS on Windows spawns WSL bash (no PATHEXT), so we shim adhammer -> adhammer.exe.
+
+# PATH shim: VHS spawns WSL bash (no PATHEXT) — wrap adhammer.exe as adhammer.
+Hide
+Type 'adhammer() { adhammer.exe "$@"; }; export -f adhammer; clear'
+Enter
+Show
+
 # Example invocation (fill in the disposable-lab DC / creds via @file at render time):
 Type "adhammer scan --url ldaps://dc.corp.local --user alice --password @file:./.pw --out report.html"
 Enter

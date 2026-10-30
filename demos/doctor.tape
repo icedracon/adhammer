@@ -10,6 +10,14 @@ Set Height 760
 Set Padding 18
 Set Theme "Dracula"
 
+# Requires: `cargo install --path cli` beforehand (see scan.tape header).
+
+# PATH shim: VHS spawns WSL bash (no PATHEXT) — wrap adhammer.exe as adhammer.
+Hide
+Type 'adhammer() { adhammer.exe "$@"; }; export -f adhammer; clear'
+Enter
+Show
+
 Type "adhammer doctor --domain corp.local --dc dc.corp.local --user alice"
 Enter
 Sleep 5s
