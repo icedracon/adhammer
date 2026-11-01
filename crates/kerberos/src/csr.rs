@@ -73,6 +73,7 @@ fn null() -> Vec<u8> {
 }
 
 /// A generated CSR: DER bytes + the PKCS#8 PEM private key (for later PKINIT).
+#[non_exhaustive]
 pub struct Csr {
     pub der: Vec<u8>,
     pub key_pem: String,

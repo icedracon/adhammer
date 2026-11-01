@@ -21,7 +21,7 @@ Reports now carry a hash-footer provenance line and **engagement-over-engagement
 Under the hood, PAC_CREDENTIAL_INFO AES128/256 decrypt now routes through the standalone [`kerbcore`](https://crates.io/crates/kerbcore) crate instead of `picky-krb` — Phase-1 of a pure-Rust Kerberos stack with no managed-runtime detection surface. No .NET, no AMSI, no CLR load — just syscalls and a receipt. The companion [`ms-pac-forge 0.2.0`](https://crates.io/crates/ms-pac-forge) sibling release exposes the forge primitives (Golden / Silver / Diamond / Sapphire) as a focused standalone crate for anyone building their own pure-Rust Kerberos tooling.
 
 **What this release ships**
-- `kerbcore` AES128/256 decrypt in `attack unpac` and the DCSync credential path
+- `kerbcore` AES128/256 decrypt in `attack unpac` (PAC_CREDENTIAL_INFO, key usage 16)
 - `attack asktgt` ccache UX: refuses to overwrite prior attack evidence with a one-click remedy (preserves the writer's defensive semantics)
 - Unified `diag::fix_hint` across main / interactive / guided — every operator-visible error names the actual remedy (TCP-reset ≠ unreachable, AD CS policy denial ≠ TLS, 8 KDC numeric error codes translated)
 - Scheme/port-swap guard rejects `ldap://` on 636 and `ldaps://` on 389 before any bind

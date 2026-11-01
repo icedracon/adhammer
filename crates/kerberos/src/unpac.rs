@@ -53,6 +53,7 @@ pub const KEY_USAGE_KERB_NON_KERB_SALT: i32 = 16;
 /// greppable at every call site for audit. Same discipline as
 /// `adhammer_core::Redacted<T>`.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct UnpacCreds {
     nt_hash: [u8; 16],
     lm_hash: Option<[u8; 16]>,

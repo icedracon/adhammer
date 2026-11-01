@@ -16,9 +16,10 @@ Set Theme "Dracula"
 # PATH shim + ISOLATED APPDATA so the demo starts cold (no saved session loaded —
 # otherwise the dev-machine's session.json would leak lab identifiers into the GIF).
 Hide
-Type 'mkdir -p /mnt/c/Users/zevs/AppData/Local/Temp/adhammer_demo_fd && rm -rf /mnt/c/Users/zevs/AppData/Local/Temp/adhammer_demo_fd/*'
+Type 'd="${LOCALAPPDATA}/Temp/adhammer_demo_fd"; mkdir -p "${d//\\\\//}" && rm -rf "${d//\\\\//}"/*'
 Enter
-Type 'export WSLENV="APPDATA/w" APPDATA="C:\Users\zevs\AppData\Local\Temp\adhammer_demo_fd"'
+# WSLENV="APPDATA/w" — /w = Win32-direction only (WSL->Win32); APPDATA is already Windows-formatted so no path translation is needed.
+Type 'export WSLENV="APPDATA/w" APPDATA="${LOCALAPPDATA}\\Temp\\adhammer_demo_fd"'
 Enter
 Type 'adhammer() { adhammer.exe "$@"; }; export -f adhammer; clear'
 Enter

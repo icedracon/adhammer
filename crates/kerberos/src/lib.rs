@@ -50,6 +50,7 @@ pub const ETYPE_AES128: u8 = 17;
 
 /// A roastable principal discovered from the snapshot.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Candidate {
     pub sam: String,
     pub realm: String,
@@ -287,6 +288,7 @@ pub async fn kerbrute_probe(user: &str, realm: &str, kdc: &str) -> Result<Kerbru
 /// Result of a [`kerbrute_probe`] call. See variant docs for the KDC error-code
 /// mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum KerbruteOutcome {
     /// User exists (KDC replied `KDC_ERR_PREAUTH_REQUIRED` or `_FAILED`).
     Exists,

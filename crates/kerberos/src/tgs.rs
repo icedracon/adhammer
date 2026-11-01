@@ -40,6 +40,7 @@ use picky_krb::messages::{AsRep, AsReq, EncAsRepPart, KdcReq, KdcReqBody, KrbErr
 /// `#[derive(Debug)]` struct, the redaction survives. Deriving `Debug` here would leak the
 /// AES256 session key on any trace-line — including the ones WS-INT-VVV (1.4.7) now turns
 /// on by default in interactive mode.
+#[non_exhaustive]
 pub struct Tgt {
     ticket: Ticket,
     session_key: Vec<u8>,
@@ -1219,6 +1220,9 @@ pub async fn rbcd_impersonate(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
+    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
+        anyhow::bail!("rbcd_impersonate is experimental; set ADHAMMER_EXPERIMENTAL=1 to run (see adhammer CLI docs for scope)");
+    }
     let tgt = get_tgt(account, password, realm, kdc).await?;
     rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
 }
@@ -1235,6 +1239,9 @@ pub async fn rbcd_impersonate_by_hash(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
+    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
+        anyhow::bail!("rbcd_impersonate_by_hash is experimental; set ADHAMMER_EXPERIMENTAL=1 to run (see adhammer CLI docs for scope)");
+    }
     let tgt = get_tgt_by_hash(account, realm, kdc, nt).await?;
     rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
 }

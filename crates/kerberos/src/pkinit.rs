@@ -413,6 +413,7 @@ fn self_signed_cert(
 /// in [`adhammer_core::Redacted`] so a stray `{tgt:?}` (if a downstream ever adds Debug)
 /// prints `***` instead of leaking either the Kerberos session key or the encrypted-under-
 /// user-key ccache material.
+#[non_exhaustive]
 pub struct PkinitTgt {
     pub ccache: adhammer_core::Redacted<Vec<u8>>,
     pub session_key: adhammer_core::Redacted<Vec<u8>>,

@@ -117,3 +117,5 @@ gpp_dump*.txt
 /bench/
 /scripts/check_release_governance.py
 graphify-out/
+
+demos/.scrub-terms-local

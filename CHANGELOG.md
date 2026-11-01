@@ -59,6 +59,20 @@ Also landed in 1.6.0 as semver hygiene:
   re-run, or pass `--out <different>`." Preserves the writer's safety intent
   (don't erase evidence of a prior attack step) with a one-click remedy.
 
+### Hardening after 7-critic review
+
+- `#[non_exhaustive]` blanket-applied to all public types in adhammer-kerberos
+  (`KerbruteOutcome`, `Csr`, `Candidate`, `PkinitTgt`, `KeyCredential`, `Tgt`,
+  `UnpacCreds` — the 7 not covered in the initial pass) so additive growth of
+  any of these doesn't force another minor bump dance. Downstream matches on
+  `KerbruteOutcome` must now carry a `_` catchall; downstream struct-literal
+  construction of these types moves to the public getter / builder path.
+- `ADHAMMER_EXPERIMENTAL` gate moved into `adhammer_kerberos::rbcd_impersonate`
+  and `rbcd_impersonate_by_hash` themselves (the CLI-layer gate in
+  `cli/src/attacks/rbcd.rs` is preserved as defense in depth, with the richer
+  user-facing message) so a direct library consumer — SDK, future verb, test
+  fixture — cannot accidentally bypass the experimental marker.
+
 ### Added
 
 - **kerbcore swap (Phase 1, `crates/kerberos/src/unpac.rs`).** PAC_CREDENTIAL_INFO
@@ -149,6 +163,16 @@ Also landed in 1.6.0 as semver hygiene:
   0.2.0 will fail to build until it lands. Resolved in this release's publish
   cascade, which pushes ms-pac-forge 0.2.0 to crates.io first (bottom-up) before
   the workspace crates.
+
+### Verification
+
+- 7-critic review run against release copy before publish; the RUSTSEC-2026-0346/
+  0347/0348/0349 citations verified against the live advisory DB (all four real
+  and attributable to rustls 0.23.46), and the kerbcore reach claim corrected to
+  drop a DCSync credential-path mention — DRSUAPI replication decrypts with the
+  DRS session key (RC4+MD5 / DES), so kerbcore's AES128/256 primitive has no
+  role on that path. `attack unpac` wording tightened to the actual reach site
+  (PAC_CREDENTIAL_INFO, key usage 16).
 
 ---
 

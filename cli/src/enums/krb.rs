@@ -86,6 +86,16 @@ pub(crate) async fn krbenum(a: KrbArgs) -> Result<()> {
                     name, a.realm, code
                 );
             }
+            // 1.6.0: KerbruteOutcome is now `#[non_exhaustive]` so Rust requires a wildcard
+            // arm. New variants are treated conservatively as "other" until a dedicated arm
+            // is added.
+            Ok(_) => {
+                other += 1;
+                println!(
+                    "[?] OTHER       {}@{}   unclassified KerbruteOutcome variant",
+                    name, a.realm
+                );
+            }
             Err(e) => {
                 errors += 1;
                 tracing::warn!(name, "kerbrute probe error: {e:#}");

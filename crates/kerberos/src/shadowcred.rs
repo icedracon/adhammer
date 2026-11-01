@@ -34,6 +34,7 @@ fn now_filetime_le() -> [u8; 8] {
 
 /// A generated Shadow Credential: the DN-Binary value for msDS-KeyCredentialLink and the
 /// PKCS#8 PEM private key (kept for the later PKINIT step).
+#[non_exhaustive]
 pub struct KeyCredential {
     pub dn_binary: String,
     pub private_key_pem: String,

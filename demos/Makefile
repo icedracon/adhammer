@@ -18,6 +18,7 @@ scrub:
 	@! grep -REniH \
 	  -e '192\.168\.' -e '172\.(1[6-9]|2[0-9]|3[01])\.' -e '10\.10\.10\.' \
 	  -e 'WIN-[A-Z0-9]{8,}' -e 'S-1-5-21-[0-9]' -e 'testlab' -e 'Zikurat' \
+	  -e 'DC0[0-9]' \
 	  -e 'TestPass' -e 'LabPass' \
 	  -- *.tape \
 	  && echo "scrub: clean (synthetic data only)" \
@@ -35,7 +36,7 @@ clean:
 # Dependencies (install on render host): ffmpeg + tesseract (`apt install
 # tesseract-ocr` / `choco install tesseract` / `brew install tesseract`).
 # MUST run before any `git add site/assets/*.gif`.
-RENDERED_GIFS := $(wildcard ../site/assets/*.gif)
+RENDERED_GIFS := $(wildcard site/assets/*.gif)
 scrub-rendered:
 	@command -v ffmpeg >/dev/null || { echo "scrub-rendered: ffmpeg not installed"; exit 1; }
 	@command -v tesseract >/dev/null || { echo "scrub-rendered: tesseract not installed (apt/brew/choco install tesseract)"; exit 1; }
@@ -45,7 +46,8 @@ scrub-rendered:
 	  echo "  → $$g"; \
 	  ffmpeg -i "$$g" -vf fps=2 "$$tmpdir/f_%03d.png" -y >/dev/null 2>&1; \
 	  for png in $$tmpdir/f_*.png; do \
-	    tesseract "$$png" - 2>/dev/null | grep -EiH '192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|10\.10\.10\.|WIN-[A-Z0-9]{8,}|S-1-5-21-[0-9]{8,}|testlab|Zikurat' \
+	    tesseract "$$png" - 2>/dev/null | grep -EiH -f .scrub-terms-local 2>/dev/null \
+	      || tesseract "$$png" - 2>/dev/null | grep -EiH '192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|10\.10\.10\.|WIN-[A-Z0-9]{8,}|S-1-5-21-[0-9]{8,}|testlab|Zikurat|DC0[0-9]' \
 	      && { echo "LEAK in $$g (frame $$png)"; rm -rf "$$tmpdir"; exit 1; }; \
 	  done; \
 	  rm -f $$tmpdir/f_*.png; \
