@@ -1,0 +1,35 @@
+/* Polish pass: one heading voice, calmer ESC intro, legible drawers, compact mobile nav. */
+
+/* Headings: weight 500 with an italic Georgia accent, matching the rest of the page. */
+.esc-explorer h2, .methods-heading h2 { font-weight: 500; letter-spacing: -.055em; }
+.esc-explorer h2 em, .methods-heading h2 em { font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-weight: 400; letter-spacing: -.03em; }
+.esc-explorer h2 em { color: #a23522; }
+.esc-dial-summary h3 { font-weight: 500; letter-spacing: -.045em; }
+
+/* ESC intro: the paragraph sits under the heading's baseline instead of floating low on the right. */
+.esc-explorer .esc-intro { align-items: end; }
+.esc-explorer .esc-intro p { padding-bottom: .4em; }
+
+/* When the dial is active it already shows the class question; keep the card's copy for assistive tech only. */
+.esc-dial-layout:not([hidden]) ~ .esc-detail .esc-heading-row > div:first-child {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.esc-dial-layout:not([hidden]) ~ .esc-detail .esc-heading-row { grid-template-columns: 1fr; padding-top: 24px; }
+.esc-dial-layout:not([hidden]) ~ .esc-detail .esc-boundary { max-width: 720px; }
+
+/* Reference drawers: say what is inside and look like a control. */
+.research-drawer > summary > b small { display: block; margin-top: 6px; font: 400 13px/1.5 var(--mono); letter-spacing: 0; color: #8fa5a1; }
+.research-drawer > summary > i {
+  display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #40514f; border-radius: 50%;
+  font-size: 22px; line-height: 1; transition: transform .25s ease, border-color .25s ease, background .25s ease;
+}
+.research-drawer > summary:hover > i { border-color: #f8795b; background: rgba(248, 121, 91, .08); }
+.research-drawer[open] > summary > i { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .research-drawer > summary > i { transition: none; } }
+
+/* Small screens: the motion toggle becomes a compact icon button so the brand has room. */
+@media (max-width: 480px) {
+  .js .motion-toggle { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+  .js .motion-toggle::before { content: "❚❚"; font-size: 11px; letter-spacing: -1px; }
+  .js .motion-toggle[aria-pressed="true"]::before { content: "▶"; font-size: 12px; letter-spacing: 0; }
+}
