@@ -115,7 +115,7 @@ jobs:
           done
       - name: upload fuzz crash artifacts (repro inputs)
         if: always()
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3 pinned
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4.4.3 pinned
         with:
           name: fuzz-crashes
           path: fuzz/artifacts/
