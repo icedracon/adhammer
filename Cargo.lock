@@ -141,7 +141,7 @@ dependencies = [
  "anyhow",
  "hex",
  "hmac 0.12.1",
- "kerbcore 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "kerbcore",
  "md-5",
  "md4",
  "ms-pac-forge 0.2.0",
@@ -2228,20 +2228,6 @@ dependencies = [
 [[package]]
 name = "kerbcore"
 version = "0.3.0"
-dependencies = [
- "aes 0.8.4",
- "getrandom 0.2.17",
- "hmac 0.12.1",
- "md-5",
- "md4",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "zeroize",
-]
-
-[[package]]
-name = "kerbcore"
-version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12e45645fee6f9ce414e0040e451accb349f26048f18e726029be1c31c0b3db4"
 dependencies = [
@@ -2562,10 +2548,12 @@ dependencies = [
 [[package]]
 name = "ms-pac-forge"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a31d29fee0749d31f95a4244896b2790b1d4629b310d834e9ecd7823a6b74ee4"
 dependencies = [
  "hex",
  "hmac 0.12.1",
- "kerbcore 0.3.0",
+ "kerbcore",
  "md-5",
  "md4",
  "rand 0.8.8",
