@@ -28,8 +28,12 @@ hmac = { workspace = true }
 # their own crate. The adapter in pac.rs re-exports the parse/build/forge API
 # and layers the picky-krb Tgt-based decrypt_ticket_pac on top of it.
 # 1.5.3 kerbcore swap: local path dep pulls the picky-free 0.2.0 (drops picky-krb from the tree).
-# Ship sequence: publish kerbcore 0.3.0 + ms-pac-forge 0.2.0 → drop paths.
-ms-pac-forge = { path = "../../../ms-pac-forge", version = "0.2" }
+# ms-pac-forge 0.2.0 shipped to crates.io 2026-11-16 — resolve from registry
+# (sibling path dep broke CI's cargo metadata because GitHub Actions only
+# clones adhammer, not the sibling ms-pac-forge checkout). For local dev with
+# an in-tree ms-pac-forge, add `[patch.crates-io] ms-pac-forge = { path = "…" }`
+# at the workspace root in your own .cargo/config.toml.
+ms-pac-forge = "0.2"
 
 # Kerberos roasting is built on picky-krb (Devolutions pure-Rust ASN.1 + KRB message
 # types) — no ASN.1 from scratch. BEING RETIRED in the 1.5.3 kerbcore swap
