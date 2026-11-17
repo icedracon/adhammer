@@ -22,8 +22,16 @@ pub mod build {
     include!(concat!(env!("OUT_DIR"), "/build_info.rs"));
 
     /// One-line version + provenance, e.g. `1.5.2 (abc123def456, 2026-09-18)`.
+    /// On a crates.io build (no `.git/` in the registry tarball), both fields are
+    /// literal `"unknown"` — drop the suffix entirely instead of printing
+    /// `1.6.0 (unknown, unknown)`, which reads as broken metadata.
     pub fn long_version() -> String {
-        format!("{} ({GIT_SHA}, {COMMIT_DATE})", env!("CARGO_PKG_VERSION"))
+        let base = env!("CARGO_PKG_VERSION");
+        if GIT_SHA == "unknown" && COMMIT_DATE == "unknown" {
+            base.to_string()
+        } else {
+            format!("{base} ({GIT_SHA}, {COMMIT_DATE})")
+        }
     }
 }
 
