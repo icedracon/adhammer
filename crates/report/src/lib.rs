@@ -1677,6 +1677,154 @@ impl Report {
         out.push_str("See report.md / report.html for full detail.\n");
         out
     }
+
+    /// 1.6.1 T6: XLSX workbook with three sheets — Summary / Findings / Attack
+    /// Paths — for audit and compliance workflows that want findings as a
+    /// spreadsheet. Native OOXML via `rust_xlsxwriter` (no Python/pandas, no C
+    /// openpyxl runtime).
+    ///
+    /// Sheet layout:
+    /// 1. **Summary**: domain, total_score, severity breakdown, counts.
+    /// 2. **Findings**: one row per finding (id, severity, title, category,
+    ///    affected-first, mitre comma-joined, detail, impact, remediation).
+    /// 3. **Attack Paths**: one row per path (cost, principal, target,
+    ///    step_count).
+    ///
+    /// Baseline diff and composite chains are NOT in the xlsx yet — they're
+    /// structural rather than tabular, and xlsx consumers would likely pivot
+    /// off Findings anyway. Add as a 4th/5th sheet if spreadsheet-driven
+    /// workflows ask for them.
+    pub fn to_xlsx(&self) -> anyhow::Result<Vec<u8>> {
+        use rust_xlsxwriter::{Format, FormatBorder, Workbook};
+
+        let mut wb = Workbook::new();
+        let header_fmt = Format::new()
+            .set_bold()
+            .set_background_color(rust_xlsxwriter::Color::RGB(0x00DDDDDD))
+            .set_border(FormatBorder::Thin);
+
+        // Sheet 1: Summary
+        {
+            let sheet = wb.add_worksheet().set_name("Summary")?;
+            sheet.write_string_with_format(0, 0, "Field", &header_fmt)?;
+            sheet.write_string_with_format(0, 1, "Value", &header_fmt)?;
+            let mut row: u32 = 1;
+            let add = |s: &mut rust_xlsxwriter::Worksheet,
+                       r: &mut u32,
+                       k: &str,
+                       v: String|
+             -> anyhow::Result<()> {
+                s.write_string(*r, 0, k)?;
+                s.write_string(*r, 1, &v)?;
+                *r += 1;
+                Ok(())
+            };
+            add(sheet, &mut row, "domain", self.domain.clone())?;
+            add(
+                sheet,
+                &mut row,
+                "schema_version",
+                self.schema_version.to_string(),
+            )?;
+            add(sheet, &mut row, "total_score", self.total_score.to_string())?;
+            add(
+                sheet,
+                &mut row,
+                "total_findings",
+                self.findings.len().to_string(),
+            )?;
+            add(
+                sheet,
+                &mut row,
+                "attack_paths",
+                self.top_paths.len().to_string(),
+            )?;
+            add(sheet, &mut row, "graph_nodes", self.graph_nodes.to_string())?;
+            add(sheet, &mut row, "graph_edges", self.graph_edges.to_string())?;
+            for sev in SEV_ORDER {
+                let c = self.findings.iter().filter(|f| f.severity == *sev).count();
+                add(
+                    sheet,
+                    &mut row,
+                    &format!("count_{}", sev_name(*sev)),
+                    c.to_string(),
+                )?;
+            }
+            sheet.set_column_width(0, 24.0)?;
+            sheet.set_column_width(1, 48.0)?;
+        }
+
+        // Sheet 2: Findings
+        {
+            let sheet = wb.add_worksheet().set_name("Findings")?;
+            let cols = [
+                "id",
+                "severity",
+                "category",
+                "title",
+                "affected",
+                "mitre",
+                "detail",
+                "impact",
+                "remediation",
+            ];
+            for (i, c) in cols.iter().enumerate() {
+                sheet.write_string_with_format(0, i as u16, *c, &header_fmt)?;
+            }
+            for (i, f) in self.findings.iter().enumerate() {
+                let row = (i + 1) as u32;
+                sheet.write_string(row, 0, &f.id)?;
+                sheet.write_string(row, 1, sev_name(f.severity))?;
+                sheet.write_string(row, 2, format!("{:?}", f.category).as_str())?;
+                sheet.write_string(row, 3, &f.title)?;
+                sheet.write_string(row, 4, f.affected.join("; ").as_str())?;
+                sheet.write_string(
+                    row,
+                    5,
+                    f.mitre
+                        .iter()
+                        .map(|m| m.id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                        .as_str(),
+                )?;
+                sheet.write_string(row, 6, &f.detail)?;
+                sheet.write_string(row, 7, f.impact.as_deref().unwrap_or(""))?;
+                sheet.write_string(row, 8, &f.remediation)?;
+            }
+            // Reasonable widths for human scanning.
+            for (i, w) in [18.0, 10.0, 14.0, 42.0, 48.0, 14.0, 60.0, 60.0, 60.0]
+                .iter()
+                .enumerate()
+            {
+                sheet.set_column_width(i as u16, *w)?;
+            }
+            sheet.autofilter(0, 0, self.findings.len() as u32, (cols.len() - 1) as u16)?;
+        }
+
+        // Sheet 3: Attack Paths
+        {
+            let sheet = wb.add_worksheet().set_name("AttackPaths")?;
+            let cols = ["cost", "principal", "target", "step_count"];
+            for (i, c) in cols.iter().enumerate() {
+                sheet.write_string_with_format(0, i as u16, *c, &header_fmt)?;
+            }
+            for (i, p) in self.top_paths.iter().enumerate() {
+                let row = (i + 1) as u32;
+                sheet.write_number(row, 0, p.cost as f64)?;
+                sheet.write_string(row, 1, &p.principal)?;
+                sheet.write_string(row, 2, &p.target)?;
+                sheet.write_number(row, 3, p.steps.len() as f64)?;
+            }
+            for (i, w) in [8.0, 32.0, 32.0, 12.0].iter().enumerate() {
+                sheet.set_column_width(i as u16, *w)?;
+            }
+            sheet.autofilter(0, 0, self.top_paths.len() as u32, (cols.len() - 1) as u16)?;
+        }
+
+        wb.save_to_buffer()
+            .map_err(|e| anyhow::anyhow!("xlsx serialize: {e}"))
+    }
 }
 
 const SEV_ORDER: &[Severity] = &[
@@ -2790,5 +2938,29 @@ mod next_command_render_tests {
             &RiskConfig::default(),
         );
         assert!(!r.to_json().contains("next_command"));
+    }
+}
+
+#[cfg(test)]
+mod xlsx_tests {
+    use super::*;
+
+    #[test]
+    fn xlsx_round_trip_is_valid_pk_zip() {
+        // Minimal Report → XLSX smoke. Verifies rust_xlsxwriter produces a valid
+        // OOXML (zip-based) workbook with the ZIP magic and reasonable size.
+        let r = Report::build("corp.local", vec![], vec![], (0, 0), &RiskConfig::default());
+        let bytes = r.to_xlsx().expect("to_xlsx");
+        assert!(
+            bytes.len() > 500,
+            "xlsx size {} too small for a 3-sheet workbook",
+            bytes.len()
+        );
+        assert_eq!(
+            &bytes[..2],
+            b"PK",
+            "xlsx must start with ZIP magic PK; got {:?}",
+            &bytes[..2]
+        );
     }
 }

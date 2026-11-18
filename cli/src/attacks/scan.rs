@@ -19,11 +19,12 @@ pub(crate) struct ScanArgs {
     /// Base DN (defaults to RootDSE defaultNamingContext)
     #[arg(long)]
     pub base_dn: Option<String>,
-    /// Output format for `scan`: `json` (default), `html`, `md`, or `txt`.
-    /// When `--out <path>` is set the format is auto-inferred from the file
-    /// extension (`.json` / `.html` / `.md` / `.txt` / `.zip` → BloodHound-CE
-    /// bundle); this flag overrides that inference.
-    #[arg(long, default_value = "json", value_parser = ["json", "html", "md", "txt"])]
+    /// Output format for `scan`: `json` (default), `html`, `md`, `txt`, or
+    /// `xlsx` (1.6.1). When `--out <path>` is set the format is auto-inferred
+    /// from the file extension (`.json` / `.html` / `.md` / `.txt` / `.xlsx`
+    /// / `.zip` → BloodHound-CE bundle); this flag overrides that inference.
+    /// `xlsx` requires `--out` (refuses to dump a binary workbook to stdout).
+    #[arg(long, default_value = "json", value_parser = ["json", "html", "md", "txt", "xlsx"])]
     pub format: String,
     /// Write the report to `<path>` instead of stdout. Format is inferred from
     /// the extension: `.json` → JSON, `.html` → HTML, `.md` → Markdown,
@@ -568,6 +569,7 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
             Some("html") => "html".to_string(),
             Some("md") | Some("markdown") => "md".to_string(),
             Some("txt") | Some("text") => "txt".to_string(),
+            Some("xlsx") => "xlsx".to_string(),
             Some("zip") => {
                 // .zip already written; nothing to serialise here.
                 return Ok(());
@@ -577,6 +579,36 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     } else {
         a.format.clone()
     };
+
+    // 1.6.1 T6: XLSX is binary — split out BEFORE building a String body.
+    // Stdout isn't a useful target for a 10+ KB binary blob, so --format xlsx
+    // without --out errors loudly rather than dumping OOXML into the terminal.
+    if format == "xlsx" {
+        let bytes = report.to_xlsx().context("serialize XLSX report")?;
+        match &a.out {
+            Some(path) if path != "-" => {
+                std::fs::write(path, &bytes)
+                    .with_context(|| format!("write scan report → {path}"))?;
+                ui::ok(&format!(
+                    "xlsx report written → {} ({} bytes)",
+                    path,
+                    bytes.len()
+                ));
+            }
+            _ => {
+                anyhow::bail!(
+                    "--format xlsx requires --out <path.xlsx> — refusing to dump a binary \
+                     workbook to stdout"
+                );
+            }
+        }
+        checklist.record_ok(
+            "composite chains + baseline diff",
+            "computed as part of Report::build",
+        );
+        checklist.record_ok("write report", format!("xlsx · {} bytes", bytes.len()));
+        return Ok(());
+    }
 
     let body = match format.as_str() {
         "html" => report.to_html(),

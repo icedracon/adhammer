@@ -40,6 +40,14 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
   drift-guard test pins the hand-coded `QUICKSTART` string to what the
   typed `Recipe`/`Step` model renders, so the two can never silently
   diverge.
+- **T6 — XLSX report format.** `adhammer scan --format xlsx --out
+  report.xlsx` (or `--out report.xlsx` with extension inference) writes a
+  three-sheet workbook: `Summary` (counts + risk + severity breakdown),
+  `Findings` (one row per finding with id/severity/category/title/
+  affected/mitre/detail/impact/remediation + autofilter), `AttackPaths`
+  (cost/principal/target/step_count). Native OOXML via `rust_xlsxwriter`
+  (pure Rust; no Python/pandas/openpyxl runtime). `xlsx` requires
+  `--out <path>` — refuses to dump a binary workbook to stdout.
 - **T2 — full S4U ccache persistence.** `attack rbcd` / `attack constrained`
   now write the final impersonation ticket to an MIT credential cache usable
   with `KRB5CCNAME` and downstream Kerberos tooling. Default output path:
