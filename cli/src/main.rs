@@ -23,6 +23,7 @@ mod guided;
 mod host_posture;
 mod interactive;
 mod poison;
+mod recipes;
 mod session;
 mod setup;
 mod shared_args;
@@ -58,6 +59,12 @@ struct Cli {
     /// Print the copy-paste quickstart recipes (black-box, authenticated, one attack) and exit.
     #[arg(long)]
     examples: bool,
+
+    /// 1.6.1 T8: emit the quickstart recipes as structured JSON (same content
+    /// as `--examples`, typed Recipe/Step model) for tooling that walks the
+    /// catalog programmatically. Mutually informative with `--examples`.
+    #[arg(long)]
+    examples_json: bool,
 
     /// Reuse the last saved session (skip setup prompts, go straight to the menu).
     #[arg(long)]
@@ -745,6 +752,11 @@ async fn main() -> Result<()> {
     );
     if cli.examples {
         print!("{QUICKSTART}");
+        return Ok(());
+    }
+    if cli.examples_json {
+        print!("{}", recipes::render_quickstart_json());
+        println!();
         return Ok(());
     }
     let effective_verbosity =

@@ -33,6 +33,13 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
   LDAP bind method from the CLI. Default `auto`. Primary use case: stealth
   with `--auth-method ntlm` to skip the simple_bind probe entirely on
   CBT=2 targets that log every rejected bind.
+- **T8 — structured playbook recipes.** `adhammer --examples-json` emits
+  the quickstart catalog as JSON (`[{name, description, steps:
+  [{command}]}, ...]`) for tooling that walks the recipe catalog
+  programmatically. The flat-text `--examples` output is unchanged; a
+  drift-guard test pins the hand-coded `QUICKSTART` string to what the
+  typed `Recipe`/`Step` model renders, so the two can never silently
+  diverge.
 - **T2 — full S4U ccache persistence.** `attack rbcd` / `attack constrained`
   now write the final impersonation ticket to an MIT credential cache usable
   with `KRB5CCNAME` and downstream Kerberos tooling. Default output path:
