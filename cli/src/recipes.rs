@@ -41,24 +41,33 @@ pub(crate) const RECIPES: &[Recipe] = &[
         name: "blackbox",
         description: "Black-box (no creds) — discover + posture in one command",
         steps: &[
-            Step { command: "adhammer run --domain corp.local --range 10.0.0.0/24" },
-            Step { command: "adhammer run --domain corp.local --range 10.0.0.0/24 --web --deep" },
+            Step {
+                command: "adhammer run --domain corp.local --range 10.0.0.0/24",
+            },
+            Step {
+                command: "adhammer run --domain corp.local --range 10.0.0.0/24 --web --deep",
+            },
         ],
     },
     Recipe {
         name: "authenticated",
         description: "Authenticated — preflight, then a full scan to an HTML report",
         steps: &[
-            Step { command: "adhammer doctor --url ldaps://dc.corp.local --user alice" },
-            Step { command: "adhammer scan --url ldaps://dc.corp.local --user alice --out report.html" },
+            Step {
+                command: "adhammer doctor --url ldaps://dc.corp.local --user alice",
+            },
+            Step {
+                command: "adhammer scan --url ldaps://dc.corp.local --user alice --out report.html",
+            },
         ],
     },
     Recipe {
         name: "one-attack",
         description: "One attack — every finding prints its own copy-paste next command",
-        steps: &[
-            Step { command: "adhammer attack roast --url ldaps://dc.corp.local --user alice --kdc dc.corp.local" },
-        ],
+        steps: &[Step {
+            command:
+                "adhammer attack roast --url ldaps://dc.corp.local --user alice --kdc dc.corp.local",
+        }],
     },
 ];
 

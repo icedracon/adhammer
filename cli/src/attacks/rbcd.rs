@@ -117,9 +117,7 @@ pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
         cfg.impersonate,
         bytes.len()
     ));
-    println!(
-        "    S4U2Self + S4U2Proxy chain succeeded; ccache usable via KRB5CCNAME={out_path}"
-    );
+    println!("    S4U2Self + S4U2Proxy chain succeeded; ccache usable via KRB5CCNAME={out_path}");
     Ok(())
 }
 

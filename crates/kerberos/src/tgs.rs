@@ -1195,7 +1195,8 @@ pub async fn rbcd_impersonate(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
-    let st = rbcd_impersonate_ticket(account, password, realm, kdc, impersonate, target_spn).await?;
+    let st =
+        rbcd_impersonate_ticket(account, password, realm, kdc, impersonate, target_spn).await?;
     Ok(st.session_etype() as u32)
 }
 
@@ -1228,8 +1229,8 @@ pub async fn rbcd_impersonate_by_hash(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
-    let st = rbcd_impersonate_by_hash_ticket(account, nt, realm, kdc, impersonate, target_spn)
-        .await?;
+    let st =
+        rbcd_impersonate_by_hash_ticket(account, nt, realm, kdc, impersonate, target_spn).await?;
     Ok(st.session_etype() as u32)
 }
 
@@ -1686,7 +1687,7 @@ pub fn service_ticket_ccache(
         c.extend_from_slice(&t.to_be_bytes());
     }
     c.push(0); // is_skey = false
-    // tktflags: FORWARDABLE | RENEWABLE | PRE-AUTHENT — no INITIAL (S4U-issued, not from AS).
+               // tktflags: FORWARDABLE | RENEWABLE | PRE-AUTHENT — no INITIAL (S4U-issued, not from AS).
     c.extend_from_slice(&0x50a00000u32.to_be_bytes());
     c.extend_from_slice(&0u32.to_be_bytes()); // num_address
     c.extend_from_slice(&0u32.to_be_bytes()); // num_authdata
