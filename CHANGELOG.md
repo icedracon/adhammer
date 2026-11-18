@@ -3,7 +3,40 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased] — 1.6.0 — defender-grade audit trail · pure-Rust Kerberos · baseline-diff reports
+## [Unreleased] — 1.6.1 — LDAP channel binding, NTLM bind, CBT=2 survival
+
+Why this release matters: adhammer 1.6.0 could not bind against Active
+Directory DCs with `LdapEnforceChannelBinding=2` — the simple_bind path
+inside TLS was rejected with `LDAP_STRONG_AUTH_REQUIRED` (result 8), and the
+tool had no NTLM path to retry with. 1.6.1 closes that survival gap and does
+it transparently: the default `Collector::connect(&cfg)` behavior now tries
+simple_bind first and, on CBT=2 rejection, automatically retries with
+`sasl_ntlm_bind`, which ldap3 binds with the `tls-server-end-point` channel
+binding token attached. No operator configuration required for the common
+case. A new public `AuthMethod` enum + `Collector::connect_with_method`
+entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
+
+### Added
+
+- **`adhammer_collector::AuthMethod`** (`#[non_exhaustive]` enum, Default =
+  `Auto`). The `Auto` variant implements the transparent CBT fallback; the
+  three explicit variants (`Simple`, `Ntlm`, `Gssapi`) let operators pin the
+  bind method for opsec or troubleshooting.
+- **`Collector::connect_with_method(&cfg, AuthMethod)`** — new entry point.
+  Existing `Collector::connect(&cfg)` is kept as a back-compat wrapper that
+  calls `connect_with_method(&cfg, AuthMethod::Auto)`. All attack verbs that
+  chain through `Collector::connect` inherit the new behavior for free.
+- **`ntlm` feature on `adhammer-collector`** (default-on). Wires
+  `ldap3/ntlm`, which pulls the pure-Rust `sspi` crate for the NTLMSSP
+  exchange. Builds on Linux + Windows + macOS without pulling C deps.
+
+### Fixed
+
+- Hardened DCs with `LdapEnforceChannelBinding=2` would reject every
+  authenticated bind on 1.6.0 and prior. Transparent Auto fallback makes
+  this invisible for the common password-auth case.
+
+## [1.6.0] — defender-grade audit trail · pure-Rust Kerberos · baseline-diff reports
 
 Why this release matters, in one paragraph: 1.6.0 is the release where
 ADhammer's deliverable catches up with its collection. Engagement reports now

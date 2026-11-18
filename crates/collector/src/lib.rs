@@ -132,6 +132,39 @@ pub struct LdapConfig {
     pub allow_plaintext_bind: bool,
 }
 
+/// How to authenticate the LDAP bind.
+///
+/// 1.6.1 added this to carry the operator's channel-binding preference without
+/// modifying [`LdapConfig`]'s struct shape. Pass via [`Collector::connect_with_method`].
+///
+/// # Channel binding
+///
+/// Modern Active Directory DCs can be configured with
+/// `LdapEnforceChannelBinding=2`, which requires the `tls-server-end-point`
+/// channel binding token (CBT) on any bind that can carry one. `simple_bind`
+/// over LDAPS does *not* carry CBT and is rejected with
+/// `LDAP_STRONG_AUTH_REQUIRED` (result code 8). `sasl_ntlm_bind` and
+/// `sasl_gssapi_bind` both let ldap3 attach the CBT automatically.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AuthMethod {
+    /// Default. Tries `simple_bind` first; on `LDAP_STRONG_AUTH_REQUIRED`
+    /// (CBT=2 rejection), transparently falls back to `sasl_ntlm_bind`, which
+    /// ldap3 binds with the `tls-server-end-point` CBT attached. If the
+    /// caller set `cfg.gssapi = true`, `Auto` prefers `Gssapi` directly.
+    #[default]
+    Auto,
+    /// Force plaintext simple_bind (inside TLS). Bypasses CBT; accepted only
+    /// by non-hardened DCs. Useful for labs and to confirm a DC's CBT policy.
+    Simple,
+    /// Force SASL GSS-SPNEGO NTLM bind. CBT auto-applied on TLS. Requires the
+    /// `ntlm` feature (default-on since 1.6.1).
+    Ntlm,
+    /// Force SASL GSSAPI Kerberos bind. CBT auto-applied on TLS. Requires the
+    /// `gssapi` feature.
+    Gssapi,
+}
+
 /// The server host from an LDAP URL (used for the GSSAPI service principal
 /// `ldap/<fqdn>`, and to detect an IP-literal host that needs FQDN resolution).
 fn url_host(url: &str) -> String {
@@ -374,7 +407,19 @@ pub fn require_bind_integrity(cfg: &LdapConfig) -> Result<()> {
 }
 
 impl Collector {
+    /// Back-compat entry point. Equivalent to
+    /// [`Collector::connect_with_method`] with [`AuthMethod::Auto`], which
+    /// matches 1.6.0 behavior for non-hardened DCs and adds transparent NTLM
+    /// fallback on `LDAP_STRONG_AUTH_REQUIRED` (CBT=2 rejection).
     pub async fn connect(cfg: &LdapConfig) -> Result<Self> {
+        Self::connect_with_method(cfg, AuthMethod::Auto).await
+    }
+
+    /// 1.6.1 entry point that carries an explicit [`AuthMethod`]. Use this
+    /// from CLI paths that expose a `--auth-method` or `--channel-binding`
+    /// flag. All behavior other than bind-dispatch is identical to
+    /// [`Collector::connect`].
+    pub async fn connect_with_method(cfg: &LdapConfig, method: AuthMethod) -> Result<Self> {
         ensure_tls_configuration(&cfg.url, cfg.insecure)?;
         // Refuse authenticated plaintext LDAP before opening a socket.
         require_bind_integrity(cfg)?;
@@ -422,6 +467,7 @@ impl Collector {
             cfg,
             domain.as_deref(),
             gssapi_spn_host.as_deref(),
+            method,
         )
         .await?;
 
@@ -442,34 +488,90 @@ impl Collector {
         cfg: &LdapConfig,
         domain: Option<&str>,
         gssapi_spn_host: Option<&str>,
+        method: AuthMethod,
     ) -> Result<()> {
-        if cfg.gssapi {
+        // 1.6.1: dispatch on AuthMethod. `cfg.gssapi` is kept as a back-compat
+        // hint — if the caller set it, treat it as an explicit Kerberos choice
+        // even when `method` is Auto. Explicit method values override cfg.gssapi.
+        let effective = match method {
+            AuthMethod::Auto if cfg.gssapi => AuthMethod::Gssapi,
+            m => m,
+        };
+
+        if matches!(effective, AuthMethod::Gssapi) {
             #[cfg(feature = "gssapi")]
             {
-                // SPN target = `ldap/<fqdn>`. Prefer the RootDSE-resolved FQDN
-                // (set when the caller connected by IP); otherwise the URL host
-                // is already a usable name.
                 let host = url_host(&cfg.url);
                 let target = gssapi_spn_host.unwrap_or(host.as_str());
                 ldap.sasl_gssapi_bind(target)
                     .await?
                     .success()
-                    .context("GSSAPI bind failed")?;
+                    .context("GSSAPI bind failed (CBT auto-applied on TLS)")?;
                 return Ok(());
             }
             #[cfg(not(feature = "gssapi"))]
             {
-                let _ = gssapi_spn_host; // only consulted in the gssapi build
-                anyhow::bail!("--gssapi requires a build with `--features gssapi`");
+                let _ = gssapi_spn_host;
+                anyhow::bail!("Kerberos/GSSAPI bind requires a build with `--features gssapi`");
             }
         }
+
+        if matches!(effective, AuthMethod::Ntlm) {
+            #[cfg(feature = "ntlm")]
+            {
+                // sasl_ntlm_bind takes bare `DOMAIN\user` or `user@DOMAIN`
+                // (sspi parses both). We pass cfg.bind_dn verbatim — the operator
+                // is expected to supply it in a shape sspi can parse. A plain DN
+                // won't work with NTLM; that's user error, not a bug.
+                let _ = gssapi_spn_host;
+                ldap.sasl_ntlm_bind(&cfg.bind_dn, cfg.password.expose_secret())
+                    .await?
+                    .success()
+                    .context(
+                        "NTLM bind failed (CBT auto-applied on TLS). Check username \
+                         shape: `DOMAIN\\user` or `user@domain`, not a bare DN.",
+                    )?;
+                return Ok(());
+            }
+            #[cfg(not(feature = "ntlm"))]
+            {
+                anyhow::bail!("NTLM bind requires a build with `--features ntlm` (default-on for adhammer-collector 1.6.1+)");
+            }
+        }
+
+        // Simple or Auto (without the gssapi shortcut): try simple_bind.
+        // On Auto, if the DC rejects with LDAP_STRONG_AUTH_REQUIRED (result 8)
+        // and NTLM is compiled in, retry with sasl_ntlm_bind so the CBT path
+        // engages transparently.
         let bind_dn = qualify_bind(&cfg.bind_dn, domain);
-        ldap.simple_bind(&bind_dn, cfg.password.expose_secret())
-            .await?
-            .success()
-            .with_context(|| {
-                format!("bind failed as `{bind_dn}` — check the password, or pass `DOMAIN\\user` / `user@domain`")
-            })?;
+        let simple_rc = ldap
+            .simple_bind(&bind_dn, cfg.password.expose_secret())
+            .await?;
+
+        // LDAP_STRONG_AUTH_REQUIRED = 8. On a CBT=2 DC this is the standard
+        // response to a simple_bind inside TLS. On Auto, retry with NTLM.
+        if simple_rc.rc == 8 && matches!(effective, AuthMethod::Auto) {
+            #[cfg(feature = "ntlm")]
+            {
+                tracing::debug!(
+                    "simple_bind returned LDAP_STRONG_AUTH_REQUIRED — DC likely enforces \
+                     channel binding (CBT=2). Retrying with NTLM so ldap3 supplies the \
+                     tls-server-end-point CBT automatically."
+                );
+                ldap.sasl_ntlm_bind(&cfg.bind_dn, cfg.password.expose_secret())
+                    .await?
+                    .success()
+                    .context(
+                        "NTLM fallback after CBT rejection failed. Check username shape: \
+                         `DOMAIN\\user` or `user@domain` (not a bare DN).",
+                    )?;
+                return Ok(());
+            }
+        }
+
+        simple_rc.success().with_context(|| {
+            format!("bind failed as `{bind_dn}` — check the password, or pass `DOMAIN\\user` / `user@domain`")
+        })?;
         Ok(())
     }
 
