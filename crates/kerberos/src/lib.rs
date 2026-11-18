@@ -39,7 +39,8 @@ pub mod unpac;
 pub use tgs::{
     asktgt, build_ap_req_gss, build_ap_req_gss_aes256, check_credential, forge_diamond_tgt,
     forge_golden_tgt, forge_silver_tgt, get_service_ticket, get_tgt, get_tgt_by_hash,
-    golden_ccache, overpass_the_hash, rbcd_impersonate, rbcd_impersonate_by_hash, roast_spn,
+    golden_ccache, overpass_the_hash, rbcd_impersonate, rbcd_impersonate_by_hash,
+    rbcd_impersonate_by_hash_ticket, rbcd_impersonate_ticket, roast_spn, service_ticket_ccache,
     silver_ccache, silver_service_ticket, CredResult, ServiceTicket, Tgt, TicketTimestamps,
 };
 

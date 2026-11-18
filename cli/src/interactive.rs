@@ -1177,6 +1177,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 nt_hash: None,
                 impersonate: Some(impersonate),
                 target_spn: Some(target_spn),
+                out: None,
             })
             .await
         }
@@ -1644,6 +1645,7 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 nt_hash: None,
                 impersonate: Some(impersonate),
                 target_spn: Some(target_spn),
+                out: None,
             })
             .await
         }

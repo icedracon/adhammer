@@ -29,12 +29,41 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
 - **`ntlm` feature on `adhammer-collector`** (default-on). Wires
   `ldap3/ntlm`, which pulls the pure-Rust `sspi` crate for the NTLMSSP
   exchange. Builds on Linux + Windows + macOS without pulling C deps.
+- **`adhammer scan --auth-method <simple|ntlm|kerberos|auto>`** — pin the
+  LDAP bind method from the CLI. Default `auto`. Primary use case: stealth
+  with `--auth-method ntlm` to skip the simple_bind probe entirely on
+  CBT=2 targets that log every rejected bind.
+- **T2 — full S4U ccache persistence.** `attack rbcd` / `attack constrained`
+  now write the final impersonation ticket to an MIT credential cache usable
+  with `KRB5CCNAME` and downstream Kerberos tooling. Default output path:
+  `{impersonate}-{spn-slug}.ccache`; override with `--out <path>`. Uses the
+  same no-overwrite `write_secret_artifact` contract as `attack asktgt`, so
+  prior attack evidence is preserved.
+- **`adhammer_kerberos::rbcd_impersonate_ticket`** +
+  **`rbcd_impersonate_by_hash_ticket`** + **`service_ticket_ccache`** — new
+  public API that returns the full `ServiceTicket` from the S4U chain and
+  serializes it to an MIT ccache. The existing `rbcd_impersonate` /
+  `rbcd_impersonate_by_hash` entries are kept as thin wrappers that return
+  the session etype for back-compat.
+
+### Changed
+
+- **`ADHAMMER_EXPERIMENTAL=1` gate removed from `attack rbcd` and
+  `attack constrained`**, including the library-level defense-in-depth gate
+  on `adhammer_kerberos::rbcd_impersonate*`. The chain is complete and the
+  ticket is observably usable, so the experimental guard no longer serves a
+  purpose. Operators who want to keep a run-only-when-flagged workflow can
+  wrap the verb with their own env-var check at the shell layer.
 
 ### Fixed
 
 - Hardened DCs with `LdapEnforceChannelBinding=2` would reject every
   authenticated bind on 1.6.0 and prior. Transparent Auto fallback makes
   this invisible for the common password-auth case.
+- `attack rbcd` on 1.6.0 required `ADHAMMER_EXPERIMENTAL=1` and did not
+  persist the impersonation ticket — operators got a proof-of-concept etype
+  back but no usable ccache. Fixed: default run is first-class and writes a
+  KRB5CCNAME-usable ccache to disk.
 
 ## [1.6.0] — defender-grade audit trail · pure-Rust Kerberos · baseline-diff reports
 

