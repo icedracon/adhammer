@@ -1678,6 +1678,48 @@ impl Report {
         out
     }
 
+    /// 1.6.1 T7: Newline-delimited JSON for SIEM ingestion. Emits a single
+    /// "header" event with scan metadata (domain, counts, timestamp) followed
+    /// by one event per finding, each terminated by `\n`. Every line is
+    /// independently valid JSON so streaming parsers (Splunk HEC, Logstash,
+    /// `jq -c`, `tail -f | parse`) can consume the stream without buffering.
+    ///
+    /// Header event shape:
+    ///   `{"type":"scan.header","domain":..,"total_findings":..,"total_score":..}`
+    /// Finding event shape:
+    ///   `{"type":"finding", <inline-serialized Finding>}`
+    ///
+    /// Attack paths are NOT in the NDJSON stream yet — they're graph-shaped
+    /// and most SIEM pivot points are per-finding anyway. Add as a
+    /// `scan.path` event type when a real SIEM workflow asks for them.
+    pub fn to_ndjson(&self) -> String {
+        let mut out = String::new();
+        // Header event — one line of scan metadata so downstream consumers
+        // can pivot off domain / schema_version / counts without reading
+        // every finding first.
+        let header = serde_json::json!({
+            "type": "scan.header",
+            "schema_version": self.schema_version,
+            "domain": self.domain,
+            "total_findings": self.findings.len(),
+            "total_score": self.total_score,
+            "attack_paths": self.top_paths.len(),
+            "graph_nodes": self.graph_nodes,
+            "graph_edges": self.graph_edges,
+        });
+        out.push_str(&serde_json::to_string(&header).unwrap_or_else(|_| "{}".into()));
+        out.push('\n');
+        for f in &self.findings {
+            let line = serde_json::json!({
+                "type": "finding",
+                "finding": f,
+            });
+            out.push_str(&serde_json::to_string(&line).unwrap_or_else(|_| "{}".into()));
+            out.push('\n');
+        }
+        out
+    }
+
     /// 1.6.1 T6: XLSX workbook with three sheets — Summary / Findings / Attack
     /// Paths — for audit and compliance workflows that want findings as a
     /// spreadsheet. Native OOXML via `rust_xlsxwriter` (no Python/pandas, no C
@@ -2962,5 +3004,25 @@ mod xlsx_tests {
             "xlsx must start with ZIP magic PK; got {:?}",
             &bytes[..2]
         );
+    }
+}
+
+#[cfg(test)]
+mod ndjson_tests {
+    use super::*;
+
+    #[test]
+    fn ndjson_every_line_is_valid_json() {
+        let r = Report::build("corp.local", vec![], vec![], (0, 0), &RiskConfig::default());
+        let out = r.to_ndjson();
+        assert!(out.ends_with('\n'), "ndjson must end with newline");
+        for (i, line) in out.lines().enumerate() {
+            let v: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("line {i} not valid JSON: {e}\n{line}"));
+            assert!(v.get("type").is_some(), "line {i} missing 'type' field");
+        }
+        // First line is always the scan.header; findings follow.
+        let first: serde_json::Value = serde_json::from_str(out.lines().next().unwrap()).unwrap();
+        assert_eq!(first["type"], "scan.header");
     }
 }

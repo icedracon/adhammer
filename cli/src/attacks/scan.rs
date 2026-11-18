@@ -19,12 +19,15 @@ pub(crate) struct ScanArgs {
     /// Base DN (defaults to RootDSE defaultNamingContext)
     #[arg(long)]
     pub base_dn: Option<String>,
-    /// Output format for `scan`: `json` (default), `html`, `md`, `txt`, or
-    /// `xlsx` (1.6.1). When `--out <path>` is set the format is auto-inferred
-    /// from the file extension (`.json` / `.html` / `.md` / `.txt` / `.xlsx`
-    /// / `.zip` → BloodHound-CE bundle); this flag overrides that inference.
-    /// `xlsx` requires `--out` (refuses to dump a binary workbook to stdout).
-    #[arg(long, default_value = "json", value_parser = ["json", "html", "md", "txt", "xlsx"])]
+    /// Output format for `scan`: `json` (default), `html`, `md`, `txt`,
+    /// `xlsx`, or `ndjson` (1.6.1). When `--out <path>` is set the format is
+    /// auto-inferred from the file extension (`.json` / `.html` / `.md` /
+    /// `.txt` / `.xlsx` / `.ndjson` / `.zip` → BloodHound-CE bundle); this
+    /// flag overrides that inference. `xlsx` requires `--out` (refuses to
+    /// dump a binary workbook to stdout). `ndjson` is one JSON object per
+    /// line (`scan.header` + one `finding` event per finding) sized for SIEM
+    /// / `jq -c` / log-pipeline consumption.
+    #[arg(long, default_value = "json", value_parser = ["json", "html", "md", "txt", "xlsx", "ndjson"])]
     pub format: String,
     /// Write the report to `<path>` instead of stdout. Format is inferred from
     /// the extension: `.json` → JSON, `.html` → HTML, `.md` → Markdown,
@@ -570,6 +573,7 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
             Some("md") | Some("markdown") => "md".to_string(),
             Some("txt") | Some("text") => "txt".to_string(),
             Some("xlsx") => "xlsx".to_string(),
+            Some("ndjson") | Some("jsonl") => "ndjson".to_string(),
             Some("zip") => {
                 // .zip already written; nothing to serialise here.
                 return Ok(());
@@ -614,6 +618,7 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
         "html" => report.to_html(),
         "md" => report.to_markdown(),
         "txt" => report.to_text_summary(a.top_n),
+        "ndjson" => report.to_ndjson(),
         _ => report.to_json(),
     };
 
@@ -721,6 +726,7 @@ async fn scan_anonymous(a: ScanArgs) -> Result<()> {
         "html" => report.to_html(),
         "md" => report.to_markdown(),
         "txt" => report.to_text_summary(a.top_n),
+        "ndjson" => report.to_ndjson(),
         _ => report.to_json(),
     };
 

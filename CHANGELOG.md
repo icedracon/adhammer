@@ -48,6 +48,13 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
   (cost/principal/target/step_count). Native OOXML via `rust_xlsxwriter`
   (pure Rust; no Python/pandas/openpyxl runtime). `xlsx` requires
   `--out <path>` — refuses to dump a binary workbook to stdout.
+- **T7 — NDJSON report format for SIEM ingestion.** `adhammer scan
+  --format ndjson --out findings.ndjson` (or `.jsonl` / `.ndjson`
+  extension inference). Emits one `scan.header` event with scan metadata
+  followed by one `finding` event per finding, each terminated by `\n`.
+  Every line is independently valid JSON so streaming parsers
+  (Splunk HEC, Logstash, `jq -c`, `tail -f | parse`) can consume the
+  stream without buffering.
 - **T2 — full S4U ccache persistence.** `attack rbcd` / `attack constrained`
   now write the final impersonation ticket to an MIT credential cache usable
   with `KRB5CCNAME` and downstream Kerberos tooling. Default output path:
