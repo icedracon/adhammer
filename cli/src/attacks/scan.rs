@@ -189,7 +189,8 @@ async fn scan_impl(a: ScanArgs, checklist: &mut ui::StageChecklist) -> Result<()
     }
     let sp = ui::Spinner::start("collecting AD objects over LDAP");
     #[cfg_attr(not(feature = "rusthound-ce"), allow(unused_mut))]
-    let mut collector = Collector::connect(&config(&a)).await?;
+    let mut collector =
+        Collector::connect_with_method(&config(&a), a.auth.auth_method.into()).await?;
 
     // 1.5.2 opt-in: co-run RustHound-CE's LdapOnly collection over the same session
     // before we consume the Collector with `.collect()`.

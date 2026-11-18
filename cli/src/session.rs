@@ -74,6 +74,12 @@ impl Session {
                 // the interactive setup into every session-driven action (was hardcoded false —
                 // consent captured but ignored).
                 allow_plaintext_ldap: self.allow_plaintext_ldap,
+                // 1.6.1 T1.2: interactive-session-launched scans use `Auto` so
+                // the transparent CBT fallback engages against hardened DCs.
+                // Stealth-conscious operators who want to skip the simple_bind
+                // probe entirely drive adhammer from the CLI with
+                // `--auth-method ntlm` instead.
+                auth_method: crate::shared_args::AuthMethodArg::Auto,
             },
             base_dn: None,
             format: "json".to_string(),
