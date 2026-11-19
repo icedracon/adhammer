@@ -27,14 +27,34 @@ ignore = [
     # rsa 0.9.x Marvin attack (RUSTSEC-2023-0071) — no upstream fix exists
     # for any pure-Rust RSA implementation. Rationale in .cargo/audit.toml.
     "RUSTSEC-2023-0071",
-    # The three below are pulled ONLY by the opt-in `rusthound-ce` feature
-    # (off by default) through its transitive reqwest / DNS / XML stack — they
-    # are NOT present in the default shipped binary. Tracked upstream; drop each
-    # when RustHound-CE bumps the offending transitive dep.
-    "RUSTSEC-2024-0421", # idna 0.4.0 — punycode label decode (rusthound-ce only)
-    # RUSTSEC-2026-0194/0195 (quick-xml 0.37.5 dup-attr / ns-decl DoS) — dropped 2026-09-18
-    # when the workspace quick-xml pinned to 0.41.x; the vulnerable 0.37.5 version no
-    # longer appears in the tree, so the entries are stale and cargo-deny errors on them.
+
+    # --- zip 4.6.1 (pulled by rust_xlsxwriter 0.90 for `attack scan --format xlsx`) ---
+    # All six advisories below are strictly on the EXTRACTION side
+    # (`ZipArchive::extract`, `ZipStreamReader::extract`, AES-decrypt entry read).
+    # adhammer only WRITES xlsx-as-zip via rust_xlsxwriter's writer; grep confirms
+    # no `ZipArchive`, `ZipStreamReader`, or `zip::read` usage anywhere in the tree.
+    # None of these are reachable from adhammer binaries. Drop when rust_xlsxwriter
+    # bumps its zip pin to >=9.0.
+    "RUSTSEC-2026-0367", # zip: SUID/SGID preservation during extract — write-only, unreachable
+    "RUSTSEC-2026-0368", # zip: symlink target outside dest during extract — write-only, unreachable
+    "RUSTSEC-2026-0369", # zip: symlink permissions through extracted link — write-only, unreachable
+    "RUSTSEC-2026-0429", # zip: symlink declared-size abort during extract — write-only, unreachable
+    "RUSTSEC-2026-0545", # zip: AES-encrypted entry read without auth-code check — read-only, unreachable
+    "RUSTSEC-2026-0548", # zip: ZipStreamReader local-header vs central-dir name split — read-only, unreachable
+
+    # crypto-bigint 0.5.5 timing variability in constant-time ops
+    # (RUSTSEC-2026-0387) — reached only through ldap3 → sspi → picky → ecdsa for
+    # SASL/NTLM cert-chain and DH ops. Fix is crypto-bigint 0.7.6 which requires
+    # sspi/picky to bump their RustCrypto stack. Practical impact bounded (on-prem
+    # auditor binding to the DC over the same L2 segment, not a web-exposed TLS
+    # terminator). Drop when sspi ships a crypto-bigint 0.7.x line.
+    "RUSTSEC-2026-0387",
+
+    # pin-utils 0.1.0 unmaintained (RUSTSEC-2026-0441) — not a vulnerability,
+    # just the upstream repository was archived 2026-10-01. Reached only through
+    # sspi → async-dnssd. Drop when async-dnssd or sspi replaces `pin_mut!` with
+    # `core::pin::pin!` (available since Rust 1.68).
+    "RUSTSEC-2026-0441",
 ]
 
 # ---------------------------------------------------------------------------
@@ -55,6 +75,9 @@ allow = [
     "Unlicense",
     "CC0-1.0",
     "MIT-0",
+    # zlib-rs 0.6+ (flate2's pure-Rust zlib backend; also pulled by rust_xlsxwriter's zip dep).
+    # OSI-approved, FSF Free/Libre, permissive — compatible with the rest of the tree.
+    "Zlib",
 ]
 exceptions = []
 
