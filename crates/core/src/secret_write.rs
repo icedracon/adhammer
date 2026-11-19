@@ -300,38 +300,32 @@ mod tests {
 
     /// Stream 9 / --out-dir: ADHAMMER_OUT_DIR redirects RELATIVE artifact
     /// paths into a shared directory; an absolute path is respected verbatim.
-    /// Env var is process-global — set/restore around the test so parallel
-    /// runs don't collide.
+    /// Merged into a single #[test] because `std::env::set_var` is process-
+    /// global — two parallel #[test]s racing on the same env var produced a
+    /// Windows CI flake (one thread's `remove_var` cleared it between the
+    /// other thread's `set_var` and `write_secret_artifact` read).
     #[test]
-    fn out_dir_env_redirects_relative_paths() {
+    fn out_dir_env_redirects_relative_and_leaves_absolute_alone() {
         let dir =
             std::env::temp_dir().join(format!("adhammer_out_dir_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        // SAFETY: single-threaded test — no other #[test] here mutates this var.
         std::env::set_var("ADHAMMER_OUT_DIR", &dir);
+
+        // 1. Relative path → redirected under ADHAMMER_OUT_DIR.
         let rel = std::path::PathBuf::from("bootstrap.ccache");
         write_secret_artifact(&rel, SecretArtifact::Ccache, b"redirected").unwrap();
         let landed = dir.join(&rel);
         assert!(landed.exists(), "artifact landed under out-dir: {landed:?}");
         assert_eq!(std::fs::read(&landed).unwrap(), b"redirected");
-        std::env::remove_var("ADHAMMER_OUT_DIR");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 
-    #[test]
-    fn out_dir_env_leaves_absolute_paths_alone() {
-        let dir =
-            std::env::temp_dir().join(format!("adhammer_out_dir_ignored_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::env::set_var("ADHAMMER_OUT_DIR", &dir);
+        // 2. Absolute path → respected verbatim (env var ignored).
         let abs = tmp_path("absolute.ccache");
         let _ = std::fs::remove_file(&abs);
         write_secret_artifact(&abs, SecretArtifact::Ccache, b"abs-wins").unwrap();
         assert!(abs.exists(), "absolute path was respected");
-        // The out-dir directory may or may not exist depending on scheduling;
-        // what matters is the file did NOT land under it.
         let redirected = dir.join(abs.file_name().unwrap());
         assert!(!redirected.exists(), "abs path must not be redirected");
+
         std::env::remove_var("ADHAMMER_OUT_DIR");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&abs);
