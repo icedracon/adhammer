@@ -18,6 +18,11 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
 
 ### Added
 
+- **T11 — hero demo GIF above the fold.** README now embeds
+  `demos/site/assets/scan.gif` right before "From signal to evidence" so
+  a visitor sees the shipped product output on first scroll. Prior post-
+  ship audit flagged the gap as an INFO item; done now because landing-
+  page impact is near-free.
 - **`adhammer_collector::AuthMethod`** (`#[non_exhaustive]` enum, Default =
   `Auto`). The `Auto` variant implements the transparent CBT fallback; the
   three explicit variants (`Simple`, `Ntlm`, `Gssapi`) let operators pin the

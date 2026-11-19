@@ -32,6 +32,12 @@
 
 <br />
 
+<p align="center">
+  <a href="#quick-start"><img src="demos/site/assets/scan.gif" alt="adhammer scan — LDAP collect, control-path graph, scored findings, next-command footers" width="820" /></a>
+</p>
+
+<br />
+
 ## From signal to evidence
 
 ADhammer is an open-source CLI for authorized Active Directory security
