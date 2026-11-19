@@ -1891,6 +1891,9 @@
   <link rel="stylesheet" href="assets/cli-methods.css">
   <link rel="stylesheet" href="assets/polish.css">
   <link rel="stylesheet" href="assets/flows.css">
+  <link rel="stylesheet" href="assets/visual.css?v=hd-detail">
+  <link rel="preload" href="assets/adhammer-mark.webp" as="image" type="image/webp" media="(prefers-reduced-motion: no-preference)">
+  <script src="assets/brand-intro.js" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -1901,7 +1904,7 @@
     "applicationSubCategory": "Active Directory penetration testing",
     "operatingSystem": "Linux, macOS, Windows",
     "programmingLanguage": "Rust",
-    "softwareVersion": "1.5.2",
+    "softwareVersion": "1.6.0",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
     "description": "ADhammer is an open-source Active Directory pentest tool in Rust for first-touch discovery, attack-path analysis, AD CS assessment, and evidence-first reporting.",
@@ -1915,7 +1918,7 @@
     ],
     "url": "https://icedracon.github.io/adhammer/",
     "codeRepository": "https://github.com/icedracon/adhammer",
-    "downloadUrl": "https://github.com/icedracon/adhammer/releases/tag/v1.5.2",
+    "downloadUrl": "https://crates.io/crates/adhammer/1.6.0",
     "author": {"@type": "Person", "name": "zevs"},
     "audience": {"@type": "Audience", "audienceType": "Penetration testers, red teams, and Active Directory security professionals"},
     "sameAs": ["https://github.com/icedracon/adhammer", "https://crates.io/crates/adhammer"],
@@ -1924,6 +1927,18 @@
   </script>
 </head>
 <body>
+  <div class="brand-intro" aria-hidden="true" hidden>
+    <video class="brand-intro-film" data-src="assets/adhammer-logo-forge-1080.mp4?v=6" muted playsinline preload="none" disablepictureinpicture></video>
+    <div class="brand-intro-mark">
+      <div class="brand-intro-crest"></div>
+      <div class="brand-intro-foot"></div>
+      <div class="brand-intro-hammer"></div>
+      <div class="brand-intro-title brand-intro-title-left"></div>
+      <div class="brand-intro-title brand-intro-title-right"></div>
+      <div class="brand-intro-impact"></div>
+      <img data-src="assets/adhammer-mark.webp" alt="" width="760" height="760" fetchpriority="high">
+    </div>
+  </div>
   <a class="skip-link" href="#content">Skip to content</a>
   <div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
 
@@ -1950,9 +1965,16 @@
   </header>
 
   <main id="content">
+    <div class="dragon-follow" aria-hidden="true">
+      <video data-src="assets/dragon-descent.webm" width="704" height="384" muted loop playsinline preload="none" disablepictureinpicture></video>
+      <img data-src="assets/dragon-descent.webp" width="576" height="314" decoding="async" alt="">
+    </div>
     <section class="hero cinema-hero" id="top" aria-label="ADhammer introduction">
       <div class="entrance-viewport">
       <div class="living-stage" id="living-stage" aria-label="Decorative ice dragon and illustrative directory graph; not live assessment data">
+        <video class="dragon-cinema" id="dragon-cinema" data-ambient-video muted loop playsinline preload="none" aria-hidden="true" disablepictureinpicture>
+          <source src="assets/ice-dragon-flight.mp4" type="video/mp4">
+        </video>
         <div class="dragon-rig" aria-hidden="true">
           <div class="dragon-float">
             <div class="dragon-aura"></div>
@@ -1975,7 +1997,7 @@
       </div>
 
       <div class="entrance-copy">
-        <p class="entrance-kicker">Active Directory · Open source · v1.5.2</p>
+        <p class="entrance-kicker">Active Directory · Open source · v1.6.0</p>
         <h1 aria-label="ADhammer">AD<span class="entrance-slash">//</span><span class="entrance-name">HAMMER</span></h1>
         <p class="entrance-description">Follow the relationship.<br><em>Keep the evidence.</em></p>
         <div class="entrance-actions">
@@ -1995,7 +2017,7 @@
     <section class="observatory" id="engine" aria-labelledby="observatory-title" data-stage="0" data-evidence="pending" data-cut="none">
       <div class="shell">
         <div class="observatory-heading">
-          <div><span class="eyebrow">01 / The evidence observatory</span><h2 id="observatory-title">Inside the<br><em>evidence.</em></h2></div>
+          <div><span class="eyebrow">Evidence observatory</span><h2 id="observatory-title">Follow a<br><em>directory route.</em></h2></div>
           <p>One fictional route. Follow its relationships, inspect what is known, and carry the same context into a report.</p>
         </div>
         <div class="observatory-workbench" id="observatory-workbench">
@@ -2058,7 +2080,7 @@
 
     <section class="ob-report-section" id="proof" aria-labelledby="ob-report-title">
       <div class="shell ob-report-layout">
-        <div class="ob-report-intro"><span class="eyebrow">02 / Context, preserved</span><h2 id="ob-report-title">A record.<br><em>Not a guess.</em></h2><p>The same selected object and evidence state, carried forward. Change the model above and this illustrative record changes with it.</p><a href="#engine">Return to the Observatory ↑</a></div>
+        <div class="ob-report-intro"><span class="eyebrow">Illustrative report</span><h2 id="ob-report-title">Keep an<br><em>evidence trail.</em></h2><p>The selected object and its evidence state carry forward into this illustrative record. Change the model above to update it.</p><a href="#engine">Return to the observatory ↑</a></div>
         <article class="ob-report" aria-label="Live illustrative record">
           <div class="ob-report-top"><b>AD//HAMMER</b><span>ILLUSTRATIVE RECORD / 001</span></div>
           <div class="ob-report-heading"><span id="ob-report-kind">01 / Identity</span><h3 id="ob-report-name">svc-build</h3><strong id="ob-report-state">Observed / untested</strong></div>
@@ -2095,30 +2117,30 @@
               <path class="release-line release-line-current-path" d="M145 254 C150 329 82 357 65 427"></path>
               <path class="release-line-pulse" pathLength="1" d="M145 254 C150 329 82 357 65 427"></path>
             </svg>
-            <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.0" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-149" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Earlier</small><strong>v1.5.0</strong><em>First-touch assessment</em></span>
+              <span class="release-lineage-copy"><small>September 12</small><strong>v1.5.1</strong><em>Operator UX and reliability</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.1" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-1410" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.2" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Previous</small><strong>v1.5.1</strong><em>Operator UX + reliability</em></span>
+              <span class="release-lineage-copy"><small>September 19</small><strong>v1.5.2</strong><em>Scripting and report handoff</em></span>
             </a>
-            <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.2" target="_blank" rel="noopener">
+            <a class="release-lineage-node release-lineage-150 release-lineage-current" href="https://github.com/icedracon/adhammer/releases/tag/v1.6.0" target="_blank" rel="noopener">
               <span class="release-lineage-orb"><i></i></span>
-              <span class="release-lineage-copy"><small>Current / GitHub</small><strong>v1.5.2</strong><em>Control + report clarity</em></span>
+              <span class="release-lineage-copy"><small>November 16</small><strong>v1.6.0</strong><em>Baseline comparison and audit trail</em></span>
             </a>
-            <span class="release-lineage-status">Latest 3 GitHub releases / current v1.5.2</span>
+            <span class="release-lineage-status">Latest GitHub release · v1.6.0</span>
           </div>
-          <figcaption class="sr-only" id="release-lineage-caption">ADhammer release graph: version 1.5.0 is an earlier release, version 1.5.1 is the previous release, and version 1.5.2 is available on GitHub and crates.io as checked on September 20, 2026.</figcaption>
+          <figcaption class="sr-only" id="release-lineage-caption">Three ADhammer releases, from version 1.5.1 to 1.6.0. Version 1.6.0 was published on GitHub and crates.io on November 16, 2026.</figcaption>
         </figure>
         <div class="release-story reveal">
-          <span class="eyebrow proof">03 / Release signal</span>
-          <h2 id="release-title">More control.<span>Clearer handoffs.</span></h2>
-          <p class="release-intro">Version 1.5.2 refines the work around an assessment: quieter scripting, versioned report data, print-ready HTML, and build provenance. The changelog also records correctness fixes and dependency hardening.</p>
-          <div class="release-facts" aria-label="Version 1.5.2 documented highlights">
-            <div class="release-fact"><strong>Scripting controls</strong><span><code>--quiet</code> suppresses decorative progress; <code>--no-color</code> supports plain output. Warnings and errors remain.</span></div>
-            <div class="release-fact"><strong>Report handoff</strong><span>Print styling for HTML and a JSON <code>schema_version</code> field for downstream consumers.</span></div>
-            <div class="release-fact"><strong>Build provenance</strong><span><code>--version</code> includes version, commit, and build date when available; <code>-V</code> stays short.</span></div>
+          <span class="eyebrow proof">What’s new in v1.6.0</span>
+          <h2 id="release-title">See what changed. <span>Keep the evidence.</span></h2>
+          <p class="release-intro">Compare findings with a previous assessment, document the output with a report fingerprint, and hand off an HTML report that works on screen and in print.</p>
+          <div class="release-facts" aria-label="Version 1.6.0 documented highlights">
+            <div class="release-fact"><strong>Baseline comparison</strong><span>Compare with a prior JSON report to distinguish new, recurring, and resolved findings.</span></div>
+            <div class="release-fact"><strong>Report fingerprint</strong><span>A SHA-256 fingerprint and tool version help record which output was reviewed.</span></div>
+            <div class="release-fact"><strong>Screen and print</strong><span>The redesigned HTML report includes light and dark themes and a print stylesheet.</span></div>
           </div>
           <figure class="live-flow release-film" id="report-flow" data-live-flow><div class="lf-scroll" tabindex="0" role="region" aria-label="Diagram, scrolls sideways on small screens"><svg viewBox="0 0 960 300" role="img" aria-labelledby="report-flow-title" id="report-flow-svg"><title id="report-flow-title">Illustrative flow: one assessment record is handed off as JSON, HTML, and Markdown.</title><defs>
       <pattern id="rf-dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" fill-opacity=".05"/></pattern>
@@ -2130,11 +2152,11 @@
             <b>Truth boundary</b>
             <p>These are documented release changes, not a new live-validation claim. The validation ledger remains authoritative; partial and unvalidated paths retain their stated limits.</p>
           </div>
-          <div class="release-distribution-note"><span>v1.5.2 / GitHub September 19 · crates.io September 20</span><p>Windows, Linux, and macOS assets are listed on GitHub with SHA-256 sidecars. The v1.5.2 CLI is also available on crates.io, verified unyanked on September 20, 2026. Choose a prebuilt download or install the pinned registry version below.</p></div>
+          <div class="release-distribution-note"><span>Published November 16, 2026</span><p>Install v1.6.0 with Cargo. GitHub hosts the release notes and source archive. For a prebuilt binary, choose the separately versioned v1.5.2 assets below.</p></div>
           <div class="release-links">
-            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.2" target="_blank" rel="noopener">Download v1.5.2 ↗</a>
-            <a class="release-link" href="https://github.com/icedracon/adhammer/blob/v1.5.2/CHANGELOG.md" target="_blank" rel="noopener">v1.5.2 source changelog ↗</a>
-            <a class="release-link" href="https://crates.io/crates/adhammer" target="_blank" rel="noopener">Open on crates.io ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.6.0" target="_blank" rel="noopener">v1.6.0 release notes ↗</a>
+            <a class="release-link" href="https://github.com/icedracon/adhammer/blob/v1.6.0/CHANGELOG.md" target="_blank" rel="noopener">v1.6.0 changelog ↗</a>
+            <a class="release-link" href="https://crates.io/crates/adhammer/1.6.0" target="_blank" rel="noopener">v1.6.0 on crates.io ↗</a>
             <a class="release-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
           </div>
         </div>
@@ -2184,10 +2206,14 @@
     </section>
     </details>
 
+    <div class="dragon-aerie" aria-hidden="true" hidden>
+      <div class="dragon-perch"><img src="assets/dragon-landing-ledge.webp?v=blender1080" alt="" width="1440" height="765" loading="lazy" decoding="async"></div>
+    </div>
+
     <section class="esc-explorer" id="coverage" aria-labelledby="esc-explorer-title">
       <div class="shell" id="esc-explorer">
         <div class="esc-intro">
-          <div><span class="esc-kicker">04 / AD CS field guide</span><h2 id="esc-explorer-title">Understand the condition.<br><em>Know what to check.</em></h2></div>
+          <div><span class="esc-kicker">AD CS field guide</span><h2 id="esc-explorer-title">Explore AD CS<br><em>conditions.</em></h2></div>
           <p>Explore ESC1–ESC16 through configuration, evidence, and defensive checks. Select a class for its explanation and an ADhammer example where a focused check is verified.</p>
         </div>
         <div class="esc-dial-layout" id="esc-dial-layout" hidden>
@@ -2250,7 +2276,7 @@
 
     <section class="cli-methods" id="methods" aria-labelledby="methods-title">
       <div class="shell">
-        <div class="methods-heading"><div><span class="eyebrow">05 / CLI methods</span><h2 id="methods-title">From command<br>to <em>context.</em></h2></div><p>Choose the question first. See what the command reads, what it returns, and what it cannot prove.</p></div>
+        <div class="methods-heading"><div><span class="eyebrow">CLI methods</span><h2 id="methods-title">From command<br>to <em>context.</em></h2></div><p>Choose the question first. See what the command reads, what it returns, and what it cannot prove.</p></div>
         <div class="methods-cinema">
           <div class="methods-screen">
             <video id="methods-film" data-ambient-video muted loop playsinline preload="none" poster="assets/cli-workflow-poster.jpg" width="1280" height="720" aria-label="AD CS template review: a continuously looping illustrative walkthrough" aria-describedby="film-description">
@@ -2280,7 +2306,7 @@
             <a id="method-source" href="https://github.com/icedracon/adhammer/blob/7b5e60b4200d2557760867a80d0f1f225e6915dc/cli/src/doctor.rs" target="_blank" rel="noopener">Read this implementation ↗</a>
           </article>
         </div>
-        <div class="methods-version-note"><div><span class="methods-label">New in 1.5.2 / scripting</span><h3>Less noise. Same evidence.</h3><p>Add <code>--quiet --no-color</code> to suppress decorative progress and request plain output. Warnings and errors remain; <code>CLICOLOR_FORCE=1</code> can still override the color setting.</p></div><div class="method-terminal"><div><span>PREFLIGHT / v1.5.2</span><button type="button" data-copy="adhammer --quiet --no-color doctor --domain example.test --dc dc.example.test --timeout 3 --json">Copy</button></div><pre><code>adhammer --quiet --no-color doctor --domain example.test --dc dc.example.test --timeout 3 --json</code></pre></div></div>
+        <div class="methods-version-note"><div><span class="methods-label">CLI scripting controls</span><h3>Less noise. Same evidence.</h3><p>Add <code>--quiet --no-color</code> to suppress decorative progress and request plain output. Warnings and errors remain; <code>CLICOLOR_FORCE=1</code> can still override the color setting.</p></div><div class="method-terminal"><div><span>PREFLIGHT / v1.5.2</span><button type="button" data-copy="adhammer --quiet --no-color doctor --domain example.test --dc dc.example.test --timeout 3 --json">Copy</button></div><pre><code>adhammer --quiet --no-color doctor --domain example.test --dc dc.example.test --timeout 3 --json</code></pre></div></div>
         <div class="methods-version-note" id="native-speed"><div><span class="methods-label">v1.5.2 / native speed</span><h3>Choose the pacing.</h3><p>The global <code>--fast</code> flag opts into native-speed mode. Its environment equivalent is <code>ADHAMMER_FAST=1</code>. It reduces selected delays and timeouts—not every command’s runtime.</p></div><div class="method-terminal"><div><span>NATIVE SPEED FLAG</span><button type="button" data-copy="--fast">Copy flag</button></div><pre><code>adhammer --fast &lt;command&gt;</code></pre></div></div>
         <dl class="method-facts native-speed-facts"><div><dt>Where it applies</dt><dd>Selected WMI output-readback delays and <code>enum net --deep</code> service-probe timeouts. The basic network sweep retains its fixed timeouts in v1.5.2.</dd></div><div class="method-boundary"><dt>Trade-off</dt><dd>Shorter timeouts can miss slow responses. This is not a blanket speed boost for <code>doctor</code> or template checks. Target-protection controls, such as lockout safeguards, remain unchanged.</dd></div></dl>
         <p class="methods-scope">Inspect the network command’s options without running a scan: <code>adhammer --fast enum net --help</code>. The syntax above is a pattern, not a ready-to-run command. <a href="https://github.com/icedracon/adhammer/blob/7b5e60b4200d2557760867a80d0f1f225e6915dc/crates/core/src/speed.rs" target="_blank" rel="noopener">Read the speed-mode implementation ↗</a></p>
@@ -2319,20 +2345,26 @@
     <section class="final" id="install">
       <div class="shell final-inner reveal">
         <img class="final-mark" src="assets/favicon.png" alt="" width="132" height="132">
-        <span class="eyebrow">Open source / MIT / GitHub v1.5.2</span>
-        <h2>Take it<span>into the field.</span></h2>
-        <p>Choose a v1.5.2 GitHub download for your platform. Verify its checksum and review command help and the validation ledger before an assessment.</p>
-        <div class="final-links">
-          <a class="final-link primary" href="https://github.com/icedracon/adhammer/releases/tag/v1.5.2" target="_blank" rel="noopener">All v1.5.2 downloads <i>↗</i></a>
-          <a class="final-link" href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a>
+        <span class="eyebrow">Open source · MIT</span>
+        <h2>Install <em>ADhammer.</em></h2>
+        <p>Install the current CLI, v1.6.0, with Cargo.</p>
+        <div class="install-command">
+          <code>cargo install --locked adhammer@1.6.0</code>
+          <button class="copy-button" type="button" data-copy="cargo install --locked adhammer@1.6.0" aria-label="Copy Cargo install command">Copy</button>
         </div>
+        <div class="final-links">
+          <a class="final-link primary" href="https://crates.io/crates/adhammer/1.6.0" target="_blank" rel="noopener">v1.6.0 on crates.io <i>↗</i></a>
+          <a class="final-link" href="https://github.com/icedracon/adhammer/releases/tag/v1.6.0" target="_blank" rel="noopener">Release notes and source ↗</a>
+        </div>
+        <h3 class="prebuilt-title">Prebuilt binaries · v1.5.2</h3>
+        <p>Choose your platform and verify its SHA-256 checksum.</p>
         <div class="release-platforms" aria-label="GitHub v1.5.2 platform downloads">
           <a href="https://github.com/icedracon/adhammer/releases/download/v1.5.2/adhammer-x86_64-pc-windows-msvc.exe"><span>Windows</span><strong>x64 · EXE ↗</strong></a>
           <a href="https://github.com/icedracon/adhammer/releases/download/v1.5.2/adhammer-x86_64-unknown-linux-gnu"><span>Linux</span><strong>x64 · GNU ↗</strong></a>
           <a href="https://github.com/icedracon/adhammer/releases/download/v1.5.2/adhammer-aarch64-apple-darwin"><span>macOS</span><strong>Apple silicon ↗</strong></a>
           <a href="https://github.com/icedracon/adhammer/releases/download/v1.5.2/adhammer-x86_64-apple-darwin"><span>macOS</span><strong>Intel x64 ↗</strong></a>
         </div>
-        <p class="registry-version-note">Prefer Cargo? <a href="https://crates.io/crates/adhammer/1.5.2" target="_blank" rel="noopener">crates.io v1.5.2</a> is available. Install with <code>cargo install --locked adhammer@1.5.2</code>. Registry availability checked September 20, 2026.</p>
+        <p class="registry-version-note"><a href="https://github.com/icedracon/adhammer/releases/tag/v1.5.2" target="_blank" rel="noopener">All v1.5.2 assets and checksums ↗</a> · <a href="https://github.com/icedracon/adhammer/blob/main/docs/VALIDATION.md" target="_blank" rel="noopener">Validation ledger ↗</a></p>
       </div>
     </section>
   </main>
@@ -2616,5 +2648,7 @@
 
     })();
   </script>
+  <script src="assets/dragon-follow.js" defer></script>
+  <script src="assets/dragon-chase.js?v=hd-detail" defer></script>
 </body>
 </html>

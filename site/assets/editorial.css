@@ -1,4 +1,44 @@
 /* Editorial finish: a typographic opening, restrained chapters, one route identity. */
+.cinema-hero .dragon-cinema {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 65% 42%;
+  visibility: hidden;
+  opacity: clamp(0, calc(1 - var(--journey) * 1.45), 1);
+  mask-image: linear-gradient(to right, transparent 0%, #0008 17%, #000 40%);
+  pointer-events: none;
+}
+.cinema-hero .has-dragon-cinema .dragon-cinema { visibility: visible; }
+.cinema-hero .has-dragon-cinema .dragon-rig { visibility: hidden; }
+.cinema-hero .has-dragon-cinema #living-graph { opacity: clamp(.18, calc(.18 + var(--journey)), 1); }
+html[data-motion="paused"] .cinema-hero .dragon-cinema { visibility: hidden; }
+html[data-motion="paused"] .cinema-hero .dragon-rig { visibility: visible; }
+@media (min-width: 761px) and (max-aspect-ratio: 6/5) {
+  .cinema-hero .dragon-cinema {
+    top: 10%;
+    bottom: auto;
+    height: auto;
+    mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 75%, transparent);
+  }
+}
+@media (max-width: 760px) {
+  .cinema-hero .dragon-cinema {
+    top: 13%;
+    left: 0;
+    bottom: auto;
+    height: auto;
+    object-fit: contain;
+    mask-image: linear-gradient(to bottom, transparent, #000 13%, #000 73%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cinema-hero .has-dragon-cinema .dragon-cinema { visibility: hidden; }
+  .cinema-hero .has-dragon-cinema .dragon-rig { visibility: visible; }
+}
 :root { --paper: #f5efe3; --paper-2: #e9dfcc; }
 .cinema-hero { height: 140svh; }
 .entrance-viewport { min-height: 720px; background: radial-gradient(ellipse at 75% 40%,#1b353b,transparent 46%),#0c1113; }

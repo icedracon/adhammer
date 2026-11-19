@@ -35,6 +35,10 @@
     });
   }, {threshold:0.12}) : null;
   states.forEach(function (state) {
+    if (state.video.id === 'dragon-cinema') {
+      state.video.addEventListener('playing', function () { state.video.parentElement.classList.add('has-dragon-cinema'); });
+      state.video.addEventListener('error', function () { state.video.parentElement.classList.remove('has-dragon-cinema'); });
+    }
     if (state.button) state.button.addEventListener('click', function () {
       if (stopped()) return;
       if (state.blocked) { state.blocked = false; state.manualPause = false; }
