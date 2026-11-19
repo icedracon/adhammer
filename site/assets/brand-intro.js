@@ -7,6 +7,7 @@
   const film = intro.querySelector("video");
   const listeners = new AbortController();
   const signal = listeners.signal;
+  let usingAssembly = false;
   let started = false;
   let deadline;
 
@@ -17,12 +18,21 @@
     film.pause();
   };
   const showAssembly = () => {
-    if (started || signal.aborted) return;
-    started = true;
+    if (usingAssembly || signal.aborted) return;
+    usingAssembly = true;
     clearTimeout(deadline);
     film.pause();
+    film.removeAttribute("src");
+    film.load();
+    intro.classList.remove("brand-film-fading");
+    intro.classList.add("brand-intro-assembly");
     face.src = face.dataset.src;
     intro.hidden = false;
+  };
+
+  const recover = () => {
+    if (film.currentTime > .65) finish();
+    else showAssembly();
   };
 
   intro.addEventListener("animationend", (event) => {
@@ -42,38 +52,33 @@
   }
 
   function updateFilm() {
-    if (!intro.classList.contains("brand-film-active") || !Number.isFinite(film.duration)) return;
-    if (film.duration - film.currentTime >= .5 || intro.classList.contains("brand-film-fading")) return;
+    if (!started && film.currentTime > 0) {
+      started = true;
+      clearTimeout(deadline);
+    }
+    if (usingAssembly || !Number.isFinite(film.duration) || film.duration - film.currentTime >= .5) return;
     intro.classList.add("brand-film-fading");
   }
 
   film.addEventListener("playing", () => {
-    if (started || signal.aborted) return;
-    started = true;
+    if (started) clearTimeout(deadline);
+  }, { signal });
+  film.addEventListener("waiting", () => {
+    if (usingAssembly || !started) return;
     clearTimeout(deadline);
-    intro.classList.add("brand-film-active");
-    intro.hidden = false;
-    if ("requestVideoFrameCallback" in film) {
-      const check = () => {
-        if (signal.aborted) return;
-        updateFilm();
-        film.requestVideoFrameCallback(check);
-      };
-      film.requestVideoFrameCallback(check);
-    }
-  }, { once: true, signal });
+    deadline = setTimeout(recover, 2500);
+  }, { signal });
   film.addEventListener("timeupdate", updateFilm, { signal });
   film.addEventListener("ended", finish, { once: true, signal });
-  film.addEventListener("error", () => {
-    if (intro.classList.contains("brand-film-active")) finish();
-    else showAssembly();
-  }, { once: true, signal });
+  film.addEventListener("error", recover, { signal });
 
   if (!film.canPlayType("video/mp4")) {
     showAssembly();
     return;
   }
-  deadline = setTimeout(showAssembly, 650);
+  film.poster = film.dataset.poster;
+  intro.hidden = false;
+  deadline = setTimeout(recover, 3600);
   film.src = film.dataset.src;
-  film.play().catch(showAssembly);
+  film.play()?.catch(showAssembly);
 })();

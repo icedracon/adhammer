@@ -50,15 +50,12 @@ header.at-entrance { background: linear-gradient(#080e16df, #080e1600); }
   overflow: clip;
   pointer-events: none;
   perspective: 920px;
-  background: radial-gradient(ellipse at 50% 47%, #112d45, #091522 44%, #070e17 78%);
-  animation: brand-intro-exit var(--intro-length) both;
-}
-.brand-intro-film { display: none; }
-.brand-intro.brand-film-active {
-  animation: none;
-  overflow: hidden;
   background: #070d16;
   transition: opacity .48s cubic-bezier(.24, .64, .37, 1);
+}
+.brand-intro-assembly {
+  background: radial-gradient(ellipse at 50% 47%, #112d45, #091522 44%, #070e17 78%);
+  animation: brand-intro-exit var(--intro-length) both;
 }
 .brand-intro.brand-film-fading { opacity: 0; }
 .brand-film-fading::after {
@@ -74,8 +71,9 @@ header.at-entrance { background: linear-gradient(#080e16df, #080e1600); }
   34% { opacity: .68; }
   to { opacity: 0; transform: translateX(16%); }
 }
-.brand-film-active .brand-intro-mark { display: none; }
-.brand-film-active .brand-intro-film {
+.brand-intro:not(.brand-intro-assembly) .brand-intro-mark,
+.brand-intro-assembly .brand-intro-film { display: none; }
+.brand-intro-film {
   display: block;
   width: 100%;
   height: 100%;
@@ -83,7 +81,7 @@ header.at-entrance { background: linear-gradient(#080e16df, #080e1600); }
   object-position: 50% 50%;
 }
 @media (max-aspect-ratio: 4/5) {
-  .brand-film-active .brand-intro-film {
+  .brand-intro-film {
     height: auto;
     aspect-ratio: 6 / 5;
     mask-image: linear-gradient(transparent, #000 5%, #000 91%, transparent);
