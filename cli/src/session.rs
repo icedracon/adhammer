@@ -102,6 +102,10 @@ impl Session {
             // 1.5.2 opt-in RustHound-CE co-collect — off unless the CLI verb wired it.
             #[cfg(feature = "rusthound-ce")]
             rusthound_ce: None,
+            // 1.6.1 T5: session-driven scans leave purple-mode off by default
+            // so the quickstart UX stays quiet; CLI operators opt in explicitly
+            // via `adhammer scan --purple` or `attack roast --purple`.
+            purple: false,
         }
     }
 }

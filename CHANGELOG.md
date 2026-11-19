@@ -55,6 +55,26 @@ entry point lets callers force Simple / NTLM / Kerberos / Auto explicitly.
   Every line is independently valid JSON so streaming parsers
   (Splunk HEC, Logstash, `jq -c`, `tail -f | parse`) can consume the
   stream without buffering.
+- **T5 — Purple mode MVP (the overthrow wedge).** Three attack verbs
+  gain a `--purple` flag that, after the attack succeeds, prints a
+  defender-facing block with the Windows Event IDs generated, MITRE
+  ATT&CK technique id, a reference to a shipped Sigma rule in
+  `detections/`, and IOC / log-field pivot hints. Three attacks wired
+  in the MVP:
+    - `adhammer attack roast --purple` → Kerberoasting RC4 TGS-REQ
+      (T1558.003, EventID 4769)
+    - `adhammer attack dcsync --purple` → DRSUAPI replication from
+      non-DC principal (T1003.006, EventID 4662 with DS-Replication-
+      Get-Changes GUIDs)
+    - `adhammer attack esc1 --purple` → ADCS cert request with SAN
+      impersonation (T1649, EventIDs 4886/4887)
+  Each detection points at a working Sigma YAML rule under
+  `detections/{kerberos,dcerpc,adcs}/`; a drift-guard test
+  (`purple::tests::sigma_rule_files_exist`) fails the build if a
+  pointer breaks.
+  No incumbent AD red-team tool in the Rust space emits detection
+  telemetry alongside the attack — this is the defender-grade wedge
+  that expands adhammer's buyer base to blue teams.
 - **T2 — full S4U ccache persistence.** `attack rbcd` / `attack constrained`
   now write the final impersonation ticket to an MIT credential cache usable
   with `KRB5CCNAME` and downstream Kerberos tooling. Default output path:

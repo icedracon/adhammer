@@ -29,6 +29,7 @@ pub(crate) async fn roast(a: ScanArgs) -> Result<()> {
         "Kerberoast SPNs",
         "AS-REP roast",
     ]);
+    let purple = a.purple;
     let result = roast_impl(a, &mut checklist).await;
     match &result {
         Ok(()) => checklist.render("Roast stages"),
@@ -43,6 +44,11 @@ pub(crate) async fn roast(a: ScanArgs) -> Result<()> {
             checklist.mark_current_failed(brief);
             checklist.render("Roast stages (failed)");
         }
+    }
+    // 1.6.1 T5: emit the defender-side detection block after a successful
+    // attack so the operator can hand it to the SOC alongside the finding.
+    if purple && result.is_ok() {
+        crate::purple::emit(&crate::purple::DETECTION_ROAST);
     }
     result
 }

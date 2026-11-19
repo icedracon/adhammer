@@ -1208,6 +1208,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 // rather than double-prompting them.
                 yes: true,
                 limit: None,
+                // 1.6.1 T5: purple-mode is a CLI-only opt-in.
+                purple: false,
                 nt_hash: None,
             })
             .await
@@ -1377,6 +1379,8 @@ async fn dispatch(action: &Action, s: &Session) -> Result<()> {
                 pkinit,
                 kdc: Some(s.dc.clone()),
                 sid: None,
+                // 1.6.1 T5: purple-mode is CLI-only opt-in.
+                purple: false,
             })
             .await
         }

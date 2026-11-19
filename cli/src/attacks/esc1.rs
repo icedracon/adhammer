@@ -50,6 +50,11 @@ pub(crate) struct Esc1Args {
     /// or `enum samr --user` and reuse it.
     #[arg(long, value_name = "SID")]
     pub sid: Option<String>,
+    /// **1.6.1 T5**: purple-mode — after the attack output, print the
+    /// defender's side: CA audit log EventIDs 4886/4887, the SAN-pivot
+    /// grep pattern, and the shipped Sigma rule reference.
+    #[arg(long)]
+    pub purple: bool,
 }
 
 /// **1.4.8-A WS-ESC1-EXPLOIT.** AD CS ESC1: build a PKCS#10 CSR whose SAN is
@@ -70,6 +75,7 @@ pub(crate) async fn esc1(a: Esc1Args) -> Result<()> {
         "write cert + key",
         "PKINIT to TGT (--pkinit)",
     ]);
+    let purple = a.purple;
     let result = esc1_impl(a, &mut checklist).await;
     match &result {
         Ok(()) => checklist.render("ESC1 stages"),
@@ -84,6 +90,10 @@ pub(crate) async fn esc1(a: Esc1Args) -> Result<()> {
             checklist.mark_current_failed(brief);
             checklist.render("ESC1 stages (failed)");
         }
+    }
+    // 1.6.1 T5: emit defender-side detection block on success.
+    if purple && result.is_ok() {
+        crate::purple::emit(&crate::purple::DETECTION_ESC1);
     }
     result
 }

@@ -1,0 +1,39 @@
+title: ADCS ESC1 — Certificate request with SAN specifying a different user
+id: 8c47a29f-61e3-4c7a-9f88-adhammer-esc1-01
+status: experimental
+description: >
+  Detects a Certificate Services request (EventID 4886/4887) where the
+  Subject Alternative Name (SAN) extension names a different user than
+  the enrollee. ESC1 abuses a vulnerable template that allows the client
+  to supply the SAN plus Client Authentication EKU — the resulting cert
+  authenticates as the SAN subject, not the enrollee. Pair with EventID
+  4768/4624 on the SAN'd principal to confirm actual impersonation.
+author: adhammer
+date: 2026-11-19
+references:
+  - https://attack.mitre.org/techniques/T1649/
+  - https://specterops.io/so-con/certified-pre-owned-active-directory-certificate-services/
+  - https://github.com/icedracon/adhammer
+logsource:
+  product: windows
+  service: security
+  definition: CA Audit Log; EventIDs 4886 (Certificate Services received a certificate request) and 4887 (approved).
+detection:
+  selection:
+    EventID:
+      - 4886
+      - 4887
+    Attributes|contains: 'san:'
+  condition: selection
+fields:
+  - RequesterName
+  - CertificateTemplate
+  - Attributes
+  - IpAddress
+falsepositives:
+  - Legitimate cross-domain enrollment flows that use SAN
+  - Service accounts that enroll for a different UPN (rare)
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1649

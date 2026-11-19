@@ -35,6 +35,12 @@ pub(crate) struct DcsyncArgs {
     /// shell-history leakage (this matches `attack rbcd --nt-hash` semantics).
     #[arg(long, value_name = "HASH")]
     pub nt_hash: Option<adhammer_core::SecretString>,
+    /// **1.6.1 T5**: purple-mode — after the attack output, print the
+    /// defender's side: EventID 4662 pivots, the exact DRS-Replication-Get-
+    /// Changes[-All|-In-Filtered-Set] GUIDs to grep for, and the shipped
+    /// Sigma rule reference.
+    #[arg(long)]
+    pub purple: bool,
 }
 
 /// DCSync: bind DRSUAPI over a sign+sealed channel, then replicate a target's secrets.
@@ -55,6 +61,7 @@ pub(crate) async fn dcsync(a: DcsyncArgs) -> Result<()> {
         vec!["resolve password", "DRSUAPI bind", "replicate target"]
     };
     let mut checklist = ui::StageChecklist::new(stages);
+    let purple = a.purple;
     let result = dcsync_impl(a, &mut checklist).await;
     match &result {
         Ok(()) => checklist.render("DCSync stages"),
@@ -69,6 +76,10 @@ pub(crate) async fn dcsync(a: DcsyncArgs) -> Result<()> {
             checklist.mark_current_failed(brief);
             checklist.render("DCSync stages (failed)");
         }
+    }
+    // 1.6.1 T5: emit defender-side detection block on success.
+    if purple && result.is_ok() {
+        crate::purple::emit(&crate::purple::DETECTION_DCSYNC);
     }
     result
 }

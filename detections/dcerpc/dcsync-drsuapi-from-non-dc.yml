@@ -1,0 +1,42 @@
+title: DCSync — DRSUAPI replication from a non-DC principal
+id: 8c47a29f-61e3-4c7a-9f88-adhammer-dcsync-01
+status: experimental
+description: >
+  Detects the Directory Services access granted to replicate changes
+  (DS-Replication-Get-Changes / -All / -In-Filtered-Set) by a principal
+  that is NOT a domain controller computer account. Legitimate replication
+  only comes from DC$ accounts (and Azure AD Connect's MSOL_* account);
+  anything else is a DCSync attempt (secretsdump, mimikatz, adhammer).
+author: adhammer
+date: 2026-11-19
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+  - https://github.com/icedracon/adhammer
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4662
+    ObjectType: '%{19195a5b-6da0-11d0-afd3-00c04fd930c9}'  # Domain object class
+    Properties|contains:
+      - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'  # DS-Replication-Get-Changes
+      - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'  # DS-Replication-Get-Changes-All
+      - '89e95b76-444d-4c62-991a-0facbeda640c'  # DS-Replication-Get-Changes-In-Filtered-Set
+  exclude_dc_computers:
+    SubjectUserName|endswith: '$'
+  exclude_aad_connect:
+    SubjectUserName|startswith: 'MSOL_'
+  condition: selection and not (exclude_dc_computers or exclude_aad_connect)
+fields:
+  - SubjectUserName
+  - SubjectDomainName
+  - IpAddress
+  - ObjectName
+falsepositives:
+  - Azure AD Connect sync service (filter via MSOL_* name)
+  - Legitimate third-party AD sync tools using a non-computer account
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1003.006

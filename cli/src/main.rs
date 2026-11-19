@@ -23,6 +23,7 @@ mod guided;
 mod host_posture;
 mod interactive;
 mod poison;
+mod purple;
 mod recipes;
 mod session;
 mod setup;

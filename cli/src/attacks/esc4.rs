@@ -218,6 +218,10 @@ pub(crate) async fn esc4(mut a: Esc4Args) -> Result<()> {
         pkinit: a.pkinit,
         kdc: a.kdc.clone(),
         sid: a.sid.clone(),
+        // 1.6.1 T5: esc4 chains to esc1 internally — surface detection on the
+        // esc1 side only when the operator asked via esc4's own --purple (not
+        // added here yet; a future commit threads it).
+        purple: false,
     })
     .await;
 

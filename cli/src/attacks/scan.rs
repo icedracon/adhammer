@@ -104,6 +104,13 @@ pub(crate) struct ScanArgs {
     #[cfg(feature = "rusthound-ce")]
     #[arg(long = "rusthound-ce", value_name = "PATH")]
     pub rusthound_ce: Option<String>,
+    /// **1.6.1 T5**: purple-mode — after the attack output, print the
+    /// defender's side: Windows Event IDs generated, MITRE ATT&CK technique
+    /// id, path to a shipped Sigma rule in `detections/`, and IOC / log
+    /// pivot hints. Consumed by `attack roast` (via shared ScanArgs);
+    /// `attack dcsync` + `attack esc1` carry their own `--purple` flags.
+    #[arg(long)]
+    pub purple: bool,
 }
 
 pub(crate) fn config(a: &ScanArgs) -> LdapConfig {

@@ -1,0 +1,40 @@
+title: Kerberoasting — RC4 TGS-REQ for a service account
+id: 8c47a29f-61e3-4c7a-9f88-adhammer-roast-01
+status: experimental
+description: >
+  Detects a TGS-REQ that returns an RC4-encrypted (etype 0x17) service ticket.
+  Kerberoasting attackers prefer RC4 because its hash can be cracked offline
+  with hashcat -m 13100. On a modern AD where the KDC and the service account
+  both support AES, an RC4 TGS-REP is a strong indicator the client offered
+  only legacy etypes to downgrade the ticket.
+author: adhammer
+date: 2026-11-19
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+  - https://github.com/icedracon/adhammer
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4769
+    TicketEncryptionType: '0x17'
+  exclude_computers:
+    ServiceName|endswith: '$'
+  exclude_builtin:
+    ServiceName|startswith:
+      - 'krbtgt'
+      - 'HOST/'
+  condition: selection and not (exclude_computers or exclude_builtin)
+fields:
+  - TargetUserName
+  - ServiceName
+  - IpAddress
+  - TicketOptions
+falsepositives:
+  - Legacy applications that explicitly request RC4-HMAC
+  - Cross-realm trusts where the remote DC lacks AES etype info
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1558.003
