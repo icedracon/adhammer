@@ -3,7 +3,7 @@
 All notable changes to ADhammer are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com); this project uses SemVer.
 
-## [Unreleased] — 1.6.1 — LDAP channel binding, NTLM bind, CBT=2 survival
+## [1.6.1] — 2026-11-19 — LDAP channel binding, NTLM bind, CBT=2 survival
 
 Why this release matters: adhammer 1.6.0 could not bind against Active
 Directory DCs with `LdapEnforceChannelBinding=2` — the simple_bind path

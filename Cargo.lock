@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-bloodhound"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-core",
  "ldap3",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-checks"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-core",
  "adhammer-graph",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-collector"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-core"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "ipnet",
  "serde",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-graph"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "ad-acl",
  "adhammer-core",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-kerberos"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-core",
  "anyhow",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-ldap"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "smb2-client",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-report"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-checks",
  "adhammer-core",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sdk"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-bloodhound",
  "adhammer-checks",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-secrets"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "aes 0.8.4",
  "cbc 0.1.2",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "adhammer-sysvol"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "adhammer-core",
  "aes 0.8.4",
