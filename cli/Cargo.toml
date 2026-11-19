@@ -57,16 +57,21 @@ assets = [
 ]
 
 [features]
-default = ["tls-rustls"]
+default = ["tls-rustls", "ntlm"]
 # TLS backend for LDAPS (forwarded to adhammer-collector):
 #   tls-rustls (default) — rustls with bundled AWS-LC; no system OpenSSL.
 #   tls-native           — OpenSSL/Schannel; reaches legacy DCs with SHA-1 certs.
+# 1.6.1 T1.3: workspace root pins `default-features = false` on adhammer-collector,
+# so collector's ntlm default doesn't auto-propagate. Explicit forward here keeps
+# `--auth-method ntlm` working on default `cargo install adhammer` builds.
 #   neither              — plain ldap:// only; LDAPS and --insecure return an explicit error.
 # tls-rustls and tls-native are mutually exclusive; test the supported combinations separately.
 # Legacy build:  cargo build --release --no-default-features --features tls-native
 tls-rustls = ["adhammer-collector/tls-rustls"]
 tls-native = ["adhammer-collector/tls-native"]
 gssapi = ["adhammer-collector/gssapi"]
+# 1.6.1 T1.3: NTLM SASL bind for CBT=2 hardened DCs (default-on).
+ntlm = ["adhammer-collector/ntlm"]
 # Specialized attack client; not part of the default release until live validation lands.
 mssql = ["dep:ms-tds"]
 # 1.5.2 opt-in RustHound-CE BloodHound-CE collector (g0h4n/RustHound-CE); off by default.
